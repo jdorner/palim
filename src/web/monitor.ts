@@ -341,9 +341,18 @@ export class QueueMonitor {
   /**
    * Broadcasts a WebSocket message to all connected clients.
    *
+   * If the message is a `job_removed` event, the corresponding entry is also
+   * evicted from the in-memory cache so it won't resurface in future
+   * `initial_state` snapshots.
+   *
    * @param message - The message to broadcast
    */
   broadcast(message: WebSocketMessage): void {
+    // Keep cache consistent when extensions broadcast job_removed directly
+    if (message.type === "job_removed") {
+      this.jobCache.delete(message.jobId);
+    }
+
     const payload = JSON.stringify(message);
 
     for (const client of this.clients) {
