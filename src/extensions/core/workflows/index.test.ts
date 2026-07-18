@@ -151,11 +151,13 @@ function createMockContext(workDir: string) {
     pushMessage: () => ({ status: "stored" }) as ReturnType<ExtensionContext["pushMessage"]>,
     queues: {
       onEvent: () => {},
+      offEvent: () => {},
       getJobLogs: async () => ({ logs: [], count: 0 }),
       getFlowProducer: () =>
         ({
           addChain: async () => ({ jobs: [] }),
         }) as unknown as ReturnType<ExtensionContext["queues"]["getFlowProducer"]>,
+      getAllQueueNames: () => [],
     },
     secrets: {
       get: async () => null,
@@ -168,6 +170,7 @@ function createMockContext(workDir: string) {
     },
     loadExtension: async () => true,
     unloadExtension: async () => true,
+    registerDynamicItemProvider: () => {},
   };
 
   return { ctx, routes };
