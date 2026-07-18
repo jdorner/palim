@@ -1,0 +1,41 @@
+{
+  "version": "7",
+  "dialect": "sqlite",
+  "entries": [
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1749000000000,
+      "tag": "0001_initial-squashed",
+      "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1749050000000,
+      "tag": "0002_add-secret-audit-log",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1749100000000,
+      "tag": "0003_add-mcp-servers",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1783603622000,
+      "tag": "0004_add-filewatcher-events",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1783966050017,
+      "tag": "0005_add-secrets-vault",
+      "breakpoints": true
+    }
+  ]
+}

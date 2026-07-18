@@ -1,0 +1,32 @@
+services:
+  app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - app-work:/app/.work
+      - app-db:/app/.db
+      # To use host directories instead of named volumes, comment out the lines
+      # above and uncomment below (adjust paths to your setup):
+      # - ~/palim-work:/app/.work
+      # - ~/palim-db:/app/.db
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      WEB_HOST: "::"
+      # If your LLM runs on the host machine, use the special hostname
+      # to reach it from inside the container:
+      #   Podman: host.containers.internal
+      #   Docker: host.docker.internal
+      OPENAI_API_BASE_URL: http://host.containers.internal:11434/v1
+    # Uncomment and set as needed:
+    #   OPENAI_API_KEY: sk-local
+    #   AUTH_TOKEN: ""
+    #   SECRETS_MASTER_KEY: ""         # 32-byte key (hex or base64) for encrypted secret vault
+    #   TELEGRAM_BOT_TOKEN: ""
+    #   EXT_TELEGRAM_CHAT_ID: ""
+
+volumes:
+  app-work:
+  app-db:

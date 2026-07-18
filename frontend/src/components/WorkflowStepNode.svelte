@@ -1,0 +1,56 @@
+<script lang="ts">
+import { Handle, Position } from "@xyflow/svelte";
+
+interface Props {
+  data: {
+    slug: string;
+    type: string;
+    status?: "waiting" | "active" | "completed" | "failed";
+    triggerType?: string;
+  };
+}
+
+let { data }: Props = $props();
+
+const statusColors: Record<string, string> = {
+  waiting: "bg-muted border-border",
+  active: "bg-yellow-100 border-yellow-400 dark:bg-yellow-900/30 dark:border-yellow-600",
+  completed: "bg-green-100 border-green-400 dark:bg-green-900/30 dark:border-green-600",
+  failed: "bg-red-100 border-red-400 dark:bg-red-900/30 dark:border-red-600",
+};
+
+function labelForType(type: string, triggerType?: string) {
+  switch (type) {
+    case "trigger":
+      switch (triggerType) {
+        case "webhook":
+          return "🔗 Webhook Trigger";
+        case "schedule":
+          return "⏰ Schedule Trigger";
+        case "manual":
+          return "▶️ Manual Trigger";
+        case "filewatcher":
+          return "👁️ File Watcher Trigger";
+        default:
+          return "⚡ Trigger";
+      }
+    case "agent":
+      return "🤖 Agent";
+    case "webhook":
+      return "📡 Webhook";
+  }
+}
+
+let colorClass = $derived(statusColors[data.status ?? "waiting"] ?? statusColors.waiting);
+let typeLabel = $derived(labelForType(data.type, data.triggerType));
+let isTrigger = $derived(data.type === "trigger");
+</script>
+
+<div class="px-4 py-3 rounded-lg border-2 shadow-sm w-[180px] text-center {colorClass}" class:border-dashed={isTrigger}>
+  {#if !isTrigger}
+    <Handle type="target" position={Position.Top} />
+  {/if}
+  <div class="text-xs font-medium text-foreground">{data.slug}</div>
+  <div class="text-[10px] text-muted-foreground mt-0.5">{typeLabel}</div>
+  <Handle type="source" position={Position.Bottom} />
+</div>
