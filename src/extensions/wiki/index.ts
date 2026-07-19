@@ -6,6 +6,10 @@
  * hierarchy, and indexes them into an in-memory Orama full-text search index
  * so the agent can quickly locate relevant content before answering questions.
  *
+ * When semantic search is enabled and an embedding model is configured, the
+ * extension also generates vector embeddings for each chunk and supports
+ * hybrid search (combining BM25 keyword matching with vector similarity).
+ *
  * Also exposes a `POST /ext/wiki/search` route for searching the wiki by text.
  */
 
@@ -16,22 +20,39 @@ import { create, insert, type Orama, removeMultiple, search } from "@orama/orama
 import { Type } from "@sinclair/typebox";
 import { FileWatcher } from "@src/utils/fileWatcher";
 import { nanoid } from "nanoid";
+import { EmbeddingCache } from "./embeddingCache";
+import { EmbeddingManager } from "./embeddingManager";
+import { EmbeddingService } from "./embeddings";
 import { createWikiRoutes } from "./routes";
 
 // ---------------------------------------------------------------------------
 // Shared type for the Orama wiki index instance
 // ---------------------------------------------------------------------------
 
-/** Type alias for the wiki search index returned by {@link createWikiIndex}. */
-export type WikiIndex = Orama<typeof WIKI_SCHEMA>;
+/** Type alias for the wiki search index (uses `any` to support dynamic vector field). */
+export type WikiIndex = Orama<any>;
 
-const WIKI_SCHEMA = {
+/** Base schema fields (always present). */
+const WIKI_SCHEMA_BASE = {
   id: "string" as const,
   filePath: "enum" as const,
   title: "string" as const,
   content: "string" as const,
   sectionDepth: "number" as const,
 };
+
+/**
+ * Creates the Orama schema, optionally including a vector field.
+ *
+ * @param dimension - Embedding vector dimension (omits vector field if null)
+ * @returns The Orama schema object
+ */
+function createWikiSchema(dimension: number | null) {
+  if (dimension) {
+    return { ...WIKI_SCHEMA_BASE, embedding: `vector[${dimension}]` };
+  }
+  return { ...WIKI_SCHEMA_BASE };
+}
 
 // ---------------------------------------------------------------------------
 // Types
@@ -150,10 +171,16 @@ export { chunkMarkdown, listMarkdownFiles };
  * @param wikiDir - Absolute path to the wiki directory
  * @param log - Logger instance
  * @param pathPrefix - Prefix for stored file paths (defaults to empty string)
+ * @param dimension - Embedding vector dimension (omits vector field if null)
  * @returns The created Orama wiki index
  */
-export async function createWikiIndex(wikiDir: string, log: Logger, pathPrefix = ""): Promise<WikiIndex> {
-  return buildWikiIndex(wikiDir, pathPrefix, log);
+export async function createWikiIndex(
+  wikiDir: string,
+  log: Logger,
+  pathPrefix = "",
+  dimension: number | null = null,
+): Promise<WikiIndex> {
+  return buildWikiIndex(wikiDir, pathPrefix, log, dimension);
 }
 
 // ---------------------------------------------------------------------------
@@ -166,10 +193,17 @@ export async function createWikiIndex(wikiDir: string, log: Logger, pathPrefix =
  * @param wikiDir - Absolute path to the wiki directory
  * @param pathPrefix - Prefix prepended to file paths stored in the index (e.g. "data/wiki")
  * @param log - Logger instance
+ * @param dimension - Embedding vector dimension (omits vector field if null)
  * @returns The created Orama index instance
  */
-async function buildWikiIndex(wikiDir: string, pathPrefix: string, log: Logger): Promise<WikiIndex> {
-  const index = create({ schema: WIKI_SCHEMA });
+async function buildWikiIndex(
+  wikiDir: string,
+  pathPrefix: string,
+  log: Logger,
+  dimension: number | null = null,
+): Promise<WikiIndex> {
+  const schema = createWikiSchema(dimension);
+  const index = create({ schema } as any);
 
   if (!existsSync(wikiDir)) {
     log.error(`[wiki] Wiki directory does not exist: ${wikiDir}`);
@@ -209,12 +243,14 @@ function removeFileChunks(index: WikiIndex, storedPath: string): void {
 /**
  * Indexes a single file into the Orama index.
  * Reads the file, chunks it, and inserts all chunks.
+ * Optionally attaches pre-computed embeddings to each chunk.
  *
  * @param index - The Orama wiki index
  * @param wikiDir - Absolute path to the wiki directory
  * @param pathPrefix - Prefix prepended to file paths stored in the index (e.g. "data/wiki")
  * @param relativePath - Relative path of the file to index (relative to wikiDir)
  * @param log - Logger instance
+ * @param embeddings - Optional map of chunk ID to embedding vector
  */
 async function indexFile(
   index: WikiIndex,
@@ -222,7 +258,8 @@ async function indexFile(
   pathPrefix: string,
   relativePath: string,
   log: Logger,
-): Promise<void> {
+  embeddings?: Map<string, number[]>,
+): Promise<WikiDocument[]> {
   const filePath = path.join(wikiDir, relativePath);
   const storedPath = path.join(pathPrefix, relativePath);
   try {
@@ -230,10 +267,18 @@ async function indexFile(
     const chunks = chunkMarkdown(storedPath, raw);
 
     for (const chunk of chunks) {
-      insert(index, chunk);
+      const embeddingVec = embeddings?.get(chunk.id);
+      if (embeddingVec) {
+        insert(index, { ...chunk, embedding: embeddingVec });
+      } else {
+        insert(index, chunk);
+      }
     }
+
+    return chunks;
   } catch (err: unknown) {
     log.warn(`[wiki] Skipping unreadable file ${relativePath}:`, (err as Error).message);
+    return [];
   }
 }
 
@@ -244,7 +289,7 @@ async function indexFile(
 const WIKI_PROMPT = `
 # Rules
 
-* **CRITICAL** Execute \`skill read wiki\`.
+* **CRITICAL** Immediately execute \`skill read wiki\` before sending any response.
 * **NEVER claim information doesn't exist without first checking the wiki index and relevant pages.**
 * Before answering any question about system state, goals, tasks, user info, or knowledge:
   1. Always execute skill read wiki as the very first action in any new conversation, regardless of what the user asks
@@ -253,7 +298,7 @@ const WIKI_PROMPT = `
 
 const manifest = {
   name: "wiki",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "Agent skill for reading and writing wiki pages",
   settingsSchema: Type.Object({
     injectPrompt: Type.Boolean({
@@ -265,6 +310,25 @@ const manifest = {
       title: "Wiki directory",
       description: "Subdirectory of WORK_DIR where the wiki is located",
       default: "data/wiki",
+    }),
+    enableSemanticSearch: Type.Boolean({
+      title: "Enable semantic search",
+      description: "Generate embeddings for wiki chunks to enable hybrid (keyword + semantic) search",
+      default: true,
+    }),
+    similarityThreshold: Type.Number({
+      title: "Similarity threshold",
+      description: "Minimum cosine similarity for vector search results (0-1)",
+      default: 0.8,
+      minimum: 0,
+      maximum: 1,
+    }),
+    maxEmbeddingChars: Type.Number({
+      title: "Max embedding characters",
+      description: "Maximum characters per chunk sent to the embedding model",
+      default: 2048,
+      minimum: 128,
+      maximum: 8192,
     }),
   }),
 } satisfies ExtensionManifest;
@@ -279,6 +343,7 @@ export function createExtension(): Extension {
   let wikiIndex: WikiIndex | null = null;
   let logger: Logger;
   let watcher: FileWatcher;
+  let embeddingManager: EmbeddingManager | null = null;
 
   return {
     manifest,
@@ -289,9 +354,103 @@ export function createExtension(): Extension {
 
       let wikiSubdir = ctx.getConfig<string>("WIKI_PATH", "data/wiki");
       wikiDir = path.join(ctx.workDir, wikiSubdir);
-      wikiIndex = await buildWikiIndex(wikiDir, wikiSubdir, ctx.log);
 
+      const enableSemantic = ctx.getConfig<boolean>("ENABLE_SEMANTIC_SEARCH", true);
+      const maxEmbeddingChars = ctx.getConfig<number>("MAX_EMBEDDING_CHARS", 2048);
+
+      // Initialize embedding infrastructure if semantic search is enabled
+      let dimension: number | null = null;
+      if (enableSemantic) {
+        // biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
+        const { API_BASE_URL } = await import("@src/config");
+        // biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
+        const { getModelForIntent } = await import("@src/models");
+
+        const embeddingService = new EmbeddingService(
+          logger,
+          API_BASE_URL,
+          async () => {
+            const resolved = await getModelForIntent("embedding");
+            return resolved.modelId;
+          },
+          maxEmbeddingChars,
+        );
+
+        dimension = await embeddingService.initialize();
+
+        if (dimension) {
+          const db = ctx.getDatabase();
+          const cache = new EmbeddingCache(db, logger);
+          embeddingManager = new EmbeddingManager(embeddingService, cache, logger);
+          logger.info(`[wiki] Semantic search enabled: dimension=${dimension}`);
+        }
+      }
+
+      // Build the fulltext index (always synchronous/blocking)
+      wikiIndex = await buildWikiIndex(wikiDir, wikiSubdir, ctx.log, dimension);
       logger.info("Wiki search index built.");
+
+      /**
+       * Runs a background embedding pass over all wiki files.
+       * Removes existing chunks from the Orama index and re-inserts them with embeddings.
+       * Called at startup and when the embedding model changes.
+       */
+      function runBackgroundEmbedding(): void {
+        if (!embeddingManager || !wikiIndex) return;
+        const bgIndex = wikiIndex;
+        const bgManager = embeddingManager;
+        const bgWikiDir = wikiDir;
+        const bgSubdir = wikiSubdir;
+
+        bgManager.setVectorReady(false);
+
+        (async () => {
+          try {
+            // Force model re-resolution so cache lookups use the current model
+            await bgManager.refreshModel();
+
+            const files = await listMarkdownFiles(bgWikiDir);
+            let totalEmbedded = 0;
+
+            for (const relativePath of files) {
+              const filePath = path.join(bgWikiDir, relativePath);
+              const storedPath = path.join(bgSubdir, relativePath);
+              try {
+                const raw = await Bun.file(filePath).text();
+                const chunks = chunkMarkdown(storedPath, raw);
+                const embedded = await bgManager.embedChunks(chunks);
+
+                // Remove existing text-only documents for this file
+                removeFileChunks(bgIndex, storedPath);
+
+                // Re-insert all chunks with embeddings
+                for (let i = 0; i < chunks.length; i++) {
+                  const chunk = chunks[i]!;
+                  const emb = embedded[i]?.embedding;
+                  if (emb) {
+                    insert(bgIndex, { ...chunk, embedding: emb });
+                    totalEmbedded++;
+                  } else {
+                    insert(bgIndex, chunk);
+                  }
+                }
+              } catch (err: unknown) {
+                logger.warn(`[wiki] Background embed skipping ${relativePath}:`, (err as Error).message);
+              }
+            }
+
+            bgManager.setVectorReady(true);
+            logger.info(`[wiki] Background embedding complete: ${totalEmbedded} chunks embedded`);
+          } catch (err: unknown) {
+            logger.warn("[wiki] Background embedding pass failed:", (err as Error).message);
+          }
+        })();
+      }
+
+      // Initial background embedding pass (non-blocking)
+      if (embeddingManager) {
+        runBackgroundEmbedding();
+      }
 
       // Watch wiki directory for changes and update index incrementally
       watcher = new FileWatcher(wikiDir, { recursive: true });
@@ -307,7 +466,21 @@ export function createExtension(): Extension {
       watcher.on("new", async (filePath) => {
         if (!wikiIndex || !isMarkdown(filePath)) return;
         const relative = toRelative(filePath);
-        await indexFile(wikiIndex, wikiDir, wikiSubdir, relative, logger);
+        const chunks = await indexFile(wikiIndex, wikiDir, wikiSubdir, relative, logger);
+
+        // Generate embeddings for new chunks if available
+        if (embeddingManager?.isServiceAvailable() && chunks.length > 0) {
+          const embedded = await embeddingManager.embedChunks(chunks);
+          const storedPath = path.join(wikiSubdir, relative);
+          removeFileChunks(wikiIndex, storedPath);
+          for (const { chunk, embedding } of embedded) {
+            if (embedding) {
+              insert(wikiIndex, { ...chunk, embedding });
+            } else {
+              insert(wikiIndex, chunk);
+            }
+          }
+        }
       });
 
       watcher.on("change", async (filePath) => {
@@ -315,7 +488,21 @@ export function createExtension(): Extension {
         const relative = toRelative(filePath);
         const storedPath = path.join(wikiSubdir, relative);
         removeFileChunks(wikiIndex, storedPath);
-        await indexFile(wikiIndex, wikiDir, wikiSubdir, relative, logger);
+
+        const chunks = await indexFile(wikiIndex, wikiDir, wikiSubdir, relative, logger);
+
+        // Re-embed changed chunks if available
+        if (embeddingManager?.isServiceAvailable() && chunks.length > 0) {
+          const embedded = await embeddingManager.embedChunks(chunks);
+          removeFileChunks(wikiIndex, storedPath);
+          for (const { chunk, embedding } of embedded) {
+            if (embedding) {
+              insert(wikiIndex, { ...chunk, embedding });
+            } else {
+              insert(wikiIndex, chunk);
+            }
+          }
+        }
       });
 
       watcher.on("delete", async (filePath) => {
@@ -326,20 +513,50 @@ export function createExtension(): Extension {
       });
       await watcher.start();
 
-      ctx.on("settings:changed", async (event) => {
-        if (event.extensionName !== "wiki") return;
-
+      ctx.on("settings:changed", async (_event) => {
         wikiSubdir = ctx.getConfig<string>("WIKI_PATH", "data/wiki");
         const newWikiDir = path.join(ctx.workDir, wikiSubdir);
+        const newEnableSemantic = ctx.getConfig<boolean>("ENABLE_SEMANTIC_SEARCH", true);
+
+        // If semantic search was toggled off, disable the embedding manager
+        if (!newEnableSemantic && embeddingManager) {
+          embeddingManager.setVectorReady(false);
+          embeddingManager = null;
+          dimension = null;
+          wikiIndex = await buildWikiIndex(wikiDir, wikiSubdir, ctx.log, null);
+          logger.info("[wiki] Semantic search disabled - rebuilt fulltext-only index");
+          return;
+        }
+
         if (wikiDir !== newWikiDir) {
           wikiDir = newWikiDir;
-          wikiIndex = await buildWikiIndex(wikiDir, wikiSubdir, ctx.log);
+          wikiIndex = await buildWikiIndex(wikiDir, wikiSubdir, ctx.log, dimension);
           logger.info(`[wiki] Index rebuilt for new wiki directory: ${wikiDir}`);
         }
       });
+
+      // Listen for model intent changes (emitted by model routes without extensionName scope)
+      ctx.on("settings:changed", (event) => {
+        const values = event as unknown as { intent?: string; modelId?: string; extensionName?: string };
+        // Skip wiki's own settings changes (those have extensionName === "wiki")
+        if (values.extensionName) return;
+        if (values.intent !== "embedding") return;
+
+        logger.info(`[wiki] Embedding model changed to "${values.modelId}" - triggering re-index`);
+        runBackgroundEmbedding();
+      });
       // -- REST routes --------------------------------------------------------
 
-      const routes = createWikiRoutes({ getIndex: () => wikiIndex, getWikiDir: () => wikiDir }, logger);
+      const routes = createWikiRoutes(
+        {
+          getIndex: () => wikiIndex,
+          getWikiDir: () => wikiDir,
+          getEmbeddingManager: () => embeddingManager,
+          getSimilarityThreshold: () => ctx.getConfig<number>("SIMILARITY_THRESHOLD", 0.7),
+          triggerReindex: () => runBackgroundEmbedding(),
+        },
+        logger,
+      );
       // POST /ext/wiki/search - body-based search (TypeBox validated)
       ctx.registerRoute("POST", "/search", routes.searchPost.bind(routes));
       // GET /ext/wiki/search - query-parameter search (bookmarkable URL)
@@ -356,6 +573,7 @@ export function createExtension(): Extension {
 
     async shutdown() {
       wikiIndex = null;
+      embeddingManager = null;
       if (watcher) {
         watcher.close();
       }

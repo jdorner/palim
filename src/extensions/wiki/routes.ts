@@ -10,6 +10,7 @@ import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import type { Context } from "elysia";
 import type { Logger } from "logging";
+import type { EmbeddingManager } from "./embeddingManager";
 import type { WikiIndex } from "./index";
 import { listMarkdownFiles } from "./index";
 
@@ -20,6 +21,10 @@ const SearchPayloadSchema = Type.Object(
     query: Type.String({ minLength: 1 }),
     /** Maximum number of results to return (default 5, clamped to [1, 50]). */
     limit: Type.Optional(Type.Number()),
+    /** Search mode: "fulltext", "vector", or "hybrid". Defaults to hybrid when vectors are available. */
+    mode: Type.Optional(Type.Union([Type.Literal("fulltext"), Type.Literal("vector"), Type.Literal("hybrid")])),
+    /** Minimum similarity threshold for vector matches (0-1). */
+    similarity: Type.Optional(Type.Number()),
   },
   { additionalProperties: false },
 );
@@ -30,7 +35,16 @@ interface SearchResponse {
   query: string;
   /** Orama search results */
   results: unknown;
+  /** Actual search mode used */
+  mode: "fulltext" | "vector" | "hybrid";
+  /** Whether vector search is available */
+  vectorAvailable: boolean;
+  /** Optional warning message (e.g. on fallback) */
+  warning?: string;
 }
+
+/** Valid search mode values. */
+type SearchMode = "fulltext" | "vector" | "hybrid";
 
 // ---------------------------------------------------------------------------
 // Route factory
@@ -42,6 +56,12 @@ export interface WikiState {
   getIndex(): WikiIndex | null;
   /** Returns the current absolute wiki directory path. */
   getWikiDir(): string;
+  /** Returns the current embedding manager (or null if semantic search is disabled). */
+  getEmbeddingManager(): EmbeddingManager | null;
+  /** Returns the configured similarity threshold. */
+  getSimilarityThreshold(): number;
+  /** Triggers a background re-index of embeddings (called when model drift is detected). */
+  triggerReindex(): void;
 }
 
 /**
@@ -50,6 +70,102 @@ export interface WikiState {
  * to be swapped at runtime (e.g. on settings change).
  */
 export function createWikiRoutes(state: WikiState, log: Logger | undefined): WikiRouteSet {
+  /**
+   * Executes a search with the given parameters, handling mode selection and fallback.
+   */
+  async function executeSearch(
+    index: WikiIndex,
+    query: string,
+    limit: number,
+    requestedMode: SearchMode | undefined,
+    requestedSimilarity: number | undefined,
+  ): Promise<Response> {
+    const manager = state.getEmbeddingManager();
+    let vectorAvailable = manager?.isVectorReady() ?? false;
+    const similarity = requestedSimilarity ?? state.getSimilarityThreshold();
+
+    // If the embedding model changed since indexing, vectors are stale
+    if (vectorAvailable && manager?.hasModelChanged()) {
+      vectorAvailable = false;
+      manager.setVectorReady(false);
+      log?.info("[wiki] Embedding model changed - vector index stale, falling back to fulltext until re-indexed");
+      state.triggerReindex();
+    }
+
+    // Resolve effective mode
+    let effectiveMode: SearchMode;
+    let warning: string | undefined;
+
+    if (!requestedMode) {
+      effectiveMode = vectorAvailable ? "hybrid" : "fulltext";
+    } else if (requestedMode === "vector" && !vectorAvailable) {
+      return Response.json(
+        { error: "Vector search unavailable - no embedding model configured or embeddings not yet loaded" },
+        { status: 422 },
+      );
+    } else if (requestedMode === "hybrid" && !vectorAvailable) {
+      effectiveMode = "fulltext";
+      warning = "Hybrid search unavailable - falling back to fulltext. Embeddings not yet loaded.";
+    } else {
+      effectiveMode = requestedMode;
+    }
+
+    // Execute search based on mode
+    let results: unknown;
+
+    if (effectiveMode === "fulltext") {
+      results = await search(index, {
+        term: query,
+        properties: ["title", "content"],
+        limit,
+      });
+    } else if (effectiveMode === "vector") {
+      const queryEmbedding = await manager!.embedQuery(query);
+      if (!queryEmbedding) {
+        // Fallback to fulltext if query embedding fails
+        effectiveMode = "fulltext";
+        warning = "Query embedding generation failed - falling back to fulltext.";
+        results = await search(index, {
+          term: query,
+          properties: ["title", "content"],
+          limit,
+        });
+      } else {
+        results = await search(index, {
+          mode: "vector",
+          vector: { value: queryEmbedding, property: "embedding" },
+          similarity,
+          limit,
+        });
+      }
+    } else {
+      // hybrid
+      const queryEmbedding = await manager!.embedQuery(query);
+      if (!queryEmbedding) {
+        effectiveMode = "fulltext";
+        warning = "Query embedding generation failed - falling back to fulltext.";
+        results = await search(index, {
+          term: query,
+          properties: ["title", "content"],
+          limit,
+        });
+      } else {
+        results = await search(index, {
+          term: query,
+          mode: "hybrid",
+          vector: { value: queryEmbedding, property: "embedding" },
+          properties: ["title", "content"],
+          similarity,
+          limit,
+        });
+      }
+    }
+
+    const response: SearchResponse = { query, results, mode: effectiveMode, vectorAvailable };
+    if (warning) response.warning = warning;
+    return Response.json(response);
+  }
+
   return {
     searchPost: async (ctx: Context) => {
       const index = state.getIndex();
@@ -75,17 +191,9 @@ export function createWikiRoutes(state: WikiState, log: Logger | undefined): Wik
 
         const body = bodyRaw as Static<typeof SearchPayloadSchema>;
         const query = body.query.trim();
-
-        // Limit defaults to 5, clamped to [1, 50]
         const limit = Math.min(Math.max(body.limit ?? 5, 1), 50);
 
-        const results = await search(index, {
-          term: query,
-          properties: ["title", "content"],
-          limit,
-        });
-
-        return Response.json({ query, results } as SearchResponse);
+        return await executeSearch(index, query, limit, body.mode, body.similarity);
       } catch (err) {
         log.error("Wiki search failed:", err);
         return Response.json({ error: "Search failed" }, { status: 500 });
@@ -108,15 +216,13 @@ export function createWikiRoutes(state: WikiState, log: Logger | undefined): Wik
       const limitVal = rawLimit ? Number(rawLimit) : 5;
       const limit = Math.min(Math.max(Number.isNaN(limitVal) ? 5 : limitVal, 1), 50);
 
+      const mode = url.searchParams.get("mode") as SearchMode | null;
+      const rawSimilarity = url.searchParams.get("similarity");
+      const similarity = rawSimilarity ? Number(rawSimilarity) : undefined;
+
       try {
         const searchTerm = query.trim();
-        const results = await search(index, {
-          term: searchTerm,
-          properties: ["title", "content"],
-          limit,
-        });
-
-        return Response.json({ query: searchTerm, results } as SearchResponse);
+        return await executeSearch(index, searchTerm, limit, mode ?? undefined, similarity);
       } catch (err) {
         log.error("Wiki search failed:", err);
         return Response.json({ error: "Search failed" }, { status: 500 });
@@ -139,9 +245,20 @@ export function createWikiRoutes(state: WikiState, log: Logger | undefined): Wik
         return Response.json({ error: "Wiki index not available" }, { status: 503 });
       }
 
+      const manager = state.getEmbeddingManager();
       const files = await listMarkdownFiles(state.getWikiDir());
       const docCount = count(index);
-      return Response.json({ files: files.length, documents: docCount });
+
+      return Response.json({
+        files: files.length,
+        documents: docCount,
+        vector: {
+          available: manager?.isVectorReady() ?? false,
+          dimension: manager?.getDimension() ?? null,
+          cachedEmbeddings: manager?.getCacheCount() ?? 0,
+          model: manager?.getModelId() ?? null,
+        },
+      });
     },
   };
 }

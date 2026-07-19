@@ -100,26 +100,38 @@ Good answers should be filed back into the wiki so they compound over time.
 
 ## Searching the wiki
 
-The wiki has a full-text search index that allows fast, keyword-based retrieval.
+The wiki has a **hybrid search index** that combines keyword matching with semantic
+(meaning-based) retrieval. This means you can search not only with exact keywords
+but also with natural language questions or descriptions of what you are looking for.
+
 Use the `wiki` shell command to query it:
 
 ### `wiki search`
 
-Search the wiki by keyword or phrase. Always start with a search before answering questions
-about wiki content — it is much faster and more reliable than manually reading files.
+Search the wiki by keyword, phrase, or natural language question. The search
+understands meaning, not just exact words. Always start with a search before
+answering questions about wiki content.
 
 ```sh
-wiki search <query>                  -- search for a keyword (default 5 results)
+wiki search <query>                  -- search (default 5 results, hybrid mode)
 wiki search <query> --limit <n>      -- limit results to N hits (1-50)
 ```
 
 Examples:
 
 ```sh
-wiki search neural networks
-wiki search machine learning --limit 10
-wiki search "bun install"            -- exact phrase
+wiki search neural networks               -- keyword search
+wiki search "bun install"                 -- exact phrase
+wiki search what is the user\'s name      -- semantic question
+wiki search how to configure backups      -- finds pages about backup config even without those exact words
+wiki search machine learning --limit 10   -- more results
 ```
+
+The semantic search is especially useful when:
+
+- You don't know the exact wording used in the wiki pages
+- You want to ask a question like "what does the user prefer for breakfast?"
+- A concept is described differently across pages (synonyms, paraphrases)
 
 ### `wiki docs`
 

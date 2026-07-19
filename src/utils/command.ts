@@ -626,7 +626,9 @@ export function createCommand(def: CommandDef): (args: string[], ctx: CommandCon
 
     for (let i = 0; i < argDefs.length; i++) {
       const argDef = argDefs[i]!;
-      const value = positionalArgs[i] ?? "";
+      // For the last arg: join all remaining positionals (supports multi-word queries)
+      const isLast = i === argDefs.length - 1;
+      const value = isLast && positionalArgs.length > i ? positionalArgs.slice(i).join(" ") : (positionalArgs[i] ?? "");
 
       if (!value && argDef.required !== false) {
         return {

@@ -59,13 +59,25 @@ function getCtx(params: Record<string, string | string[]> = {}): Context {
 async function build() {
   const wikiDir = join(tmpDir, "data", "wiki");
   const index = await createWikiIndex(wikiDir, logger);
-  return createWikiRoutes({ getIndex: () => index, getWikiDir: () => wikiDir }, logger);
+  return createWikiRoutes(
+    {
+      getIndex: () => index,
+      getWikiDir: () => wikiDir,
+      getEmbeddingManager: () => null,
+      getSimilarityThreshold: () => 0.7,
+      triggerReindex: () => {},
+    },
+    logger,
+  );
 }
 
 // Types for Orama search responses
 interface SearchResults {
   query: string;
   results: { hits: { id: string }[]; count: number; elapsed: { raw: number } };
+  mode: string;
+  vectorAvailable: boolean;
+  warning?: string;
 }
 interface ErrorResponse {
   error: string;
@@ -111,7 +123,16 @@ describe("POST /search", () => {
   });
 
   test("returns error when index is null", async () => {
-    const routes = createWikiRoutes({ getIndex: () => null, getWikiDir: () => tmpDir }, logger);
+    const routes = createWikiRoutes(
+      {
+        getIndex: () => null,
+        getWikiDir: () => tmpDir,
+        getEmbeddingManager: () => null,
+        getSimilarityThreshold: () => 0.7,
+        triggerReindex: () => {},
+      },
+      logger,
+    );
     const data = await body<ErrorResponse>(await routes.searchPost(postCtx({ query: "test" })));
     expect(data.error).toBe("Wiki index not available");
   });
@@ -173,7 +194,16 @@ describe("GET /search", () => {
   });
 
   test("returns error when index is null", async () => {
-    const routes = createWikiRoutes({ getIndex: () => null, getWikiDir: () => tmpDir }, logger);
+    const routes = createWikiRoutes(
+      {
+        getIndex: () => null,
+        getWikiDir: () => tmpDir,
+        getEmbeddingManager: () => null,
+        getSimilarityThreshold: () => 0.7,
+        triggerReindex: () => {},
+      },
+      logger,
+    );
     const data = await body<ErrorResponse>(await routes.searchGet(getCtx({ q: "test" })));
     expect(data.error).toBe("Wiki index not available");
   });
@@ -222,7 +252,16 @@ describe("GET /search", () => {
 
 describe("GET /docs", () => {
   test("returns error when index is null", async () => {
-    const routes = createWikiRoutes({ getIndex: () => null, getWikiDir: () => tmpDir }, logger);
+    const routes = createWikiRoutes(
+      {
+        getIndex: () => null,
+        getWikiDir: () => tmpDir,
+        getEmbeddingManager: () => null,
+        getSimilarityThreshold: () => 0.7,
+        triggerReindex: () => {},
+      },
+      logger,
+    );
     const data = await body<ErrorResponse>(await routes.docs());
     expect(data.error).toBe("Wiki index not available");
   });
@@ -249,7 +288,16 @@ describe("GET /docs", () => {
 
 describe("GET /stats", () => {
   test("returns error when index is null", async () => {
-    const routes = createWikiRoutes({ getIndex: () => null, getWikiDir: () => tmpDir }, logger);
+    const routes = createWikiRoutes(
+      {
+        getIndex: () => null,
+        getWikiDir: () => tmpDir,
+        getEmbeddingManager: () => null,
+        getSimilarityThreshold: () => 0.7,
+        triggerReindex: () => {},
+      },
+      logger,
+    );
     const data = await body<ErrorResponse>(await routes.stats());
     expect(data.error).toBe("Wiki index not available");
   });
@@ -267,5 +315,66 @@ describe("GET /stats", () => {
     const routes = await build();
     const data = await body<{ files: number; documents: number }>(await routes.stats());
     expect(data.files).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Search mode routing and fallback
+// ---------------------------------------------------------------------------
+
+describe("Search mode routing", () => {
+  test("defaults to fulltext mode when no embedding manager", async () => {
+    wikiFile("test", "# Test\n\nSome content here.");
+    const routes = await build();
+    const data = await body<SearchResults>(await routes.searchPost(postCtx({ query: "content" })));
+    expect(data.mode).toBe("fulltext");
+    expect(data.vectorAvailable).toBe(false);
+  });
+
+  test("explicit fulltext mode works without embeddings", async () => {
+    wikiFile("test", "# Test\n\nSome searchable content.");
+    const routes = await build();
+    const data = await body<SearchResults>(await routes.searchPost(postCtx({ query: "searchable", mode: "fulltext" })));
+    expect(data.mode).toBe("fulltext");
+    expect(data.results.hits.length).toBeGreaterThanOrEqual(1);
+  });
+
+  test("explicit vector mode returns 422 when vectors unavailable", async () => {
+    wikiFile("test", "# Test\n\nContent.");
+    const routes = await build();
+    const res = await routes.searchPost(postCtx({ query: "test", mode: "vector" }));
+    expect(res.status).toBe(422);
+  });
+
+  test("explicit hybrid mode falls back to fulltext with warning when vectors unavailable", async () => {
+    wikiFile("test", "# Test\n\nSome content to find.");
+    const routes = await build();
+    const data = await body<SearchResults>(await routes.searchPost(postCtx({ query: "content", mode: "hybrid" })));
+    expect(data.mode).toBe("fulltext");
+    expect(data.vectorAvailable).toBe(false);
+    expect(data.warning).toContain("falling back to fulltext");
+  });
+
+  test("GET search supports mode parameter", async () => {
+    wikiFile("test", "# Test\n\nQueryable content.");
+    const routes = await build();
+    const data = await body<SearchResults>(await routes.searchGet(getCtx({ q: "content", mode: "fulltext" })));
+    expect(data.mode).toBe("fulltext");
+  });
+
+  test("GET search returns 422 for explicit vector mode without embeddings", async () => {
+    wikiFile("test", "# Test\n\nContent.");
+    const routes = await build();
+    const res = await routes.searchGet(getCtx({ q: "test", mode: "vector" }));
+    expect(res.status).toBe(422);
+  });
+
+  test("stats endpoint reports vector status", async () => {
+    wikiFile("test", "# Test\n\nContent.");
+    const routes = await build();
+    const data = await body<{ vector: { available: boolean; dimension: null; model: null } }>(await routes.stats());
+    expect(data.vector.available).toBe(false);
+    expect(data.vector.dimension).toBeNull();
+    expect(data.vector.model).toBeNull();
   });
 });

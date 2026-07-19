@@ -318,6 +318,7 @@ function handleKeydown(event: KeyboardEvent) {
           value={formValues[key] as number}
           min={prop.minimum as number | undefined}
           max={prop.maximum as number | undefined}
+          step={prop.multipleOf as number | undefined ?? "any"}
           oninput={(e) => updateValue(key, Number(e.currentTarget.value))}
         >
         {#if description}

@@ -402,3 +402,53 @@ describe("createCommand options", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Rest args (last positional joins remaining tokens)
+// ---------------------------------------------------------------------------
+
+describe("createCommand rest args", () => {
+  const cmd = buildTestCommand({
+    name: "search",
+    description: "Search for something",
+    args: [{ name: "query", description: "Search query" }],
+    options: [{ name: "limit", short: "n", defaultValue: "5", description: "Max results" }],
+    handler: async (_ctx, args) => ({
+      exitCode: 0,
+      stdout: JSON.stringify({ query: args.get("query"), limit: args.option("limit") }),
+      stderr: "",
+    }),
+  });
+
+  test("single word query works normally", async () => {
+    const result = await cmd(["search", "hello"], makeCtx());
+    const data = JSON.parse(result.stdout);
+    expect(data.query).toBe("hello");
+  });
+
+  test("multi-word query is joined into the last arg", async () => {
+    const result = await cmd(["search", "who", "am", "i"], makeCtx());
+    const data = JSON.parse(result.stdout);
+    expect(data.query).toBe("who am i");
+  });
+
+  test("multi-word query with option before", async () => {
+    const result = await cmd(["search", "--limit", "10", "how", "to", "configure", "backups"], makeCtx());
+    const data = JSON.parse(result.stdout);
+    expect(data.query).toBe("how to configure backups");
+    expect(data.limit).toBe("10");
+  });
+
+  test("multi-word query with option after", async () => {
+    const result = await cmd(["search", "what", "is", "the", "meaning", "-n", "3"], makeCtx());
+    const data = JSON.parse(result.stdout);
+    expect(data.query).toBe("what is the meaning");
+    expect(data.limit).toBe("3");
+  });
+
+  test("quoted single arg still works", async () => {
+    const result = await cmd(["search", "multi word query"], makeCtx());
+    const data = JSON.parse(result.stdout);
+    expect(data.query).toBe("multi word query");
+  });
+});

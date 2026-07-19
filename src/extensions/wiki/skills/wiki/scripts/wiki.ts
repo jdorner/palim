@@ -71,7 +71,7 @@ function buildSearchHandler(scriptCtx: SkillScriptContext) {
     const query = args.get("query");
 
     if (!query) {
-      return { exitCode: 1, stdout: "", stderr: "Error: --query is required (search term)" };
+      return { exitCode: 1, stdout: "", stderr: "Error: query is required (search term)" };
     }
 
     const limitRaw = args.option("limit") || undefined;

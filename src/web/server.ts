@@ -110,7 +110,7 @@ export async function createWebServer(deps: WebServerDeps) {
     .use(authRoutes())
     .use(jobRoutes(monitor))
     .use(extensionRoutes(getRegistry))
-    .use(modelRoutes())
+    .use(modelRoutes(getRegistry))
     .use(chatRoutes(chatQueue))
     .use(sessionRoutes())
     .use(pushRoutes(pushService.pushMessage))

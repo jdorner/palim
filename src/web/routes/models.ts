@@ -12,6 +12,7 @@
 
 import { Type } from "@sinclair/typebox";
 import { appConfig } from "@src/db";
+import type { ExtensionRegistry } from "@src/extensions";
 import { fetchAvailableModels, getCachedModels, getModelProvider, MODEL_INTENTS, type ModelIntent } from "@src/models";
 import { mainLogger as log } from "@src/utils/logger";
 import { Elysia } from "elysia";
@@ -32,9 +33,10 @@ function getIntentAssignments(): Record<ModelIntent, string | null> {
 /**
  * Creates the model management route group.
  *
+ * @param getRegistry - Optional getter for the extension registry (used to emit model change events)
  * @returns Elysia plugin with model routes
  */
-export function modelRoutes() {
+export function modelRoutes(getRegistry?: () => ExtensionRegistry | undefined) {
   return new Elysia()
     .get("/api/models", async ({ status }) => {
       try {
@@ -142,6 +144,17 @@ export function modelRoutes() {
 
           appConfig.set(`selected_model:${intent}`, modelId);
           log.info(`Intent "${intent}" model updated to "${modelId}"`);
+
+          // Notify extensions that a model intent changed (unscoped delivery to all subscribers)
+          const eventBus = getRegistry?.()?.getEventBus();
+          if (eventBus) {
+            eventBus.dispatch({
+              type: "settings:changed",
+              intent,
+              modelId,
+            } as any);
+          }
+
           return status(200, { intent, modelId });
         } catch (error) {
           log.error("Failed to update intent model", { error });
