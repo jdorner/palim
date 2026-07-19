@@ -142,6 +142,7 @@ export { webhooks as extWebhooksRegistrations } from "@src/extensions/core/webho
 //export { extInstallerRegistry } from "@src/extensions/ext-installer/schema";
 //export { toolUsage as extIntrospectionToolUsage } from "@src/extensions/introspection/schema";
 export { mcpServers as extMcpServers } from "@src/extensions/mcp/schema";
+export { wikiEmbeddings as extWikiEmbeddings } from "@src/extensions/wiki/schema";
 // Re-export extension-owned tables so drizzle-kit sees the complete schema.
 export { secretAuditLog } from "@src/secrets/audit";
 export { secretsVault } from "@src/secrets/vaultSchema";
