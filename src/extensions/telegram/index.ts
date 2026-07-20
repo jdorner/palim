@@ -288,14 +288,14 @@ export function createExtension(): Extension {
     async shutdown() {
       if (bot) {
         try {
-          await bot.stopPolling({ cancel: true });
-          await bot.close();
-
           // Clear all timers
           typingIntervals.forEach((interval, chatId) => {
             clearInterval(interval);
             typingIntervals.delete(chatId);
           });
+
+          await bot.stopPolling({ cancel: true });
+          bot.close();
         } catch (err) {
           logger.error("Error stopping Telegram bot:", err);
         }
