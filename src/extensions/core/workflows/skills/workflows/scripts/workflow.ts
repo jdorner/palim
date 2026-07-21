@@ -14,7 +14,8 @@ import {
 } from "@ext/sdk";
 import { Value } from "@sinclair/typebox/value";
 import type { CommandContext, ExecResult, IFileSystem } from "just-bash";
-import { normalizePrompt, WorkflowDefinitionSchema } from "../../../schemas";
+import { normalizePrompt, type WorkflowDefinition, WorkflowDefinitionSchema } from "../../../schemas";
+import { validateWorkflowTemplates } from "../../../templateValidation";
 
 /** Relative path to the workflows directory within the agent's working directory. */
 const WORKFLOWS_DIR = "workflows";
@@ -72,13 +73,13 @@ export function buildWorkflowCommand(scriptCtx: SkillScriptContext) {
           { name: "name", description: "Workflow name (becomes <name>.json5)" },
           { name: "content", description: "Full JSON5 content of the workflow" },
         ],
-        handler: buildWriteHandler(),
+        handler: buildWriteHandler(scriptCtx),
       },
       {
         name: "validate",
         description: "Validate a workflow JSON5 file against the schema",
         args: [{ name: "name", description: "Workflow name to validate" }],
-        handler: buildValidateHandler(),
+        handler: buildValidateHandler(scriptCtx),
       },
       {
         name: "delete",
@@ -132,6 +133,41 @@ export async function registerSkill(skillName: string, ctx: SkillScriptContext) 
 // File-based handler factories
 // ---------------------------------------------------------------------------
 
+/** Warning shape returned by the workflow API. */
+interface ApiTemplateWarning {
+  stepSlug: string;
+  field: string;
+  message: string;
+}
+
+/**
+ * Fetches server-side template warnings for a loaded workflow.
+ * Returns the warnings array from the API, or null if the workflow is not
+ * loaded or the server is unavailable.
+ */
+async function fetchServerWarnings(
+  scriptCtx: SkillScriptContext,
+  workflowName: string,
+): Promise<ApiTemplateWarning[] | null> {
+  try {
+    const resp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/${workflowName}`);
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as { warnings?: ApiTemplateWarning[] };
+    return data.warnings ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Formats template warnings into a human-readable block for shell output.
+ */
+function formatWarnings(warnings: ApiTemplateWarning[]): string {
+  if (warnings.length === 0) return "";
+  const lines = warnings.map((w) => `  [${w.stepSlug}.${w.field}] ${w.message}`);
+  return `\nTemplate warnings:\n${lines.join("\n")}`;
+}
+
 function buildListHandler() {
   return async (ctx: CommandContext): Promise<ExecResult> => {
     const { fs, cwd } = ctx;
@@ -180,7 +216,7 @@ function buildReadHandler() {
   };
 }
 
-function buildWriteHandler() {
+function buildWriteHandler(scriptCtx: SkillScriptContext) {
   return async (ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
     const { fs, cwd } = ctx;
     const name = args.get("name");
@@ -222,14 +258,24 @@ function buildWriteHandler() {
       slugs.add(step.slug);
     }
 
+    // Template expression validation (local check, then try server-side for secret validation)
+    const definition = parsed as unknown as WorkflowDefinition;
+    const localWarnings = await validateWorkflowTemplates(definition, { workflowName: definition.name });
+
     const dir = getWorkflowsDir(fs, cwd);
     const filePath = fs.resolvePath(dir, `${name}.json5`);
     await fs.writeFile(filePath, `${Bun.JSON5.stringify(parsed, null, 2)}`);
-    return { exitCode: 0, stdout: `Workflow "${name}" written to ${filePath}`, stderr: "" };
+
+    // After write, try server-side validation (includes secret store checks)
+    const serverWarnings = await fetchServerWarnings(scriptCtx, definition.name);
+    const warnings = serverWarnings ?? localWarnings;
+    const warningOutput = formatWarnings(warnings);
+
+    return { exitCode: 0, stdout: `Workflow "${name}" written to ${filePath}${warningOutput}`, stderr: "" };
   };
 }
 
-function buildValidateHandler() {
+function buildValidateHandler(scriptCtx: SkillScriptContext) {
   return async (ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
     const { fs, cwd } = ctx;
     const name = args.get("name");
@@ -280,7 +326,22 @@ function buildValidateHandler() {
       slugs.add(step.slug);
     }
 
+    // Template expression validation (try server-side first for secret checks, fallback to local)
+    const definition = parsed as unknown as WorkflowDefinition;
+    const serverWarnings = await fetchServerWarnings(scriptCtx, definition.name);
+    const localWarnings = await validateWorkflowTemplates(definition, { workflowName: definition.name });
+    const warnings = serverWarnings ?? localWarnings;
+
     const stepCount = (parsed as { steps: unknown[] }).steps.length;
+    const warningOutput = formatWarnings(warnings);
+    if (warningOutput) {
+      return {
+        exitCode: 0,
+        stdout: `✓ Workflow "${name}" schema is valid (${stepCount} steps)${warningOutput}`,
+        stderr: "",
+      };
+    }
+
     return { exitCode: 0, stdout: `✓ Workflow "${name}" is valid (${stepCount} steps)`, stderr: "" };
   };
 }

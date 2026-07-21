@@ -42,12 +42,19 @@ interface StepDef {
   output?: string;
 }
 
+interface WarningsDef {
+  stepSlug: string;
+  field: string;
+  message: string;
+}
+
 interface WorkflowDetail {
   name: string;
   description?: string;
   trigger: { type: string; ref?: string };
   enabled?: boolean;
   steps: StepDef[];
+  warnings: Array<WarningsDef>;
   runs: Array<{
     runId: string;
     status: string;
@@ -644,6 +651,20 @@ onDestroy(() => {
       </div>
     {/if}
 
+    {#if !editMode && workflow.warnings && workflow.warnings.length > 0}
+      <div class="mb-4 px-3 py-2 rounded-md border border-amber-500/50 bg-amber-500/10 text-sm shrink-0">
+        <div class="flex items-center gap-1.5 font-medium text-amber-500 mb-1">
+          <WarningIcon size={14} aria-hidden="true" />
+          Template {workflow.warnings.length === 1 ? "Issue" : "Issues"} ({workflow.warnings.length})
+        </div>
+        <ul class="list-disc list-inside text-xs text-amber-500/80 space-y-0.5">
+          {#each workflow.warnings as warning}
+            <li><span class="font-mono">{warning.stepSlug}.{warning.field}</span>: {warning.message}</li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
+
     {#if editMode && editDraft}
       <div class="mb-4 shrink-0 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border border-border rounded-md bg-muted/30">
         <div class="flex flex-col gap-1">
@@ -774,7 +795,7 @@ onDestroy(() => {
             class:w-[380px]={sidebarOpen}
           >
             {#if selectedStep}
-              <div class="w-[380px] h-full flex flex-col">
+              <div class="w-95 h-full flex flex-col">
                 <!-- Sidebar header -->
                 <div class="px-4 pb-2 pt-2 flex flex-col gap-2">
                   <div class="flex items-center gap-2">
@@ -880,7 +901,7 @@ onDestroy(() => {
                         <label for="step-prompt" class="text-xs font-medium text-muted-foreground">Prompt</label>
                         <textarea
                           id="step-prompt"
-                          class="w-full min-h-[160px] px-2 py-1.5 text-sm font-mono border border-border rounded-md bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                          class="w-full min-h-40 px-2 py-1.5 text-sm font-mono border border-border rounded-md bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
                           maxlength={10000}
                           value={editDraftStep.prompt ?? ""}
                           oninput={(e) => {
@@ -948,7 +969,7 @@ onDestroy(() => {
                         <label for="step-body" class="text-xs font-medium text-muted-foreground">Body</label>
                         <textarea
                           id="step-body"
-                          class="w-full min-h-[100px] px-2 py-1.5 text-sm font-mono border border-border rounded-md bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                          class="w-full min-h-25 px-2 py-1.5 text-sm font-mono border border-border rounded-md bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
                           value={editDraftStep.body ?? ""}
                           oninput={(e) => updateDraftStep(selectedStepIndex, (s) => { s.body = (e.target as HTMLTextAreaElement).value; })}
                           placeholder="Optional request body..."
