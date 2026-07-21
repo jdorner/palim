@@ -30,12 +30,13 @@ interface Props {
   steps: StepInfo[];
   trigger?: TriggerInfo;
   editMode?: boolean;
+  selectedStepIndex?: number;
   onNodeClick?: (step: StepInfo, index: number) => void;
   onAddStep?: () => void;
   onEdgesChange?: (edges: Edge[]) => void;
 }
 
-let { steps, trigger, editMode, onNodeClick, onAddStep, onEdgesChange }: Props = $props();
+let { steps, trigger, editMode, selectedStepIndex = -1, onNodeClick, onAddStep, onEdgesChange }: Props = $props();
 
 let colorMode = $state<ColorMode>("light");
 
@@ -75,7 +76,7 @@ function buildNodes(positions?: Map<string, { x: number; y: number }>): Node[] {
       id: stepNodeId(i),
       type: "step",
       position: positions?.get(stepNodeId(i)) ?? { x: 0, y: (i + offset) * 100 },
-      data: { slug: s.slug, type: s.type, status: s.status ?? "waiting" },
+      data: { slug: s.slug, type: s.type, status: s.status ?? "waiting", selected: i === selectedStepIndex },
     })),
     ...(editMode && steps.length > 0
       ? [
@@ -133,7 +134,12 @@ $effect(() => {
       if (!step) return node;
       return {
         ...node,
-        data: { slug: step.slug, type: step.type, status: step.status ?? "waiting" },
+        data: {
+          slug: step.slug,
+          type: step.type,
+          status: step.status ?? "waiting",
+          selected: idx === selectedStepIndex,
+        },
       };
     });
   }

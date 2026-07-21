@@ -7,6 +7,7 @@ interface Props {
     type: string;
     status?: "waiting" | "active" | "completed" | "failed";
     triggerType?: string;
+    selected?: boolean;
   };
 }
 
@@ -41,12 +42,16 @@ function labelForType(type: string, triggerType?: string) {
   }
 }
 
-let colorClass = $derived(statusColors[data.status ?? "waiting"] ?? statusColors.waiting);
+let colorClass = $derived(
+  data.selected
+    ? "bg-orange-100 border-orange-400 dark:bg-orange-900/30 dark:border-orange-500"
+    : (statusColors[data.status ?? "waiting"] ?? statusColors.waiting),
+);
 let typeLabel = $derived(labelForType(data.type, data.triggerType));
 let isTrigger = $derived(data.type === "trigger");
 </script>
 
-<div class="px-4 py-3 rounded-lg border-2 shadow-sm w-[180px] text-center {colorClass}" class:border-dashed={isTrigger}>
+<div class="px-4 py-3 rounded-lg border-2 shadow-sm w-45 text-center {colorClass}" class:border-dashed={isTrigger}>
   {#if !isTrigger}
     <Handle type="target" position={Position.Top} />
   {/if}
