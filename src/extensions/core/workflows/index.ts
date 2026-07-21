@@ -32,6 +32,8 @@ import { dispatchWorkflow } from "./engine";
 import { loadWorkflows } from "./loader";
 import type { WorkflowDefinition } from "./schemas";
 import { WorkflowDefinitionSchema } from "./schemas";
+import type { TemplateSecretResolver } from "./template";
+import { validateWorkflowTemplates } from "./templateValidation";
 import type { WorkflowStepJobData } from "./types";
 import { createStepProcessor } from "./worker";
 
@@ -372,6 +374,16 @@ export function createExtension(): Extension {
 
       // --- Routes ---
 
+      // Adapter: wrap ctx.secrets into a TemplateSecretResolver for validation
+      const secretResolver: TemplateSecretResolver | undefined = ctx.secrets?.resolveAs
+        ? {
+            async resolve(name: string, consumer: string) {
+              const value = await ctx.secrets.resolveAs!(name, consumer);
+              return { value, granted: value !== null, reason: value === null ? "denied or not found" : undefined };
+            },
+          }
+        : undefined;
+
       ctx.registerRoute("GET", "/meta/tools", async () => {
         const names = ctx.getToolNames().sort();
         return Response.json(names);
@@ -429,42 +441,51 @@ export function createExtension(): Extension {
           runs.get(d.workflowRunId)!.push(d.state);
         }
 
-        const list = [...store.values()].map((w) => {
-          let activeRuns = 0;
-          let completedRuns = 0;
-          let failedRuns = 0;
-          const runs = runsByWorkflow.get(w.name);
-          if (runs) {
-            for (const stepStatuses of runs.values()) {
-              const status = buildRunStatus(stepStatuses);
-              switch (status) {
-                case "completed":
-                  completedRuns++;
-                  break;
-                case "failed":
-                  failedRuns++;
-                  break;
-                case "running":
-                case "queued":
-                  activeRuns++;
-                  break;
-                default:
-                  break;
+        const list = await Promise.all(
+          [...store.values()].map(async (w) => {
+            let activeRuns = 0;
+            let completedRuns = 0;
+            let failedRuns = 0;
+            const runs = runsByWorkflow.get(w.name);
+            if (runs) {
+              for (const stepStatuses of runs.values()) {
+                const status = buildRunStatus(stepStatuses);
+                switch (status) {
+                  case "completed":
+                    completedRuns++;
+                    break;
+                  case "failed":
+                    failedRuns++;
+                    break;
+                  case "running":
+                  case "queued":
+                    activeRuns++;
+                    break;
+                  default:
+                    break;
+                }
               }
             }
-          }
-          return {
-            name: w.name,
-            description: w.description,
-            trigger: w.trigger,
-            stepCount: w.steps.length,
-            enabled: w.enabled ?? true,
-            steps: w.steps.map((s) => ({ slug: s.slug, type: s.type })),
-            activeRuns,
-            completedRuns,
-            failedRuns,
-          };
-        });
+
+            const templateWarnings = await validateWorkflowTemplates(w, {
+              workflowName: w.name,
+              secretStore: secretResolver,
+            });
+
+            return {
+              name: w.name,
+              description: w.description,
+              trigger: w.trigger,
+              stepCount: w.steps.length,
+              enabled: w.enabled ?? true,
+              steps: w.steps.map((s) => ({ slug: s.slug, type: s.type })),
+              activeRuns,
+              completedRuns,
+              failedRuns,
+              warnings: templateWarnings,
+            };
+          }),
+        );
         return Response.json(list);
       });
 
@@ -519,7 +540,13 @@ export function createExtension(): Extension {
           }))
           .sort((a, b) => b.startedAt - a.startedAt)
           .slice(0, 20);
-        return Response.json({ ...wf, runs });
+
+        const templateWarnings = await validateWorkflowTemplates(wf, {
+          workflowName: wf.name,
+          secretStore: secretResolver,
+        });
+
+        return Response.json({ ...wf, runs, warnings: templateWarnings });
       });
 
       /**

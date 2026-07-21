@@ -5,6 +5,7 @@ import LinkSimpleIcon from "phosphor-svelte/lib/LinkSimpleIcon";
 import PlayIcon from "phosphor-svelte/lib/PlayIcon";
 import TimerIcon from "phosphor-svelte/lib/TimerIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
+import WarningIcon from "phosphor-svelte/lib/WarningIcon";
 import { onDestroy } from "svelte";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
@@ -24,6 +25,7 @@ interface WorkflowSummary {
   activeRuns: number;
   completedRuns: number;
   failedRuns: number;
+  warnings: Array<{ stepSlug: string; field: string; message: string }>;
 }
 
 let workflows = $state<WorkflowSummary[]>([]);
@@ -141,6 +143,16 @@ $effect(() => {
               {#if wf.description}
                 <p class="text-xs text-muted-foreground mt-0.5 line-clamp-2">{wf.description}</p>
               {/if}
+              {#if wf.warnings.length > 0}
+                <span
+                  class="inline-flex items-center gap-1 text-xs text-amber-500 mt-1"
+                  title={wf.warnings.map(w => `[${w.stepSlug}.${w.field}] ${w.message}`).join("\n")}
+                >
+                  <WarningIcon size={12} aria-hidden="true" />
+                  {wf.warnings.length}
+                  template {wf.warnings.length === 1 ? "issue" : "issues"}
+                </span>
+              {/if}
             </div>
             <div class="shrink-0 text-right">
               <span class="inline-flex items-center gap-1.5">
@@ -236,6 +248,16 @@ $effect(() => {
                 >
                 {#if wf.description}
                   <p class="text-xs text-muted-foreground mt-0.5">{wf.description}</p>
+                {/if}
+                {#if wf.warnings.length > 0}
+                  <span
+                    class="inline-flex items-center gap-1 text-xs text-amber-500 mt-0.5"
+                    title={wf.warnings.map(w => `[${w.stepSlug}.${w.field}] ${w.message}`).join("\n")}
+                  >
+                    <WarningIcon size={12} aria-hidden="true" />
+                    {wf.warnings.length}
+                    template {wf.warnings.length === 1 ? "issue" : "issues"}
+                  </span>
                 {/if}
               </TableCell>
               <TableCell>
