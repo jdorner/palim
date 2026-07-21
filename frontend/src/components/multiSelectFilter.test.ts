@@ -90,18 +90,20 @@ describe("MultiSelect filter", () => {
 
         const result = filterMultiSelectItems(items, selected, search, maxDisplay);
 
-        // Verify each consecutive pair in result appears in the same order in items
-        for (let j = 0; j < result.length - 1; j++) {
-          const idxA = items.indexOf(result[j]);
-          const idxB = items.indexOf(result[j + 1]);
-          if (idxA >= idxB) {
+        // Verify each result item can be found in items at a strictly increasing index.
+        // indexOf alone breaks on duplicates, so search forward from the last found position.
+        let lastIdx = -1;
+        for (let j = 0; j < result.length; j++) {
+          const idx = items.indexOf(result[j], lastIdx + 1);
+          if (idx === -1 || idx <= lastIdx) {
             throw new Error(
-              `Order violation at iteration ${i}: "${result[j]}" (idx ${idxA}) appears before "${result[j + 1]}" (idx ${idxB}) in result but not in items.\n` +
+              `Order violation at iteration ${i}: "${result[j]}" not found after index ${lastIdx} in items.\n` +
                 `  items: ${JSON.stringify(items)}\n` +
                 `  search: ${JSON.stringify(search)}\n` +
                 `  result: ${JSON.stringify(result)}`,
             );
           }
+          lastIdx = idx;
         }
       }
     });
