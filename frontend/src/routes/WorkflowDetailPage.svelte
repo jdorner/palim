@@ -69,7 +69,7 @@ let loading = $state(true);
 let error = $state<string | null>(null);
 let selectedStep = $state<StepDef | null>(null);
 let sidebarOpen = $state(false);
-let activeTab = $state("runs");
+let activeTab = $state("definition");
 
 // Edit mode state
 let editMode = $state(false);
@@ -756,20 +756,20 @@ onDestroy(() => {
     <Tabs.Root bind:value={activeTab} class="flex flex-col flex-1 min-h-0">
       <Tabs.List class="flex gap-1 border-b border-border mb-3">
         <Tabs.Trigger
+          value="definition"
+          class="px-3 py-1.5 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px"
+        >
+          Definition
+        </Tabs.Trigger>
+        <Tabs.Trigger
           value="runs"
           class="px-3 py-1.5 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px"
         >
           Runs ({workflow.runs.length})
         </Tabs.Trigger>
-        <Tabs.Trigger
-          value="diagram"
-          class="px-3 py-1.5 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px"
-        >
-          Diagram
-        </Tabs.Trigger>
       </Tabs.List>
 
-      <Tabs.Content value="diagram" class="flex flex-col flex-1 min-h-0">
+      <Tabs.Content value="definition" class="flex flex-col flex-1 min-h-0">
         <!-- Graph area -->
         <div class="flex flex-1 min-w-0 min-h-0 overflow-auto transition-all duration-200">
           <div class="flex-1 min-w-0 overflow-auto">
