@@ -141,6 +141,14 @@ function cancelEdit() {
   editDraft = null;
   saveError = null;
   validationErrors = new Map();
+  // Re-point sidebar to the original workflow step data
+  if (sidebarOpen && selectedStepIndex >= 0 && workflow?.steps[selectedStepIndex]) {
+    selectedStep = workflow.steps[selectedStepIndex] as StepDef;
+  } else {
+    sidebarOpen = false;
+    selectedStep = null;
+    selectedStepIndex = -1;
+  }
 }
 
 /** Get the draft step corresponding to the currently selected step. */
@@ -393,6 +401,14 @@ async function saveWorkflow() {
     editMode = false;
     editDraft = null;
     validationErrors = new Map();
+    // Update sidebar step reference to fresh data
+    if (sidebarOpen && selectedStepIndex >= 0 && workflow?.steps[selectedStepIndex]) {
+      selectedStep = workflow.steps[selectedStepIndex] as StepDef;
+    } else {
+      sidebarOpen = false;
+      selectedStep = null;
+      selectedStepIndex = -1;
+    }
   } catch (err) {
     saveError = err instanceof Error ? err.message : "Failed to save. Please try again.";
   } finally {
