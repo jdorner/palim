@@ -797,6 +797,7 @@ onDestroy(() => {
               }))}
               trigger={editMode && editDraft ? editDraft.trigger : workflow.trigger}
               {editMode}
+              selectedStepIndex={sidebarOpen ? selectedStepIndex : -1}
               onNodeClick={onStepClick}
               onAddStep={addStep}
               onEdgesChange={editMode ? handleEdgesChange : undefined}
