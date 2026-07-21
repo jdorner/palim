@@ -12,7 +12,7 @@
     "bits-ui": "^2.18.1",
     "clsx": "^2.1.1",
     "dompurify": "^3.4.12",
-    "marked": "^18.0.6",
+    "marked": "^18.0.7",
     "phosphor-svelte": "^3.1.0",
     "sv-router": "^0.18.0",
     "tailwind-merge": "^3.6.0",
@@ -25,7 +25,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/dompurify": "^3.2.0",
     "@types/node": "^26.1.1",
-    "svelte": "^5.56.6",
+    "svelte": "^5.56.7",
     "tailwindcss": "^4.3.3",
     "typescript": "^7.0.2",
     "vite": "^8.1.5"

@@ -5,14 +5,14 @@
     "": {
       "name": "palim",
       "dependencies": {
-        "@dotenvx/dotenvx": "^2.14.0",
+        "@dotenvx/dotenvx": "^2.15.1",
         "@elysia/cors": "^1.4.2",
         "@elysiajs/static": "^1.4.10",
         "@mariozechner/pi-agent-core": "^0.73.1",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@orama/orama": "^3.1.18",
         "@sinclair/typebox": "^0.34.52",
-        "bunqueue": "^2.8.37",
+        "bunqueue": "^2.8.44",
         "chokidar": "^5.0.0",
         "drizzle-orm": "^0.45.2",
         "elysia": "^1.4.29",
@@ -139,7 +139,7 @@
 
     "@borewit/text-codec": ["@borewit/text-codec@0.2.2", "", {}, "sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ=="],
 
-    "@dotenvx/dotenvx": ["@dotenvx/dotenvx@2.14.0", "", { "dependencies": { "@dotenvx/primitives": "^2.1.0", "@dotenvx/tooling": "^1.0.2", "yocto-spinner": "^1.2.1" }, "bin": { "dotenvx": "src/cli/dotenvx.js" } }, "sha512-cNXKhPSSwl5H8udv31bLnBz8SW/R/9Ijbi96rUIovmG62i8B5zcp9IvWY3tAe/i4IPZaROGaJNZIsOD8OuUR2g=="],
+    "@dotenvx/dotenvx": ["@dotenvx/dotenvx@2.15.1", "", { "dependencies": { "@dotenvx/primitives": "^2.1.0", "@dotenvx/tooling": "^1.0.2", "yocto-spinner": "^1.2.1" }, "bin": { "dotenvx": "src/cli/dotenvx.js" } }, "sha512-t5eUkF4HV5qMAY+lg2ZYzPhso5i8EJHPvYKkzot0R4V08ivMs/w4HVe95bR9U2AGTTlSU5AA141mA6dRYRrn6g=="],
 
     "@dotenvx/primitives": ["@dotenvx/primitives@2.1.0", "", {}, "sha512-GIpMSSgjZk4URRCtAw12vBmobnw3VeSKL+p7/y8ypWvTHFW+StAMZvq4wCjdX+QKuw4alXu0IMGW6QPhKo6ufg=="],
 
@@ -445,7 +445,7 @@
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
 
-    "bunqueue": ["bunqueue@2.8.37", "", { "dependencies": { "croner": "10.0.1", "msgpackr": "^1.11.8" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.26.0" }, "optionalPeers": ["@modelcontextprotocol/sdk"], "bin": { "bunqueue": "dist/cli/index.js", "bunqueue-mcp": "dist/mcp/index.js" } }, "sha512-SFwYdmsZZ3CnABgH0wyIcxZIjMf9fwvvQ8KQnIvNzkhER4PAv0vJlVszFylGiBmMwz/qCLkMqvN5vV89MR1kWQ=="],
+    "bunqueue": ["bunqueue@2.8.44", "", { "dependencies": { "croner": "10.0.1", "msgpackr": "^1.11.8" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.26.0" }, "optionalPeers": ["@modelcontextprotocol/sdk"], "bin": { "bunqueue": "dist/cli/index.js", "bunqueue-mcp": "dist/mcp/index.js" } }, "sha512-gisa8A+ubXt/iqOyVR8X2+zSj7/89ipmI0/q0Qow+WYi5bt4FVVT6uVxhWmRXgtyhrYESZgEBsVl6twHsQZpOQ=="],
 
     "bytes": ["bytes@3.1.2", "", {}, "sha512-/Nf7TyzTx6S3yRJObOAV7956r8cr2+Oj8AC5dt8wSP3BQAoeX58NoHyCU8P8zGkNXStjTSi6fzO6F0pBdcYbEg=="],
 

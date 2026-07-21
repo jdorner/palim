@@ -1,13 +1,13 @@
 {
   "dependencies": {
-    "@dotenvx/dotenvx": "^2.14.0",
+    "@dotenvx/dotenvx": "^2.15.1",
     "@elysia/cors": "^1.4.2",
     "@elysiajs/static": "^1.4.10",
     "@mariozechner/pi-agent-core": "^0.73.1",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@orama/orama": "^3.1.18",
     "@sinclair/typebox": "^0.34.52",
-    "bunqueue": "^2.8.37",
+    "bunqueue": "^2.8.44",
     "chokidar": "^5.0.0",
     "drizzle-orm": "^0.45.2",
     "elysia": "^1.4.29",
