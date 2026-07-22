@@ -107,14 +107,16 @@ export function validateWorkflowDependencies(
   for (const step of definition.steps) {
     if (step.type !== "agent") continue;
 
-    if (step.tools) {
-      for (const tool of step.tools) {
+    const agentStep = step as import("./schemas").AgentStep;
+
+    if (agentStep.tools) {
+      for (const tool of agentStep.tools) {
         if (!availableTools.has(tool)) missingTools.add(tool);
       }
     }
 
-    if (step.skills) {
-      for (const skill of step.skills) {
+    if (agentStep.skills) {
+      for (const skill of agentStep.skills) {
         if (!availableSkills.has(skill)) missingSkills.add(skill);
       }
     }
@@ -242,6 +244,7 @@ export function createExtension(): Extension {
             });
           },
           log: logger,
+          getStepHandler: (type) => ctx.getStepHandler(type),
         }),
         {
           concurrency: 1,

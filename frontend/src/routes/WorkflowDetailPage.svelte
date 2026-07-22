@@ -14,6 +14,8 @@ import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+import { extensions } from "$lib/extensionStore";
+import { labelForStepType } from "$lib/stepTypes";
 import { formatTimestamp, isRunCancellable, renderMarkdown, statusVariant } from "$lib/utils";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import {
@@ -88,6 +90,11 @@ let availableTriggerRefs = $state<Record<string, string[]>>({
 });
 let metaLoading = $state(false);
 
+/** Custom step types registered by extensions, derived from the extension store. */
+let customStepTypes = $derived(
+  $extensions.filter((ext) => ext.enabled && ext.ui?.stepTypes?.length).flatMap((ext) => ext.ui!.stepTypes!),
+);
+
 /** Fetch available tools and skills from meta endpoints. */
 async function fetchMeta() {
   metaLoading = true;
@@ -117,16 +124,22 @@ function enterEditMode() {
     description: workflow.description ?? "",
     trigger: { type: workflow.trigger.type, ref: workflow.trigger.ref ?? "" },
     enabled: workflow.enabled ?? true,
-    steps: workflow.steps.map((s) => ({
-      slug: s.slug,
-      type: s.type as "agent" | "webhook",
-      prompt: s.prompt,
-      tools: s.tools ? [...s.tools] : undefined,
-      skills: s.skills ? [...s.skills] : undefined,
-      url: s.url,
-      method: s.method,
-      body: s.body,
-    })),
+    steps: workflow.steps.map((s) => {
+      const { slug, type, prompt, tools, skills, url, method, body, ...rest } = s;
+      const isCustomType = type !== "agent" && type !== "webhook";
+      return {
+        slug,
+        type,
+        prompt,
+        tools: tools ? [...tools] : undefined,
+        skills: skills ? [...skills] : undefined,
+        url,
+        method,
+        body,
+        // For custom step types, store extra fields as config
+        ...(isCustomType && Object.keys(rest).length > 0 ? { config: rest } : {}),
+      };
+    }),
   };
   saveError = null;
   validationErrors = new Map();
@@ -359,7 +372,7 @@ function onStepTypeChange(index: number, value: string) {
   if (!editDraft) return;
   editDraft = {
     ...editDraft,
-    steps: editDraft.steps.map((s, i) => (i === index ? { ...s, type: value as "agent" | "webhook" } : s)),
+    steps: editDraft.steps.map((s, i) => (i === index ? { ...s, type: value } : s)),
   };
 }
 
@@ -869,8 +882,8 @@ onDestroy(() => {
                       class="px-2 py-1 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                       value={editDraftStep?.type ?? selectedStep.type}
                       onchange={(e) => {
-                        const newType = (e.target as HTMLSelectElement).value as "agent" | "webhook";
-                        editDraft = editDraft ? { ...editDraft, steps: editDraft.steps.map((s, i) => (i === selectedStepIndex ? { ...s, type: newType } : s)) } : null;
+                        const newType = (e.target as HTMLSelectElement).value;
+                        editDraft = editDraft ? { ...editDraft, steps: editDraft.steps.map((s, i) => (i === selectedStepIndex ? { ...s, type: newType, config: undefined } : s)) } : null;
                         const newErrors = new Map(validationErrors);
                         if (newType === "agent") {
                           newErrors.delete(`steps[${selectedStepIndex}].prompt`);
@@ -878,12 +891,15 @@ onDestroy(() => {
                         validationErrors = newErrors;
                       }}
                     >
-                      <option value="agent">agent</option>
-                      <option value="webhook">webhook</option>
+                      <option value="agent">{labelForStepType("agent")}</option>
+                      <option value="webhook">{labelForStepType("webhook")}</option>
+                      {#each customStepTypes as stepType}
+                        <option value={stepType.type}>{stepType.icon ?? ""} {stepType.label}</option>
+                      {/each}
                     </select>
                   {:else}
                     <label for="step-type" class="text-xs font-medium text-muted-foreground">Type:</label>
-                    <Badge variant="outline" class="w-fit">{selectedStep.type}</Badge>
+                    <Badge variant="outline" class="w-fit">{labelForStepType(selectedStep.type)}</Badge>
                   {/if}
                 </div>
 
@@ -1040,6 +1056,53 @@ onDestroy(() => {
                           >{selectedStep.body}</pre>
                         </div>
                       {/if}
+                    </div>
+                  {:else if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) !== "agent" && (editDraftStep.type ?? selectedStep?.type) !== "webhook"}
+                    <!-- Edit mode: custom step type - JSON config editor -->
+                    <div class="space-y-4">
+                      <div class="flex flex-col gap-1.5">
+                        <label for="step-config" class="text-xs font-medium text-muted-foreground"
+                          >Configuration (JSON)</label
+                        >
+                        <textarea
+                          id="step-config"
+                          class="w-full px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-32"
+                          rows="12"
+                          value={JSON.stringify(editDraftStep.config ?? {}, null, 2)}
+                          oninput={(e) => {
+                            const raw = (e.target as HTMLTextAreaElement).value;
+                            try {
+                              const parsed = JSON.parse(raw);
+                              updateDraftStep(selectedStepIndex, (s) => { s.config = parsed; });
+                              const newErrors = new Map(validationErrors);
+                              newErrors.delete(`steps[${selectedStepIndex}].config`);
+                              validationErrors = newErrors;
+                            } catch {
+                              const newErrors = new Map(validationErrors);
+                              newErrors.set(`steps[${selectedStepIndex}].config`, "Invalid JSON");
+                              validationErrors = newErrors;
+                            }
+                          }}
+                        ></textarea>
+                        {#if validationErrors.get(`steps[${selectedStepIndex}].config`)}
+                          <span class="text-xs text-destructive"
+                            >{validationErrors.get(`steps[${selectedStepIndex}].config`)}</span
+                          >
+                        {/if}
+                      </div>
+                    </div>
+                  {:else if !editMode && selectedStep.type !== "agent" && selectedStep.type !== "webhook"}
+                    <!-- Read-only: custom step type config -->
+                    <div class="space-y-3">
+                      <div>
+                        <span class="text-xs font-medium text-muted-foreground">Configuration</span>
+                        <pre
+                          class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-64 overflow-y-auto mt-0.5"
+                        >{JSON.stringify(
+                          (() => { const { slug: _s, type: _t, input: _i, output: _o, ...rest } = selectedStep; return rest; })(),
+                          null, 2
+                        )}</pre>
+                      </div>
                     </div>
                   {:else}
                     <p class="text-sm text-muted-foreground">No details available for this step type.</p>

@@ -24,6 +24,7 @@ export type {
   SecretSchemaEntry,
   SelectedModelResponse,
   SessionUsage,
+  StepTypeInfo,
   TokenUsage,
   WebSocketMessage,
   WorkflowStepSummary,

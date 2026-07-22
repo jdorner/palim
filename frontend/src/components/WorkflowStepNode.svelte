@@ -1,5 +1,6 @@
 <script lang="ts">
 import { Handle, Position } from "@xyflow/svelte";
+import { labelForStepType } from "$lib/stepTypes";
 
 interface Props {
   data: {
@@ -20,34 +21,12 @@ const statusColors: Record<string, string> = {
   failed: "bg-red-100 border-red-400 dark:bg-red-900/30 dark:border-red-600",
 };
 
-function labelForType(type: string, triggerType?: string) {
-  switch (type) {
-    case "trigger":
-      switch (triggerType) {
-        case "webhook":
-          return "🔗 Webhook Trigger";
-        case "schedule":
-          return "⏰ Schedule Trigger";
-        case "manual":
-          return "▶️ Manual Trigger";
-        case "filewatcher":
-          return "👁️ File Watcher Trigger";
-        default:
-          return "⚡ Trigger";
-      }
-    case "agent":
-      return "🤖 Agent";
-    case "webhook":
-      return "📡 Webhook";
-  }
-}
-
 let colorClass = $derived(
   data.selected
     ? "bg-orange-100 border-orange-400 dark:bg-orange-900/30 dark:border-orange-500"
     : (statusColors[data.status ?? "waiting"] ?? statusColors.waiting),
 );
-let typeLabel = $derived(labelForType(data.type, data.triggerType));
+let typeLabel = $derived(labelForStepType(data.type, data.triggerType));
 let isTrigger = $derived(data.type === "trigger");
 </script>
 

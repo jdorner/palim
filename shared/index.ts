@@ -13,6 +13,7 @@ export type {
   ExtensionUiContribution,
   NavigationEntry,
   SecretSchemaEntry,
+  StepTypeInfo,
 } from "./extensions";
 export type { JobEntry, LogEntry } from "./jobs";
 export type { AvailableModel, ModelIntent, SelectedModelResponse } from "./models";

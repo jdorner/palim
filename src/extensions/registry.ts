@@ -101,6 +101,9 @@ export class ExtensionRegistry {
   /** Global route key set - "METHOD:/full/path" */
   private readonly routeKeySet = new Set<string>();
 
+  /** Global step type name set - prevents duplicates across extensions. */
+  private readonly stepTypeNameSet = new Set<string>();
+
   /** Skill name -> SkillEntry map, populated during discovery. */
   private readonly skillMap = new Map<string, SkillEntry>();
 
@@ -306,6 +309,7 @@ export class ExtensionRegistry {
           tools: [],
           routes: [],
           queues: [],
+          stepTypes: [],
           state: "suspended",
         });
         logger.debug(`Extension "${name}" is disabled - loaded as suspended`);
@@ -497,6 +501,7 @@ export class ExtensionRegistry {
       extensionsDir: this.builtinExtensionsDir,
       toolNameSet: this.toolNameSet,
       routeKeySet: this.routeKeySet,
+      stepTypeNameSet: this.stepTypeNameSet,
       eventBus: this.eventBus,
       broadcastFn: deps.broadcastFn,
       flowProducer: this.flowProducer,
@@ -512,6 +517,7 @@ export class ExtensionRegistry {
       routeRegistry: deps.routeRegistry,
       rescanSkillsFn: () => this.discoverAndLoadSkills(),
       getSkillNamesFn: () => this.getSkillNames(),
+      getStepHandlerFn: (type) => this.getRegisteredStepTypes().find((st) => st.type === type)?.handler,
       loadOneFn: (path) => this.loadOne(path),
       unloadOneFn: (n) => this.unloadOne(n),
       externalExtensionsDir: this.extensionDirs[1],
@@ -545,6 +551,9 @@ export class ExtensionRegistry {
       for (const tool of loaded.tools) {
         this.toolNameSet.delete(tool.name);
       }
+      for (const st of loaded.stepTypes) {
+        this.stepTypeNameSet.delete(st.type);
+      }
       for (const route of loaded.routes) {
         this.routeKeySet.delete(`${route.method}:${route.fullPath}`);
       }
@@ -566,6 +575,7 @@ export class ExtensionRegistry {
         tools: [],
         routes: [],
         queues: [],
+        stepTypes: [],
         state: "suspended",
         error: errorMsg,
       });
@@ -587,6 +597,15 @@ export class ExtensionRegistry {
    */
   getRegisteredQueues(): ManagedQueuePort[] {
     return this.loaded.flatMap((l) => l.queues);
+  }
+
+  /**
+   * Aggregate custom workflow step types from all active extensions.
+   *
+   * @returns Flat array of all registered step type entries
+   */
+  getRegisteredStepTypes(): import("./internalTypes").RegisteredStepType[] {
+    return this.loaded.filter((l) => l.state === "active").flatMap((l) => l.stepTypes);
   }
 
   /**
@@ -643,7 +662,20 @@ export class ExtensionRegistry {
         settingsSchema: l.extension.manifest.settingsSchema ?? null,
         secretsSchema: l.extension.manifest.secretsSchema ?? null,
         error: l.error ?? null,
-        ui: l.extension.manifest.ui ?? null,
+        ui: (() => {
+          const manifestUi = l.extension.manifest.ui ?? null;
+          const registeredStepTypes = l.stepTypes.map((st) => ({
+            type: st.type,
+            label: st.handler.label,
+            icon: st.handler.icon,
+            extensionName: st.extensionName,
+          }));
+          if (!manifestUi && registeredStepTypes.length === 0) return null;
+          return {
+            navigation: manifestUi?.navigation ?? [],
+            stepTypes: registeredStepTypes.length > 0 ? registeredStepTypes : undefined,
+          };
+        })(),
       };
     });
   }
@@ -705,6 +737,7 @@ export class ExtensionRegistry {
       tools: [],
       routes: [],
       queues: [],
+      stepTypes: [],
       state: "suspended",
     });
 
@@ -767,6 +800,11 @@ export class ExtensionRegistry {
     // Clean up tools from the global set
     for (const tool of entry.tools) {
       this.toolNameSet.delete(tool.name);
+    }
+
+    // Clean up step types from the global set
+    for (const st of entry.stepTypes) {
+      this.stepTypeNameSet.delete(st.type);
     }
 
     // Clean up route keys and add prefix to disabled set
@@ -841,6 +879,7 @@ export class ExtensionRegistry {
       extensionsDir: this.builtinExtensionsDir,
       toolNameSet: this.toolNameSet,
       routeKeySet: this.routeKeySet,
+      stepTypeNameSet: this.stepTypeNameSet,
       eventBus: this.eventBus,
       broadcastFn: deps.broadcastFn,
       flowProducer: this.flowProducer,
@@ -856,6 +895,7 @@ export class ExtensionRegistry {
       routeRegistry: deps.routeRegistry,
       rescanSkillsFn: () => this.discoverAndLoadSkills(),
       getSkillNamesFn: () => this.getSkillNames(),
+      getStepHandlerFn: (type) => this.getRegisteredStepTypes().find((st) => st.type === type)?.handler,
       loadOneFn: (path) => this.loadOne(path),
       unloadOneFn: (n) => this.unloadOne(n),
       externalExtensionsDir: this.extensionDirs[1],
@@ -869,6 +909,9 @@ export class ExtensionRegistry {
       // Partial registration cleanup on failed initialize
       for (const tool of loaded.tools) {
         this.toolNameSet.delete(tool.name);
+      }
+      for (const st of loaded.stepTypes) {
+        this.stepTypeNameSet.delete(st.type);
       }
       for (const route of loaded.routes) {
         this.routeKeySet.delete(`${route.method}:${route.fullPath}`);
@@ -1007,6 +1050,11 @@ export class ExtensionRegistry {
       // Clean up tools from the global set
       for (const tool of entry.tools) {
         this.toolNameSet.delete(tool.name);
+      }
+
+      // Clean up step types from the global set
+      for (const st of entry.stepTypes) {
+        this.stepTypeNameSet.delete(st.type);
       }
 
       // Clean up route keys from the global set

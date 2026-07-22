@@ -23,7 +23,7 @@ import { eq } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";
 import type { EventBus } from "./eventBus";
-import type { LoadedExtension, RegisteredRoute } from "./internalTypes";
+import type { LoadedExtension, RegisteredRoute, RegisteredStepType } from "./internalTypes";
 import type {
   AgentEventContext,
   AgentProcessorResult,
@@ -37,6 +37,7 @@ import type {
   QueueEventName,
   RouteHandler,
   RunAgentOptions,
+  StepTypeHandler,
 } from "./types";
 
 const logger = createLogger("ExtensionContext");
@@ -69,6 +70,8 @@ export interface ExtContextRegistration {
   toolNameSet: Set<string>;
   /** Global set of "METHOD:/full/path" strings to detect route collisions. */
   routeKeySet: Set<string>;
+  /** Global set of step type names already claimed (for duplicate detection). */
+  stepTypeNameSet: Set<string>;
   /** Route registry for wiring routes directly into the HTTP server. */
   routeRegistry?: RouteRegistry;
 }
@@ -120,6 +123,8 @@ export interface ExtContextSkills {
 export interface ExtContextLifecycle {
   /** Checks whether the given extension is enabled. */
   isExtensionEnabledFn: (name: string) => boolean;
+  /** Look up a registered step type handler by type name. */
+  getStepHandlerFn?: (type: string) => import("./types").StepTypeHandler | undefined;
   /** Callback to load an extension at runtime. */
   loadOneFn?: (modulePath: string) => Promise<boolean>;
   /** Callback to unload an extension at runtime. */
@@ -182,11 +187,14 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     builtinExtensionNames,
     settingsSchema,
     routeRegistry,
+    stepTypeNameSet,
+    getStepHandlerFn,
   } = deps;
 
   const tools: AgentTool[] = [];
   const routes: RegisteredRoute[] = [];
   const queues: ManagedQueuePort[] = [];
+  const stepTypes: RegisteredStepType[] = [];
 
   // -------------------------------------------------------------------------
   // Settings cache - holds parsed config JSON from SQLite in memory.
@@ -313,6 +321,42 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     queues.push(mq as ManagedQueuePort);
     logger.debug(`Extension "${extensionName}" created queue "${prefixedName}"`);
     return mq;
+  }
+
+  /**
+   * Register a custom workflow step type handler.
+   * Step type names must be globally unique (no two extensions can register the same type).
+   *
+   * @param type The step type identifier
+   * @param handler The handler implementing validation and execution
+   * @throws If the type name conflicts with a built-in or already-registered type
+   */
+  function registerStepType(type: string, handler: StepTypeHandler): void {
+    const reserved = new Set(["agent", "webhook"]);
+    if (reserved.has(type)) {
+      const msg = `Extension "${extensionName}": step type "${type}" is a built-in type and cannot be overridden`;
+      logger.error(msg);
+      throw new Error(msg);
+    }
+    if (stepTypeNameSet.has(type)) {
+      const msg = `Extension "${extensionName}": step type "${type}" conflicts with an already-registered type`;
+      logger.error(msg);
+      throw new Error(msg);
+    }
+    stepTypeNameSet.add(type);
+    stepTypes.push({ type, handler, extensionName });
+    logger.debug(`Extension "${extensionName}" registered step type "${type}"`);
+  }
+
+  /**
+   * Look up a registered custom step type handler by type name.
+   * Delegates to the registry-provided lookup function.
+   *
+   * @param type The step type identifier to look up
+   * @returns The handler, or undefined if not found
+   */
+  function getStepHandler(type: string): StepTypeHandler | undefined {
+    return getStepHandlerFn?.(type);
   }
 
   /**
@@ -655,6 +699,8 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     getToolNames,
     registerRoute,
     createQueue,
+    registerStepType,
+    getStepHandler,
     on,
     emitEvent,
     broadcast,
@@ -691,5 +737,5 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     unloadExtension,
   };
 
-  return { context, loaded: { tools, routes, queues, state: "active" as const } };
+  return { context, loaded: { tools, routes, queues, stepTypes, state: "active" as const } };
 }

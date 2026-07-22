@@ -24,6 +24,23 @@ export interface NavigationEntry {
 export interface ExtensionUiContribution {
   /** Navigation entries to render in the sidebar. */
   navigation: NavigationEntry[];
+  /** Custom workflow step types registered by this extension. */
+  stepTypes?: StepTypeInfo[];
+}
+
+/**
+ * Metadata about a registered custom workflow step type.
+ * Surfaced to the frontend for workflow editor UI rendering.
+ */
+export interface StepTypeInfo {
+  /** The step type identifier (e.g. "excel"). */
+  type: string;
+  /** Human-readable label (e.g. "Excel Writer"). */
+  label: string;
+  /** Optional emoji or icon identifier. */
+  icon?: string;
+  /** Name of the extension that registered this step type. */
+  extensionName: string;
 }
 
 /** A single secret schema entry declared in an extension manifest. */

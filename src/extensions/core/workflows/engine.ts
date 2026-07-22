@@ -63,6 +63,12 @@ export async function dispatchWorkflow(
       },
     });
 
+    // Build a lookup of all step definitions by slug for config template resolution
+    const allStepDefs: Record<string, unknown> = {};
+    for (const s of definition.steps) {
+      allStepDefs[s.slug] = s;
+    }
+
     return {
       name: stepDef.slug,
       queueName: WORKFLOW_STEPS_QUEUE,
@@ -73,6 +79,7 @@ export async function dispatchWorkflow(
         stepIndex: index,
         totalSteps,
         stepDef,
+        allStepDefs,
         sessionId: session.id,
         ...(index === 0 ? { triggerPayload } : {}),
       },

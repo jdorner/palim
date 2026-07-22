@@ -51,8 +51,29 @@ export const WebhookStepSchema = Type.Object(
   { additionalProperties: false },
 );
 
-/** Discriminated union of all supported step types. */
-export const StepSchema = Type.Union([AgentStepSchema, WebhookStepSchema]);
+/**
+ * A generic step for custom (extension-registered) step types.
+ *
+ * Requires `slug` and `type` fields; allows any additional properties
+ * since the extension's own schema handles detailed validation.
+ * The `type` field must not match built-in types (enforced at load time).
+ */
+export const GenericStepSchema = Type.Object(
+  {
+    slug: Type.String({ minLength: 1, pattern: "^[a-z][a-z0-9-]*$" }),
+    type: Type.String({ minLength: 1 }),
+  },
+  { additionalProperties: true },
+);
+
+/**
+ * Discriminated union of all supported step types.
+ *
+ * Built-in types (agent, webhook) are validated strictly with closed schemas.
+ * Custom step types fall through to `GenericStepSchema` which requires only
+ * `slug` + `type` and allows additional properties for extension-specific config.
+ */
+export const StepSchema = Type.Union([AgentStepSchema, WebhookStepSchema, GenericStepSchema]);
 
 /** Root workflow definition schema. */
 export const WorkflowDefinitionSchema = Type.Object(
@@ -77,6 +98,9 @@ export type AgentStep = Static<typeof AgentStepSchema>;
 
 /** TypeScript type for a webhook step. */
 export type WebhookStep = Static<typeof WebhookStepSchema>;
+
+/** TypeScript type for a generic (custom extension) step. */
+export type GenericStep = Static<typeof GenericStepSchema>;
 
 /** TypeScript type for a trigger configuration. */
 export type Trigger = Static<typeof TriggerSchema>;
