@@ -9,6 +9,7 @@ import PlayIcon from "phosphor-svelte/lib/PlayIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import WarningIcon from "phosphor-svelte/lib/WarningIcon";
 import { onDestroy } from "svelte";
+import { slide } from "svelte/transition";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
@@ -695,7 +696,10 @@ onDestroy(() => {
     {/if}
 
     {#if editMode && editDraft}
-      <div class="mb-4 shrink-0 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border border-border rounded-md bg-muted/30">
+      <div
+        class="mb-4 shrink-0 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border border-border rounded-md bg-muted/30"
+        transition:slide={{ duration: 100 }}
+      >
         <div class="flex flex-col gap-1">
           <label for="edit-description" class="text-xs font-medium text-muted-foreground">Description</label>
           <input
