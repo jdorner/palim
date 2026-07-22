@@ -72,11 +72,13 @@ function getEnvAllowlist(): Set<string> {
 function getTemplateFields(step: WorkflowStep): [string, string][] {
   const fields: [string, string][] = [];
   if (step.type === "agent") {
-    const prompt = Array.isArray(step.prompt) ? step.prompt.join("\n") : step.prompt;
+    const agentStep = step as import("./schemas").AgentStep;
+    const prompt = Array.isArray(agentStep.prompt) ? agentStep.prompt.join("\n") : agentStep.prompt;
     fields.push(["prompt", prompt]);
   } else if (step.type === "webhook") {
-    fields.push(["url", step.url]);
-    if (step.body) fields.push(["body", step.body]);
+    const webhookStep = step as import("./schemas").WebhookStep;
+    fields.push(["url", webhookStep.url]);
+    if (webhookStep.body) fields.push(["body", webhookStep.body]);
   }
   return fields;
 }
@@ -172,23 +174,26 @@ export async function validateWorkflowTemplates(
             continue;
           }
 
-          // Check ordering (no forward references)
-          const referencedIdx = slugIndex.get(referencedSlug)!;
-          if (referencedIdx >= stepIdx) {
-            warnings.push({
-              stepSlug: step.slug,
-              field: fieldName,
-              message: `Forward reference to step "${referencedSlug}" in "{{${expr}}}" - can only reference earlier steps`,
-            });
-            continue;
+          // Check ordering (no forward references) — only applies to "result",
+          // not "config" since config is static and known at load time.
+          if (accessor === "result") {
+            const referencedIdx = slugIndex.get(referencedSlug)!;
+            if (referencedIdx >= stepIdx) {
+              warnings.push({
+                stepSlug: step.slug,
+                field: fieldName,
+                message: `Forward reference to step "${referencedSlug}" in "{{${expr}}}" - can only reference earlier steps`,
+              });
+              continue;
+            }
           }
 
-          // Check accessor is "result"
-          if (accessor !== "result") {
+          // Check accessor is "result" or "config"
+          if (accessor !== "result" && accessor !== "config") {
             warnings.push({
               stepSlug: step.slug,
               field: fieldName,
-              message: `Invalid step accessor "${accessor}" in "{{${expr}}}" - only "result" is supported`,
+              message: `Invalid step accessor "${accessor}" in "{{${expr}}}" - only "result" and "config" are supported`,
             });
           }
           continue;

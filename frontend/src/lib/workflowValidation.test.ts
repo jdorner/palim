@@ -388,6 +388,40 @@ describe("serializeStep", () => {
     expect(result).not.toHaveProperty("method");
     expect(result).not.toHaveProperty("body");
   });
+
+  test("custom step type merges slug + type + config", () => {
+    const step = {
+      slug: "generate-report",
+      type: "excel",
+      config: {
+        mode: "create",
+        path: "data/reports",
+        filename: "report.xlsx",
+        sheets: [{ name: "Sales", columns: [{ header: "Product", key: "product" }] }],
+      },
+    };
+    const result = serializeStep(step);
+    expect(result).toEqual({
+      slug: "generate-report",
+      type: "excel",
+      mode: "create",
+      path: "data/reports",
+      filename: "report.xlsx",
+      sheets: [{ name: "Sales", columns: [{ header: "Product", key: "product" }] }],
+    });
+  });
+
+  test("custom step type with no config outputs slug and type only", () => {
+    const step = {
+      slug: "empty-custom",
+      type: "custom-type",
+    };
+    const result = serializeStep(step);
+    expect(result).toEqual({
+      slug: "empty-custom",
+      type: "custom-type",
+    });
+  });
 });
 
 describe("serializeWorkflowDraft", () => {

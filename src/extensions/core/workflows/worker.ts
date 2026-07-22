@@ -9,7 +9,7 @@
  * template resolution for any earlier step in the chain.
  */
 
-import type { ExtensionContext, Logger, QueueJob } from "@ext/types";
+import type { ExtensionContext, Logger, QueueJob, StepExecutionContext, StepTypeHandler } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { FlowProducer } from "bunqueue/client";
@@ -28,6 +28,11 @@ export interface StepWorkerDeps {
   emitEvent: (event: AgentEvent, jobId: string, jobData: WorkflowStepJobData) => void;
   /** Logger instance. */
   log: Logger;
+  /**
+   * Looks up a registered custom step type handler by type name.
+   * Returns `undefined` if no handler is registered for the given type.
+   */
+  getStepHandler?: (type: string) => StepTypeHandler | undefined;
 }
 
 /** Wrapper around a step's output that carries accumulated context. */
@@ -149,7 +154,7 @@ function buildTemplateContext(job: QueueJob<WorkflowStepJobData>, deps: StepWork
     },
   };
 
-  return { triggerPayload, stepResults, workflowName, secretStore };
+  return { triggerPayload, stepResults, stepConfigs: data.allStepDefs, workflowName, secretStore };
 }
 
 /**
@@ -179,15 +184,16 @@ async function executeAgentStep(
   }
 
   const stepDef = job.data.stepDef;
-  const skills = stepDef.type === "agent" ? stepDef.skills : undefined;
+  const agentDef = stepDef as import("./schemas").AgentStep;
+  const skills = agentDef.skills;
   const systemPrompt = buildStepSystemPrompt(skills, deps);
 
   // Resolve tool names: use explicit tools from the step definition.
   // When none are specified, the step runs with no tools (LLM-only).
   // When skills are present, ensure "exec" is included so the agent can read them.
   let tools: string[] | undefined;
-  if (stepDef.type === "agent" && stepDef.tools) {
-    tools = [...stepDef.tools];
+  if (agentDef.tools) {
+    tools = [...agentDef.tools];
   } else {
     tools = [];
   }
@@ -246,17 +252,18 @@ async function executeWebhookStep(
 ): Promise<string> {
   const stepDef = job.data.stepDef;
   if (stepDef.type !== "webhook") throw new Error("Expected webhook step");
+  const webhookDef = stepDef as import("./schemas").WebhookStep;
 
-  const { resolved: url, warnings: urlWarnings } = await resolveTemplates(stepDef.url, tmplCtx);
-  for (const w of urlWarnings) await job.log(`⚠ Template (url): ${w}`);
+  const { resolved: url, warnings: urlWarnings } = await resolveTemplates(webhookDef.url, tmplCtx);
+  for (const w of urlWarnings) await job.log(`\u26A0 Template (url): ${w}`);
 
-  const method = stepDef.method?.toUpperCase() || "POST";
+  const method = webhookDef.method?.toUpperCase() || "POST";
   const headers: Record<string, string> = { "Content-Type": "application/json" };
 
   let body: string | undefined;
-  if (stepDef.body) {
-    const { resolved, warnings } = await resolveTemplates(stepDef.body, tmplCtx);
-    for (const w of warnings) await job.log(`⚠ Template (body): ${w}`);
+  if (webhookDef.body) {
+    const { resolved, warnings } = await resolveTemplates(webhookDef.body, tmplCtx);
+    for (const w of warnings) await job.log(`\u26A0 Template (body): ${w}`);
     body = resolved;
   }
 
@@ -276,7 +283,7 @@ async function executeWebhookStep(
  * Creates the step processor function for the workflows queue.
  *
  * @param deps - Worker dependencies
- * @returns A job processor that handles agent and webhook steps
+ * @returns A job processor that handles agent, webhook, and custom extension step types
  */
 export function createStepProcessor(deps: StepWorkerDeps) {
   return async (job: QueueJob<WorkflowStepJobData>): Promise<StepResult> => {
@@ -289,7 +296,8 @@ export function createStepProcessor(deps: StepWorkerDeps) {
 
     if (stepDef.type === "agent") {
       try {
-        value = await executeAgentStep(job, normalizePrompt(stepDef.prompt), tmplCtx, deps);
+        const agentStepDef = stepDef as import("./schemas").AgentStep;
+        value = await executeAgentStep(job, normalizePrompt(agentStepDef.prompt), tmplCtx, deps);
       } catch (e) {
         await job.log(String(e));
         throw e;
@@ -297,7 +305,29 @@ export function createStepProcessor(deps: StepWorkerDeps) {
     } else if (stepDef.type === "webhook") {
       value = await executeWebhookStep(job, tmplCtx, deps);
     } else {
-      throw new Error(`Unknown step type: ${(stepDef as { type: string }).type}`);
+      // Look up a registered custom step type handler
+      const stepType = (stepDef as unknown as { type: string }).type;
+      const handler = deps.getStepHandler?.(stepType);
+      if (!handler) {
+        const errMsg = `Step type "${stepType}" is not available. The extension providing this step type may be disabled or not installed.`;
+        await job.log(errMsg);
+        throw new Error(errMsg);
+      }
+
+      // Build a StepExecutionContext for the custom handler
+      const stepExecCtx: StepExecutionContext = {
+        resolveTemplate: (template: string) => resolveTemplates(template, tmplCtx),
+        log: deps.log,
+        workDir: deps.ctx.workDir,
+        jobLog: (message: string) => job.log(message),
+      };
+
+      try {
+        value = await handler.execute(stepDef as unknown as Record<string, unknown>, stepExecCtx);
+      } catch (e) {
+        await job.log(String(e));
+        throw e;
+      }
     }
 
     await job.log(`Step "${stepSlug}" completed`);

@@ -171,6 +171,8 @@ function createMockContext(workDir: string) {
     loadExtension: async () => true,
     unloadExtension: async () => true,
     registerDynamicItemProvider: () => {},
+    registerStepType: () => {},
+    getStepHandler: () => undefined,
   };
 
   return { ctx, routes };

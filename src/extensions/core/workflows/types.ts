@@ -18,6 +18,8 @@ export interface WorkflowStepJobData {
   totalSteps: number;
   /** The step definition from the YAML file. */
   stepDef: WorkflowStep;
+  /** All step definitions in the workflow, keyed by slug. Used for `{{steps.<slug>.config}}` resolution. */
+  allStepDefs?: Record<string, unknown>;
   /** Trigger payload - only present on the first step. */
   triggerPayload?: unknown;
   /** Session ID for persisting conversation context for this step. */

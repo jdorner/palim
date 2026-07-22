@@ -94,6 +94,8 @@ async initialize(ctx) {
 | `ctx.registerTool(tool)` | Register an agent tool (unique name required) |
 | `ctx.registerRoute(method, path, handler)` | Register an HTTP route (auto-prefixed `/ext/{name}/`) |
 | `ctx.createQueue(name, processor, opts?)` | Create a managed job queue (auto-prefixed `{name}:`) |
+| `ctx.registerStepType(type, handler)` | Register a custom workflow step type (see [Custom Workflow Step Types](#custom-workflow-step-types)) |
+| `ctx.getStepHandler(type)` | Look up a registered step type handler by name (returns `undefined` if not found) |
 
 ### Route Naming Convention
 
@@ -499,6 +501,154 @@ manifest: {
 ```
 
 Circular dependencies are detected and the affected extensions are excluded from loading.
+
+## Custom Workflow Step Types
+
+Extensions can register custom workflow step types that execute deterministic logic (no LLM) as part of multi-step workflows. This allows extensions to add new node types to the workflow graph.
+
+### Registering a Step Type
+
+Call `ctx.registerStepType()` during `initialize()`:
+
+```typescript
+import { Type } from "@sinclair/typebox";
+import type { Extension, StepTypeHandler, StepExecutionContext } from "@ext/types";
+
+const handler: StepTypeHandler = {
+  schema: Type.Object({
+    mode: Type.Union([Type.Literal("create"), Type.Literal("append")]),
+    path: Type.String({ minLength: 1 }),
+    filename: Type.String({ minLength: 1 }),
+  }),
+  label: "Excel Writer",
+  icon: "📊",
+
+  async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext) {
+    const { mode, path, filename } = stepDef;
+
+    // Resolve template expressions in config fields
+    const { resolved: resolvedPath } = await ctx.resolveTemplate(path as string);
+
+    // Do the work...
+    await ctx.jobLog(`Writing to ${resolvedPath}/${filename}`);
+
+    // Return value becomes available as {{steps.<slug>.result}}
+    return { filePath: `${resolvedPath}/${filename}`, rowCount: 42 };
+  },
+};
+
+const extension: Extension = {
+  manifest: { name: "excel-writer", version: "1.0.0" },
+
+  async initialize(ctx) {
+    ctx.registerStepType("excel", handler);
+  },
+
+  async shutdown() {},
+};
+
+export default extension;
+```
+
+### StepTypeHandler Interface
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `schema` | `TObject` | TypeBox schema for validating the step config (excluding `slug` and `type`) |
+| `label` | `string` | Human-readable label shown in the workflow editor dropdown and graph nodes |
+| `icon` | `string?` | Optional emoji for visual identification in the UI |
+| `execute` | `(stepDef, ctx) => Promise<unknown>` | The execution logic; receives the full step definition and a scoped context |
+
+### StepExecutionContext
+
+The `execute` function receives a `StepExecutionContext` (not the full `ExtensionContext`):
+
+| Property/Method | Description |
+| --- | --- |
+| `ctx.resolveTemplate(template)` | Resolve `{{...}}` expressions (trigger payload, step results, step configs, env, secrets) |
+| `ctx.log` | Logger instance |
+| `ctx.workDir` | Absolute path to the agent's work directory |
+| `ctx.jobLog(message)` | Write to the job's persistent log (visible in the web UI) |
+
+### Template Expressions Available
+
+Custom steps have access to the same template engine as built-in steps:
+
+| Expression | Description |
+| --- | --- |
+| `{{trigger.payload}}` | The workflow's trigger data |
+| `{{steps.<slug>.result}}` | Result from a completed earlier step |
+| `{{steps.<slug>.config}}` | Static config of any step in the workflow (including later steps) |
+| `{{steps.<slug>.config.<path>}}` | Dot-path into a step's config |
+| `{{env.<VAR>}}` | Allowlisted environment variable |
+| `{{secret.<KEY>}}` | Encrypted secret (ACL-checked) |
+
+The `config` accessor is particularly useful for schema propagation: an agent step can reference a downstream step's column definitions to know what JSON structure to produce.
+
+### Using Custom Steps in Workflows
+
+Workflow JSON5 definitions use the registered type name directly:
+
+```json5
+{
+  name: "scan-to-excel",
+  trigger: { type: "filewatcher", ref: "inbox-scans" },
+  steps: [
+    {
+      slug: "extract",
+      type: "agent",
+      prompt: [
+        "Extract data from the document.",
+        "Output must match: {{steps.append-row.config.sheets.0.columns}}",
+        "Return ONLY a JSON array."
+      ],
+      tools: ["exec"],
+      skills: ["converter"]
+    },
+    {
+      slug: "append-row",
+      type: "excel",
+      mode: "append",
+      path: "data/reports",
+      filename: "documents.xlsx",
+      sheets: [{
+        name: "Scans",
+        columns: [
+          { header: "Date", key: "date" },
+          { header: "Vendor", key: "vendor" },
+          { header: "Amount", key: "amount", numFmt: "#,##0.00" }
+        ],
+        data: "{{steps.extract.result}}"
+      }]
+    }
+  ]
+}
+```
+
+### Frontend Rendering
+
+Registered step types automatically appear in:
+
+- The step type dropdown in the workflow editor
+- Graph nodes with the registered label and icon
+- The read-only type badge in the step sidebar
+
+For custom step types, the editor renders a JSON textarea for the step configuration (fields beyond `slug` and `type`). Structured form editors can be added later.
+
+### Error Handling
+
+If the extension providing a step type is disabled or unloaded, workflows using that type will fail with a clear error logged to the job:
+
+```text
+Step type "excel" is not available. The extension providing this step type may be disabled or not installed.
+```
+
+### Constraints
+
+- Step type names must be globally unique (one extension per type)
+- Built-in types (`agent`, `webhook`) cannot be overridden
+- Step type names follow the same pattern as extension names: `^[a-z][a-z0-9-]*$`
+- Disabling the providing extension makes the step type unavailable at runtime (workflows fail explicitly)
 
 ## Lifecycle Summary
 

@@ -57,6 +57,8 @@ export interface TemplateContext {
   triggerPayload?: unknown;
   /** Results from previously completed steps, keyed by slug. */
   stepResults: Record<string, unknown>;
+  /** Step definitions (configs) from the workflow, keyed by slug. Available for cross-step config references. */
+  stepConfigs?: Record<string, unknown>;
   /** The workflow name (used as consumer identity for secret resolution). */
   workflowName?: string;
   /** The secret resolver instance (optional - secret templates ignored if not provided). */
@@ -100,11 +102,13 @@ function stringify(value: unknown): string {
  * - `{{trigger.payload.field}}` - dot-path into trigger payload
  * - `{{steps.<slug>.result}}` - full result of a completed step
  * - `{{steps.<slug>.result.field}}` - dot-path into step result
+ * - `{{steps.<slug>.config}}` - full config of any step in the workflow
+ * - `{{steps.<slug>.config.field}}` - dot-path into step config
  * - `{{env.<VAR>}}` - environment variable
  * - `{{secret.<KEY>}}` - encrypted secret (decrypted at access, ACL-checked)
  *
  * @param template - The template string with `{{...}}` expressions
- * @param ctx - The resolution context (trigger payload + step results)
+ * @param ctx - The resolution context (trigger payload + step results + step configs)
  * @returns The resolved string, with unresolvable expressions left as-is
  */
 export async function resolveTemplates(
@@ -179,8 +183,33 @@ export async function resolveTemplates(
     }
 
     // {{steps.<slug>.result}} or {{steps.<slug>.result.field}}
+    // {{steps.<slug>.config}} or {{steps.<slug>.config.field}}
     if (parts[0] === "steps" && parts.length >= 3) {
       const slug = parts[1];
+
+      // {{steps.<slug>.config}} or {{steps.<slug>.config.<path>}}
+      if (parts[2] === "config") {
+        if (!ctx.stepConfigs || !(slug! in ctx.stepConfigs)) {
+          warnings.push(`Unknown step slug in config template: ${slug}`);
+          resolved += `{{${trimmed}}}`;
+          continue;
+        }
+        const stepConfig = ctx.stepConfigs[slug!];
+        if (parts.length === 3) {
+          resolved += stringify(stepConfig);
+        } else {
+          const value = traversePath(stepConfig, parts.slice(3));
+          if (value === undefined) {
+            warnings.push(`Unresolvable template path: ${trimmed}`);
+            resolved += `{{${trimmed}}}`;
+          } else {
+            resolved += stringify(value);
+          }
+        }
+        continue;
+      }
+
+      // {{steps.<slug>.result}} or {{steps.<slug>.result.<path>}}
       if (!slug || !(slug in ctx.stepResults)) {
         warnings.push(`Unknown step slug in template: ${slug}`);
         resolved += `{{${trimmed}}}`;

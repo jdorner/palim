@@ -249,4 +249,88 @@ describe("resolveTemplates", () => {
       expect(resolved).toBe("before val after");
     });
   });
+
+  describe("steps.<slug>.config", () => {
+    test("resolves full step config as JSON", async () => {
+      ctx.stepConfigs = {
+        "excel-step": {
+          slug: "excel-step",
+          type: "excel",
+          mode: "create",
+          columns: [{ header: "Name", key: "name" }],
+        },
+      };
+      const { resolved, warnings } = await resolveTemplates("config: {{steps.excel-step.config}}", ctx);
+      expect(resolved).toContain('"mode":"create"');
+      expect(resolved).toContain('"columns"');
+      expect(warnings).toEqual([]);
+    });
+
+    test("resolves dot-path into step config", async () => {
+      ctx.stepConfigs = {
+        "append-row": {
+          slug: "append-row",
+          type: "excel",
+          sheets: [
+            {
+              name: "Sales",
+              columns: [
+                { header: "Product", key: "product" },
+                { header: "Revenue", key: "revenue", numFmt: "$#,##0.00" },
+              ],
+            },
+          ],
+        },
+      };
+      const { resolved, warnings } = await resolveTemplates("{{steps.append-row.config.sheets}}", ctx);
+      const parsed = JSON.parse(resolved);
+      expect(parsed).toHaveLength(1);
+      expect(parsed[0].columns).toHaveLength(2);
+      expect(parsed[0].columns[0].key).toBe("product");
+      expect(warnings).toEqual([]);
+    });
+
+    test("resolves deeply nested config path", async () => {
+      ctx.stepConfigs = {
+        "my-step": {
+          sheets: [{ name: "Sheet1", columns: [{ header: "A", key: "a" }] }],
+        },
+      };
+      const { resolved } = await resolveTemplates("{{steps.my-step.config.sheets.0.columns.0.key}}", ctx);
+      expect(resolved).toBe("a");
+    });
+
+    test("warns on unknown step slug in config template", async () => {
+      ctx.stepConfigs = {};
+      const { resolved, warnings } = await resolveTemplates("{{steps.nonexistent.config}}", ctx);
+      expect(resolved).toBe("{{steps.nonexistent.config}}");
+      expect(warnings).toContain("Unknown step slug in config template: nonexistent");
+    });
+
+    test("warns on unresolvable path within step config", async () => {
+      ctx.stepConfigs = { "my-step": { mode: "create" } };
+      const { resolved, warnings } = await resolveTemplates("{{steps.my-step.config.missing.field}}", ctx);
+      expect(resolved).toBe("{{steps.my-step.config.missing.field}}");
+      expect(warnings).toContain("Unresolvable template path: steps.my-step.config.missing.field");
+    });
+
+    test("works without stepConfigs (returns warning for any config reference)", async () => {
+      // stepConfigs not set
+      const { resolved, warnings } = await resolveTemplates("{{steps.any.config}}", ctx);
+      expect(resolved).toBe("{{steps.any.config}}");
+      expect(warnings).toContain("Unknown step slug in config template: any");
+    });
+
+    test("config and result can be used together", async () => {
+      ctx.stepResults = { extract: "extracted-data" };
+      ctx.stepConfigs = {
+        "excel-step": { columns: [{ header: "Name", key: "name" }] },
+      };
+      const template = "Data: {{steps.extract.result}}, Schema: {{steps.excel-step.config.columns}}";
+      const { resolved, warnings } = await resolveTemplates(template, ctx);
+      expect(resolved).toContain("Data: extracted-data");
+      expect(resolved).toContain('"key":"name"');
+      expect(warnings).toEqual([]);
+    });
+  });
 });

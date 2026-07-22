@@ -21,13 +21,15 @@ export interface WorkflowDraft {
 /** Draft step within a workflow. */
 export interface StepDraft {
   slug: string;
-  type: "agent" | "webhook";
+  type: string;
   prompt?: string;
   tools?: string[];
   skills?: string[];
   url?: string;
   method?: string;
   body?: string;
+  /** Raw JSON config for custom (extension-registered) step types. */
+  config?: Record<string, unknown>;
 }
 
 const SLUG_PATTERN = /^[a-z][a-z0-9-]*$/;
@@ -185,19 +187,27 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
     return result;
   }
 
-  // webhook
-  const result: Record<string, unknown> = {
+  if (step.type === "webhook") {
+    const result: Record<string, unknown> = {
+      slug: step.slug,
+      type: "webhook",
+      url: step.url,
+    };
+    if (step.method) {
+      result.method = step.method;
+    }
+    if (step.body) {
+      result.body = step.body;
+    }
+    return result;
+  }
+
+  // Custom (extension-registered) step type: merge slug + type + config
+  return {
     slug: step.slug,
-    type: "webhook",
-    url: step.url,
+    type: step.type,
+    ...(step.config ?? {}),
   };
-  if (step.method) {
-    result.method = step.method;
-  }
-  if (step.body) {
-    result.body = step.body;
-  }
-  return result;
 }
 
 /**

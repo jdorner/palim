@@ -66,7 +66,8 @@ export async function loadWorkflows(
       const definition = parsed as WorkflowDefinition;
       for (const step of definition.steps) {
         if (step.type === "agent") {
-          step.prompt = normalizePrompt(step.prompt);
+          const agentStep = step as import("./schemas").AgentStep;
+          agentStep.prompt = normalizePrompt(agentStep.prompt);
         }
       }
 

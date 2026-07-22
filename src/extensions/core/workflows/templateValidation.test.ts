@@ -179,6 +179,21 @@ describe("validateWorkflowTemplates", () => {
       expect(warnings.length).toBe(1);
       expect(warnings[0]!.message).toContain('Forward reference to step "step-c"');
     });
+
+    test("allows config references to later steps (config is static)", async () => {
+      const def = makeWorkflow([
+        { slug: "step-a", type: "agent", prompt: "Schema: {{steps.step-b.config.columns}}" },
+        { slug: "step-b", type: "agent", prompt: "Do B" },
+      ]);
+      const warnings = await validateWorkflowTemplates(def);
+      expect(warnings.length).toBe(0);
+    });
+
+    test("allows config reference to self", async () => {
+      const def = makeWorkflow([{ slug: "step-a", type: "agent", prompt: "My config: {{steps.step-a.config}}" }]);
+      const warnings = await validateWorkflowTemplates(def);
+      expect(warnings.length).toBe(0);
+    });
   });
 
   describe("expression syntax validation", () => {
@@ -214,7 +229,7 @@ describe("validateWorkflowTemplates", () => {
       const warnings = await validateWorkflowTemplates(def);
       expect(warnings.length).toBe(1);
       expect(warnings[0]!.message).toContain('Invalid step accessor "output"');
-      expect(warnings[0]!.message).toContain('only "result" is supported');
+      expect(warnings[0]!.message).toContain('only "result" and "config" are supported');
     });
 
     test("warns for invalid trigger expression (missing payload)", async () => {

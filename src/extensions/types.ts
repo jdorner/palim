@@ -246,6 +246,80 @@ export type CoreQueueName = "agents" | "chat";
 export type QueueEventName = "active" | "completed" | "failed" | "stalled";
 
 // ---------------------------------------------------------------------------
+// Custom workflow step types
+// ---------------------------------------------------------------------------
+
+/**
+ * Context passed to a custom step type handler during execution.
+ * Provides template resolution, logging, and filesystem access.
+ */
+export interface StepExecutionContext {
+  /**
+   * Resolve `{{...}}` template expressions in a string using the workflow's
+   * template context (trigger payload, previous step results, env vars, secrets, step configs).
+   *
+   * @param template - The template string with `{{...}}` expressions
+   * @returns The resolved string and any resolution warnings
+   */
+  resolveTemplate(template: string): Promise<{ resolved: string; warnings: string[] }>;
+
+  /** Logger scoped to the current step execution. */
+  readonly log: Logger;
+
+  /** Absolute path to the agent's working directory. */
+  readonly workDir: string;
+
+  /**
+   * Log a message to the job's persistent log (visible in the web UI).
+   *
+   * @param message - The message to log
+   */
+  jobLog(message: string): Promise<void>;
+}
+
+/**
+ * Handler for a custom workflow step type registered by an extension.
+ *
+ * Extensions call {@link ExtensionContext.registerStepType} during initialization
+ * to make a new step type available in workflow definitions. The workflow engine
+ * dispatches to the handler when a step with the matching type is encountered.
+ */
+export interface StepTypeHandler {
+  /** TypeBox schema for validating the step definition (excluding `slug` and `type`). */
+  schema: TObject;
+
+  /** Human-readable label for the step type (shown in UI dropdowns and graph nodes). */
+  label: string;
+
+  /** Optional emoji or icon identifier for graph node rendering. */
+  icon?: string;
+
+  /**
+   * Execute the custom step logic.
+   *
+   * @param stepDef - The full step definition object from the workflow JSON5
+   * @param ctx - Execution context with template resolution, logging, and workDir access
+   * @returns The step result value (passed to subsequent steps via `{{steps.<slug>.result}}`)
+   */
+  execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<unknown>;
+}
+
+/**
+ * Metadata about a registered custom step type, surfaced to the frontend
+ * for workflow editor UI rendering.
+ */
+export interface StepTypeInfo {
+  /** The step type identifier (e.g. "excel"). */
+  type: string;
+  /** Human-readable label (e.g. "Excel Writer"). */
+  label: string;
+  /** Optional emoji or icon identifier. */
+  icon?: string;
+  /** Name of the extension that registered this step type. */
+  extensionName: string;
+}
+
+// ---------------------------------------------------------------------------
 // Agent execution
 // ---------------------------------------------------------------------------
 
@@ -330,6 +404,32 @@ export interface ExtensionContext {
     processor: JobProcessor<T, R>,
     opts?: ManagedQueueOptions,
   ): ManagedQueuePort<T>;
+
+  /**
+   * Register a custom workflow step type handler.
+   *
+   * When the workflow engine encounters a step with `type` matching the
+   * registered name, it dispatches execution to the handler instead of
+   * treating it as an unknown type.
+   *
+   * Step type names must be globally unique across all extensions.
+   *
+   * @param type - The step type identifier (e.g. "excel")
+   * @param handler - The handler implementing validation and execution logic
+   * @throws If the type name is already registered
+   */
+  registerStepType(type: string, handler: StepTypeHandler): void;
+
+  /**
+   * Look up a registered custom step type handler by type name.
+   *
+   * Used by the workflow engine to dispatch custom step types at job
+   * processing time. Returns `undefined` if no handler is registered.
+   *
+   * @param type - The step type identifier to look up
+   * @returns The handler, or `undefined` if not found
+   */
+  getStepHandler(type: string): StepTypeHandler | undefined;
 
   // -------------------------------------------------------------------------
   // Events
