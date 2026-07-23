@@ -135,6 +135,27 @@ export class EmbeddingService {
   }
 
   /**
+   * Re-probes the embedding dimension by generating a test embedding with the
+   * current model. Call this after {@link refreshModel} when the model may have
+   * changed to detect a new vector dimension.
+   *
+   * @returns The newly detected dimension, or null if the probe failed
+   */
+  async reprobeDimension(): Promise<number | null> {
+    const testEmbedding = await this.generateEmbedding("dimension probe");
+    if (!testEmbedding) {
+      this.log.warn("[wiki/embeddings] Dimension reprobe failed - endpoint unreachable");
+      return null;
+    }
+    const newDimension = testEmbedding.length;
+    if (newDimension !== this.dimension) {
+      this.log.info(`[wiki/embeddings] Dimension changed: ${this.dimension} -> ${newDimension}`);
+      this.dimension = newDimension;
+    }
+    return newDimension;
+  }
+
+  /**
    * Resolves the current model ID, updating the stored value.
    * Falls back to the last-known model if resolution fails.
    *
