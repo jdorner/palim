@@ -128,14 +128,36 @@ export function buildCurlCommand(options: WebCommandOptions = {}) {
   return async (args: string[], ctx: CommandContext): Promise<ExecResult> => {
     // Manual arg parsing to match curl's flag style
     const headerArgs: string[] = [];
+    const dataArgs: string[] = [];
     let silent = false;
     let outputFile = "";
     let maxLength = maxLen;
+    let method = "";
     let url = "";
 
     let i = 0;
     while (i < args.length) {
       const token = args[i]!;
+
+      if (token === "-X" || token === "--request") {
+        const val = args[i + 1];
+        if (!val) {
+          return { exitCode: 1, stdout: "", stderr: "curl: option -X requires a value" };
+        }
+        method = val.toUpperCase();
+        i += 2;
+        continue;
+      }
+
+      if (token === "-d" || token === "--data" || token === "--data-raw") {
+        const val = args[i + 1];
+        if (!val) {
+          return { exitCode: 1, stdout: "", stderr: "curl: option -d requires a value" };
+        }
+        dataArgs.push(val);
+        i += 2;
+        continue;
+      }
 
       if (token === "-H" || token === "--header") {
         const val = args[i + 1];
@@ -222,6 +244,17 @@ export function buildCurlCommand(options: WebCommandOptions = {}) {
       return { exitCode: 1, stdout: "", stderr: "curl: URL must start with http:// or https://" };
     }
 
+    // If -d is provided without explicit -X, default to POST (like real curl)
+    if (!method && dataArgs.length > 0) {
+      method = "POST";
+    }
+
+    // Validate method
+    const allowedMethods = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+    if (method && !allowedMethods.includes(method)) {
+      return { exitCode: 1, stdout: "", stderr: `curl: unsupported method: ${method}` };
+    }
+
     // Parse custom headers
     const customHeaders: Record<string, string> = {};
     for (const raw of headerArgs) {
@@ -231,6 +264,9 @@ export function buildCurlCommand(options: WebCommandOptions = {}) {
       }
       customHeaders[parsed[0]] = parsed[1];
     }
+
+    // Build request body from -d args (multiple -d are concatenated with &, like real curl)
+    const requestBody = dataArgs.length > 0 ? dataArgs.join("&") : undefined;
 
     try {
       // Remove any User-Agent header the user may have set
@@ -256,7 +292,19 @@ export function buildCurlCommand(options: WebCommandOptions = {}) {
         maxRedirects: MAX_REDIRECTS,
       });
 
-      const resp = await client.get(url, { responseType: "text" });
+      const effectiveMethod = method || "GET";
+      const resp = await client.request({
+        url,
+        method: effectiveMethod as "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS",
+        body: requestBody,
+        responseType: "text",
+        throwHttpErrors: false,
+      });
+
+      // Report non-2xx status codes as errors
+      if (resp.status < 200 || resp.status >= 300) {
+        return { exitCode: 1, stdout: "", stderr: `curl: HTTP ${resp.status} ${resp.statusText}` };
+      }
 
       const contentType = resp.headers.get("content-type") ?? "";
       const body = resp.data;
@@ -309,6 +357,9 @@ const CURL_HELP = `Usage: curl [options] <url>
 Fetch a webpage and return its text content (HTML is converted to markdown).
 
 Options:
+  -X, --request <method>         HTTP method (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS)
+  -d, --data <data>              Send data in request body (implies POST if -X not set, repeatable)
+      --data-raw <data>          Same as -d
   -H, --header <"Name: Value">  Add a custom HTTP header (repeatable)
   -s, --silent                   Suppress progress/info messages
   -L, --location                 Follow redirects (default: on)
@@ -318,6 +369,8 @@ Options:
 
 Examples:
   curl https://example.com
+  curl -X POST -d '{"key":"value"}' -H "Content-Type: application/json" https://api.example.com/data
+  curl -X PUT -d 'name=test' https://api.example.com/resource/1
   curl -H "Authorization: Bearer token" https://api.example.com/data
   curl -o page.md https://example.com
   curl --max-length 5000 https://example.com`;

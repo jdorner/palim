@@ -699,4 +699,200 @@ describe("curl command", () => {
       expect(result.stderr).toContain("curl:");
     });
   });
+
+  describe("HTTP method (-X)", () => {
+    let methodServer: ReturnType<typeof Bun.serve>;
+    let methodBaseUrl: string;
+
+    beforeEach(() => {
+      methodServer = Bun.serve({
+        port: 0,
+        async fetch(req) {
+          const url = new URL(req.url);
+          const path = url.pathname;
+
+          if (path === "/echo") {
+            const body = req.body ? await req.text() : "";
+            return Response.json({
+              method: req.method,
+              body,
+              contentType: req.headers.get("content-type") ?? "",
+            });
+          }
+
+          return new Response("Not Found", { status: 404 });
+        },
+      });
+      methodBaseUrl = `http://localhost:${methodServer.port}`;
+    });
+
+    afterEach(() => {
+      methodServer.stop();
+    });
+
+    test("defaults to GET without -X", async () => {
+      const result = await curl([`${methodBaseUrl}/echo`], makeCtx());
+      expect(result.exitCode).toBe(0);
+      const data = JSON.parse(result.stdout);
+      expect(data.method).toBe("GET");
+    });
+
+    test("sends POST request with -X POST", async () => {
+      const result = await curl(["-X", "POST", `${methodBaseUrl}/echo`], makeCtx());
+      expect(result.exitCode).toBe(0);
+      const data = JSON.parse(result.stdout);
+      expect(data.method).toBe("POST");
+    });
+
+    test("sends PUT request with -X PUT", async () => {
+      const result = await curl(["-X", "PUT", `${methodBaseUrl}/echo`], makeCtx());
+      expect(result.exitCode).toBe(0);
+      const data = JSON.parse(result.stdout);
+      expect(data.method).toBe("PUT");
+    });
+
+    test("sends PATCH request with -X PATCH", async () => {
+      const result = await curl(["-X", "PATCH", `${methodBaseUrl}/echo`], makeCtx());
+      expect(result.exitCode).toBe(0);
+      const data = JSON.parse(result.stdout);
+      expect(data.method).toBe("PATCH");
+    });
+
+    test("sends DELETE request with -X DELETE", async () => {
+      const result = await curl(["-X", "DELETE", `${methodBaseUrl}/echo`], makeCtx());
+      expect(result.exitCode).toBe(0);
+      const data = JSON.parse(result.stdout);
+      expect(data.method).toBe("DELETE");
+    });
+
+    test("method is case-insensitive", async () => {
+      const result = await curl(["-X", "post", `${methodBaseUrl}/echo`], makeCtx());
+      expect(result.exitCode).toBe(0);
+      const data = JSON.parse(result.stdout);
+      expect(data.method).toBe("POST");
+    });
+
+    test("accepts --request as long form", async () => {
+      const result = await curl(["--request", "POST", `${methodBaseUrl}/echo`], makeCtx());
+      expect(result.exitCode).toBe(0);
+      const data = JSON.parse(result.stdout);
+      expect(data.method).toBe("POST");
+    });
+
+    test("errors on -X without value", async () => {
+      const result = await curl(["-X"], makeCtx());
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("option -X requires a value");
+    });
+
+    test("errors on unsupported method", async () => {
+      const result = await curl(["-X", "INVALID", `${methodBaseUrl}/echo`], makeCtx());
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("unsupported method");
+    });
+  });
+
+  describe("request body (-d)", () => {
+    let methodServer: ReturnType<typeof Bun.serve>;
+    let methodBaseUrl: string;
+
+    beforeEach(() => {
+      methodServer = Bun.serve({
+        port: 0,
+        async fetch(req) {
+          const url = new URL(req.url);
+          const path = url.pathname;
+
+          if (path === "/echo") {
+            const body = req.body ? await req.text() : "";
+            return Response.json({
+              method: req.method,
+              body,
+              contentType: req.headers.get("content-type") ?? "",
+            });
+          }
+
+          return new Response("Not Found", { status: 404 });
+        },
+      });
+      methodBaseUrl = `http://localhost:${methodServer.port}`;
+    });
+
+    afterEach(() => {
+      methodServer.stop();
+    });
+
+    test("sends request body with -d", async () => {
+      const result = await curl(["-X", "POST", "-d", '{"key":"value"}', `${methodBaseUrl}/echo`], makeCtx());
+      expect(result.exitCode).toBe(0);
+      const data = JSON.parse(result.stdout);
+      expect(data.method).toBe("POST");
+      expect(data.body).toBe('{"key":"value"}');
+    });
+
+    test("-d implies POST if -X not set", async () => {
+      const result = await curl(["-d", "name=test", `${methodBaseUrl}/echo`], makeCtx());
+      expect(result.exitCode).toBe(0);
+      const data = JSON.parse(result.stdout);
+      expect(data.method).toBe("POST");
+      expect(data.body).toBe("name=test");
+    });
+
+    test("-d with explicit -X PUT sends PUT", async () => {
+      const result = await curl(["-X", "PUT", "-d", "data=hello", `${methodBaseUrl}/echo`], makeCtx());
+      expect(result.exitCode).toBe(0);
+      const data = JSON.parse(result.stdout);
+      expect(data.method).toBe("PUT");
+      expect(data.body).toBe("data=hello");
+    });
+
+    test("multiple -d values are concatenated with &", async () => {
+      const result = await curl(["-X", "POST", "-d", "a=1", "-d", "b=2", `${methodBaseUrl}/echo`], makeCtx());
+      expect(result.exitCode).toBe(0);
+      const data = JSON.parse(result.stdout);
+      expect(data.body).toBe("a=1&b=2");
+    });
+
+    test("--data-raw works same as -d", async () => {
+      const result = await curl(["--data-raw", '{"json":true}', `${methodBaseUrl}/echo`], makeCtx());
+      expect(result.exitCode).toBe(0);
+      const data = JSON.parse(result.stdout);
+      expect(data.method).toBe("POST");
+      expect(data.body).toBe('{"json":true}');
+    });
+
+    test("errors on -d without value", async () => {
+      const result = await curl(["-d"], makeCtx());
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("option -d requires a value");
+    });
+
+    test("-d with custom Content-Type header", async () => {
+      const result = await curl(
+        ["-X", "POST", "-H", "Content-Type: application/json", "-d", '{"x":1}', `${methodBaseUrl}/echo`],
+        makeCtx(),
+      );
+      expect(result.exitCode).toBe(0);
+      const data = JSON.parse(result.stdout);
+      expect(data.method).toBe("POST");
+      expect(data.body).toBe('{"x":1}');
+      expect(data.contentType).toBe("application/json");
+    });
+  });
+
+  describe("help includes method and data options", () => {
+    test("help mentions -X", async () => {
+      const result = await curl(["--help"], makeCtx());
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("-X");
+      expect(result.stdout).toContain("--request");
+    });
+
+    test("help mentions -d", async () => {
+      const result = await curl(["--help"], makeCtx());
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("-d");
+      expect(result.stdout).toContain("--data");
+    });
+  });
 });
