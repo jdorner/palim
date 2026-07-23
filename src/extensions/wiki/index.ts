@@ -394,10 +394,13 @@ export function createExtension(): Extension {
        * Runs a background embedding pass over all wiki files.
        * Removes existing chunks from the Orama index and re-inserts them with embeddings.
        * Called at startup and when the embedding model changes.
+       *
+       * If the embedding dimension has changed (e.g. switching from a 768-dim model
+       * to a 1024-dim model), the Orama index is rebuilt with the new dimension
+       * before inserting embeddings to avoid vector size mismatch errors.
        */
       function runBackgroundEmbedding(): void {
         if (!embeddingManager || !wikiIndex) return;
-        const bgIndex = wikiIndex;
         const bgManager = embeddingManager;
         const bgWikiDir = wikiDir;
         const bgSubdir = wikiSubdir;
@@ -409,6 +412,16 @@ export function createExtension(): Extension {
             // Force model re-resolution so cache lookups use the current model
             await bgManager.refreshModel();
 
+            // Re-probe dimension - if the model changed, the vector size may differ
+            const newDimension = await bgManager.reprobeDimension();
+            if (newDimension && newDimension !== dimension) {
+              dimension = newDimension;
+              // Rebuild the Orama index with the new vector dimension
+              wikiIndex = await buildWikiIndex(bgWikiDir, bgSubdir, logger, newDimension);
+            }
+
+            // Use the (possibly rebuilt) index for insertions
+            const bgIndex = wikiIndex!;
             const files = await listMarkdownFiles(bgWikiDir);
             let totalEmbedded = 0;
 

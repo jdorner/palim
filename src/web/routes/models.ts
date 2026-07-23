@@ -130,7 +130,7 @@ export function modelRoutes(getRegistry?: () => ExtensionRegistry | undefined) {
           // For chat intent, update the main selected_model key
           if (intent === "chat") {
             appConfig.set("selected_model", modelId);
-            log.info(`Intent "chat" model updated to "${modelId}"`);
+            log.debug(`Intent "chat" model updated to "${modelId}"`);
             return status(200, { intent, modelId });
           }
 
@@ -143,7 +143,7 @@ export function modelRoutes(getRegistry?: () => ExtensionRegistry | undefined) {
           }
 
           appConfig.set(`selected_model:${intent}`, modelId);
-          log.info(`Intent "${intent}" model updated to "${modelId}"`);
+          log.debug(`Intent "${intent}" model updated to "${modelId}"`);
 
           // Notify extensions that a model intent changed (unscoped delivery to all subscribers)
           const eventBus = getRegistry?.()?.getEventBus();
@@ -184,7 +184,7 @@ export function modelRoutes(getRegistry?: () => ExtensionRegistry | undefined) {
           }
 
           appConfig.remove(`selected_model:${intent}`);
-          log.info(`Intent "${intent}" model override cleared`);
+          log.debug(`Intent "${intent}" model override cleared`);
           return status(200, { intent, modelId: null });
         } catch (error) {
           log.error("Failed to clear intent model", { error });

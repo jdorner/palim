@@ -70,6 +70,16 @@ export class EmbeddingManager {
   }
 
   /**
+   * Re-probes the embedding dimension from the current model.
+   * Call after {@link refreshModel} when the model may have changed dimensions.
+   *
+   * @returns The newly detected dimension, or null if the probe failed
+   */
+  async reprobeDimension(): Promise<number | null> {
+    return this.service.reprobeDimension();
+  }
+
+  /**
    * Returns whether the vector index has been populated with embeddings.
    */
   isVectorReady(): boolean {
