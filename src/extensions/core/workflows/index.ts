@@ -30,9 +30,10 @@ import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { SessionFactory } from "./engine";
 import { dispatchWorkflow } from "./engine";
 import { loadWorkflows } from "./loader";
-import type { WorkflowDefinition } from "./schemas";
+import type { AgentStep, WorkflowDefinition } from "./schemas";
 import { WorkflowDefinitionSchema } from "./schemas";
 import type { TemplateSecretResolver } from "./template";
+import type { TemplateWarning } from "./templateValidation";
 import { validateWorkflowTemplates } from "./templateValidation";
 import type { WorkflowStepJobData } from "./types";
 import { createStepProcessor } from "./worker";
@@ -107,7 +108,7 @@ export function validateWorkflowDependencies(
   for (const step of definition.steps) {
     if (step.type !== "agent") continue;
 
-    const agentStep = step as import("./schemas").AgentStep;
+    const agentStep = step as AgentStep;
 
     if (agentStep.tools) {
       for (const tool of agentStep.tools) {
@@ -127,6 +128,52 @@ export function validateWorkflowDependencies(
     missingTools: [...missingTools].sort(),
     missingSkills: [...missingSkills].sort(),
   };
+}
+
+/**
+ * Produces per-step warnings for tools and skills referenced in agent steps
+ * that are not currently available. Returns an array compatible with
+ * {@link TemplateWarning} so results can be merged with template validation warnings.
+ *
+ * @param definition - The workflow definition to check
+ * @param ctx - Extension context for querying available tools and skills
+ * @returns Array of per-step warnings (empty if all dependencies are satisfied)
+ */
+function getDependencyWarnings(definition: WorkflowDefinition, ctx: ExtensionContext): TemplateWarning[] {
+  const availableTools = new Set([...ctx.getToolNames(), ...SANDBOX_TOOL_NAMES]);
+  const availableSkills = new Set(ctx.skills.getNames());
+  const warnings: TemplateWarning[] = [];
+
+  for (const step of definition.steps) {
+    if (step.type !== "agent") continue;
+    const agentStep = step as AgentStep;
+
+    if (agentStep.tools) {
+      for (const tool of agentStep.tools) {
+        if (!availableTools.has(tool)) {
+          warnings.push({
+            stepSlug: step.slug,
+            field: "tools",
+            message: `Tool "${tool}" is not available (not registered or extension disabled)`,
+          });
+        }
+      }
+    }
+
+    if (agentStep.skills) {
+      for (const skill of agentStep.skills) {
+        if (!availableSkills.has(skill)) {
+          warnings.push({
+            stepSlug: step.slug,
+            field: "skills",
+            message: `Skill "${skill}" is not available (not found or extension disabled)`,
+          });
+        }
+      }
+    }
+  }
+
+  return warnings;
 }
 
 // ---------------------------------------------------------------------------
@@ -474,6 +521,7 @@ export function createExtension(): Extension {
               workflowName: w.name,
               secretStore: secretResolver,
             });
+            const depWarnings = getDependencyWarnings(w, ctx);
 
             return {
               name: w.name,
@@ -485,7 +533,7 @@ export function createExtension(): Extension {
               activeRuns,
               completedRuns,
               failedRuns,
-              warnings: templateWarnings,
+              warnings: [...templateWarnings, ...depWarnings],
             };
           }),
         );
@@ -548,8 +596,9 @@ export function createExtension(): Extension {
           workflowName: wf.name,
           secretStore: secretResolver,
         });
+        const depWarnings = getDependencyWarnings(wf, ctx);
 
-        return Response.json({ ...wf, runs, warnings: templateWarnings });
+        return Response.json({ ...wf, runs, warnings: [...templateWarnings, ...depWarnings] });
       });
 
       /**
