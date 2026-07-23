@@ -294,40 +294,35 @@ export function createStepProcessor(deps: StepWorkerDeps) {
     const tmplCtx = buildTemplateContext(job, deps);
     let value: unknown;
 
-    if (stepDef.type === "agent") {
-      try {
+    try {
+      if (stepDef.type === "agent") {
         const agentStepDef = stepDef as import("./schemas").AgentStep;
         value = await executeAgentStep(job, normalizePrompt(agentStepDef.prompt), tmplCtx, deps);
-      } catch (e) {
-        await job.log(String(e));
-        throw e;
-      }
-    } else if (stepDef.type === "webhook") {
-      value = await executeWebhookStep(job, tmplCtx, deps);
-    } else {
-      // Look up a registered custom step type handler
-      const stepType = (stepDef as unknown as { type: string }).type;
-      const handler = deps.getStepHandler?.(stepType);
-      if (!handler) {
-        const errMsg = `Step type "${stepType}" is not available. The extension providing this step type may be disabled or not installed.`;
-        await job.log(errMsg);
-        throw new Error(errMsg);
-      }
+      } else if (stepDef.type === "webhook") {
+        value = await executeWebhookStep(job, tmplCtx, deps);
+      } else {
+        // Look up a registered custom step type handler
+        const stepType = (stepDef as unknown as { type: string }).type;
+        const handler = deps.getStepHandler?.(stepType);
+        if (!handler) {
+          const errMsg = `Step type "${stepType}" is not available. The extension providing this step type may be disabled or not installed.`;
+          await job.log(errMsg);
+          throw new Error(errMsg);
+        }
 
-      // Build a StepExecutionContext for the custom handler
-      const stepExecCtx: StepExecutionContext = {
-        resolveTemplate: (template: string) => resolveTemplates(template, tmplCtx),
-        log: deps.log,
-        workDir: deps.ctx.workDir,
-        jobLog: (message: string) => job.log(message),
-      };
+        // Build a StepExecutionContext for the custom handler
+        const stepExecCtx: StepExecutionContext = {
+          resolveTemplate: (template: string) => resolveTemplates(template, tmplCtx),
+          log: deps.log,
+          workDir: deps.ctx.workDir,
+          jobLog: (message: string) => job.log(message),
+        };
 
-      try {
         value = await handler.execute(stepDef as unknown as Record<string, unknown>, stepExecCtx);
-      } catch (e) {
-        await job.log(String(e));
-        throw e;
       }
+    } catch (e) {
+      await job.log(String(e));
+      throw e;
     }
 
     await job.log(`Step "${stepSlug}" completed`);
