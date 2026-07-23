@@ -251,7 +251,7 @@ $effect(() => {
                 {/if}
                 {#if wf.warnings.length > 0}
                   <span
-                    class="inline-flex items-center gap-1 text-xs text-amber-500 mt-0.5"
+                    class="flex items-center gap-1 text-xs text-amber-500 mt-0.5"
                     title={wf.warnings.map(w => `[${w.stepSlug}.${w.field}] ${w.message}`).join("\n")}
                   >
                     <WarningIcon size={12} aria-hidden="true" />
