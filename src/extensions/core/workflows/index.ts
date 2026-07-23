@@ -130,13 +130,20 @@ export function validateWorkflowDependencies(
   };
 }
 
+/** Built-in step types handled directly by the workflow engine. */
+const BUILTIN_STEP_TYPES = new Set(["agent", "webhook"]);
+
 /**
- * Produces per-step warnings for tools and skills referenced in agent steps
- * that are not currently available. Returns an array compatible with
- * {@link TemplateWarning} so results can be merged with template validation warnings.
+ * Produces per-step warnings for dependencies that are not currently available.
+ * Checks:
+ * - Agent steps: tools and skills that are not registered
+ * - Custom step types: whether the extension providing the step handler is active
+ *
+ * Returns an array compatible with {@link TemplateWarning} so results can be
+ * merged with template validation warnings.
  *
  * @param definition - The workflow definition to check
- * @param ctx - Extension context for querying available tools and skills
+ * @param ctx - Extension context for querying available tools, skills, and step handlers
  * @returns Array of per-step warnings (empty if all dependencies are satisfied)
  */
 function getDependencyWarnings(definition: WorkflowDefinition, ctx: ExtensionContext): TemplateWarning[] {
@@ -145,6 +152,19 @@ function getDependencyWarnings(definition: WorkflowDefinition, ctx: ExtensionCon
   const warnings: TemplateWarning[] = [];
 
   for (const step of definition.steps) {
+    // Check custom (extension-registered) step types are available
+    if (!BUILTIN_STEP_TYPES.has(step.type)) {
+      const handler = ctx.getStepHandler(step.type);
+      if (!handler) {
+        warnings.push({
+          stepSlug: step.slug,
+          field: "type",
+          message: `Step type "${step.type}" is not available (extension disabled or not installed)`,
+        });
+      }
+      continue;
+    }
+
     if (step.type !== "agent") continue;
     const agentStep = step as AgentStep;
 
