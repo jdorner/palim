@@ -552,6 +552,178 @@ describe("validateWorkflowDependencies", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Dependency warnings in GET / response
+// ---------------------------------------------------------------------------
+
+describe("dependency warnings in GET /", () => {
+  let tmpDir: string;
+  let ext: Extension;
+  let routes: Map<string, RouteHandler>;
+
+  beforeEach(async () => {
+    tmpDir = path.join(import.meta.dir, `.tmp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+    await mkdir(path.join(tmpDir, "workflows"), { recursive: true });
+  });
+
+  afterEach(async () => {
+    await ext.shutdown();
+    await rm(tmpDir, { recursive: true, force: true });
+  });
+
+  async function setupWithWorkflow(wfData: Record<string, unknown>, ctxOverrides?: Partial<ExtensionContext>) {
+    const wfName = wfData.name as string;
+    await Bun.write(path.join(tmpDir, "workflows", `${wfName}.json5`), JSON.stringify(wfData, null, 2));
+
+    ext = createExtension();
+    const mock = createMockContext(tmpDir);
+    if (ctxOverrides) {
+      Object.assign(mock.ctx, ctxOverrides);
+    }
+    routes = mock.routes;
+    await ext.initialize(mock.ctx);
+    return mock;
+  }
+
+  test("reports missing tool in agent step", async () => {
+    await setupWithWorkflow({
+      name: "wf-missing-tool",
+      trigger: { type: "manual" },
+      steps: [{ slug: "step-one", type: "agent", prompt: "Go", tools: ["nonexistent_tool", "tool-alpha"] }],
+    });
+
+    const handler = routes.get("GET /")!;
+    const response = await handler({} as unknown as Parameters<RouteHandler>[0]);
+    const list = (await response.json()) as Array<{
+      name: string;
+      warnings: Array<{ stepSlug: string; field: string; message: string }>;
+    }>;
+
+    const wf = list.find((w) => w.name === "wf-missing-tool")!;
+    expect(wf.warnings.length).toBe(1);
+    expect(wf.warnings[0]!.stepSlug).toBe("step-one");
+    expect(wf.warnings[0]!.field).toBe("tools");
+    expect(wf.warnings[0]!.message).toContain("nonexistent_tool");
+  });
+
+  test("reports missing skill in agent step", async () => {
+    await setupWithWorkflow({
+      name: "wf-missing-skill",
+      trigger: { type: "manual" },
+      steps: [{ slug: "step-one", type: "agent", prompt: "Go", skills: ["nonexistent_skill", "skill-alice"] }],
+    });
+
+    const handler = routes.get("GET /")!;
+    const response = await handler({} as unknown as Parameters<RouteHandler>[0]);
+    const list = (await response.json()) as Array<{
+      name: string;
+      warnings: Array<{ stepSlug: string; field: string; message: string }>;
+    }>;
+
+    const wf = list.find((w) => w.name === "wf-missing-skill")!;
+    expect(wf.warnings.length).toBe(1);
+    expect(wf.warnings[0]!.stepSlug).toBe("step-one");
+    expect(wf.warnings[0]!.field).toBe("skills");
+    expect(wf.warnings[0]!.message).toContain("nonexistent_skill");
+  });
+
+  test("reports unavailable custom step type when handler is missing", async () => {
+    await setupWithWorkflow({
+      name: "wf-custom-step",
+      trigger: { type: "manual" },
+      steps: [{ slug: "write-excel", type: "excel-writer", outputPath: "/tmp/out.xlsx" }],
+    });
+
+    // Default mock: getStepHandler returns undefined -> should warn
+    const handler = routes.get("GET /")!;
+    const response = await handler({} as unknown as Parameters<RouteHandler>[0]);
+    const list = (await response.json()) as Array<{
+      name: string;
+      warnings: Array<{ stepSlug: string; field: string; message: string }>;
+    }>;
+
+    const wf = list.find((w) => w.name === "wf-custom-step")!;
+    expect(wf.warnings.length).toBe(1);
+    expect(wf.warnings[0]!.stepSlug).toBe("write-excel");
+    expect(wf.warnings[0]!.field).toBe("type");
+    expect(wf.warnings[0]!.message).toContain("excel-writer");
+    expect(wf.warnings[0]!.message).toContain("not available");
+  });
+
+  test("no warning for custom step type when handler is registered", async () => {
+    await setupWithWorkflow(
+      {
+        name: "wf-custom-ok",
+        trigger: { type: "manual" },
+        steps: [{ slug: "write-excel", type: "excel-writer", outputPath: "/tmp/out.xlsx" }],
+      },
+      {
+        getStepHandler: (type: string) =>
+          type === "excel-writer" ? ({ execute: async () => ({}) } as any) : undefined,
+      },
+    );
+
+    const handler = routes.get("GET /")!;
+    const response = await handler({} as unknown as Parameters<RouteHandler>[0]);
+    const list = (await response.json()) as Array<{
+      name: string;
+      warnings: Array<{ stepSlug: string; field: string; message: string }>;
+    }>;
+
+    const wf = list.find((w) => w.name === "wf-custom-ok")!;
+    expect(wf.warnings.length).toBe(0);
+  });
+
+  test("no warnings when all tools and skills are available", async () => {
+    await setupWithWorkflow({
+      name: "wf-all-good",
+      trigger: { type: "manual" },
+      steps: [
+        { slug: "step-one", type: "agent", prompt: "Go", tools: ["tool-alpha", "exec"], skills: ["skill-alice"] },
+      ],
+    });
+
+    const handler = routes.get("GET /")!;
+    const response = await handler({} as unknown as Parameters<RouteHandler>[0]);
+    const list = (await response.json()) as Array<{
+      name: string;
+      warnings: Array<{ stepSlug: string; field: string; message: string }>;
+    }>;
+
+    const wf = list.find((w) => w.name === "wf-all-good")!;
+    expect(wf.warnings.length).toBe(0);
+  });
+
+  test("reports multiple warnings across different steps", async () => {
+    await setupWithWorkflow({
+      name: "wf-multi-issues",
+      trigger: { type: "manual" },
+      steps: [
+        { slug: "step-one", type: "agent", prompt: "Go", tools: ["missing-tool"] },
+        { slug: "step-two", type: "excel-writer", outputPath: "/tmp/out.xlsx" },
+      ],
+    });
+
+    const handler = routes.get("GET /")!;
+    const response = await handler({} as unknown as Parameters<RouteHandler>[0]);
+    const list = (await response.json()) as Array<{
+      name: string;
+      warnings: Array<{ stepSlug: string; field: string; message: string }>;
+    }>;
+
+    const wf = list.find((w) => w.name === "wf-multi-issues")!;
+    expect(wf.warnings.length).toBe(2);
+
+    const toolWarning = wf.warnings.find((w) => w.field === "tools")!;
+    expect(toolWarning.stepSlug).toBe("step-one");
+    expect(toolWarning.message).toContain("missing-tool");
+
+    const typeWarning = wf.warnings.find((w) => w.field === "type")!;
+    expect(typeWarning.stepSlug).toBe("step-two");
+    expect(typeWarning.message).toContain("excel-writer");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // POST /run/:name - dispatch behavior
 // ---------------------------------------------------------------------------
 
