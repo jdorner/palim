@@ -18,6 +18,7 @@
         "elysia": "^1.4.29",
         "elysia-rate-limit": "^4.6.2",
         "file-type": "^22.0.1",
+        "hucre": "0.6.2",
         "just-bash": "^3.1.0",
         "logging": "^4.2.0",
         "nanoid": "^6.0.0",
@@ -636,6 +637,8 @@
     "http-proxy-agent": ["http-proxy-agent@7.0.2", "", { "dependencies": { "agent-base": "^7.1.0", "debug": "^4.3.4" } }, "sha512-T1gkAiYYDWYx3V5Bmyu7HcfcvL7mUrTWiM6yOfa3PIphViJ/gFPbvidQ+veqSOHci/PxBcDabeUNCzpOODJZig=="],
 
     "https-proxy-agent": ["https-proxy-agent@7.0.6", "", { "dependencies": { "agent-base": "^7.1.2", "debug": "4" } }, "sha512-vK9P5/iUfdl95AI+JVyUuIcVtd4ofvtrOr3HNtM2yxC9bnMbEdp3x01OhQNnjb8IJYi38VlTE3mBXwcfvywuSw=="],
+
+    "hucre": ["hucre@0.6.2", "", { "bin": { "hucre": "./dist/cli.mjs" } }, "sha512-o1PqTiKfx37tFmiiPElwpEfFvlXcXn5CEgDbt1uYk1bVvzDNEIAIKnxrKhfcHLZx6jc5PdofOy8PuwJcIZsqUg=="],
 
     "iconv-lite": ["iconv-lite@0.7.2", "", { "dependencies": { "safer-buffer": ">= 2.1.2 < 3.0.0" } }, "sha512-im9DjEDQ55s9fL4EYzOAv0yMqmMBSZp6G0VvFyTMPKWxiSBHUj9NW/qqLmXUwXrrM7AvqSlTCfvqRb0cM8yYqw=="],
 
