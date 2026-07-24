@@ -31,6 +31,7 @@ import type {
 } from "@src/extensions";
 import { ExtensionRegistry } from "@src/extensions";
 import type { EventBus } from "@src/extensions/eventBus";
+import { ExtensionWatcher } from "@src/extensions/extensionWatcher";
 import { ExternalDependencyResolver } from "@src/extensions/externalDependencyResolver";
 import type { AgentJob, AgentProcessorConfig, AgentProcessorResult, ChatJob } from "@src/jobs";
 import { runAgent as coreRunAgent } from "@src/jobs";
@@ -156,6 +157,9 @@ function createExtensionRunAgent(
 export class AppBootstrap {
   /** Guards against duplicate shutdown invocations and suppresses stale I/O errors during teardown. */
   private isShuttingDown = false;
+
+  /** Watches EXTERNAL_EXTENSIONS_DIR for hot-load/unload of extension directories. */
+  private extensionWatcher: ExtensionWatcher | null = null;
 
   private constructor(
     private registry: ExtensionRegistry,
@@ -366,6 +370,15 @@ export class AppBootstrap {
     await this.registry.initializeAll(this.registryInitDeps);
 
     // ---------------------------------------------------------------------------
+    // Start external extension directory watcher (hot-load/unload)
+    // ---------------------------------------------------------------------------
+    this.extensionWatcher = new ExtensionWatcher({
+      directory: EXTERNAL_EXTENSIONS_DIR,
+      registry: this.registry,
+    });
+    await this.extensionWatcher.start();
+
+    // ---------------------------------------------------------------------------
     // Wire chat event broadcasting
     // ---------------------------------------------------------------------------
     const eventBus = this.registry.getEventBus();
@@ -478,6 +491,7 @@ export class AppBootstrap {
 
     log.info("Received signal, shutting down...");
 
+    await this.extensionWatcher?.stop();
     await this.registry.shutdownAll();
     await Promise.all(this.getCoreQueues().map((q) => q?.close()));
     shutdownManager();
