@@ -6,12 +6,20 @@
  * explicit, testable, and self-documenting.
  */
 
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
 import type { WebSocketMessage } from "@shared/types";
-import { DATA_DIR, EXTENSIONS_DIR, EXTERNAL_EXTENSIONS_DIR, WEB_HOST, WEB_PORT, WORK_DIR } from "@src/config";
+import {
+  DATA_DIR,
+  EXTENSIONS_DIR,
+  EXTERNAL_EXTENSIONS_DIR,
+  PROJECT_DIR,
+  WEB_HOST,
+  WEB_PORT,
+  WORK_DIR,
+} from "@src/config";
 import { appConfig, closeDb, getDb } from "@src/db";
 import type {
   CoreQueueName,
@@ -23,6 +31,7 @@ import type {
 } from "@src/extensions";
 import { ExtensionRegistry } from "@src/extensions";
 import type { EventBus } from "@src/extensions/eventBus";
+import { ExternalDependencyResolver } from "@src/extensions/externalDependencyResolver";
 import type { AgentJob, AgentProcessorConfig, AgentProcessorResult, ChatJob } from "@src/jobs";
 import { runAgent as coreRunAgent } from "@src/jobs";
 import { buildModelConfig, detectAndSetProvider, fetchAvailableModels, getModelForIntent } from "@src/models";
@@ -243,6 +252,38 @@ export class AppBootstrap {
     );
 
     await registry.discoverAndLoadSkills();
+
+    // ---------------------------------------------------------------------------
+    // Resolve external extension dependencies (tsconfig + npm install)
+    // ---------------------------------------------------------------------------
+    if (existsSync(EXTERNAL_EXTENSIONS_DIR)) {
+      const resolver = new ExternalDependencyResolver({ coreProjectDir: PROJECT_DIR });
+      const extGlob = new Bun.Glob("*/index.ts");
+      const extensionSubdirs: string[] = [];
+
+      for await (const match of extGlob.scan({ cwd: EXTERNAL_EXTENSIONS_DIR, onlyFiles: true })) {
+        const dirName = match.split("/")[0];
+        if (dirName) {
+          extensionSubdirs.push(join(EXTERNAL_EXTENSIONS_DIR, dirName));
+        }
+      }
+
+      if (extensionSubdirs.length > 0) {
+        const results = await resolver.resolveAll(extensionSubdirs);
+        const failedNames = new Set<string>();
+
+        for (const result of results) {
+          if (result.depsInstalled === false) {
+            failedNames.add(result.name);
+            log.warn(`Extension "${result.name}" will be skipped: dependency install failed`);
+          }
+        }
+
+        if (failedNames.size > 0) {
+          registry.setSkipExtensions(failedNames);
+        }
+      }
+    }
 
     // ---------------------------------------------------------------------------
     // Create core queues

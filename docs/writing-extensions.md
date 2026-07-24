@@ -60,6 +60,121 @@ const extension: Extension = {
 export default extension;
 ```
 
+## External Extensions
+
+Extensions can also live **outside** the core project tree, in `AGENT_WORK_DIR/.palim/extensions/`. This is useful for project-specific or user-specific extensions that should not be committed to the core repository.
+
+```text
+.palim/extensions/
+├── my-extension/
+│   ├── index.ts          # Extension entry point (same structure as built-in)
+│   ├── package.json      # Dependency declarations
+│   ├── tsconfig.json     # Auto-generated (do not edit)
+│   ├── schema.ts         # Optional database schema
+│   └── skills/           # Optional bundled skills
+│       └── my-skill/
+│           ├── SKILL.md
+│           └── scripts/
+│               └── my-command.ts
+└── another-extension/
+    └── index.ts
+```
+
+External extensions use the exact same `Extension` interface and `@ext/types` / `@ext/sdk` imports as built-in extensions. The system handles TypeScript resolution and dependency management automatically.
+
+### How It Works
+
+At boot (before extension initialization), the system runs an `ExternalDependencyResolver` that:
+
+1. **Generates `tsconfig.json`** in each external extension directory with path aliases (`@ext/types`, `@ext/sdk`, `@src/*`, `@shared/*`) pointing back to the core project's source files, and `typeRoots` pointing to the core project's `node_modules`. This gives your IDE full type checking and autocompletion.
+
+2. **Installs dependencies** declared in the extension's `package.json` by running `bun install` in the extension directory.
+
+3. **Validates peer dependencies** against the core project's installed packages and logs warnings for any missing ones.
+
+The resolver also runs when an extension is hot-loaded at runtime via `loadOne()`.
+
+### package.json
+
+Each external extension should have a `package.json`. Use `dependencies` for packages the extension needs that are NOT in the core project, and `peerDependencies` for packages you rely on from the host:
+
+```json
+{
+  "name": "my-extension",
+  "module": "index.ts",
+  "type": "module",
+  "dependencies": {
+    "some-niche-package": "^2.0.0"
+  },
+  "peerDependencies": {
+    "drizzle-orm": "^0.45.2",
+    "@sinclair/typebox": "^0.34.52"
+  }
+}
+```
+
+**Dependency resolution rules:**
+
+- **Peer dependencies** are verified to exist in the core project's `node_modules` but never installed separately. If missing, a warning is logged.
+- **Dependencies matching a host package** at a compatible version are skipped (no duplication). The core's copy is reused at runtime.
+- **Dependencies not in the host** are installed into the extension's local `node_modules/`.
+- **Version conflicts** (extension requests a range incompatible with the installed host version) are logged as warnings, and the extension's version is installed locally.
+
+### Generated tsconfig.json
+
+The auto-generated `tsconfig.json` looks like this (paths are relative to your extension directory):
+
+```json
+{
+  "_managed": true,
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "typeRoots": ["<relative-path>/node_modules/@types"],
+    "paths": {
+      "@ext/types": ["<relative-path>/src/extensions/types.ts"],
+      "@ext/sdk": ["<relative-path>/src/extensions/sdk.ts"],
+      "@src/*": ["<relative-path>/src/*"],
+      "@shared/*": ["<relative-path>/shared/*"],
+      "*": ["./node_modules/*", "<relative-path>/node_modules/*"]
+    }
+  },
+  "include": ["./**/*.ts"],
+  "exclude": ["node_modules"]
+}
+```
+
+**Important:** Do not manually edit this file. The resolver overwrites it on every boot (detected by `"_managed": true`). If you need a custom tsconfig, set `"_managed": false` at the root level — the resolver will then leave your file untouched.
+
+### Runtime Resolution
+
+At runtime, external extensions are loaded via dynamic `import()` from the core process. This means:
+
+- Bun resolves modules relative to the core project's context, so host packages "just work" without needing them in the extension's `node_modules`.
+- Extension-specific packages installed in the extension's `node_modules/` are also resolvable (Bun checks local `node_modules` first, then walks up).
+- The `tsconfig.json` only affects **TypeScript tooling** (IDE, type checker) — it has no effect at runtime.
+
+### Discovery and Loading
+
+External extensions are discovered at boot by scanning `EXTERNAL_EXTENSIONS_DIR` for `*/index.ts` patterns. They go through the same validation, dependency resolution (topological sort), and initialization flow as built-in extensions.
+
+**Restart required:** Dropping a new extension folder into `.palim/extensions/` requires a restart to pick it up. Hot-loading via `loadOne()` is available programmatically but there is no filesystem watcher for new extensions.
+
+### Error Handling
+
+- If `bun install` fails for an extension, that extension is skipped during initialization (other extensions still load normally).
+- If the tsconfig cannot be written (permissions, disk full), a warning is logged and the extension still loads (runtime works fine, but IDE may show errors).
+- If `package.json` is malformed, the extension is skipped entirely.
+
 ## ExtensionContext API
 
 Every extension receives a scoped `ExtensionContext` during `initialize()`. Here's the full surface:

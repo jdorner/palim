@@ -8,7 +8,7 @@ import { watch as fsWatch } from "node:fs";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ExtensionInfo, WebSocketMessage } from "@shared/types";
 import { Value } from "@sinclair/typebox/value";
-import { serverOrigin } from "@src/config";
+import { PROJECT_DIR, serverOrigin } from "@src/config";
 import { getDb, schema } from "@src/db";
 import type { PushMessageFn } from "@src/push";
 import type { ManagedQueuePort, QueueJob } from "@src/queue";
@@ -28,6 +28,7 @@ import createLogger from "logging";
 import { resolveDependencyOrder } from "./dependencyResolver";
 import { EventBus } from "./eventBus";
 import { createExtensionContext } from "./extensionContext";
+import { ExternalDependencyResolver } from "./externalDependencyResolver";
 import type { LoadedExtension } from "./internalTypes";
 import type { RouteRegistry } from "./types";
 import {
@@ -116,6 +117,9 @@ export class ExtensionRegistry {
   /** Debounce timer for skill map re-scans. */
   private skillWatcherTimer: ReturnType<typeof setTimeout> | null = null;
 
+  /** Extension names to skip during initialization (failed dependency resolution). */
+  private skipExtensionNames = new Set<string>();
+
   constructor(config: ExtensionRegistryConfig) {
     this.extensionDirs = config.extensionDirs;
     this.workDir = config.workDir;
@@ -128,6 +132,16 @@ export class ExtensionRegistry {
   /** The built-in extensions directory - used by the skill watcher and exposed to extensions. */
   private get builtinExtensionsDir(): string {
     return this.extensionDirs[0]!;
+  }
+
+  /**
+   * Sets the list of extension names to skip during initialization.
+   * Used to exclude extensions whose external dependency resolution failed.
+   *
+   * @param names - Extension names (from package.json or directory basename) to skip.
+   */
+  setSkipExtensions(names: Set<string>): void {
+    this.skipExtensionNames = names;
   }
 
   /**
@@ -300,6 +314,12 @@ export class ExtensionRegistry {
     // Initialize in dependency order
     for (const ext of ordered) {
       const name = ext.manifest.name;
+
+      // Skip extensions that failed dependency resolution
+      if (this.skipExtensionNames.has(name)) {
+        logger.warn(`Extension "${name}" skipped - external dependency resolution failed`);
+        continue;
+      }
 
       // Skip initialization for extensions disabled in the database (start as suspended)
       if (!ext.manifest.core && !this.isExtensionEnabled(name)) {
@@ -692,6 +712,18 @@ export class ExtensionRegistry {
     if (!this.initDeps) {
       logger.error("Cannot loadOne before initializeAll has been called");
       return false;
+    }
+
+    // Resolve external dependencies before importing (tsconfig + npm packages)
+    const extensionDir = modulePath.replace(/\/index\.ts$/, "");
+    const externalDir = this.extensionDirs[1];
+    if (externalDir && extensionDir.startsWith(externalDir)) {
+      const resolver = new ExternalDependencyResolver({ coreProjectDir: PROJECT_DIR });
+      const result = await resolver.resolveOne(extensionDir);
+      if (result.depsInstalled === false) {
+        logger.error(`External dependency resolution failed for "${result.name}": ${result.error ?? "unknown error"}`);
+        return false;
+      }
     }
 
     // Import with cache-busting to bypass Bun's module cache
