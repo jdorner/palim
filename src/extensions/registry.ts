@@ -777,7 +777,13 @@ export class ExtensionRegistry {
       await this.activate(name);
     } catch (err) {
       logger.error(`Failed to activate extension "${name}":`, err);
-      // Extension remains in loaded list as suspended
+      // Remove the entry from the loaded list so it doesn't block future load attempts.
+      // The entry was added as suspended with empty registrations, so no cleanup is needed
+      // beyond what activate()'s own catch already handled (stepTypeNameSet, toolNameSet, etc.).
+      const failIdx = this.loaded.findIndex((l) => l.name === name);
+      if (failIdx !== -1) {
+        this.loaded.splice(failIdx, 1);
+      }
       return false;
     }
 
@@ -861,6 +867,7 @@ export class ExtensionRegistry {
     entry.tools = [];
     entry.routes = [];
     entry.queues = [];
+    entry.stepTypes = [];
     entry.state = "suspended";
 
     // Broadcast lifecycle event
