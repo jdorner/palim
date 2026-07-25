@@ -972,6 +972,7 @@ export class ExtensionRegistry {
     entry.tools = loaded.tools;
     entry.routes = loaded.routes;
     entry.queues = loaded.queues;
+    entry.stepTypes = loaded.stepTypes;
     entry.state = "active";
     entry.error = null;
 

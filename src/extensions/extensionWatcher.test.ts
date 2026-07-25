@@ -383,4 +383,63 @@ export default {
       expect(info.some((i) => i.name === "stopped-ext")).toBe(false);
     });
   });
+
+  describe("reloading", () => {
+    test("reloads extension when index.ts is overwritten", async () => {
+      await watcher.start();
+
+      // Create and load the extension
+      const extDir = join(externalDir, "reload-ext");
+      mkdirSync(extDir, { recursive: true });
+      const manifestV1 = { name: "reload-ext", version: "1.0.0", description: "v1" };
+      const codeV1 = `
+export default {
+  manifest: ${JSON.stringify(manifestV1)},
+  async initialize(ctx) {
+    ctx.registerTool({
+      name: "reload-ext_tool_v1",
+      label: "v1 tool",
+      description: "v1",
+      parameters: {},
+      execute: async () => ({ content: [{ type: "text", text: "v1" }], details: {} }),
+    });
+  },
+  async shutdown() {},
+};
+`;
+      await Bun.write(join(extDir, "index.ts"), codeV1);
+      await sleep(EVENT_SETTLE_MS);
+
+      // Verify v1 loaded
+      let info = registry.getLoadedExtensionInfo();
+      expect(info.some((i) => i.name === "reload-ext")).toBe(true);
+      expect(registry.getRegisteredTools().some((t) => t.name === "reload-ext_tool_v1")).toBe(true);
+
+      // Overwrite with v2 (simulates cp over existing)
+      const manifestV2 = { name: "reload-ext", version: "2.0.0", description: "v2" };
+      const codeV2 = `
+export default {
+  manifest: ${JSON.stringify(manifestV2)},
+  async initialize(ctx) {
+    ctx.registerTool({
+      name: "reload-ext_tool_v2",
+      label: "v2 tool",
+      description: "v2",
+      parameters: {},
+      execute: async () => ({ content: [{ type: "text", text: "v2" }], details: {} }),
+    });
+  },
+  async shutdown() {},
+};
+`;
+      await Bun.write(join(extDir, "index.ts"), codeV2);
+      await sleep(EVENT_SETTLE_MS);
+
+      // v1 tool should be gone, v2 tool should be present
+      info = registry.getLoadedExtensionInfo();
+      expect(info.some((i) => i.name === "reload-ext" && i.version === "2.0.0")).toBe(true);
+      expect(registry.getRegisteredTools().some((t) => t.name === "reload-ext_tool_v1")).toBe(false);
+      expect(registry.getRegisteredTools().some((t) => t.name === "reload-ext_tool_v2")).toBe(true);
+    });
+  });
 });

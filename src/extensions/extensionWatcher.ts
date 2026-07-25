@@ -45,6 +45,8 @@ export class ExtensionWatcher {
   private pendingLoads = new Set<string>();
   /** Pending extension names to unload (debounce accumulator). */
   private pendingUnloads = new Set<string>();
+  /** Pending extension directories to reload (unload + load). */
+  private pendingReloads = new Set<string>();
   /** Debounce timer handle. */
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -89,6 +91,7 @@ export class ExtensionWatcher {
     });
 
     this.watcher.on("add", (filePath) => this.handleFileAdd(filePath));
+    this.watcher.on("change", (filePath) => this.handleFileChange(filePath));
     this.watcher.on("addDir", (dirPath) => this.handleDirAdd(dirPath));
     this.watcher.on("unlinkDir", (dirPath) => this.handleDirRemove(dirPath));
     this.watcher.on("unlink", (filePath) => this.handleFileRemove(filePath));
@@ -118,6 +121,7 @@ export class ExtensionWatcher {
     }
     this.pendingLoads.clear();
     this.pendingUnloads.clear();
+    this.pendingReloads.clear();
     this.dirToManifestName.clear();
   }
 
@@ -161,10 +165,41 @@ export class ExtensionWatcher {
     // Pattern: <extension-name>/index.ts
     if (parts.length === 2 && parts[1] === "index.ts") {
       const extName = parts[0]!;
+
+      // If already pending unload, convert to reload (rm + cp scenario)
+      if (this.pendingUnloads.has(extName)) {
+        this.pendingUnloads.delete(extName);
+        this.pendingReloads.add(extName);
+        this.scheduleDebouncedProcess();
+        return;
+      }
+
       if (this.knownExtensions.has(extName)) return;
 
       logger.debug(`Detected new extension entry point: ${extName}/index.ts`);
       this.pendingLoads.add(extName);
+      this.pendingUnloads.delete(extName);
+      this.scheduleDebouncedProcess();
+    }
+  }
+
+  /**
+   * Handles a file change in the watch tree.
+   * If index.ts of a known (loaded) extension changes, schedule a reload (unload + load).
+   */
+  private handleFileChange(filePath: string): void {
+    const relative = path.relative(this.directory, filePath);
+    const parts = relative.split(path.sep);
+
+    // Pattern: <extension-name>/index.ts changed
+    if (parts.length === 2 && parts[1] === "index.ts") {
+      const extName = parts[0]!;
+      if (!this.knownExtensions.has(extName)) return;
+
+      logger.debug(`Detected extension entry point change: ${extName}/index.ts`);
+      this.pendingReloads.add(extName);
+      // Remove from simple load/unload sets to avoid double-processing
+      this.pendingLoads.delete(extName);
       this.pendingUnloads.delete(extName);
       this.scheduleDebouncedProcess();
     }
@@ -250,14 +285,16 @@ export class ExtensionWatcher {
   }
 
   /**
-   * Processes all pending load and unload operations.
-   * Unloads run first (in case of rename: old removed, new added).
+   * Processes all pending load, unload, and reload operations.
+   * Order: unloads first, then reloads (unload+load), then fresh loads.
    */
   private async processPending(): Promise<void> {
     // Snapshot and clear pending sets
     const toUnload = [...this.pendingUnloads];
+    const toReload = [...this.pendingReloads];
     const toLoad = [...this.pendingLoads];
     this.pendingUnloads.clear();
+    this.pendingReloads.clear();
     this.pendingLoads.clear();
 
     // Process unloads first
@@ -265,7 +302,12 @@ export class ExtensionWatcher {
       await this.unloadExtension(extName);
     }
 
-    // Process loads
+    // Process reloads (unload then load)
+    for (const extName of toReload) {
+      await this.reloadExtension(extName);
+    }
+
+    // Process fresh loads
     for (const extName of toLoad) {
       await this.loadExtension(extName);
     }
@@ -348,5 +390,36 @@ export class ExtensionWatcher {
     } catch (err) {
       logger.error(`Error unloading extension "${manifestName}":`, err);
     }
+  }
+
+  /**
+   * Reloads an extension: unloads the current version, then loads fresh.
+   * Used when index.ts changes for an already-loaded extension (e.g., cp over existing dir).
+   */
+  private async reloadExtension(extName: string): Promise<void> {
+    const manifestName = this.dirToManifestName.get(extName) ?? extName;
+    logger.info(`Reloading external extension "${manifestName}" (dir: ${extName})...`);
+
+    // Unload the existing version (clears step types, tools, routes, etc.)
+    const infos = this.registry.getLoadedExtensionInfo();
+    const isLoaded = infos.some((i) => i.name === manifestName);
+    if (isLoaded) {
+      try {
+        const success = await this.registry.unloadOne(manifestName);
+        if (!success) {
+          logger.warn(`Failed to unload "${manifestName}" during reload`);
+          return;
+        }
+      } catch (err) {
+        logger.error(`Error unloading "${manifestName}" during reload:`, err);
+        return;
+      }
+    }
+
+    // Clear the old mapping (the new version might have a different manifest name)
+    this.dirToManifestName.delete(extName);
+
+    // Load the new version
+    await this.loadExtension(extName);
   }
 }
