@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "@dotenvx/dotenvx": "^2.17.2",
+    "@dotenvx/dotenvx": "^2.18.0",
     "@elysia/cors": "^1.4.2",
     "@elysiajs/static": "^1.4.10",
     "@mariozechner/pi-agent-core": "^0.73.1",
