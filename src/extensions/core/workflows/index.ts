@@ -99,8 +99,8 @@ export function validateWorkflowDependencies(
   definition: WorkflowDefinition,
   ctx: ExtensionContext,
 ): WorkflowValidationResult {
-  const availableTools = new Set([...ctx.getToolNames(), ...SANDBOX_TOOL_NAMES]);
-  const availableSkills = new Set(ctx.skills.getNames());
+  const availableTools = new Set([...ctx.tools.names(), ...SANDBOX_TOOL_NAMES]);
+  const availableSkills = new Set(ctx.skills.names());
 
   const missingTools = new Set<string>();
   const missingSkills = new Set<string>();
@@ -147,14 +147,14 @@ const BUILTIN_STEP_TYPES = new Set(["agent", "webhook"]);
  * @returns Array of per-step warnings (empty if all dependencies are satisfied)
  */
 function getDependencyWarnings(definition: WorkflowDefinition, ctx: ExtensionContext): TemplateWarning[] {
-  const availableTools = new Set([...ctx.getToolNames(), ...SANDBOX_TOOL_NAMES]);
-  const availableSkills = new Set(ctx.skills.getNames());
+  const availableTools = new Set([...ctx.tools.names(), ...SANDBOX_TOOL_NAMES]);
+  const availableSkills = new Set(ctx.skills.names());
   const warnings: TemplateWarning[] = [];
 
   for (const step of definition.steps) {
     // Check custom (extension-registered) step types are available
     if (!BUILTIN_STEP_TYPES.has(step.type)) {
-      const handler = ctx.getStepHandler(step.type);
+      const handler = ctx.stepTypes.get(step.type);
       if (!handler) {
         warnings.push({
           stepSlug: step.slug,
@@ -254,7 +254,7 @@ export function createExtension(): Extension {
         store.clear();
         for (const [k, v] of loaded) store.set(k, v);
         logger.info(`Reloaded ${store.size} workflow definition(s)`);
-        ctx.broadcast({ type: "workflow_reload" });
+        ctx.messaging.broadcast({ type: "workflow_reload" });
       } catch (err) {
         logger.error("Failed to reload workflows:", err);
       }
@@ -270,7 +270,7 @@ export function createExtension(): Extension {
       const sessionFactory: SessionFactory = { create: (opts) => ctx.sessions.create(opts) };
 
       // Load workflow definitions
-      state.workflowsDir = path.join(ctx.workDir, "workflows");
+      state.workflowsDir = path.join(ctx.paths.work, "workflows");
       await mkdir(state.workflowsDir, { recursive: true });
 
       const loaded = await loadWorkflows(state.workflowsDir, logger);
@@ -293,13 +293,13 @@ export function createExtension(): Extension {
       }
 
       // Create the steps queue
-      const stepsQueue = ctx.createQueue<WorkflowStepJobData>(
+      const stepsQueue = ctx.queues.create<WorkflowStepJobData>(
         "steps",
         createStepProcessor({
           ctx,
           flowProducer,
           emitEvent: (event: AgentEvent, jobId: string, jobData: WorkflowStepJobData) => {
-            ctx.emitEvent({
+            ctx.events.emit({
               ...event,
               context: {
                 source: "workflows",
@@ -311,7 +311,7 @@ export function createExtension(): Extension {
             });
           },
           log: logger,
-          getStepHandler: (type) => ctx.getStepHandler(type),
+          getStepHandler: (type) => ctx.stepTypes.get(type),
         }),
         {
           concurrency: 1,
@@ -326,7 +326,7 @@ export function createExtension(): Extension {
       stepsQueue.onEvent("active", ({ job }) => {
         if (!job) return;
         const d = stepData(job);
-        ctx.broadcast({
+        ctx.messaging.broadcast({
           type: "workflow_step_started",
           workflowRunId: d.workflowRunId,
           stepSlug: d.stepSlug,
@@ -336,27 +336,27 @@ export function createExtension(): Extension {
       stepsQueue.onEvent("completed", ({ job }) => {
         if (!job) return;
         const d = stepData(job);
-        ctx.broadcast({
+        ctx.messaging.broadcast({
           type: "workflow_step_completed",
           workflowRunId: d.workflowRunId,
           stepSlug: d.stepSlug,
           jobId: d.id,
         });
         if (d.stepIndex === d.totalSteps - 1) {
-          ctx.broadcast({ type: "workflow_completed", workflowRunId: d.workflowRunId });
+          ctx.messaging.broadcast({ type: "workflow_completed", workflowRunId: d.workflowRunId });
         }
       });
       stepsQueue.onEvent("failed", ({ jobId, failedReason, job }) => {
         if (!job) return;
         const d = stepData(job);
-        ctx.broadcast({
+        ctx.messaging.broadcast({
           type: "workflow_step_failed",
           workflowRunId: d.workflowRunId,
           stepSlug: d.stepSlug,
           jobId: d.id,
           error: failedReason,
         });
-        ctx.broadcast({
+        ctx.messaging.broadcast({
           type: "workflow_failed",
           workflowRunId: d.workflowRunId,
           failedStep: d.stepSlug,
@@ -366,7 +366,7 @@ export function createExtension(): Extension {
         // Emit domain event for cross-extension consumption (e.g. error-analyzer)
         // Only emit after the job failed permanently (not just delayed because of retry attempts)
         if (d.state === "failed") {
-          ctx.emitEvent({
+          ctx.events.emit({
             type: "workflow:step_failed",
             context: {
               source: "workflows",
@@ -403,7 +403,7 @@ export function createExtension(): Extension {
           if (wf.trigger.type === triggerType && wf.trigger.ref === slug && (wf.enabled ?? true)) {
             try {
               const result = await dispatchWorkflow(flowProducer, wf, payload, logger, sessionFactory);
-              ctx.broadcast({
+              ctx.messaging.broadcast({
                 type: "workflow_started",
                 workflowRunId: result.workflowRunId,
                 workflowName: wf.name,
@@ -422,21 +422,21 @@ export function createExtension(): Extension {
       }
 
       // --- Subscribe to webhook events for trigger matching ---
-      ctx.on("webhook:received", async (event) => {
+      ctx.events.on("webhook:received", async (event) => {
         const slug = event.context?.slug as string | undefined;
         if (!slug) return;
         await matchAndDispatch("webhook", slug, event.context?.payload, "Webhook");
       });
 
       // --- Subscribe to file watcher events for trigger matching ---
-      ctx.on("filewatcher:detected", async (event) => {
+      ctx.events.on("filewatcher:detected", async (event) => {
         const slug = event.context?.slug as string | undefined;
         if (!slug) return;
         await matchAndDispatch("filewatcher", slug, event.context, "File watcher");
       });
 
       // --- Subscribe to scheduler events for trigger matching ---
-      ctx.on("scheduler:fired", async (event) => {
+      ctx.events.on("scheduler:fired", async (event) => {
         const slug = event.context?.slug as string | undefined;
         if (!slug) return;
         await matchAndDispatch("schedule", slug, event.context, "Schedule");
@@ -444,23 +444,23 @@ export function createExtension(): Extension {
 
       // --- Routes ---
 
-      // Adapter: wrap ctx.secrets into a TemplateSecretResolver for validation
-      const secretResolver: TemplateSecretResolver | undefined = ctx.secrets?.resolveAs
+      // Adapter: wrap ctx.internal.secrets into a TemplateSecretResolver for validation
+      const secretResolver: TemplateSecretResolver | undefined = ctx.internal?.secrets
         ? {
             async resolve(name: string, consumer: string) {
-              const value = await ctx.secrets.resolveAs!(name, consumer);
+              const value = await ctx.internal!.secrets.resolveAs(name, consumer);
               return { value, granted: value !== null, reason: value === null ? "denied or not found" : undefined };
             },
           }
         : undefined;
 
-      ctx.registerRoute("GET", "/meta/tools", async () => {
-        const names = ctx.getToolNames().sort();
+      ctx.routes.register("GET", "/meta/tools", async () => {
+        const names = ctx.tools.names().sort();
         return Response.json(names);
       });
 
-      ctx.registerRoute("GET", "/meta/skills", async () => {
-        const names = ctx.skills.getNames().sort();
+      ctx.routes.register("GET", "/meta/skills", async () => {
+        const names = ctx.skills.names().sort();
         return Response.json(names);
       });
 
@@ -471,7 +471,7 @@ export function createExtension(): Extension {
        *
        * @returns `{ webhook: string[], schedule: string[], filewatcher: string[] }`
        */
-      ctx.registerRoute("GET", "/meta/triggers", async () => {
+      ctx.routes.register("GET", "/meta/triggers", async () => {
         const origin = serverOrigin();
 
         const [webhookSlugs, schedulerIds, filewatcherSlugs] = await Promise.all([
@@ -499,7 +499,7 @@ export function createExtension(): Extension {
         });
       });
 
-      ctx.registerRoute("GET", "/", async () => {
+      ctx.routes.register("GET", "/", async () => {
         const allJobs = await stepsQueue.getAllJobs();
 
         // Group jobs by workflow name and run ID, then derive per-run status
@@ -560,7 +560,7 @@ export function createExtension(): Extension {
         return Response.json(list);
       });
 
-      ctx.registerRoute("GET", "/:name", async (reqCtx) => {
+      ctx.routes.register("GET", "/:name", async (reqCtx) => {
         const name = (reqCtx.params as Record<string, string>).name;
         const wf = store.get(name ?? "");
         if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
@@ -626,7 +626,7 @@ export function createExtension(): Extension {
        *
        * @returns `{ ok: true, name: "<name>" }` on success (201), or an error response (400/409/500)
        */
-      ctx.registerRoute("POST", "/", async (_reqCtx) => {
+      ctx.routes.register("POST", "/", async (_reqCtx) => {
         return Response.json({ error: "Function not available" }, { status: 500 });
 
         /*const body = reqCtx.body;
@@ -678,14 +678,14 @@ export function createExtension(): Extension {
         return Response.json({ ok: true, name: body.name }, { status: 201 });*/
       });
 
-      ctx.registerRoute("POST", "/run/:name", async (reqCtx) => {
+      ctx.routes.register("POST", "/run/:name", async (reqCtx) => {
         const name = (reqCtx.params as Record<string, string>).name;
         const wf = store.get(name ?? "");
         if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
 
         const payload = reqCtx.body ?? null;
         const result = await dispatchWorkflow(flowProducer, wf, payload, logger, sessionFactory);
-        ctx.broadcast({
+        ctx.messaging.broadcast({
           type: "workflow_started",
           workflowRunId: result.workflowRunId,
           workflowName: wf.name,
@@ -698,7 +698,7 @@ export function createExtension(): Extension {
         return Response.json({ ok: true, workflowRunId: result.workflowRunId, jobIds: result.jobIds }, { status: 202 });
       });
 
-      ctx.registerRoute("GET", "/runs/:runId", async (reqCtx) => {
+      ctx.routes.register("GET", "/runs/:runId", async (reqCtx) => {
         const runId = (reqCtx.params as Record<string, string>).runId;
         if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
         const steps = runJobs(await stepsQueue.getAllJobs(), runId);
@@ -720,7 +720,7 @@ export function createExtension(): Extension {
         });
       });
 
-      ctx.registerRoute("GET", "/runs/:runId/logs", async (reqCtx) => {
+      ctx.routes.register("GET", "/runs/:runId/logs", async (reqCtx) => {
         const runId = (reqCtx.params as Record<string, string>).runId;
         if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
         const stepJobs = runJobs(await stepsQueue.getAllJobs(), runId);
@@ -742,7 +742,7 @@ export function createExtension(): Extension {
         return Response.json({ runId, steps: stepsWithLogs });
       });
 
-      ctx.registerRoute("POST", "/runs/:runId/retry", async (reqCtx) => {
+      ctx.routes.register("POST", "/runs/:runId/retry", async (reqCtx) => {
         const runId = (reqCtx.params as Record<string, string>).runId;
         if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
         const steps = runJobs(await stepsQueue.getAllJobs(), runId);
@@ -765,7 +765,7 @@ export function createExtension(): Extension {
           return Response.json({ error: "No failed steps could be retried" }, { status: 500 });
         }
 
-        ctx.broadcast({
+        ctx.messaging.broadcast({
           type: "workflow_started",
           workflowRunId: runId,
           workflowName: sorted[0]!.workflowName,
@@ -779,7 +779,7 @@ export function createExtension(): Extension {
         return Response.json({ ok: true, workflowRunId: runId, retriedSteps: retried }, { status: 202 });
       });
 
-      ctx.registerRoute("DELETE", "/runs/:runId", async (reqCtx) => {
+      ctx.routes.register("DELETE", "/runs/:runId", async (reqCtx) => {
         const runId = (reqCtx.params as Record<string, string>).runId;
         if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
         const stepJobs = runJobs(await stepsQueue.getAllJobs(), runId);
@@ -795,7 +795,7 @@ export function createExtension(): Extension {
 
         // Notify frontend clients about removed jobs
         for (const jobId of cancelled) {
-          ctx.broadcast({ type: "job_removed", jobId });
+          ctx.messaging.broadcast({ type: "job_removed", jobId });
         }
 
         logger.info(`Cancelled workflow run ${runId} (${cancelled.length}/${stepJobs.length} jobs removed)`);
@@ -807,7 +807,7 @@ export function createExtension(): Extension {
        *
        * @returns `{ ok: true }` on success, or an error response (400/404/500)
        */
-      ctx.registerRoute("PUT", "/:name", async (reqCtx) => {
+      ctx.routes.register("PUT", "/:name", async (reqCtx) => {
         const name = (reqCtx.params as Record<string, string>).name;
         const body = reqCtx.body;
 
@@ -910,7 +910,7 @@ export function createExtension(): Extension {
         return Response.json({ ok: true });
       });
 
-      ctx.registerRoute("DELETE", "/:name", async (reqCtx) => {
+      ctx.routes.register("DELETE", "/:name", async (reqCtx) => {
         const name = (reqCtx.params as Record<string, string>).name;
         const wf = store.get(name ?? "");
         if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
@@ -935,7 +935,7 @@ export function createExtension(): Extension {
 
         await unlink(targetFile);
         store.delete(name!);
-        ctx.broadcast({ type: "workflow_deleted", workflowName: name! });
+        ctx.messaging.broadcast({ type: "workflow_deleted", workflowName: name! });
         logger.info(`Deleted workflow "${name}" (${targetFile})`);
         return Response.json({ ok: true });
       });

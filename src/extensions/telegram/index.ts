@@ -72,7 +72,7 @@ export function createExtension(): Extension {
         throw new Error(`${TELEGRAM_BOT_TOKEN} is required but not set.`);
       }
 
-      const chatIdCfg = ctx.getConfig("CHAT_ID");
+      const chatIdCfg = ctx.config.get("CHAT_ID");
       defaultChatId =
         typeof chatIdCfg === "string" ? chatIdCfg : chatIdCfg !== undefined ? String(chatIdCfg) : undefined;
 
@@ -102,7 +102,7 @@ export function createExtension(): Extension {
             timestamp: Date.now(),
           });
 
-          const jobId = await ctx.enqueueAgent(`telegram:${chatId}`, {
+          const jobId = await ctx.agent.enqueue(`telegram:${chatId}`, {
             context: { source: this.manifest.name, id: chatId.toString() },
             sessionId: session.id,
           });
@@ -118,7 +118,7 @@ export function createExtension(): Extension {
       // Route agent responses back to the originating Telegram chat.
       // Uses agent_end (not message_end) to avoid re-sending historical
       // assistant messages that were loaded from the session.
-      ctx.on("agent_end", async (event) => {
+      ctx.events.on("agent_end", async (event) => {
         if (event.type !== "agent_end") return;
 
         const chatId = Number(event.context?.id);
@@ -164,7 +164,7 @@ export function createExtension(): Extension {
         chat_id: Type.Optional(Type.String({ description: "Target Telegram chat ID. Uses default if omitted." })),
       });
 
-      ctx.registerTool({
+      ctx.tools.register({
         name: "send_telegram_message",
         label: "Send Telegram Message",
         description: "Send a message to a Telegram chat",
@@ -222,7 +222,7 @@ export function createExtension(): Extension {
       });
 
       // Re-assign default chat ID when extension settings change
-      ctx.on("settings:changed", (event) => {
+      ctx.events.on("settings:changed", (event) => {
         if (!("extensionName" in event) || event.extensionName !== "telegram") return;
 
         const values = (event as { values?: Record<string, unknown> }).values;
@@ -235,7 +235,7 @@ export function createExtension(): Extension {
       });
 
       // Reconnect the bot when the bot token secret is updated
-      ctx.on("secrets:changed", async (event) => {
+      ctx.events.on("secrets:changed", async (event) => {
         if (!("extensionName" in event) || event.extensionName !== "telegram") return;
 
         const { updatedKeys, deletedKeys } = event as { updatedKeys: string[]; deletedKeys: string[] };

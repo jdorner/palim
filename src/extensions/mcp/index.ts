@@ -60,7 +60,7 @@ export function createExtension(): Extension {
       logger = ctx.log;
 
       // Ensure table exists (defensive - migration may not have run yet)
-      const db = ctx.getDatabase();
+      const db = ctx.db;
 
       // Create client manager
       clientManager = createClientManager(logger);
@@ -73,7 +73,7 @@ export function createExtension(): Extension {
         const servers = getAllServers(db);
 
         if (servers.length > 0) {
-          if (ctx.getConfig("AUTO_SYNC", false)) {
+          if (ctx.config.get("AUTO_SYNC", false)) {
             const enabledServers = servers.filter((s) => s.enabled);
             logger.info(`Syncing ${enabledServers.length} MCP server(s)...`);
             await syncAllSkills(ctx, clientManager, enabledServers);

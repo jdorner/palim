@@ -101,7 +101,7 @@ export function createExtension(): Extension {
    * @param ctx - Extension context for event emission
    */
   async function startWatcher(registration: FileWatcherRegistration, ctx: ExtensionContext): Promise<void> {
-    const resolvedPath = validateAndResolvePath(registration.path, ctx.workDir);
+    const resolvedPath = validateAndResolvePath(registration.path, ctx.paths.work);
 
     const watcher = new FileWatcher(resolvedPath, {
       recursive: registration.recursive,
@@ -119,15 +119,15 @@ export function createExtension(): Extension {
       if (!matchesPatterns(basename, registration.patterns)) return;
 
       // Chokidar emits absolute paths. Validate they stay within workDir.
-      const workDirPrefix = ctx.workDir.endsWith(path.sep) ? ctx.workDir : ctx.workDir + path.sep;
-      if (!filePath.startsWith(workDirPrefix) && filePath !== ctx.workDir) {
+      const workDirPrefix = ctx.paths.work.endsWith(path.sep) ? ctx.paths.work : ctx.paths.work + path.sep;
+      if (!filePath.startsWith(workDirPrefix) && filePath !== ctx.paths.work) {
         logger.warn(`File watcher "${registration.slug}": path "${filePath}" escapes WORK_DIR, ignoring`);
         return;
       }
 
-      const relativePath = path.relative(ctx.workDir, filePath);
+      const relativePath = path.relative(ctx.paths.work, filePath);
       logger.debug(`File watcher "${registration.slug}": ${event} "${relativePath}"`);
-      ctx.emitEvent({
+      ctx.events.emit({
         type: "filewatcher:detected",
         context: {
           source: "filewatcher",
@@ -177,7 +177,7 @@ export function createExtension(): Extension {
 
     async initialize(ctx: ExtensionContext) {
       logger = ctx.log;
-      initStore(ctx.getDatabase());
+      initStore(ctx.db);
 
       // Load registrations and start enabled watchers
       const watchers = loadAll();
@@ -195,14 +195,14 @@ export function createExtension(): Extension {
       // ---------------------------------------------------------------
       // GET /ext/filewatcher/
       // ---------------------------------------------------------------
-      ctx.registerRoute("GET", "/", async () => {
+      ctx.routes.register("GET", "/", async () => {
         return Response.json(loadAll());
       });
 
       // ---------------------------------------------------------------
       // POST /ext/filewatcher/
       // ---------------------------------------------------------------
-      ctx.registerRoute("POST", "/", async (reqCtx) => {
+      ctx.routes.register("POST", "/", async (reqCtx) => {
         const body = reqCtx.body as Record<string, unknown>;
         if (!Value.Check(CreateFileWatcherPayload, body)) {
           return Response.json(
@@ -213,7 +213,7 @@ export function createExtension(): Extension {
 
         // Validate path scoping
         try {
-          validateAndResolvePath(body.path as string, ctx.workDir);
+          validateAndResolvePath(body.path as string, ctx.paths.work);
         } catch (err) {
           return Response.json({ error: (err as Error).message }, { status: 400 });
         }
@@ -244,7 +244,7 @@ export function createExtension(): Extension {
           }
         }
 
-        ctx.broadcast({ type: "filewatcher_reload" });
+        ctx.messaging.broadcast({ type: "filewatcher_reload" });
         logger.info(`Created file watcher "${registration.slug}"`);
         return Response.json(registration, { status: 201 });
       });
@@ -252,7 +252,7 @@ export function createExtension(): Extension {
       // ---------------------------------------------------------------
       // PUT /ext/filewatcher/:slug
       // ---------------------------------------------------------------
-      ctx.registerRoute("PUT", "/:slug", async (reqCtx) => {
+      ctx.routes.register("PUT", "/:slug", async (reqCtx) => {
         const slug = (reqCtx.params as Record<string, string>).slug;
         if (!slug) return Response.json({ error: "Missing slug" }, { status: 400 });
 
@@ -267,7 +267,7 @@ export function createExtension(): Extension {
         // Validate new path if provided
         if (body.path !== undefined) {
           try {
-            validateAndResolvePath(body.path as string, ctx.workDir);
+            validateAndResolvePath(body.path as string, ctx.paths.work);
           } catch (err) {
             return Response.json({ error: (err as Error).message }, { status: 400 });
           }
@@ -287,7 +287,7 @@ export function createExtension(): Extension {
           }
         }
 
-        ctx.broadcast({ type: "filewatcher_reload" });
+        ctx.messaging.broadcast({ type: "filewatcher_reload" });
         logger.info(`Updated file watcher "${slug}"`);
         return Response.json(updated);
       });
@@ -295,7 +295,7 @@ export function createExtension(): Extension {
       // ---------------------------------------------------------------
       // DELETE /ext/filewatcher/:slug
       // ---------------------------------------------------------------
-      ctx.registerRoute("DELETE", "/:slug", async (reqCtx) => {
+      ctx.routes.register("DELETE", "/:slug", async (reqCtx) => {
         const slug = (reqCtx.params as Record<string, string>).slug;
         if (!slug) return Response.json({ error: "Missing slug" }, { status: 400 });
 
@@ -305,7 +305,7 @@ export function createExtension(): Extension {
 
         await stopWatcher(slug);
 
-        ctx.broadcast({ type: "filewatcher_reload" });
+        ctx.messaging.broadcast({ type: "filewatcher_reload" });
         logger.info(`Deleted file watcher "${slug}"`);
         return Response.json({ ok: true });
       });

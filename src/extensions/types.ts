@@ -355,6 +355,13 @@ export interface RunAgentOptions {
 }
 
 // ---------------------------------------------------------------------------
+// Queue event callback
+// ---------------------------------------------------------------------------
+
+/** Callback type for queue event subscriptions. */
+export type QueueEventCallback = (data: { jobId: string; failedReason?: string; job: JobInfo | null }) => void;
+
+// ---------------------------------------------------------------------------
 // ExtensionContext
 // ---------------------------------------------------------------------------
 
@@ -363,135 +370,282 @@ export interface ExtensionContext {
   /** Pre-scoped logger for this extension (named `ext:{extensionName}`). */
   readonly log: Logger;
 
-  /** Absolute path to the agent's working directory. */
-  readonly workDir: string;
-
-  /** Absolute path to the data directory (databases, generated content). */
-  readonly dataDir: string;
-
-  /** Absolute path to the extensions directory. */
-  readonly extensionsDir: string;
+  /** Filesystem paths relevant to extension operation. */
+  readonly paths: {
+    /** Absolute path to the agent's working directory. */
+    readonly work: string;
+    /** Absolute path to the data directory (databases, generated content). */
+    readonly data: string;
+    /** Absolute path to the extensions directory. */
+    readonly extensions: string;
+  };
 
   // -------------------------------------------------------------------------
-  // Registration
+  // Tools
   // -------------------------------------------------------------------------
 
-  /**
-   * Returns all registered tool names (core + extensions) from enabled extensions.
-   * The list is not sorted - callers should sort if needed.
-   *
-   * @returns Array of tool names
-   */
-  getToolNames(): string[];
+  /** Agent tool registration and discovery. */
+  readonly tools: {
+    /** Register an additional agent tool. */
+    register(tool: AgentTool): void;
+    /**
+     * Returns all registered tool names (core + extensions) from enabled extensions.
+     * The list is not sorted - callers should sort if needed.
+     */
+    names(): string[];
+  };
 
-  /** Register an additional agent tool. */
-  registerTool(tool: AgentTool): void;
+  // -------------------------------------------------------------------------
+  // Routes
+  // -------------------------------------------------------------------------
 
-  /** Register an HTTP route (path auto-prefixed with `/ext/{extensionName}/`). */
-  registerRoute(method: HttpMethod, path: string, handler: RouteHandler): void;
+  /** HTTP route registration (path auto-prefixed with `/ext/{extensionName}/`). */
+  readonly routes: {
+    register(method: HttpMethod, path: string, handler: RouteHandler): void;
+  };
 
-  /**
-   * Create a managed job queue with scheduling support.
-   * Name is auto-prefixed with `{extensionName}:`.
-   *
-   * @param name - Queue name (will be prefixed)
-   * @param processor - Function that processes each job
-   * @param opts - Optional queue/worker configuration
-   * @returns A managed queue instance
-   */
-  createQueue<T = unknown, R = unknown>(
-    name: string,
-    processor: JobProcessor<T, R>,
-    opts?: ManagedQueueOptions,
-  ): ManagedQueuePort<T>;
+  // -------------------------------------------------------------------------
+  // Queues
+  // -------------------------------------------------------------------------
 
-  /**
-   * Register a custom workflow step type handler.
-   *
-   * When the workflow engine encounters a step with `type` matching the
-   * registered name, it dispatches execution to the handler instead of
-   * treating it as an unknown type.
-   *
-   * Step type names must be globally unique across all extensions.
-   *
-   * @param type - The step type identifier (e.g. "excel")
-   * @param handler - The handler implementing validation and execution logic
-   * @throws If the type name is already registered
-   */
-  registerStepType(type: string, handler: StepTypeHandler): void;
+  /** Job queue management, introspection, and event subscription. */
+  readonly queues: {
+    /**
+     * Create a managed job queue with scheduling support.
+     * Name is auto-prefixed with `{extensionName}:`.
+     *
+     * @param name - Queue name (will be prefixed)
+     * @param processor - Function that processes each job
+     * @param opts - Optional queue/worker configuration
+     * @returns A managed queue instance
+     */
+    create<T = unknown, R = unknown>(
+      name: string,
+      processor: JobProcessor<T, R>,
+      opts?: ManagedQueueOptions,
+    ): ManagedQueuePort<T>;
 
-  /**
-   * Look up a registered custom step type handler by type name.
-   *
-   * Used by the workflow engine to dispatch custom step types at job
-   * processing time. Returns `undefined` if no handler is registered.
-   *
-   * @param type - The step type identifier to look up
-   * @returns The handler, or `undefined` if not found
-   */
-  getStepHandler(type: string): StepTypeHandler | undefined;
+    /**
+     * Get the names of all registered queues (core + extension).
+     * Core queues are returned as-is ("agents", "chat"). Extension queues
+     * are returned with their full prefixed name ("extensionName:queueSuffix").
+     */
+    names(): string[];
+
+    /**
+     * Subscribe to events on a queue.
+     * Accepts both core queue names (`"agents"`, `"chat"`) and full extension
+     * queue names (e.g. `"converter:jobs"`).
+     */
+    onEvent(queueName: string, event: QueueEventName, callback: QueueEventCallback): void;
+
+    /**
+     * Unsubscribe a previously registered event handler from a queue.
+     * Accepts both core queue names (`"agents"`, `"chat"`) and full extension
+     * queue names (e.g. `"converter:jobs"`).
+     */
+    offEvent(queueName: string, event: QueueEventName, callback: QueueEventCallback): void;
+
+    /**
+     * Read log entries from a job on any queue.
+     *
+     * @param queueName - Queue name (core or extension-prefixed)
+     * @param jobId - The job ID to read logs for
+     * @returns The job's log entries and count
+     */
+    getJobLogs(queueName: string, jobId: string): Promise<QueueJobLogs>;
+
+    /**
+     * Get the shared {@link FlowProducer} instance for creating job flows/chains.
+     *
+     * @returns The shared FlowProducer (embedded mode)
+     */
+    getFlowProducer(): FlowProducer;
+  };
 
   // -------------------------------------------------------------------------
   // Events
   // -------------------------------------------------------------------------
 
-  /** Subscribe to a typed event on the shared event bus (provides narrowed payload). */
-  on<K extends keyof EventMap>(eventType: K, callback: (event: EventMap[K]) => void | Promise<void>): void;
-  /** Subscribe to an event on the shared event bus. */
-  on(eventType: EventType, callback: EventCallback): void;
+  /** Event bus for subscribing to and emitting lifecycle/domain events. */
+  readonly events: {
+    /** Subscribe to a typed event on the shared event bus (provides narrowed payload). */
+    on<K extends keyof EventMap>(type: K, callback: (event: EventMap[K]) => void | Promise<void>): void;
+    /** Subscribe to an event on the shared event bus. */
+    on(type: EventType, callback: EventCallback): void;
 
-  /** Emit a domain event onto the shared event bus. */
-  emitEvent(event: EventParam): void;
-
-  /** Broadcast a WebSocket message to all connected frontend clients. */
-  broadcast(message: WebSocketMessage): void;
+    /** Emit a domain event onto the shared event bus. */
+    emit(event: EventParam): void;
+  };
 
   // -------------------------------------------------------------------------
-  // Settings UI
+  // Config
+  // -------------------------------------------------------------------------
+
+  /** Extension configuration (env vars, persisted settings, schema defaults). */
+  readonly config: {
+    /**
+     * Read a configuration value for this extension.
+     *
+     * Precedence: env var > SQLite persisted value > schema default > caller default.
+     *
+     * The raw string is auto-coerced: `"true"`/`"false"` -> boolean,
+     * numeric strings -> number, JSON-shaped strings -> parsed object/array.
+     * Everything else is returned as-is (string).
+     *
+     * @typeParam T - Expected return type (narrows the union for convenience).
+     * @param key - The configuration key (UPPER_SNAKE_CASE).
+     * @param defaultValue - Returned when no source provides a value.
+     * @returns The resolved value, or `undefined`.
+     */
+    get<T extends ConfigValue = ConfigValue>(key: string, defaultValue: T): T;
+    get(key: string): ConfigValue | undefined;
+  };
+
+  // -------------------------------------------------------------------------
+  // Secrets
+  // -------------------------------------------------------------------------
+
+  /** Encrypted secrets management with scoped ACL and audit logging. */
+  readonly secrets: {
+    /**
+     * Retrieve a secret value. Access is controlled by the secrets ACL and
+     * all access attempts are audited. The consumer identity is automatically
+     * set to this extension's name.
+     *
+     * @param key - The secret key name
+     * @returns The decrypted value, or null if access is denied or key doesn't exist
+     */
+    get(key: string): Promise<string | null>;
+
+    /**
+     * Store a secret value (encrypted). Optionally configure which consumers
+     * may access it. The consumer identity is automatically set to this extension.
+     *
+     * @param key - The secret key name
+     * @param value - The plaintext value to encrypt and store
+     * @param opts - Optional ACL configuration for the new secret
+     */
+    set(key: string, value: string, opts?: SetSecretOptions): Promise<void>;
+  };
+
+  // -------------------------------------------------------------------------
+  // Sessions
   // -------------------------------------------------------------------------
 
   /**
-   * Register a named dynamic item provider for settings schema enrichment.
-   *
-   * When an extension's settings schema declares `dynamicItems: "<name>"` on an
-   * array property, the named provider is invoked at request time to populate
-   * `availableItems` dynamically. This allows settings dropdowns to reflect
-   * runtime state (e.g. available queues, models, skills).
-   *
-   * @param name - Unique provider name referenced by `dynamicItems` in schemas
-   * @param fn - Function that returns the current available items
+   * The shared session store for managing conversation sessions and messages.
+   * Provides CRUD operations for sessions and their messages.
    */
-  registerDynamicItemProvider(name: string, fn: () => string[]): void;
+  readonly sessions: SessionStorePort;
 
   // -------------------------------------------------------------------------
-  // Configuration & state
+  // Skills
+  // -------------------------------------------------------------------------
+
+  /** Skill introspection - resolve skill entries for building shell contexts. */
+  readonly skills: {
+    /**
+     * Resolve a skill name to its entry (directory path, frontmatter, etc.).
+     *
+     * @param name - The skill name to look up
+     * @returns The skill entry, or undefined if not found
+     */
+    resolve(name: string): SkillEntry | undefined;
+
+    /**
+     * Returns the names of all skills whose owning extension is enabled.
+     * The list is not sorted - callers should sort if needed.
+     */
+    names(): string[];
+
+    /**
+     * Trigger a full re-discovery and re-loading of all skills from extension
+     * directories. Use after writing new skill files at runtime (e.g., generated
+     * MCP skills).
+     */
+    rescan(): Promise<void>;
+  };
+
+  // -------------------------------------------------------------------------
+  // Agent
+  // -------------------------------------------------------------------------
+
+  /** Agent execution - run sub-agents and enqueue agent jobs. */
+  readonly agent: {
+    /**
+     * Run a sub-agent to completion.
+     * The core owns model selection, API key injection, and shell creation.
+     * Messages are loaded from the session (via `opts.sessionId`).
+     * Callers must append the user message to the session before invoking.
+     *
+     * @param job - The queue job (used for logging)
+     * @param opts - Agent configuration (system prompt, tools, skills, sessionId, etc.)
+     * @returns The agent's response
+     */
+    run(job: QueueJob<unknown>, opts: RunAgentOptions): Promise<AgentProcessorResult>;
+
+    /**
+     * Submit a job to the core Agents queue.
+     *
+     * @param name - Job name/label
+     * @param data - Job payload (context, sessionId)
+     * @returns The created job ID
+     */
+    enqueue(name: string, data: { context?: AgentEventContext; sessionId: string }): Promise<string>;
+  };
+
+  // -------------------------------------------------------------------------
+  // Messaging
+  // -------------------------------------------------------------------------
+
+  /** Push messaging and WebSocket broadcasting. */
+  readonly messaging: {
+    /**
+     * Send a push message to a session. The message is appended to session
+     * history and, if an active chat job exists for the session, broadcast
+     * to the frontend via WebSocket.
+     *
+     * @param sessionId - Target session ID
+     * @param content - Message content (text or markdown)
+     * @param options - Optional configuration (contentType defaults to "text/markdown")
+     * @returns Result indicating whether the message was broadcast or stored
+     * @throws {Error} If the session does not exist
+     */
+    push(sessionId: string, content: string, options?: PushMessageOptions): PushMessageResult;
+
+    /** Broadcast a WebSocket message to all connected frontend clients. */
+    broadcast(message: WebSocketMessage): void;
+  };
+
+  // -------------------------------------------------------------------------
+  // Database
   // -------------------------------------------------------------------------
 
   /**
-   * Read a configuration value for this extension.
-   *
-   * Precedence: env var > SQLite persisted value > schema default > caller default.
-   *
-   * The raw string is auto-coerced: `"true"`/`"false"` -> boolean,
-   * numeric strings -> number, JSON-shaped strings -> parsed object/array.
-   * Everything else is returned as-is (string).
-   *
-   * @typeParam T - Expected return type (narrows the union for convenience).
-   * @param key - The configuration key (UPPER_SNAKE_CASE).
-   * @param defaultValue - Returned when no source provides a value.
-   * @returns The resolved value, or `undefined`.
-   */
-  getConfig<T extends ConfigValue = ConfigValue>(key: string, defaultValue: T): T;
-  getConfig(key: string): ConfigValue | undefined;
-
-  /**
-   * Get the shared Drizzle database instance.
+   * The shared Drizzle database instance.
    * Extensions define their own table schemas (prefixed with `ext_{extensionName}_`)
    * and query them using this instance.
-   *
-   * @returns The shared Drizzle BunSQLiteDatabase instance
    */
-  getDatabase(): BunSQLiteDatabase<Record<string, unknown>>;
+  readonly db: BunSQLiteDatabase<Record<string, unknown>>;
+
+  // -------------------------------------------------------------------------
+  // Fetch
+  // -------------------------------------------------------------------------
+
+  /**
+   * Authenticated fetch wrapper for internal API calls.
+   * Automatically injects the `Authorization` header for requests targeting
+   * the local server origin. Requests to external URLs pass through unmodified.
+   *
+   * Use this instead of the global `fetch()` when calling sibling extension
+   * routes or other internal endpoints.
+   */
+  readonly fetch: typeof globalThis.fetch;
+
+  // -------------------------------------------------------------------------
+  // State
+  // -------------------------------------------------------------------------
 
   /**
    * Check whether this extension is currently enabled.
@@ -508,213 +662,70 @@ export interface ExtensionContext {
   isEnabled(extensionName: string): boolean;
 
   // -------------------------------------------------------------------------
-  // Agent execution
+  // Step types (workflow integration)
+  // -------------------------------------------------------------------------
+
+  /** Custom workflow step type registration and lookup. */
+  readonly stepTypes: {
+    /**
+     * Register a custom workflow step type handler.
+     * Step type names must be globally unique across all extensions.
+     *
+     * @param type - The step type identifier (e.g. "excel")
+     * @param handler - The handler implementing validation and execution logic
+     * @throws If the type name is already registered
+     */
+    register(type: string, handler: StepTypeHandler): void;
+
+    /**
+     * Look up a registered custom step type handler by type name.
+     * Returns `undefined` if no handler is registered.
+     *
+     * @param type - The step type identifier to look up
+     */
+    get(type: string): StepTypeHandler | undefined;
+  };
+
+  // -------------------------------------------------------------------------
+  // Dynamic items (settings UI)
+  // -------------------------------------------------------------------------
+
+  /** Dynamic item providers for settings schema enrichment. */
+  readonly dynamicItems: {
+    /**
+     * Register a named dynamic item provider.
+     *
+     * When an extension's settings schema declares `dynamicItems: "<name>"` on an
+     * array property, the named provider is invoked at request time to populate
+     * `availableItems` dynamically.
+     *
+     * @param name - Unique provider name referenced by `dynamicItems` in schemas
+     * @param fn - Function that returns the current available items
+     */
+    register(name: string, fn: () => string[]): void;
+  };
+
+  // -------------------------------------------------------------------------
+  // Internal (privileged, core extensions only)
   // -------------------------------------------------------------------------
 
   /**
-   * Run a sub-agent to completion.
-   * The core owns model selection, API key injection, and shell creation.
-   * Messages are loaded from the session (via `opts.sessionId`).
-   * Callers must append the user message to the session before invoking.
-   *
-   * @param job - The queue job (used for logging)
-   * @param opts - Agent configuration (system prompt, tools, skills, sessionId, etc.)
-   * @returns The agent's response
+   * Privileged capabilities only available to core extensions.
+   * `undefined` for regular extensions.
    */
-  runAgent(job: QueueJob<unknown>, opts: RunAgentOptions): Promise<AgentProcessorResult>;
-
-  /**
-   * Submit a job to the core Agents queue.
-   *
-   * @param name - Job name/label
-   * @param data - Job payload (context, sessionId)
-   * @returns The created job ID
-   */
-  enqueueAgent(name: string, data: { context?: AgentEventContext; sessionId: string }): Promise<string>;
-
-  // -------------------------------------------------------------------------
-  // Sessions
-  // -------------------------------------------------------------------------
-
-  /**
-   * The shared session store for managing conversation sessions and messages.
-   * Provides CRUD operations for sessions and their messages.
-   */
-  readonly sessions: SessionStorePort;
-
-  // -------------------------------------------------------------------------
-  // Push messaging
-  // -------------------------------------------------------------------------
-
-  /**
-   * Send a push message to a session. The message is appended to session
-   * history and, if an active chat job exists for the session, broadcast
-   * to the frontend via WebSocket.
-   *
-   * @param sessionId - Target session ID
-   * @param content - Message content (text or markdown)
-   * @param options - Optional configuration (contentType defaults to "text/markdown")
-   * @returns Result indicating whether the message was broadcast or stored
-   * @throws {Error} If the session does not exist
-   */
-  pushMessage(sessionId: string, content: string, options?: PushMessageOptions): PushMessageResult;
-
-  // -------------------------------------------------------------------------
-  // Sub-interfaces
-  // -------------------------------------------------------------------------
-
-  /** Queue introspection - subscribe to core queue events, read job logs, create flows. */
-  readonly queues: QueueContext;
-
-  /** Secrets management - read/write encrypted secrets with scoped ACL. */
-  readonly secrets: SecretsContext;
-
-  /** Skill introspection - resolve skill entries for building shell contexts. */
-  readonly skills: SkillsContext;
-
-  // -------------------------------------------------------------------------
-  // Internal HTTP
-  // -------------------------------------------------------------------------
-
-  /**
-   * Authenticated fetch wrapper for internal API calls.
-   * Automatically injects the `Authorization` header for requests targeting
-   * the local server origin. Requests to external URLs pass through unmodified.
-   *
-   * Use this instead of the global `fetch()` when calling sibling extension
-   * routes or other internal endpoints.
-   */
-  readonly fetch: typeof globalThis.fetch;
-}
-
-// ---------------------------------------------------------------------------
-// Sub-interfaces
-// ---------------------------------------------------------------------------
-
-/** Queue introspection capabilities. */
-export interface QueueContext {
-  /**
-   * Subscribe to events on a queue.
-   *
-   * Accepts both core queue names (`"agents"`, `"chat"`) and full extension
-   * queue names (e.g. `"converter:jobs"`).
-   *
-   * @param queueName - Queue name (core or extension-prefixed)
-   * @param event - Event type to listen for
-   * @param callback - Callback invoked when the event fires (includes the resolved job)
-   */
-  onEvent(
-    queueName: string,
-    event: QueueEventName,
-    callback: (data: { jobId: string; failedReason?: string; job: JobInfo | null }) => void,
-  ): void;
-
-  /**
-   * Unsubscribe a previously registered event handler from a queue.
-   *
-   * Accepts both core queue names (`"agents"`, `"chat"`) and full extension
-   * queue names (e.g. `"converter:jobs"`).
-   *
-   * @param queueName - Queue name (core or extension-prefixed)
-   * @param event - Event type to unsubscribe from
-   * @param callback - The exact handler reference passed to {@link onEvent}
-   */
-  offEvent(
-    queueName: string,
-    event: QueueEventName,
-    callback: (data: { jobId: string; failedReason?: string; job: JobInfo | null }) => void,
-  ): void;
-
-  /**
-   * Read log entries from a job on any queue.
-   *
-   * @param queueName - Queue name (core or extension-prefixed)
-   * @param jobId - The job ID to read logs for
-   * @returns The job's log entries and count
-   */
-  getJobLogs(queueName: string, jobId: string): Promise<QueueJobLogs>;
-
-  /**
-   * Get the shared {@link FlowProducer} instance for creating job flows/chains.
-   *
-   * @returns The shared FlowProducer (embedded mode)
-   */
-  getFlowProducer(): FlowProducer;
-
-  /**
-   * Get the names of all registered queues (core + extension).
-   *
-   * Core queues are returned as-is ("agents", "chat"). Extension queues
-   * are returned with their full prefixed name ("extensionName:queueSuffix").
-   *
-   * @returns Array of all queue names currently registered in the system
-   */
-  getAllQueueNames(): string[];
-}
-
-/** Secrets management capabilities. */
-export interface SecretsContext {
-  /**
-   * Retrieve a secret value. Access is controlled by the secrets ACL and
-   * all access attempts are audited. The consumer identity is automatically
-   * set to this extension's name.
-   *
-   * @param key - The secret key name
-   * @returns The decrypted value, or null if access is denied or key doesn't exist
-   */
-  get(key: string): Promise<string | null>;
-
-  /**
-   * Store a secret value (encrypted). Optionally configure which consumers
-   * may access it. The consumer identity is automatically set to this extension.
-   *
-   * @param key - The secret key name
-   * @param value - The plaintext value to encrypt and store
-   * @param opts - Optional ACL configuration for the new secret
-   */
-  set(key: string, value: string, opts?: SetSecretOptions): Promise<void>;
-
-  /**
-   * Resolve a secret by key across all scopes using a custom consumer identity.
-   *
-   * Used by trusted core code (e.g. workflow templates) that needs to resolve
-   * secrets with a different consumer identity than the extension's own
-   * `ext:{name}` pattern. Searches all scopes for the key and checks ACL
-   * with the provided consumer identity.
-   *
-   * @param key - The secret key name to search for across all scopes
-   * @param consumer - The consumer identity to use for ACL checks (e.g. "workflow:my-wf")
-   * @returns The decrypted value, or null if access is denied or key doesn't exist
-   */
-  resolveAs?(key: string, consumer: string): Promise<string | null>;
-}
-
-/** Skill introspection capabilities. */
-export interface SkillsContext {
-  /**
-   * Resolve a skill name to its entry (directory path, frontmatter, etc.).
-   *
-   * @param name - The skill name to look up
-   * @returns The skill entry, or undefined if not found
-   */
-  resolve(name: string): SkillEntry | undefined;
-
-  /**
-   * Returns the names of all skills whose owning extension is enabled.
-   * The list is not sorted - callers should sort if needed.
-   *
-   * @returns Array of skill names from enabled extensions
-   */
-  getNames(): string[];
-
-  /**
-   * Trigger a full re-discovery and re-loading of all skills from extension
-   * directories. Use after writing new skill files at runtime (e.g., generated
-   * MCP skills).
-   *
-   * Fires the `onSkillMapChanged` callback if the skill map changes.
-   */
-  rescan(): Promise<void>;
+  readonly internal?: {
+    /** Secrets resolution with custom consumer identity (e.g. for workflow templates). */
+    secrets: {
+      /**
+       * Resolve a secret by key across all scopes using a custom consumer identity.
+       *
+       * @param key - The secret key name to search for across all scopes
+       * @param consumer - The consumer identity to use for ACL checks (e.g. "workflow:my-wf")
+       * @returns The decrypted value, or null if access is denied or key doesn't exist
+       */
+      resolveAs(key: string, consumer: string): Promise<string | null>;
+    };
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -45,7 +45,7 @@ export default {
   manifest: ${JSON.stringify(manifest)},
   async initialize(ctx) {
     ${throwCode}
-    ctx.registerTool({
+    ctx.tools.register({
       name: "${name}_tool",
       label: "${name} tool",
       description: "A test tool",

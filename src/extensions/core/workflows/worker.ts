@@ -142,10 +142,10 @@ function buildTemplateContext(job: QueueJob<WorkflowStepJobData>, deps: StepWork
   const workflowName = data.workflowName;
   const secretStore: TemplateSecretResolver = {
     async resolve(name: string, consumer: string) {
-      // Use resolveAs when available (SecretVault-backed) to search across
+      // Use internal.secrets.resolveAs when available (SecretVault-backed) to search across
       // all scopes with the correct workflow consumer identity.
-      if (deps.ctx.secrets?.resolveAs) {
-        const value = await deps.ctx.secrets.resolveAs(name, consumer);
+      if (deps.ctx.internal?.secrets) {
+        const value = await deps.ctx.internal.secrets.resolveAs(name, consumer);
         return { value, granted: value !== null, reason: value === null ? "denied or not found" : undefined };
       }
       // Vault unavailable: log warning and return empty string per requirement 8.6
@@ -205,14 +205,14 @@ async function executeAgentStep(
   // Validate that all referenced tools and skills are currently available.
   // Throws immediately so the step (and workflow) ends up in a failed state
   // with a clear error message rather than silently skipping missing capabilities.
-  const availableTools = new Set([...deps.ctx.getToolNames(), ...SANDBOX_TOOL_NAMES]);
+  const availableTools = new Set([...deps.ctx.tools.names(), ...SANDBOX_TOOL_NAMES]);
   const missingTools = tools.filter((t) => !availableTools.has(t));
   if (missingTools.length > 0) {
     throw new Error(`Unavailable tools: ${missingTools.join(", ")}`);
   }
 
   if (skills && skills.length > 0) {
-    const availableSkills = new Set(deps.ctx.skills.getNames());
+    const availableSkills = new Set(deps.ctx.skills.names());
     const missingSkills = skills.filter((s) => !availableSkills.has(s));
     if (missingSkills.length > 0) {
       throw new Error(`Unavailable skills: ${missingSkills.join(", ")}`);
@@ -226,7 +226,7 @@ async function executeAgentStep(
     timestamp: Date.now(),
   });
 
-  const result = await deps.ctx.runAgent(job, {
+  const result = await deps.ctx.agent.run(job, {
     systemPrompt,
     tools,
     skills,
@@ -314,7 +314,7 @@ export function createStepProcessor(deps: StepWorkerDeps) {
         const stepExecCtx: StepExecutionContext = {
           resolveTemplate: (template: string) => resolveTemplates(template, tmplCtx),
           log: deps.log,
-          workDir: deps.ctx.workDir,
+          workDir: deps.ctx.paths.work,
           jobLog: (message: string) => job.log(message),
         };
 

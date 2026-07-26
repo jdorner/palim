@@ -127,10 +127,10 @@ export function createExtension(): Extension {
       logger = ctx.log;
 
       // Capture emitEvent for use by the job processor
-      emitEvent = (event) => ctx.emitEvent(event);
+      emitEvent = (event) => ctx.events.emit(event);
 
       // Create a queue for scheduled jobs
-      queue = ctx.createQueue<ScheduledJobData, ScheduledJobResult>("jobs", processScheduledJob, {
+      queue = ctx.queues.create<ScheduledJobData, ScheduledJobResult>("jobs", processScheduledJob, {
         concurrency: 1,
         removeOnComplete: false,
         removeOnFail: false,
@@ -157,7 +157,7 @@ export function createExtension(): Extension {
       async function broadcastSchedules(): Promise<void> {
         if (!queue) return;
         const schedulers = await queue.getSchedulers();
-        ctx.broadcast({ type: "schedules_updated", schedules: schedulers.map(toScheduleEntry) });
+        ctx.messaging.broadcast({ type: "schedules_updated", schedules: schedulers.map(toScheduleEntry) });
       }
 
       // Log existing schedulers
@@ -167,14 +167,14 @@ export function createExtension(): Extension {
       // -- REST routes -------------------------------------------------------
 
       // GET /ext/scheduler/schedules - list all schedulers
-      ctx.registerRoute("GET", "/schedules", async () => {
+      ctx.routes.register("GET", "/schedules", async () => {
         if (!queue) return Response.json({ error: "Scheduler not initialized" }, { status: 500 });
         const schedulers = await queue.getSchedulers();
         return Response.json(schedulers.map(toScheduleEntry));
       });
 
       // POST /ext/scheduler/schedules - create a new scheduler
-      ctx.registerRoute("POST", "/schedules", async (reqCtx) => {
+      ctx.routes.register("POST", "/schedules", async (reqCtx) => {
         if (!queue) return Response.json({ error: "Scheduler not initialized" }, { status: 500 });
 
         const body = reqCtx.body as Record<string, unknown>;
@@ -217,7 +217,7 @@ export function createExtension(): Extension {
       // POST /ext/scheduler/schedules/:id/trigger - manually fire a schedule
       // Emits a scheduler:fired event directly without creating a queue job,
       // so this does not count as a scheduler execution.
-      ctx.registerRoute("POST", "/schedules/:id/trigger", async (reqCtx) => {
+      ctx.routes.register("POST", "/schedules/:id/trigger", async (reqCtx) => {
         if (!queue) {
           return Response.json({ error: "Scheduler not initialized" }, { status: 500 });
         }
@@ -234,7 +234,7 @@ export function createExtension(): Extension {
 
         // Emit event directly - bypasses the scheduler queue so this
         // doesn't increment the scheduler's execution count.
-        ctx.emitEvent({
+        ctx.events.emit({
           type: "scheduler:fired",
           context: {
             source: "scheduler",
@@ -250,7 +250,7 @@ export function createExtension(): Extension {
       });
 
       // DELETE /ext/scheduler/schedules/:id - remove a scheduler
-      ctx.registerRoute("DELETE", "/schedules/:id", async (reqCtx) => {
+      ctx.routes.register("DELETE", "/schedules/:id", async (reqCtx) => {
         if (!queue) return Response.json({ error: "Scheduler not initialized" }, { status: 500 });
 
         const id = (reqCtx.params as Record<string, string>).id;

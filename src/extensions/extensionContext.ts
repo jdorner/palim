@@ -442,15 +442,6 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
   }
 
   /**
-   * Get the shared Drizzle database instance.
-   *
-   * @returns The shared Drizzle BunSQLiteDatabase instance
-   */
-  function getDatabase(): BunSQLiteDatabase<Record<string, unknown>> {
-    return database;
-  }
-
-  /**
    * Submit a job to the core Agents queue.
    *
    * @param name - Job name/label
@@ -637,47 +628,69 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
 
   const context: ExtensionContext = {
     log,
-    workDir,
-    dataDir,
-    extensionsDir,
-    fetch: authenticatedFetch,
-    registerTool,
-    getToolNames,
-    registerRoute,
-    createQueue,
-    registerStepType,
-    getStepHandler,
-    on,
-    emitEvent,
-    broadcast,
-    registerDynamicItemProvider: registerProviderFn,
-    getConfig,
-    getDatabase,
-    isEnabled,
-    runAgent: runAgentFn,
-    enqueueAgent,
-    sessions: sessionStore,
-    pushMessage: pushMessageFn
-      ? pushMessageFn
-      : () => {
-          throw new Error(`Extension "${extensionName}": pushMessage is not available`);
-        },
+    paths: {
+      work: workDir,
+      data: dataDir,
+      extensions: extensionsDir,
+    },
+    tools: {
+      register: registerTool,
+      names: getToolNames,
+    },
+    routes: {
+      register: registerRoute,
+    },
     queues: {
+      create: createQueue,
+      names: getAllQueueNames,
       onEvent: onQueueEvent,
       offEvent: offQueueEvent,
       getJobLogs,
       getFlowProducer,
-      getAllQueueNames,
+    },
+    events: {
+      on,
+      emit: emitEvent,
+    },
+    config: {
+      get: getConfig,
     },
     secrets: {
       get: getSecret,
       set: setSecret,
-      resolveAs: resolveSecretAs,
     },
+    sessions: sessionStore,
     skills: {
       resolve: resolveSkill,
-      getNames: getSkillNames,
+      names: getSkillNames,
       rescan: rescanSkills,
+    },
+    agent: {
+      run: runAgentFn,
+      enqueue: enqueueAgent,
+    },
+    messaging: {
+      push: pushMessageFn
+        ? pushMessageFn
+        : () => {
+            throw new Error(`Extension "${extensionName}": pushMessage is not available`);
+          },
+      broadcast,
+    },
+    db: database,
+    fetch: authenticatedFetch,
+    isEnabled,
+    stepTypes: {
+      register: registerStepType,
+      get: getStepHandler,
+    },
+    dynamicItems: {
+      register: registerProviderFn,
+    },
+    internal: {
+      secrets: {
+        resolveAs: resolveSecretAs,
+      },
     },
   };
 

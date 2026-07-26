@@ -333,7 +333,7 @@ export async function syncServer(
   clientManager: McpClientManager,
   server: McpServerDefinition,
 ): Promise<boolean> {
-  const db = ctx.getDatabase();
+  const db = ctx.db;
   const logger = ctx.log;
 
   try {
@@ -347,7 +347,7 @@ export async function syncServer(
     }
 
     // Tools changed - regenerate
-    await writeSkillFiles(ctx.dataDir, server.name, tools);
+    await writeSkillFiles(ctx.paths.data, server.name, tools);
 
     updateServer(db, server.name, {
       toolsHash: hash,
@@ -377,13 +377,13 @@ export async function syncAllSkills(
   clientManager: McpClientManager,
   servers: McpServerDefinition[],
 ): Promise<void> {
-  const skillsDir = getSkillsDir(ctx.dataDir);
+  const skillsDir = getSkillsDir(ctx.paths.data);
 
   // Ensure base directory structure exists
   await Bun.write(join(skillsDir, ".gitkeep"), "");
 
   // Ensure the generated extension has a valid index.ts manifest
-  await ensureExtensionManifest(ctx.dataDir);
+  await ensureExtensionManifest(ctx.paths.data);
 
   // Sync enabled servers
   const enabledServers = servers.filter((s) => s.enabled);
@@ -393,7 +393,7 @@ export async function syncAllSkills(
 
   // Clean up orphan directories
   const validSkillNames = new Set(enabledServers.map((s) => `mcp-${s.name}`));
-  await cleanOrphanSkills(ctx.dataDir, validSkillNames);
+  await cleanOrphanSkills(ctx.paths.data, validSkillNames);
 }
 
 /**

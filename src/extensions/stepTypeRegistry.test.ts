@@ -45,7 +45,7 @@ describe("registerStepType", () => {
     const { context, loaded } = createExtensionContext(deps);
     const handler = createTestHandler("Excel Writer");
 
-    context.registerStepType("excel", handler);
+    context.stepTypes.register("excel", handler);
 
     expect(loaded.stepTypes).toHaveLength(1);
     expect(loaded.stepTypes[0]!.type).toBe("excel");
@@ -57,7 +57,7 @@ describe("registerStepType", () => {
     const deps = createTestDeps();
     const { context } = createExtensionContext(deps);
 
-    context.registerStepType("excel", createTestHandler());
+    context.stepTypes.register("excel", createTestHandler());
 
     expect(deps.stepTypeNameSet.has("excel")).toBe(true);
   });
@@ -68,7 +68,7 @@ describe("registerStepType", () => {
 
     const { context } = createExtensionContext(deps);
 
-    expect(() => context.registerStepType("excel", createTestHandler())).toThrow(
+    expect(() => context.stepTypes.register("excel", createTestHandler())).toThrow(
       'step type "excel" conflicts with an already-registered type',
     );
   });
@@ -77,7 +77,7 @@ describe("registerStepType", () => {
     const deps = createTestDeps();
     const { context } = createExtensionContext(deps);
 
-    expect(() => context.registerStepType("agent", createTestHandler())).toThrow(
+    expect(() => context.stepTypes.register("agent", createTestHandler())).toThrow(
       'step type "agent" is a built-in type and cannot be overridden',
     );
   });
@@ -86,7 +86,7 @@ describe("registerStepType", () => {
     const deps = createTestDeps();
     const { context } = createExtensionContext(deps);
 
-    expect(() => context.registerStepType("webhook", createTestHandler())).toThrow(
+    expect(() => context.stepTypes.register("webhook", createTestHandler())).toThrow(
       'step type "webhook" is a built-in type and cannot be overridden',
     );
   });
@@ -95,8 +95,8 @@ describe("registerStepType", () => {
     const deps = createTestDeps();
     const { context, loaded } = createExtensionContext(deps);
 
-    context.registerStepType("excel", createTestHandler("Excel"));
-    context.registerStepType("pdf", createTestHandler("PDF"));
+    context.stepTypes.register("excel", createTestHandler("Excel"));
+    context.stepTypes.register("pdf", createTestHandler("PDF"));
 
     expect(loaded.stepTypes).toHaveLength(2);
     expect(deps.stepTypeNameSet.has("excel")).toBe(true);
@@ -110,14 +110,14 @@ describe("registerStepType", () => {
     const deps1 = createTestDeps("ext-a");
     deps1.stepTypeNameSet = sharedSet;
     const { context: ctx1 } = createExtensionContext(deps1);
-    ctx1.registerStepType("excel", createTestHandler());
+    ctx1.stepTypes.register("excel", createTestHandler());
 
     // Second extension tries to register "excel" - should fail
     const deps2 = createTestDeps("ext-b");
     deps2.stepTypeNameSet = sharedSet;
     const { context: ctx2 } = createExtensionContext(deps2);
 
-    expect(() => ctx2.registerStepType("excel", createTestHandler())).toThrow(
+    expect(() => ctx2.stepTypes.register("excel", createTestHandler())).toThrow(
       'step type "excel" conflicts with an already-registered type',
     );
   });

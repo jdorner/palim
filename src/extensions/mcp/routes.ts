@@ -20,10 +20,10 @@ import { AddServerSchema, CallToolSchema, UpdateServerSchema } from "./types";
  * @param clientManager - The MCP client manager for tool operations
  */
 export function registerRoutes(ctx: ExtensionContext, clientManager: McpClientManager): void {
-  const db = ctx.getDatabase();
+  const db = ctx.db;
 
   // GET /ext/mcp/servers - list all configured servers
-  ctx.registerRoute("GET", "servers", async () => {
+  ctx.routes.register("GET", "servers", async () => {
     const servers = getAllServers(db);
     return Response.json({
       servers: servers.map((s) => ({
@@ -38,7 +38,7 @@ export function registerRoutes(ctx: ExtensionContext, clientManager: McpClientMa
   });
 
   // POST /ext/mcp/servers - add a new server
-  ctx.registerRoute("POST", "servers", async (elysiaCtx) => {
+  ctx.routes.register("POST", "servers", async (elysiaCtx) => {
     const body = await elysiaCtx.request.json();
 
     if (!Value.Check(AddServerSchema, body)) {
@@ -79,7 +79,7 @@ export function registerRoutes(ctx: ExtensionContext, clientManager: McpClientMa
   });
 
   // PUT /ext/mcp/servers/:name - update server config
-  ctx.registerRoute("PUT", "servers/:name", async (elysiaCtx) => {
+  ctx.routes.register("PUT", "servers/:name", async (elysiaCtx) => {
     const name = (elysiaCtx.params as { name: string }).name;
     const body = await elysiaCtx.request.json();
 
@@ -111,7 +111,7 @@ export function registerRoutes(ctx: ExtensionContext, clientManager: McpClientMa
     // Handle enable/disable side effects for skill visibility
     if (body.enabled === false && existing.enabled) {
       await clientManager.disconnect(name);
-      await removeSkillDir(ctx.dataDir, name);
+      await removeSkillDir(ctx.paths.data, name);
       // Clear tools_hash so re-enable always regenerates even if tools haven't changed
       updateServer(db, name, { toolsHash: null });
       await ctx.skills.rescan();
@@ -133,7 +133,7 @@ export function registerRoutes(ctx: ExtensionContext, clientManager: McpClientMa
   });
 
   // DELETE /ext/mcp/servers/:name - remove server + generated skill
-  ctx.registerRoute("DELETE", "servers/:name", async (elysiaCtx) => {
+  ctx.routes.register("DELETE", "servers/:name", async (elysiaCtx) => {
     const name = (elysiaCtx.params as { name: string }).name;
 
     const existing = getServer(db, name);
@@ -151,7 +151,7 @@ export function registerRoutes(ctx: ExtensionContext, clientManager: McpClientMa
     deleteServer(db, name);
 
     // Remove generated skill directory
-    await removeSkillDir(ctx.dataDir, name);
+    await removeSkillDir(ctx.paths.data, name);
 
     // Trigger skill rescan
     await ctx.skills.rescan();
@@ -160,7 +160,7 @@ export function registerRoutes(ctx: ExtensionContext, clientManager: McpClientMa
   });
 
   // GET /ext/mcp/servers/:name/tools - return tool list
-  ctx.registerRoute("GET", "servers/:name/tools", async (elysiaCtx) => {
+  ctx.routes.register("GET", "servers/:name/tools", async (elysiaCtx) => {
     const name = (elysiaCtx.params as { name: string }).name;
 
     const server = getServer(db, name);
@@ -184,7 +184,7 @@ export function registerRoutes(ctx: ExtensionContext, clientManager: McpClientMa
   });
 
   // POST /ext/mcp/servers/:name/call - execute a tool
-  ctx.registerRoute("POST", "servers/:name/call", async (elysiaCtx) => {
+  ctx.routes.register("POST", "servers/:name/call", async (elysiaCtx) => {
     const name = (elysiaCtx.params as { name: string }).name;
     const body = await elysiaCtx.request.json();
 
@@ -225,7 +225,7 @@ export function registerRoutes(ctx: ExtensionContext, clientManager: McpClientMa
   });
 
   // POST /ext/mcp/import - bulk import from MCP JSON config format
-  ctx.registerRoute("POST", "/import", async (elysiaCtx) => {
+  ctx.routes.register("POST", "/import", async (elysiaCtx) => {
     const body = (await elysiaCtx.request.json()) as Record<string, unknown>;
 
     // Support both { mcpServers: { ... } } and { servers: { ... } } formats
@@ -317,7 +317,7 @@ export function registerRoutes(ctx: ExtensionContext, clientManager: McpClientMa
   });
 
   // POST /ext/mcp/servers/:name/sync - manual resync trigger
-  ctx.registerRoute("POST", "servers/:name/sync", async (elysiaCtx) => {
+  ctx.routes.register("POST", "servers/:name/sync", async (elysiaCtx) => {
     const name = (elysiaCtx.params as { name: string }).name;
 
     const server = getServer(db, name);
