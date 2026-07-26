@@ -168,8 +168,6 @@ function createMockContext(workDir: string) {
       getNames: () => ["skill-charlie", "skill-alice", "skill-bob"],
       rescan: async () => {},
     },
-    loadExtension: async () => true,
-    unloadExtension: async () => true,
     registerDynamicItemProvider: () => {},
     registerStepType: () => {},
     getStepHandler: () => undefined,

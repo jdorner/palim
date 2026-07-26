@@ -538,10 +538,6 @@ export class ExtensionRegistry {
       rescanSkillsFn: () => this.discoverAndLoadSkills(),
       getSkillNamesFn: () => this.getSkillNames(),
       getStepHandlerFn: (type) => this.getRegisteredStepTypes().find((st) => st.type === type)?.handler,
-      loadOneFn: (path) => this.loadOne(path),
-      unloadOneFn: (n) => this.unloadOne(n),
-      externalExtensionsDir: this.extensionDirs[1],
-      builtinExtensionNames: this.getBuiltinExtensionNames(),
       settingsSchema: ext.manifest.settingsSchema as Record<string, unknown> | undefined,
     });
 
@@ -935,10 +931,6 @@ export class ExtensionRegistry {
       rescanSkillsFn: () => this.discoverAndLoadSkills(),
       getSkillNamesFn: () => this.getSkillNames(),
       getStepHandlerFn: (type) => this.getRegisteredStepTypes().find((st) => st.type === type)?.handler,
-      loadOneFn: (path) => this.loadOne(path),
-      unloadOneFn: (n) => this.unloadOne(n),
-      externalExtensionsDir: this.extensionDirs[1],
-      builtinExtensionNames: this.getBuiltinExtensionNames(),
       settingsSchema: ext.manifest.settingsSchema as Record<string, unknown> | undefined,
     });
 

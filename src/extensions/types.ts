@@ -573,10 +573,6 @@ export interface ExtensionContext {
   readonly skills: SkillsContext;
 
   // -------------------------------------------------------------------------
-  // Extension lifecycle (hot-load/unload)
-  // -------------------------------------------------------------------------
-
-  // -------------------------------------------------------------------------
   // Internal HTTP
   // -------------------------------------------------------------------------
 
@@ -589,28 +585,6 @@ export interface ExtensionContext {
    * routes or other internal endpoints.
    */
   readonly fetch: typeof globalThis.fetch;
-
-  // -------------------------------------------------------------------------
-  // Extension lifecycle (hot-load/unload)
-  // -------------------------------------------------------------------------
-
-  /**
-   * Load and activate an external extension at runtime without restarting.
-   * The module path must be within the external extensions directory.
-   *
-   * @param modulePath - Absolute path to the extension's index.ts
-   * @returns `true` on success, `false` on failure (logged)
-   */
-  loadExtension(modulePath: string): Promise<boolean>;
-
-  /**
-   * Unload and deactivate an extension at runtime without restarting.
-   * Built-in extensions cannot be unloaded.
-   *
-   * @param name - The extension manifest name to unload
-   * @returns `true` on success, `false` on failure (logged)
-   */
-  unloadExtension(name: string): Promise<boolean>;
 }
 
 // ---------------------------------------------------------------------------
