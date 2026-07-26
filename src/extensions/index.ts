@@ -16,11 +16,9 @@ export type {
   ExtensionContext,
   ExtensionManifest,
   HttpMethod,
-  QueueContext,
+  QueueEventCallback,
   RouteHandler,
   RouteRegistry,
   RunAgentOptions,
-  SecretsContext,
   SkillScriptContext,
-  SkillsContext,
 } from "./types";

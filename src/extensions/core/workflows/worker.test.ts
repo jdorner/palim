@@ -37,11 +37,11 @@ function createMockJob(stepDef: Record<string, unknown>, overrides: Partial<Work
 function createMockDeps(getStepHandler?: (type: string) => StepTypeHandler | undefined): StepWorkerDeps {
   return {
     ctx: {
-      workDir: "/tmp/test-work",
-      skills: { resolve: () => undefined, getNames: () => [], rescan: async () => {} },
-      getToolNames: () => [],
+      paths: { work: "/tmp/test-work", data: "/tmp/test-data", extensions: "/tmp/test-extensions" },
+      skills: { resolve: () => undefined, names: () => [], rescan: async () => {} },
+      tools: { names: () => [], register: () => {} },
       sessions: { append: () => {} },
-      runAgent: async () => ({ answer: "test", state: null, timestamp: Date.now() }),
+      agent: { run: async () => ({ answer: "test", state: null, timestamp: Date.now() }), enqueue: async () => "id" },
       secrets: { get: async () => null, set: async () => {} },
     } as any,
     flowProducer: {

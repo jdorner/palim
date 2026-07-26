@@ -75,10 +75,10 @@ export function createExtension(): Extension {
 
     async initialize(ctx: ExtensionContext) {
       logger = ctx.log;
-      initStore(ctx.getDatabase());
+      initStore(ctx.db);
 
       // Read optional config
-      const maxSizeCfg = ctx.getConfig("MAX_PAYLOAD_SIZE");
+      const maxSizeCfg = ctx.config.get("MAX_PAYLOAD_SIZE");
       if (maxSizeCfg !== undefined) {
         const parsed = typeof maxSizeCfg === "number" ? maxSizeCfg : Number.parseInt(String(maxSizeCfg), 10);
         if (!Number.isNaN(parsed) && parsed > 0) maxPayloadSize = parsed;
@@ -91,7 +91,7 @@ export function createExtension(): Extension {
       // ---------------------------------------------------------------
       // Receiver route: POST /ext/webhooks/receive/:slug
       // ---------------------------------------------------------------
-      ctx.registerRoute("POST", "/receive/:slug", async (reqCtx) => {
+      ctx.routes.register("POST", "/receive/:slug", async (reqCtx) => {
         const slug = (reqCtx.params as Record<string, string>).slug;
         if (!slug) return Response.json({ error: "Missing slug" }, { status: 400 });
 
@@ -132,7 +132,7 @@ export function createExtension(): Extension {
         }
 
         // Emit domain event for downstream consumers (e.g. workflow engine)
-        ctx.emitEvent({
+        ctx.events.emit({
           type: "webhook:received",
           context: { source: "webhooks", id: slug, slug, payload },
         });
@@ -146,7 +146,7 @@ export function createExtension(): Extension {
       // ---------------------------------------------------------------
 
       // GET /ext/webhooks/
-      ctx.registerRoute("GET", "/", async () => {
+      ctx.routes.register("GET", "/", async () => {
         const all = loadAll();
         // Strip secrets from the response
         const safe = all.map(({ secret: _s, ...rest }) => rest);
@@ -154,7 +154,7 @@ export function createExtension(): Extension {
       });
 
       // POST /ext/webhooks/
-      ctx.registerRoute("POST", "/", async (reqCtx) => {
+      ctx.routes.register("POST", "/", async (reqCtx) => {
         const body = reqCtx.body as Record<string, unknown>;
         if (!Value.Check(CreateWebhookPayload, body)) {
           return Response.json(
@@ -205,7 +205,7 @@ export function createExtension(): Extension {
         };
 
         insertWebhook(registration);
-        ctx.broadcast({ type: "webhooks_reload" });
+        ctx.messaging.broadcast({ type: "webhooks_reload" });
 
         logger.info(`Created webhook "${data.slug}"`);
         const { secret: _s, ...safe } = registration;
@@ -213,7 +213,7 @@ export function createExtension(): Extension {
       });
 
       // GET /ext/webhooks/:slug - get webhook details (secret stripped)
-      ctx.registerRoute("GET", "/:slug", async (reqCtx) => {
+      ctx.routes.register("GET", "/:slug", async (reqCtx) => {
         const slug = (reqCtx.params as Record<string, string>).slug;
         if (!slug) return Response.json({ error: "Missing slug" }, { status: 400 });
 
@@ -225,7 +225,7 @@ export function createExtension(): Extension {
       });
 
       // DELETE /ext/webhooks/:slug
-      ctx.registerRoute("DELETE", "/:slug", async (reqCtx) => {
+      ctx.routes.register("DELETE", "/:slug", async (reqCtx) => {
         const slug = (reqCtx.params as Record<string, string>).slug;
         if (!slug) return Response.json({ error: "Missing slug" }, { status: 400 });
 
@@ -233,13 +233,13 @@ export function createExtension(): Extension {
           return Response.json({ error: "Not found" }, { status: 404 });
         }
 
-        ctx.broadcast({ type: "webhooks_reload" });
+        ctx.messaging.broadcast({ type: "webhooks_reload" });
         logger.info(`Deleted webhook "${slug}"`);
         return Response.json({ ok: true });
       });
 
       // PUT /ext/webhooks/:slug - update an existing webhook
-      ctx.registerRoute("PUT", "/:slug", async (reqCtx) => {
+      ctx.routes.register("PUT", "/:slug", async (reqCtx) => {
         const slug = (reqCtx.params as Record<string, string>).slug;
         if (!slug) return Response.json({ error: "Missing slug" }, { status: 400 });
 

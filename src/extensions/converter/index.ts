@@ -147,7 +147,7 @@ export function createExtension(): Extension {
       logger = ctx.log;
 
       // --- Conversion queue ---
-      mutableState.queue = ctx.createQueue<ConvertJobData, ConvertJobResult>(
+      mutableState.queue = ctx.queues.create<ConvertJobData, ConvertJobResult>(
         "jobs",
         async (job: QueueJob<ConvertJobData>): Promise<ConvertJobResult> => {
           const { filePath, mimeType, prompt } = job.data;
@@ -155,7 +155,7 @@ export function createExtension(): Extension {
 
           await job.log(`Converting ${filename} (${mimeType})`);
 
-          const resizeImagePx = ctx.getConfig<number>("RESIZE_IMAGE_PX", 800);
+          const resizeImagePx = ctx.config.get<number>("RESIZE_IMAGE_PX", 800);
           const imageParts = await buildImageParts(filePath, resizeImagePx);
 
           await job.log(`Prepared ${imageParts.length} image(s) for vision model`);
@@ -192,7 +192,7 @@ export function createExtension(): Extension {
           });
           session.append(message);
 
-          const result: AgentProcessorResult = await ctx.runAgent(job, {
+          const result: AgentProcessorResult = await ctx.agent.run(job, {
             systemPrompt,
             tools: [],
             thinkingLevel: "low",
@@ -241,7 +241,7 @@ export function createExtension(): Extension {
       });
 
       // --- POST /ext/converter/convert ---
-      ctx.registerRoute("POST", "convert", async (elysiaCtx) => {
+      ctx.routes.register("POST", "convert", async (elysiaCtx) => {
         try {
           const body = await elysiaCtx.request.json();
 
@@ -269,10 +269,12 @@ export function createExtension(): Extension {
 
           if (payload.path) {
             // --- File path mode ---
-            const absolutePath = path.isAbsolute(payload.path) ? payload.path : path.resolve(ctx.workDir, payload.path);
+            const absolutePath = path.isAbsolute(payload.path)
+              ? payload.path
+              : path.resolve(ctx.paths.work, payload.path);
 
             resolved = path.resolve(absolutePath);
-            if (!resolved.startsWith(ctx.workDir)) {
+            if (!resolved.startsWith(ctx.paths.work)) {
               return new Response(JSON.stringify({ error: "Access denied: path outside work directory" }), {
                 status: 403,
                 headers: { "Content-Type": "application/json" },
@@ -322,7 +324,7 @@ export function createExtension(): Extension {
           }
           const jobId = await mutableState.queue!.add(`Convert: ${filename}`, jobData);
 
-          const conversionTimeoutMs = ctx.getConfig<number>("CONVERSION_TIMEOUT_MS", 5 * 60 * 1000);
+          const conversionTimeoutMs = ctx.config.get<number>("CONVERSION_TIMEOUT_MS", 5 * 60 * 1000);
 
           const result = await new Promise<ConvertJobResult>((resolve, reject) => {
             const timer = setTimeout(() => {

@@ -258,18 +258,18 @@ export function createExtension(): Extension {
       mutableState.ctx = ctx;
 
       // --- Reports directory setup ---
-      const reportsPath = ctx.getConfig<string>("REPORTS_PATH", "data/error-reports");
-      mutableState.reportsDir = path.join(ctx.workDir, reportsPath);
+      const reportsPath = ctx.config.get<string>("REPORTS_PATH", "data/error-reports");
+      mutableState.reportsDir = path.join(ctx.paths.work, reportsPath);
       await mkdir(mutableState.reportsDir, { recursive: true });
       logger.info(`Error reports directory: ${mutableState.reportsDir}`);
 
       // --- Dynamic settings provider ---
       // Register a provider so the "Monitored Queues" multiselect in settings
       // is populated with all available queue sources at request time.
-      ctx.registerDynamicItemProvider("all-queue-names", () => {
+      ctx.dynamicItems.register("all-queue-names", () => {
         const names = new Set(
           ctx.queues
-            .getAllQueueNames()
+            .names()
             .map((name) => name.split(":")[0] ?? name)
             .filter((name) => name !== "error-analyzer"),
         );
@@ -277,14 +277,14 @@ export function createExtension(): Extension {
       });
 
       // --- Analysis queue ---
-      mutableState.analysisQueue = ctx.createQueue<AnalysisJobData, AgentProcessorResult>(
+      mutableState.analysisQueue = ctx.queues.create<AnalysisJobData, AgentProcessorResult>(
         ANALYSIS_QUEUE_SUFFIX,
         async (job: QueueJob<AnalysisJobData>) => {
           const data = job.data;
           const timestamp = new Date(data.timestamp).toISOString().replace(/:/g, "-").slice(0, 19);
           const reportPath = path.join(mutableState.reportsDir, `${timestamp}_${data.failedJobId}.md`);
           // Convert to path relative to workDir for the agent's sandboxed filesystem
-          const relativeReportPath = path.relative(ctx.workDir, reportPath);
+          const relativeReportPath = path.relative(ctx.paths.work, reportPath);
 
           // Create a session for this analysis run
           const session = ctx.sessions.create({
@@ -305,8 +305,8 @@ export function createExtension(): Extension {
             timestamp: Date.now(),
           });
 
-          return ctx.runAgent(job, {
-            systemPrompt: ctx.getConfig<string>("OVERRIDE_PROMPT", ERROR_ANALYSIS_SYSTEM_PROMPT),
+          return ctx.agent.run(job, {
+            systemPrompt: ctx.config.get<string>("OVERRIDE_PROMPT", ERROR_ANALYSIS_SYSTEM_PROMPT),
             tools: ["write_file"],
             skills: ["workflows", "webhooks"],
             thinkingLevel: "low",
@@ -331,7 +331,7 @@ export function createExtension(): Extension {
       function resolveQueueNames(source: string): string[] {
         if (source === "agents" || source === "chat") return [source];
         // Extension source: find all queues whose prefix matches
-        return ctx.queues.getAllQueueNames().filter((name) => name.startsWith(`${source}:`));
+        return ctx.queues.names().filter((name) => name.startsWith(`${source}:`));
       }
 
       /**
@@ -390,11 +390,11 @@ export function createExtension(): Extension {
         mutableState.monitorWorkflows = desiredSet.has("workflows");
       }
 
-      const initialSources = ctx.getConfig<string[]>("MONITORED_QUEUES", DEFAULT_MONITORED_SOURCES);
+      const initialSources = ctx.config.get<string[]>("MONITORED_QUEUES", DEFAULT_MONITORED_SOURCES);
       syncSubscriptions(initialSources);
 
       // --- React to settings changes ---
-      ctx.on("settings:changed", (event) => {
+      ctx.events.on("settings:changed", (event) => {
         if (!("extensionName" in event) || event.extensionName !== "error-analyzer") return;
         const values = (event as { values?: Record<string, unknown> }).values;
         const raw = values?.monitoredQueues;
@@ -405,7 +405,7 @@ export function createExtension(): Extension {
       });
 
       // --- Workflow step failure subscription ---
-      ctx.on("workflow:step_failed", (event) => {
+      ctx.events.on("workflow:step_failed", (event) => {
         if (!mutableState.monitorWorkflows) return;
 
         const wfCtx = event.context;
@@ -448,7 +448,7 @@ export function createExtension(): Extension {
       if (mutableState.ctx) {
         for (const [source, handler] of mutableState.failureHandlers) {
           // Resolve which actual queue names this source maps to
-          const queueNames = mutableState.ctx.queues.getAllQueueNames().filter((name) => {
+          const queueNames = mutableState.ctx.queues.names().filter((name) => {
             if (source === "agents" || source === "chat") return name === source;
             return name.startsWith(`${source}:`);
           });

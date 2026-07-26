@@ -352,11 +352,11 @@ export function createExtension(): Extension {
       logger = ctx.log;
       logger.info("Wiki extension initializing - scanning markdown files...");
 
-      let wikiSubdir = ctx.getConfig<string>("WIKI_PATH", "data/wiki");
-      wikiDir = path.join(ctx.workDir, wikiSubdir);
+      let wikiSubdir = ctx.config.get<string>("WIKI_PATH", "data/wiki");
+      wikiDir = path.join(ctx.paths.work, wikiSubdir);
 
-      const enableSemantic = ctx.getConfig<boolean>("ENABLE_SEMANTIC_SEARCH", true);
-      const maxEmbeddingChars = ctx.getConfig<number>("MAX_EMBEDDING_CHARS", 2048);
+      const enableSemantic = ctx.config.get<boolean>("ENABLE_SEMANTIC_SEARCH", true);
+      const maxEmbeddingChars = ctx.config.get<number>("MAX_EMBEDDING_CHARS", 2048);
 
       // Initialize embedding infrastructure if semantic search is enabled
       let dimension: number | null = null;
@@ -379,7 +379,7 @@ export function createExtension(): Extension {
         dimension = await embeddingService.initialize();
 
         if (dimension) {
-          const db = ctx.getDatabase();
+          const db = ctx.db;
           const cache = new EmbeddingCache(db, logger);
           embeddingManager = new EmbeddingManager(embeddingService, cache, logger);
           logger.info(`[wiki] Semantic search enabled: dimension=${dimension}`);
@@ -526,10 +526,10 @@ export function createExtension(): Extension {
       });
       await watcher.start();
 
-      ctx.on("settings:changed", async (_event) => {
-        wikiSubdir = ctx.getConfig<string>("WIKI_PATH", "data/wiki");
-        const newWikiDir = path.join(ctx.workDir, wikiSubdir);
-        const newEnableSemantic = ctx.getConfig<boolean>("ENABLE_SEMANTIC_SEARCH", true);
+      ctx.events.on("settings:changed", async (_event) => {
+        wikiSubdir = ctx.config.get<string>("WIKI_PATH", "data/wiki");
+        const newWikiDir = path.join(ctx.paths.work, wikiSubdir);
+        const newEnableSemantic = ctx.config.get<boolean>("ENABLE_SEMANTIC_SEARCH", true);
 
         // If semantic search was toggled off, disable the embedding manager
         if (!newEnableSemantic && embeddingManager) {
@@ -549,7 +549,7 @@ export function createExtension(): Extension {
       });
 
       // Listen for model intent changes (emitted by model routes without extensionName scope)
-      ctx.on("settings:changed", (event) => {
+      ctx.events.on("settings:changed", (event) => {
         const values = event as unknown as { intent?: string; modelId?: string; extensionName?: string };
         // Skip wiki's own settings changes (those have extensionName === "wiki")
         if (values.extensionName) return;
@@ -565,20 +565,20 @@ export function createExtension(): Extension {
           getIndex: () => wikiIndex,
           getWikiDir: () => wikiDir,
           getEmbeddingManager: () => embeddingManager,
-          getSimilarityThreshold: () => ctx.getConfig<number>("SIMILARITY_THRESHOLD", 0.7),
+          getSimilarityThreshold: () => ctx.config.get<number>("SIMILARITY_THRESHOLD", 0.7),
           triggerReindex: () => runBackgroundEmbedding(),
         },
         logger,
       );
       // POST /ext/wiki/search - body-based search (TypeBox validated)
-      ctx.registerRoute("POST", "/search", routes.searchPost.bind(routes));
+      ctx.routes.register("POST", "/search", routes.searchPost.bind(routes));
       // GET /ext/wiki/search - query-parameter search (bookmarkable URL)
-      ctx.registerRoute("GET", "/search", routes.searchGet.bind(routes));
-      ctx.registerRoute("GET", "/docs", routes.docs.bind(routes));
-      ctx.registerRoute("GET", "/stats", routes.stats.bind(routes));
+      ctx.routes.register("GET", "/search", routes.searchGet.bind(routes));
+      ctx.routes.register("GET", "/docs", routes.docs.bind(routes));
+      ctx.routes.register("GET", "/stats", routes.stats.bind(routes));
 
-      ctx.on("before_agent_start", (event) => {
-        if (ctx.getConfig("INJECT_PROMPT")) {
+      ctx.events.on("before_agent_start", (event) => {
+        if (ctx.config.get("INJECT_PROMPT")) {
           event.systemPrompt += `\n\n${WIKI_PROMPT}`;
         }
       });

@@ -21,8 +21,8 @@ export default {
   manifest,
 
   async initialize(ctx) {
-    ctx.on("before_agent_start", (event) => {
-      let prompt = ctx.getConfig("PROMPT");
+    ctx.events.on("before_agent_start", (event) => {
+      let prompt = ctx.config.get("PROMPT");
 
       if (!prompt) {
         prompt = DEFAULT_STEERING_PROMPT;

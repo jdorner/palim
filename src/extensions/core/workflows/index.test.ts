@@ -121,35 +121,30 @@ function createMockContext(workDir: string) {
       error: () => {},
       debug: () => {},
     } as unknown as ExtensionContext["log"],
-    workDir,
-    dataDir: workDir,
-    extensionsDir: workDir,
-    fetch: globalThis.fetch,
-    getToolNames: () => ["tool-beta", "tool-alpha", "tool-gamma"],
-    registerTool: () => {},
-    registerRoute: (method: HttpMethod, routePath: string, handler: RouteHandler) => {
-      routes.set(`${method} ${routePath}`, handler);
+    paths: {
+      work: workDir,
+      data: workDir,
+      extensions: workDir,
     },
-    createQueue: (() => ({
-      onEvent: () => {},
-      getAllJobs: async () => [],
-      getJobLogs: async () => ({ logs: [], count: 0 }),
-      retryJob: async () => true,
-      cancelJob: async () => true,
-    })) as unknown as ExtensionContext["createQueue"],
-    on: () => {},
-    emitEvent: () => {},
-    broadcast: () => {},
-    getConfig: (() => undefined) as unknown as ExtensionContext["getConfig"],
-    getDatabase: () => ({}) as unknown as ReturnType<ExtensionContext["getDatabase"]>,
-    isEnabled: (() => true) as unknown as ExtensionContext["isEnabled"],
-    runAgent: async () => ({ answer: "", state: null, timestamp: Date.now() }),
-    enqueueAgent: async () => "job-id",
-    sessions: {
-      create: () => ({ id: "session-1", source: "test", messages: [], createdAt: Date.now(), updatedAt: Date.now() }),
-    } as unknown as ExtensionContext["sessions"],
-    pushMessage: () => ({ status: "stored" }) as ReturnType<ExtensionContext["pushMessage"]>,
+    fetch: globalThis.fetch,
+    tools: {
+      register: () => {},
+      names: () => ["tool-beta", "tool-alpha", "tool-gamma"],
+    },
+    routes: {
+      register: (method: HttpMethod, routePath: string, handler: RouteHandler) => {
+        routes.set(`${method} ${routePath}`, handler);
+      },
+    },
     queues: {
+      create: (() => ({
+        onEvent: () => {},
+        getAllJobs: async () => [],
+        getJobLogs: async () => ({ logs: [], count: 0 }),
+        retryJob: async () => true,
+        cancelJob: async () => true,
+      })) as unknown as ExtensionContext["queues"]["create"],
+      names: () => [],
       onEvent: () => {},
       offEvent: () => {},
       getJobLogs: async () => ({ logs: [], count: 0 }),
@@ -157,7 +152,26 @@ function createMockContext(workDir: string) {
         ({
           addChain: async () => ({ jobs: [] }),
         }) as unknown as ReturnType<ExtensionContext["queues"]["getFlowProducer"]>,
-      getAllQueueNames: () => [],
+    },
+    events: {
+      on: () => {},
+      emit: () => {},
+    },
+    config: {
+      get: (() => undefined) as unknown as ExtensionContext["config"]["get"],
+    },
+    db: {} as unknown as ExtensionContext["db"],
+    isEnabled: (() => true) as unknown as ExtensionContext["isEnabled"],
+    agent: {
+      run: async () => ({ answer: "", state: null, timestamp: Date.now() }),
+      enqueue: async () => "job-id",
+    },
+    sessions: {
+      create: () => ({ id: "session-1", source: "test", messages: [], createdAt: Date.now(), updatedAt: Date.now() }),
+    } as unknown as ExtensionContext["sessions"],
+    messaging: {
+      push: () => ({ status: "stored" }) as ReturnType<ExtensionContext["messaging"]["push"]>,
+      broadcast: () => {},
     },
     secrets: {
       get: async () => null,
@@ -165,14 +179,16 @@ function createMockContext(workDir: string) {
     },
     skills: {
       resolve: () => undefined,
-      getNames: () => ["skill-charlie", "skill-alice", "skill-bob"],
+      names: () => ["skill-charlie", "skill-alice", "skill-bob"],
       rescan: async () => {},
     },
-    loadExtension: async () => true,
-    unloadExtension: async () => true,
-    registerDynamicItemProvider: () => {},
-    registerStepType: () => {},
-    getStepHandler: () => undefined,
+    stepTypes: {
+      register: () => {},
+      get: () => undefined,
+    },
+    dynamicItems: {
+      register: () => {},
+    },
   };
 
   return { ctx, routes };
@@ -415,8 +431,8 @@ describe("validateWorkflowDependencies", () => {
   /** Creates a minimal mock context with configurable tool and skill lists. */
   function mockCtx(tools: string[], skills: string[]): ExtensionContext {
     return {
-      getToolNames: () => tools,
-      skills: { resolve: () => undefined, getNames: () => skills, rescan: async () => {} },
+      tools: { names: () => tools, register: () => {} },
+      skills: { resolve: () => undefined, names: () => skills, rescan: async () => {} },
     } as unknown as ExtensionContext;
   }
 
@@ -657,8 +673,10 @@ describe("dependency warnings in GET /", () => {
         steps: [{ slug: "write-excel", type: "excel-writer", outputPath: "/tmp/out.xlsx" }],
       },
       {
-        getStepHandler: (type: string) =>
-          type === "excel-writer" ? ({ execute: async () => ({}) } as any) : undefined,
+        stepTypes: {
+          register: () => {},
+          get: (type: string) => (type === "excel-writer" ? ({ execute: async () => ({}) } as any) : undefined),
+        },
       },
     );
 

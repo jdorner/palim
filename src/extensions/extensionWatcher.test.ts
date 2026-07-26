@@ -31,7 +31,7 @@ async function createTempExtension(baseDir: string, name: string): Promise<strin
 export default {
   manifest: ${JSON.stringify(manifest)},
   async initialize(ctx) {
-    ctx.registerTool({
+    ctx.tools.register({
       name: "${name}_tool",
       label: "${name} tool",
       description: "A test tool",
@@ -396,7 +396,7 @@ export default {
 export default {
   manifest: ${JSON.stringify(manifestV1)},
   async initialize(ctx) {
-    ctx.registerTool({
+    ctx.tools.register({
       name: "reload-ext_tool_v1",
       label: "v1 tool",
       description: "v1",
@@ -421,7 +421,7 @@ export default {
 export default {
   manifest: ${JSON.stringify(manifestV2)},
   async initialize(ctx) {
-    ctx.registerTool({
+    ctx.tools.register({
       name: "reload-ext_tool_v2",
       label: "v2 tool",
       description: "v2",

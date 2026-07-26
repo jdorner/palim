@@ -252,7 +252,7 @@ monitoredQueues: Type.Array(Type.String(), {
 })
 ```
 
-The provider registry lives in `src/web/dynamicItemProviders.ts`. Extensions register providers via `ctx.registerDynamicItemProvider(name, fn)` during initialization. The `GET /api/extensions/:name/settings` route invokes providers before returning the schema to the frontend. The frontend requires no changes since it already renders `availableItems`.
+The provider registry lives in `src/web/dynamicItemProviders.ts`. Extensions register providers via `ctx.dynamicItems.register(name, fn)` during initialization. The `GET /api/extensions/:name/settings` route invokes providers before returning the schema to the frontend. The frontend requires no changes since it already renders `availableItems`.
 
 Built-in providers (registered by extensions):
 

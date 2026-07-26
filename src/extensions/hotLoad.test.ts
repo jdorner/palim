@@ -35,7 +35,7 @@ async function createTempExtension(
 export default {
   manifest: ${JSON.stringify(manifest)},
   async initialize(ctx) {
-    ctx.registerTool({
+    ctx.tools.register({
       name: "${name}_tool",
       label: "${name} tool",
       description: "A test tool",

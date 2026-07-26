@@ -60,8 +60,6 @@ export interface ExtContextIdentity {
   dataDir: string;
   /** Absolute path to the extensions directory. */
   extensionsDir: string;
-  /** Absolute path to the external extensions directory (for path validation). */
-  externalExtensionsDir?: string;
 }
 
 /** Tool and route registration surfaces. */
@@ -125,12 +123,6 @@ export interface ExtContextLifecycle {
   isExtensionEnabledFn: (name: string) => boolean;
   /** Look up a registered step type handler by type name. */
   getStepHandlerFn?: (type: string) => import("./types").StepTypeHandler | undefined;
-  /** Callback to load an extension at runtime. */
-  loadOneFn?: (modulePath: string) => Promise<boolean>;
-  /** Callback to unload an extension at runtime. */
-  unloadOneFn?: (name: string) => Promise<boolean>;
-  /** Set of built-in extension names (cannot be unloaded). */
-  builtinExtensionNames?: ReadonlySet<string>;
 }
 
 /** Full dependency set for creating an extension context. */
@@ -181,10 +173,6 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     secretVault,
     rescanSkillsFn,
     getSkillNamesFn,
-    loadOneFn,
-    unloadOneFn,
-    externalExtensionsDir,
-    builtinExtensionNames,
     settingsSchema,
     routeRegistry,
     stepTypeNameSet,
@@ -454,15 +442,6 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
   }
 
   /**
-   * Get the shared Drizzle database instance.
-   *
-   * @returns The shared Drizzle BunSQLiteDatabase instance
-   */
-  function getDatabase(): BunSQLiteDatabase<Record<string, unknown>> {
-    return database;
-  }
-
-  /**
    * Submit a job to the core Agents queue.
    *
    * @param name - Job name/label
@@ -637,48 +616,6 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     await secretVault.bulkUpsert(extensionName, { [key]: value }, opts?.consumers);
   }
 
-  /**
-   * Load and activate an external extension at runtime.
-   * Path must be within the external extensions directory.
-   *
-   * @param modulePath - Absolute path to the extension's index.ts
-   * @returns `true` on success, `false` on failure
-   */
-  async function loadExtension(modulePath: string): Promise<boolean> {
-    if (!loadOneFn) {
-      logger.warn(`Extension "${extensionName}" called loadExtension() but hot-loading is not available`);
-      return false;
-    }
-    // Path validation: must be within the external extensions directory
-    if (externalExtensionsDir && !modulePath.startsWith(externalExtensionsDir)) {
-      logger.error(
-        `Extension "${extensionName}" attempted to load from outside external extensions dir: ${modulePath}`,
-      );
-      return false;
-    }
-    return loadOneFn(modulePath);
-  }
-
-  /**
-   * Unload and deactivate an extension at runtime.
-   * Built-in extensions cannot be unloaded.
-   *
-   * @param name - The extension manifest name to unload
-   * @returns `true` on success, `false` on failure
-   */
-  async function unloadExtension(name: string): Promise<boolean> {
-    if (!unloadOneFn) {
-      logger.warn(`Extension "${extensionName}" called unloadExtension() but hot-loading is not available`);
-      return false;
-    }
-    // Cannot unload built-in extensions
-    if (builtinExtensionNames?.has(name)) {
-      logger.error(`Extension "${extensionName}" attempted to unload built-in extension "${name}"`);
-      return false;
-    }
-    return unloadOneFn(name);
-  }
-
   /** Scoped logger for this extension. */
   const log = createLogger(`ext:${extensionName}`);
 
@@ -691,50 +628,70 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
 
   const context: ExtensionContext = {
     log,
-    workDir,
-    dataDir,
-    extensionsDir,
-    fetch: authenticatedFetch,
-    registerTool,
-    getToolNames,
-    registerRoute,
-    createQueue,
-    registerStepType,
-    getStepHandler,
-    on,
-    emitEvent,
-    broadcast,
-    registerDynamicItemProvider: registerProviderFn,
-    getConfig,
-    getDatabase,
-    isEnabled,
-    runAgent: runAgentFn,
-    enqueueAgent,
-    sessions: sessionStore,
-    pushMessage: pushMessageFn
-      ? pushMessageFn
-      : () => {
-          throw new Error(`Extension "${extensionName}": pushMessage is not available`);
-        },
+    paths: {
+      work: workDir,
+      data: dataDir,
+      extensions: extensionsDir,
+    },
+    tools: {
+      register: registerTool,
+      names: getToolNames,
+    },
+    routes: {
+      register: registerRoute,
+    },
     queues: {
+      create: createQueue,
+      names: getAllQueueNames,
       onEvent: onQueueEvent,
       offEvent: offQueueEvent,
       getJobLogs,
       getFlowProducer,
-      getAllQueueNames,
+    },
+    events: {
+      on,
+      emit: emitEvent,
+    },
+    config: {
+      get: getConfig,
     },
     secrets: {
       get: getSecret,
       set: setSecret,
-      resolveAs: resolveSecretAs,
     },
+    sessions: sessionStore,
     skills: {
       resolve: resolveSkill,
-      getNames: getSkillNames,
+      names: getSkillNames,
       rescan: rescanSkills,
     },
-    loadExtension,
-    unloadExtension,
+    agent: {
+      run: runAgentFn,
+      enqueue: enqueueAgent,
+    },
+    messaging: {
+      push: pushMessageFn
+        ? pushMessageFn
+        : () => {
+            throw new Error(`Extension "${extensionName}": pushMessage is not available`);
+          },
+      broadcast,
+    },
+    db: database,
+    fetch: authenticatedFetch,
+    isEnabled,
+    stepTypes: {
+      register: registerStepType,
+      get: getStepHandler,
+    },
+    dynamicItems: {
+      register: registerProviderFn,
+    },
+    internal: {
+      secrets: {
+        resolveAs: resolveSecretAs,
+      },
+    },
   };
 
   return { context, loaded: { tools, routes, queues, stepTypes, state: "active" as const } };

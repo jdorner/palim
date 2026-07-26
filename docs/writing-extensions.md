@@ -177,19 +177,21 @@ External extensions are discovered at boot by scanning `EXTERNAL_EXTENSIONS_DIR`
 
 ## ExtensionContext API
 
-Every extension receives a scoped `ExtensionContext` during `initialize()`. Here's the full surface:
+Every extension receives a scoped `ExtensionContext` during `initialize()`. The API is organized into namespaces for discoverability.
 
-### Properties
+### Top-Level Properties
 
 | Property | Type | Description |
 | --- | --- | --- |
 | `ctx.log` | `Logger` | Pre-scoped logger (`ext:{name}`) |
-| `ctx.workDir` | `string` | Absolute path to the agent's work directory |
-| `ctx.dataDir` | `string` | Absolute path to the data directory (databases, generated content) |
-| `ctx.extensionsDir` | `string` | Absolute path to the extensions directory |
+| `ctx.paths.work` | `string` | Absolute path to the agent's work directory |
+| `ctx.paths.data` | `string` | Absolute path to the data directory (databases, generated content) |
+| `ctx.paths.extensions` | `string` | Absolute path to the extensions directory |
+| `ctx.db` | `BunSQLiteDatabase` | Shared Drizzle database instance |
 | `ctx.fetch` | `typeof fetch` | Authenticated fetch - auto-injects `Authorization` for internal URLs, passes through for external |
+| `ctx.sessions` | `SessionStorePort` | Shared session store for conversation persistence |
 
-Use `ctx.fetch` instead of the global `fetch()` when calling other extension routes or internal API endpoints. It handles auth transparently — no need to read `AUTH_TOKEN` or construct headers manually:
+Use `ctx.fetch` instead of the global `fetch()` when calling other extension routes or internal API endpoints. It handles auth transparently:
 
 ```typescript
 async initialize(ctx) {
@@ -202,81 +204,122 @@ async initialize(ctx) {
 }
 ```
 
-### Registration
+### Tools (`ctx.tools`)
 
 | Method | Description |
 | --- | --- |
-| `ctx.registerTool(tool)` | Register an agent tool (unique name required) |
-| `ctx.registerRoute(method, path, handler)` | Register an HTTP route (auto-prefixed `/ext/{name}/`) |
-| `ctx.createQueue(name, processor, opts?)` | Create a managed job queue (auto-prefixed `{name}:`) |
-| `ctx.registerStepType(type, handler)` | Register a custom workflow step type (see [Custom Workflow Step Types](#custom-workflow-step-types)) |
-| `ctx.getStepHandler(type)` | Look up a registered step type handler by name (returns `undefined` if not found) |
+| `ctx.tools.register(tool)` | Register an agent tool (unique name required) |
+| `ctx.tools.names()` | Get all registered tool names (core + extensions) |
+
+### Routes (`ctx.routes`)
+
+| Method | Description |
+| --- | --- |
+| `ctx.routes.register(method, path, handler)` | Register an HTTP route (auto-prefixed `/ext/{name}/`) |
 
 ### Route Naming Convention
 
 Routes are auto-prefixed with `/ext/{extensionName}/`, so extensions only register the suffix. Use standard REST conventions with the extension name acting as the resource noun:
 
 ```text
-GET    /ext/{name}           → list all resources
-POST   /ext/{name}           → create a resource
-GET    /ext/{name}/:id       → get one resource
-PUT    /ext/{name}/:id       → update a resource
-DELETE /ext/{name}/:id       → delete a resource
+GET    /ext/{name}           -> list all resources
+POST   /ext/{name}           -> create a resource
+GET    /ext/{name}/:id       -> get one resource
+PUT    /ext/{name}/:id       -> update a resource
+DELETE /ext/{name}/:id       -> delete a resource
 ```
 
 For extensions managing multiple resource types or needing sub-resources, nest them directly:
 
 ```text
-GET    /ext/mcp/servers              → list servers
-POST   /ext/mcp/servers/:name/sync   → trigger a sync
-GET    /ext/scheduler/schedules      → list schedules
-POST   /ext/scheduler/schedules      → create a schedule
+GET    /ext/mcp/servers              -> list servers
+POST   /ext/mcp/servers/:name/sync   -> trigger a sync
+GET    /ext/scheduler/schedules      -> list schedules
+POST   /ext/scheduler/schedules      -> create a schedule
 ```
 
-Avoid unnecessary prefixes like `/admin/` — all extension routes are already behind auth.
+Avoid unnecessary prefixes like `/admin/` - all extension routes are already behind auth.
 
-### Events
-
-| Method | Description |
-| --- | --- |
-| `ctx.on(type, callback)` | Subscribe to agent lifecycle or domain events on the shared bus |
-| `ctx.emitEvent(event)` | Emit a domain event on the shared bus |
-| `ctx.broadcast(message)` | Push a WebSocket message to all frontend clients |
-
-### Agent Execution
+### Queues (`ctx.queues`)
 
 | Method | Description |
 | --- | --- |
-| `ctx.runAgent(job, prompt, opts)` | Run a sub-agent synchronously within a queue job. Core owns model, API key, and shell. |
-| `ctx.enqueueAgent(name, data)` | Submit a job to the core Agents queue (fire-and-forget). Returns job ID. |
+| `ctx.queues.create(name, processor, opts?)` | Create a managed job queue (auto-prefixed `{name}:`) |
+| `ctx.queues.names()` | Get all registered queue names (core + extension) |
+| `ctx.queues.onEvent(queueName, event, cb)` | Subscribe to events on any queue |
+| `ctx.queues.offEvent(queueName, event, cb)` | Unsubscribe from queue events |
+| `ctx.queues.getJobLogs(queueName, jobId)` | Read log entries from a job |
+| `ctx.queues.getFlowProducer()` | Get the shared FlowProducer for job chains |
 
-`runAgent` is for extensions that process their own queue jobs and need an agent inline. `enqueueAgent` is for extensions that want to trigger agent work asynchronously.
-
-### Core Queue Access
-
-| Method | Description |
-| --- | --- |
-| `ctx.onQueueEvent(queueName, event, callback)` | Subscribe to events on a core queue (`"agents"` or `"chat"`) |
-| `ctx.getJobLogs(queueName, jobId)` | Read log entries from a core queue job |
-
-### Database
+### Events (`ctx.events`)
 
 | Method | Description |
 | --- | --- |
-| `ctx.getDatabase()` | Get the shared Drizzle database instance |
+| `ctx.events.on(type, callback)` | Subscribe to agent lifecycle or domain events on the shared bus |
+| `ctx.events.emit(event)` | Emit a domain event on the shared bus |
 
-Extensions define their own table schemas with `ext_{extensionName}_` prefixed names. See [Database Access](#database-access) below.
-
-### Introspection
+### Messaging (`ctx.messaging`)
 
 | Method | Description |
 | --- | --- |
-| `ctx.getConfig(key, default?)` | Read `EXT_{NAME}_{KEY}` env var (auto-coerced) |
-| `ctx.getCoreTool(name)` | Retrieve a core tool by name |
-| `ctx.getRegisteredTools()` | Get all registered tools (core + extensions) |
-| `ctx.getLoadedSkillNames()` | Get names of all loaded skills |
-| `ctx.resolveSkill(name)` | Resolve a skill name to its entry |
-| `ctx.getFlowProducer()` | Get the shared FlowProducer for job chains |
+| `ctx.messaging.broadcast(message)` | Push a WebSocket message to all frontend clients |
+| `ctx.messaging.push(sessionId, content, opts?)` | Send a push message to a session |
+
+### Agent Execution (`ctx.agent`)
+
+| Method | Description |
+| --- | --- |
+| `ctx.agent.run(job, opts)` | Run a sub-agent synchronously within a queue job. Core owns model, API key, and shell. |
+| `ctx.agent.enqueue(name, data)` | Submit a job to the core Agents queue (fire-and-forget). Returns job ID. |
+
+`ctx.agent.run` is for extensions that process their own queue jobs and need an agent inline. `ctx.agent.enqueue` is for extensions that want to trigger agent work asynchronously.
+
+### Config (`ctx.config`)
+
+| Method | Description |
+| --- | --- |
+| `ctx.config.get(key, default?)` | Read `EXT_{NAME}_{KEY}` env var (auto-coerced) or persisted setting |
+
+### Secrets (`ctx.secrets`)
+
+| Method | Description |
+| --- | --- |
+| `ctx.secrets.get(key)` | Retrieve a secret (ACL-checked, audited) |
+| `ctx.secrets.set(key, value, opts?)` | Store an encrypted secret |
+
+### Skills (`ctx.skills`)
+
+| Method | Description |
+| --- | --- |
+| `ctx.skills.resolve(name)` | Resolve a skill name to its entry |
+| `ctx.skills.names()` | Get names of all loaded skills from enabled extensions |
+| `ctx.skills.rescan()` | Trigger full skill re-discovery |
+
+### Step Types (`ctx.stepTypes`)
+
+| Method | Description |
+| --- | --- |
+| `ctx.stepTypes.register(type, handler)` | Register a custom workflow step type (see [Custom Workflow Step Types](#custom-workflow-step-types)) |
+| `ctx.stepTypes.get(type)` | Look up a registered step type handler by name |
+
+### Dynamic Items (`ctx.dynamicItems`)
+
+| Method | Description |
+| --- | --- |
+| `ctx.dynamicItems.register(name, fn)` | Register a dynamic item provider for settings schema enrichment |
+
+### State
+
+| Method | Description |
+| --- | --- |
+| `ctx.isEnabled()` | Check whether this extension is enabled |
+| `ctx.isEnabled(name)` | Check whether another extension is enabled |
+
+### Internal (Core Extensions Only)
+
+| Property | Description |
+| --- | --- |
+| `ctx.internal?.secrets.resolveAs(key, consumer)` | Resolve a secret with a custom consumer identity (e.g. for workflow templates) |
 
 ## Configuration
 
@@ -293,11 +336,11 @@ EXT_MY_EXTENSION_API_TOKEN=abc123
 EXT_MY_EXTENSION_POLL_INTERVAL=5000
 ```
 
-Access values via `ctx.getConfig(key)` - values are auto-coerced (`"true"` -> boolean, numeric strings -> number, JSON strings -> parsed objects):
+Access values via `ctx.config.get(key)` - values are auto-coerced (`"true"` -> boolean, numeric strings -> number, JSON strings -> parsed objects):
 
 ```typescript
 async initialize(ctx) {
-  const token = ctx.getConfig("API_TOKEN");
+  const token = ctx.config.get("API_TOKEN");
   if (!token) throw new Error("EXT_MY_EXTENSION_API_TOKEN is required");
 }
 ```
@@ -352,10 +395,10 @@ const extension: Extension = {
 
   async initialize(ctx) {
     // Typed access with default - returns number, no cast needed
-    const interval = ctx.getConfig<number>("POLLING_INTERVAL", 5000);
+    const interval = ctx.config.get<number>("POLLING_INTERVAL", 5000);
 
     // Without default - returns ConfigValue | undefined
-    const endpoint = ctx.getConfig("API_ENDPOINT");
+    const endpoint = ctx.config.get("API_ENDPOINT");
   },
 
   async shutdown() {},
@@ -400,14 +443,14 @@ Extensions can subscribe to `settings:changed` events if they need to re-initial
 
 ```typescript
 async initialize(ctx) {
-  ctx.on("settings:changed", (event) => {
+  ctx.events.on("settings:changed", (event) => {
     ctx.log.info("Settings changed, re-reading config...");
-    // Re-read values on next getConfig() call (cache is auto-invalidated)
+    // Re-read values on next config.get() call (cache is auto-invalidated)
   });
 }
 ```
 
-For most extensions, no explicit subscription is needed - `getConfig()` automatically reads fresh values after a settings change.
+For most extensions, no explicit subscription is needed - `ctx.config.get()` automatically reads fresh values after a settings change.
 
 ## Logging
 
@@ -442,14 +485,14 @@ const extension: Extension = {
   manifest: { name: "weather", version: "1.0.0" },
 
   async initialize(ctx) {
-    ctx.registerTool({
+    ctx.tools.register({
       name: "get_weather",
       description: "Get current weather for a city",
       parameters: Type.Object({
         city: Type.String({ minLength: 1, description: "City name" }),
       }),
       async execute(_toolCallId, params) {
-        const apiKey = ctx.getConfig("API_KEY");
+        const apiKey = ctx.config.get("API_KEY");
         const res = await fetch(
           `https://api.example.com/weather?q=${params.city}&key=${apiKey}`
         );
@@ -471,7 +514,7 @@ Tool names must be unique across all extensions and core tools.
 
 ## Running Sub-Agents
 
-Extensions that need to run an LLM agent as part of their work use `ctx.runAgent()`. The core handles model selection, API key injection, and shell creation - the extension just provides the prompt and configuration.
+Extensions that need to run an LLM agent as part of their work use `ctx.agent.run()`. The core handles model selection, API key injection, and shell creation - the extension just provides the prompt and configuration.
 
 ```typescript
 import type { Extension, QueueJob } from "@ext/types";
@@ -482,12 +525,13 @@ const extension: Extension = {
   manifest: { name: "analyzer", version: "1.0.0" },
 
   async initialize(ctx) {
-    ctx.createQueue<AnalysisJob>("work", async (job: QueueJob<AnalysisJob>) => {
-      const result = await ctx.runAgent(job, job.data.text, {
+    ctx.queues.create<AnalysisJob>("work", async (job: QueueJob<AnalysisJob>) => {
+      const result = await ctx.agent.run(job, {
         systemPrompt: "Analyze the provided text and summarize key points.",
         tools: ["write_file"],        // tool names - core resolves them
         skills: ["task-list"],         // skill names - core builds the shell
         thinkingLevel: "low",
+        sessionId: "session-id",      // session for conversation context
       });
 
       await job.log(`Analysis complete: ${result.answer.slice(0, 100)}...`);
@@ -500,18 +544,18 @@ const extension: Extension = {
 export default extension;
 ```
 
-For fire-and-forget agent jobs, use `ctx.enqueueAgent()`:
+For fire-and-forget agent jobs, use `ctx.agent.enqueue()`:
 
 ```typescript
-const jobId = await ctx.enqueueAgent("process-message", {
+const jobId = await ctx.agent.enqueue("process-message", {
   context: { source: "my-extension", id: "123" },
-  prompt: "Handle this user request",
+  sessionId: "session-id",
 });
 ```
 
 ## Database Access
 
-Extensions that need persistence use `ctx.getDatabase()` to get the shared Drizzle instance. Define your own table schema with the `ext_{extensionName}_` prefix:
+Extensions that need persistence use `ctx.db` to access the shared Drizzle instance. Define your own table schema with the `ext_{extensionName}_` prefix:
 
 ```typescript
 // my-extension/schema.ts
@@ -533,7 +577,7 @@ const extension: Extension = {
   manifest: { name: "my-extension", version: "1.0.0" },
 
   async initialize(ctx) {
-    const db = ctx.getDatabase();
+    const db = ctx.db;
 
     // Query your own tables using full Drizzle API
     const all = db.select().from(myRecords).all();
@@ -623,7 +667,7 @@ Extensions can register custom workflow step types that execute deterministic lo
 
 ### Registering a Step Type
 
-Call `ctx.registerStepType()` during `initialize()`:
+Call `ctx.stepTypes.register()` during `initialize()`:
 
 ```typescript
 import { Type } from "@sinclair/typebox";
@@ -656,7 +700,7 @@ const extension: Extension = {
   manifest: { name: "excel-writer", version: "1.0.0" },
 
   async initialize(ctx) {
-    ctx.registerStepType("excel", handler);
+    ctx.stepTypes.register("excel", handler);
   },
 
   async shutdown() {},
