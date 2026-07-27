@@ -42,7 +42,7 @@ async function runInteractive(shell: Bash): Promise<void> {
 
       lastPwd = result.env.PWD || lastPwd;
     } catch (err) {
-      process.stderr.write(`Error: ${err}\n`);
+      process.stderr.write(`${err}\n`);
     }
 
     rl.setPrompt(makePrompt());
