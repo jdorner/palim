@@ -9,6 +9,8 @@ import JobList from "../components/JobList.svelte";
 let selectedStatuses = $state(new Set<string>());
 let selectedQueues = $state(new Set<string>());
 
+let filterKey = $derived(`${[...selectedStatuses].sort().join(",")}|${[...selectedQueues].sort().join(",")}`);
+
 let filteredJobs = $derived(
   (() => {
     let filtered = $jobs;
@@ -45,4 +47,4 @@ let filteredJobs = $derived(
 </div>
 
 <JobFilters bind:selectedStatuses bind:selectedQueues jobs={$jobs} />
-<JobList jobs={filteredJobs} onCancelJob={cancelJob} />
+<JobList jobs={filteredJobs} onCancelJob={cancelJob} {filterKey} />

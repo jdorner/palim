@@ -32,7 +32,11 @@ function safeSlide(node: Element, params?: SlideParams): TransitionConfig {
   return slide(node, params);
 }
 
-let { jobs, onCancelJob }: { jobs: JobEntry[]; onCancelJob?: (jobId: string) => void } = $props();
+let {
+  jobs,
+  onCancelJob,
+  filterKey = "",
+}: { jobs: JobEntry[]; onCancelJob?: (jobId: string) => void; filterKey?: string } = $props();
 
 let selectedJobId = $state<string | null>(null);
 let cancellingJobId = $state<string | null>(null);
@@ -108,17 +112,24 @@ let currentPage = $state(1);
 let totalPages = $derived(Math.max(1, Math.ceil(displayItems.length / PAGE_SIZE)));
 let paginatedItems = $derived(displayItems.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE));
 
+// Reset to page 1 when the parent signals a filter change via filterKey.
+// We skip the initial run by comparing against a captured baseline.
+let initialFilterKey: string | undefined;
+$effect(() => {
+  const key = filterKey;
+  if (initialFilterKey === undefined) {
+    initialFilterKey = key;
+  } else if (key !== initialFilterKey) {
+    currentPage = 1;
+    initialFilterKey = key;
+  }
+});
+
 // Clamp page if items disappear (e.g. after clean)
 $effect(() => {
   if (currentPage > totalPages) {
     currentPage = totalPages;
   }
-});
-
-// Reset to page 1 when the input jobs change significantly (new filter)
-$effect(() => {
-  jobs;
-  currentPage = 1;
 });
 
 function toggleWorkflow(workflowRunId: string) {
