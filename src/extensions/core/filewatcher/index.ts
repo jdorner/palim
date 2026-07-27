@@ -106,6 +106,7 @@ export function createExtension(): Extension {
     const watcher = new FileWatcher(resolvedPath, {
       recursive: registration.recursive,
       processExistingOnStart: registration.processExisting,
+      usePolling: true,
     });
 
     const subscribedEvents = new Set<FileWatcherEventType>(registration.events);
@@ -126,7 +127,7 @@ export function createExtension(): Extension {
       }
 
       const relativePath = path.relative(ctx.paths.work, filePath);
-      logger.debug(`File watcher "${registration.slug}": ${event} "${relativePath}"`);
+      logger.info(`File watcher "${registration.slug}": ${event} "${relativePath}"`);
       ctx.events.emit({
         type: "filewatcher:detected",
         context: {
