@@ -111,7 +111,9 @@ let deleteTitle = $derived(
             <span class="block truncate">{conv.title}</span>
           </span>
 
-          <div class="hidden group-hover:flex items-center gap-0.5 shrink-0">
+          <div
+            class="items-center gap-0.5 shrink-0 {conv.id === activeId ? 'flex' : 'hidden group-hover:flex group-focus-within:flex'}"
+          >
             <button
               type="button"
               class="p-1 rounded hover:bg-muted transition-colors"
