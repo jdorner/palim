@@ -50,6 +50,7 @@ export async function dispatchWorkflow(
 ): Promise<WorkflowDispatchResult> {
   const workflowRunId = crypto.randomUUID();
   const totalSteps = definition.steps.length;
+  const stepOrder = definition.steps.map((s) => s.slug);
 
   const steps: FlowStep<WorkflowStepJobData>[] = definition.steps.map((stepDef, index) => {
     // Create a session for each step so conversation context is persisted
@@ -80,6 +81,7 @@ export async function dispatchWorkflow(
         totalSteps,
         stepDef,
         allStepDefs,
+        stepOrder,
         sessionId: session.id,
         ...(index === 0 ? { triggerPayload } : {}),
       },

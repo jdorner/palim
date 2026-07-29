@@ -716,7 +716,96 @@ export default extension;
 | `schema` | `TObject` | TypeBox schema for validating the step config (excluding `slug` and `type`) |
 | `label` | `string` | Human-readable label shown in the workflow editor dropdown and graph nodes |
 | `icon` | `string?` | Optional emoji for visual identification in the UI |
+| `inputSchema` | `TSchema?` | Optional TypeBox schema describing the expected input data from the preceding step. Used for automatic validation and agent repair. |
+| `validateInput` | `(output, stepDef) => StepInputValidation \| Promise<StepInputValidation>` | Optional method for domain-specific input validation beyond what `inputSchema` can express. Takes precedence over `inputSchema` when both are present. |
 | `execute` | `(stepDef, ctx) => Promise<unknown>` | The execution logic; receives the full step definition and a scoped context |
+
+### Input Validation (Pre-Transition Checks)
+
+When a custom step type receives data from a preceding **agent step**, the agent's output may not conform to the expected structure. By the time `execute()` runs, the preceding agent is done and cannot self-correct.
+
+Input validation solves this by checking the agent's output **before the workflow transitions** to the next step. If validation fails, the engine feeds diagnostics back to the agent as a repair prompt (up to 2 retries). This gives the LLM a chance to fix its output without failing the entire workflow.
+
+#### Using `inputSchema` (structural validation)
+
+For simple structural checks, declare a TypeBox schema. The engine automatically validates the agent's output against it using `Value.Check` and formats `Value.Errors` into repair instructions:
+
+```typescript
+import { Type } from "@sinclair/typebox";
+import type { StepTypeHandler } from "@ext/types";
+
+const handler: StepTypeHandler = {
+  schema: Type.Object({ path: Type.String() }),
+  label: "JSON Consumer",
+  inputSchema: Type.Array(
+    Type.Object({
+      name: Type.String(),
+      value: Type.Number(),
+    }),
+    { minItems: 1 }
+  ),
+  async execute(stepDef, ctx) {
+    // By the time we get here, input has already been validated
+    // ...
+  },
+};
+```
+
+#### Using `validateInput` (domain-specific validation)
+
+For checks that depend on the step's own configuration (e.g. verifying column keys match, enum literals are correct), implement `validateInput`. It receives the raw output and the target step definition:
+
+```typescript
+import type { StepTypeHandler, StepInputValidation } from "@ext/types";
+
+const handler: StepTypeHandler = {
+  schema: Type.Object({ columns: Type.Array(Type.Object({ key: Type.String() })) }),
+  label: "Data Writer",
+
+  validateInput(output: unknown, stepDef: Record<string, unknown>): StepInputValidation {
+    if (typeof output !== "string") {
+      return { valid: false, diagnostics: ["Expected a JSON string"] };
+    }
+
+    const parsed = JSON.parse(output);
+    const expectedKeys = (stepDef as any).columns.map((c: any) => c.key);
+    const actualKeys = Object.keys(parsed[0] ?? {});
+    const missing = expectedKeys.filter((k: string) => !actualKeys.includes(k));
+
+    if (missing.length > 0) {
+      return {
+        valid: false,
+        diagnostics: [`Missing keys: ${missing.join(", ")}. Expected: ${expectedKeys.join(", ")}`],
+      };
+    }
+    return { valid: true };
+  },
+
+  async execute(stepDef, ctx) {
+    // ...
+  },
+};
+```
+
+#### How the repair loop works
+
+1. Agent step produces its output
+2. Engine looks up the **next** step's handler
+3. If the handler has `validateInput` or `inputSchema`, validation runs
+4. On failure: diagnostics are sent back to the agent as a repair prompt
+5. Repeat up to 2 times
+6. If still invalid after retries, the step fails with the diagnostics in the job log
+
+#### `StepInputValidation` interface
+
+```typescript
+interface StepInputValidation {
+  valid: boolean;
+  diagnostics?: string[];  // Fed back to the agent on failure
+}
+```
+
+When both `validateInput` and `inputSchema` are present, `validateInput` takes precedence (the engine does not run both).
 
 ### StepExecutionContext
 

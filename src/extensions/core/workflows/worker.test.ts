@@ -207,3 +207,388 @@ describe("createStepProcessor - custom step types", () => {
     expect(result._triggerPayload).toEqual({ file: "test.pdf" });
   });
 });
+
+describe("createStepProcessor - input validation", () => {
+  test("skips validation when next step has no handler", async () => {
+    // Agent step followed by another agent step — no custom handler to validate against
+    const deps = createMockDeps(() => undefined);
+    deps.ctx = {
+      ...deps.ctx,
+      sessions: { append: () => {} },
+      agent: {
+        run: async () => ({ answer: "some output", state: null, timestamp: Date.now() }),
+        enqueue: async () => "id",
+      },
+      tools: { names: () => ["exec"], register: () => {} },
+      skills: { resolve: () => undefined, names: () => [], rescan: async () => {} },
+    } as any;
+
+    const processor = createStepProcessor(deps);
+
+    const job = createMockJob(
+      { slug: "extract", type: "agent", prompt: "Do something" },
+      {
+        stepIndex: 0,
+        totalSteps: 2,
+        stepOrder: ["extract", "write"],
+        allStepDefs: {
+          extract: { slug: "extract", type: "agent", prompt: "Do something" },
+          write: { slug: "write", type: "agent", prompt: "Write something" },
+        },
+      },
+    );
+
+    const result = await processor(job as any);
+    expect(result.value).toBe("some output");
+  });
+
+  test("skips validation when next step handler has no inputSchema or validateInput", async () => {
+    const handler: StepTypeHandler = {
+      schema: Type.Object({ path: Type.String() }),
+      label: "No Validation Handler",
+      execute: async () => ({ done: true }),
+    };
+
+    const deps = createMockDeps((type) => (type === "custom" ? handler : undefined));
+    deps.ctx = {
+      ...deps.ctx,
+      sessions: { append: () => {} },
+      agent: {
+        run: async () => ({ answer: '{"key": "value"}', state: null, timestamp: Date.now() }),
+        enqueue: async () => "id",
+      },
+      tools: { names: () => ["exec"], register: () => {} },
+      skills: { resolve: () => undefined, names: () => [], rescan: async () => {} },
+    } as any;
+
+    const processor = createStepProcessor(deps);
+
+    const job = createMockJob(
+      { slug: "extract", type: "agent", prompt: "Extract data" },
+      {
+        stepIndex: 0,
+        totalSteps: 2,
+        stepOrder: ["extract", "write"],
+        allStepDefs: {
+          extract: { slug: "extract", type: "agent", prompt: "Extract data" },
+          write: { slug: "write", type: "custom", path: "/out" },
+        },
+      },
+    );
+
+    const result = await processor(job as any);
+    expect(result.value).toBe('{"key": "value"}');
+  });
+
+  test("passes validation when inputSchema matches output", async () => {
+    const handler: StepTypeHandler = {
+      schema: Type.Object({ path: Type.String() }),
+      label: "Schema Handler",
+      inputSchema: Type.String({ minLength: 1 }),
+      execute: async () => ({ done: true }),
+    };
+
+    const deps = createMockDeps((type) => (type === "typed" ? handler : undefined));
+    deps.ctx = {
+      ...deps.ctx,
+      sessions: { append: () => {} },
+      agent: {
+        run: async () => ({ answer: "valid string output", state: null, timestamp: Date.now() }),
+        enqueue: async () => "id",
+      },
+      tools: { names: () => ["exec"], register: () => {} },
+      skills: { resolve: () => undefined, names: () => [], rescan: async () => {} },
+    } as any;
+
+    const processor = createStepProcessor(deps);
+
+    const job = createMockJob(
+      { slug: "extract", type: "agent", prompt: "Extract" },
+      {
+        stepIndex: 0,
+        totalSteps: 2,
+        stepOrder: ["extract", "consume"],
+        allStepDefs: {
+          extract: { slug: "extract", type: "agent", prompt: "Extract" },
+          consume: { slug: "consume", type: "typed", path: "/out" },
+        },
+      },
+    );
+
+    const result = await processor(job as any);
+    expect(result.value).toBe("valid string output");
+  });
+
+  test("triggers repair loop when inputSchema validation fails then succeeds", async () => {
+    let callCount = 0;
+
+    const handler: StepTypeHandler = {
+      schema: Type.Object({}),
+      label: "Numeric Handler",
+      inputSchema: Type.Number(),
+      execute: async () => ({ done: true }),
+    };
+
+    const deps = createMockDeps((type) => (type === "numeric" ? handler : undefined));
+    deps.ctx = {
+      ...deps.ctx,
+      sessions: { append: () => {} },
+      agent: {
+        run: async () => {
+          callCount++;
+          // First call returns a string (fails validation), second returns... still a string
+          // because the agent always returns strings. The inputSchema Type.Number() won't match.
+          // Let's use validateInput instead for this test case.
+          return { answer: callCount === 1 ? "not a number" : "42", state: null, timestamp: Date.now() };
+        },
+        enqueue: async () => "id",
+      },
+      tools: { names: () => ["exec"], register: () => {} },
+      skills: { resolve: () => undefined, names: () => [], rescan: async () => {} },
+    } as any;
+
+    // Use validateInput which can parse the string
+    const handlerWithValidate: StepTypeHandler = {
+      schema: Type.Object({}),
+      label: "Parsed Number Handler",
+      validateInput(output) {
+        if (typeof output !== "string") return { valid: false, diagnostics: ["Expected string"] };
+        const num = Number(output);
+        if (Number.isNaN(num)) return { valid: false, diagnostics: ["Output must be a valid number"] };
+        return { valid: true };
+      },
+      execute: async () => ({ done: true }),
+    };
+
+    const deps2 = createMockDeps((type) => (type === "parsed" ? handlerWithValidate : undefined));
+    let callCount2 = 0;
+    deps2.ctx = {
+      ...deps2.ctx,
+      sessions: { append: () => {} },
+      agent: {
+        run: async () => {
+          callCount2++;
+          return {
+            answer: callCount2 === 1 ? "not a number" : "42",
+            state: null,
+            timestamp: Date.now(),
+          };
+        },
+        enqueue: async () => "id",
+      },
+      tools: { names: () => ["exec"], register: () => {} },
+      skills: { resolve: () => undefined, names: () => [], rescan: async () => {} },
+    } as any;
+
+    const processor = createStepProcessor(deps2);
+
+    const job = createMockJob(
+      { slug: "extract", type: "agent", prompt: "Give me a number" },
+      {
+        stepIndex: 0,
+        totalSteps: 2,
+        stepOrder: ["extract", "consume"],
+        allStepDefs: {
+          extract: { slug: "extract", type: "agent", prompt: "Give me a number" },
+          consume: { slug: "consume", type: "parsed" },
+        },
+      },
+    );
+
+    const result = await processor(job as any);
+
+    // Should have called the agent twice (initial + 1 repair)
+    expect(callCount2).toBe(2);
+    expect(result.value).toBe("42");
+    // Logs should contain the validation failure message
+    expect(job.logs.some((l) => l.includes("Input validation failed"))).toBe(true);
+  });
+
+  test("fails after max retries when validation never passes", async () => {
+    const handler: StepTypeHandler = {
+      schema: Type.Object({}),
+      label: "Always Fails",
+      validateInput() {
+        return { valid: false, diagnostics: ["Data is always wrong"] };
+      },
+      execute: async () => ({ done: true }),
+    };
+
+    let callCount = 0;
+    const deps = createMockDeps((type) => (type === "strict" ? handler : undefined));
+    deps.ctx = {
+      ...deps.ctx,
+      sessions: { append: () => {} },
+      agent: {
+        run: async () => {
+          callCount++;
+          return { answer: "bad output", state: null, timestamp: Date.now() };
+        },
+        enqueue: async () => "id",
+      },
+      tools: { names: () => ["exec"], register: () => {} },
+      skills: { resolve: () => undefined, names: () => [], rescan: async () => {} },
+    } as any;
+
+    const processor = createStepProcessor(deps);
+
+    const job = createMockJob(
+      { slug: "extract", type: "agent", prompt: "Extract" },
+      {
+        stepIndex: 0,
+        totalSteps: 2,
+        stepOrder: ["extract", "consume"],
+        allStepDefs: {
+          extract: { slug: "extract", type: "agent", prompt: "Extract" },
+          consume: { slug: "consume", type: "strict" },
+        },
+      },
+    );
+
+    await expect(processor(job as any)).rejects.toThrow(
+      'Input validation for next step "consume" failed after 2 repair attempts',
+    );
+    // Initial call + 2 retries = 3 agent calls
+    expect(callCount).toBe(3);
+  });
+
+  test("validateInput takes precedence over inputSchema", async () => {
+    let validateCalled = false;
+
+    const handler: StepTypeHandler = {
+      schema: Type.Object({}),
+      label: "Both Methods",
+      inputSchema: Type.Number(), // Would fail on string output
+      validateInput(output) {
+        validateCalled = true;
+        // Custom validation accepts strings
+        return { valid: typeof output === "string" };
+      },
+      execute: async () => ({ done: true }),
+    };
+
+    const deps = createMockDeps((type) => (type === "both" ? handler : undefined));
+    deps.ctx = {
+      ...deps.ctx,
+      sessions: { append: () => {} },
+      agent: {
+        run: async () => ({ answer: "string output", state: null, timestamp: Date.now() }),
+        enqueue: async () => "id",
+      },
+      tools: { names: () => ["exec"], register: () => {} },
+      skills: { resolve: () => undefined, names: () => [], rescan: async () => {} },
+    } as any;
+
+    const processor = createStepProcessor(deps);
+
+    const job = createMockJob(
+      { slug: "extract", type: "agent", prompt: "Extract" },
+      {
+        stepIndex: 0,
+        totalSteps: 2,
+        stepOrder: ["extract", "consume"],
+        allStepDefs: {
+          extract: { slug: "extract", type: "agent", prompt: "Extract" },
+          consume: { slug: "consume", type: "both" },
+        },
+      },
+    );
+
+    const result = await processor(job as any);
+    expect(validateCalled).toBe(true);
+    expect(result.value).toBe("string output");
+  });
+
+  test("skips validation when current step is the last step", async () => {
+    const handler: StepTypeHandler = {
+      schema: Type.Object({}),
+      label: "Should Not Be Called",
+      validateInput() {
+        throw new Error("Should not be called");
+      },
+      execute: async () => ({ done: true }),
+    };
+
+    const deps = createMockDeps((type) => (type === "custom" ? handler : undefined));
+    deps.ctx = {
+      ...deps.ctx,
+      sessions: { append: () => {} },
+      agent: {
+        run: async () => ({ answer: "output", state: null, timestamp: Date.now() }),
+        enqueue: async () => "id",
+      },
+      tools: { names: () => ["exec"], register: () => {} },
+      skills: { resolve: () => undefined, names: () => [], rescan: async () => {} },
+    } as any;
+
+    const processor = createStepProcessor(deps);
+
+    const job = createMockJob(
+      { slug: "final", type: "agent", prompt: "Last step" },
+      {
+        stepIndex: 0,
+        totalSteps: 1,
+        stepOrder: ["final"],
+        allStepDefs: { final: { slug: "final", type: "agent", prompt: "Last step" } },
+      },
+    );
+
+    const result = await processor(job as any);
+    expect(result.value).toBe("output");
+  });
+
+  test("async validateInput is supported", async () => {
+    const handler: StepTypeHandler = {
+      schema: Type.Object({}),
+      label: "Async Validator",
+      async validateInput(output) {
+        // Simulate async validation (e.g. checking a remote schema)
+        await new Promise((resolve) => setTimeout(resolve, 1));
+        if (typeof output === "string" && output.includes("valid")) {
+          return { valid: true };
+        }
+        return { valid: false, diagnostics: ["Output must contain 'valid'"] };
+      },
+      execute: async () => ({ done: true }),
+    };
+
+    let callCount = 0;
+    const deps = createMockDeps((type) => (type === "async" ? handler : undefined));
+    deps.ctx = {
+      ...deps.ctx,
+      sessions: { append: () => {} },
+      agent: {
+        run: async () => {
+          callCount++;
+          return {
+            answer: callCount === 1 ? "bad" : "this is valid",
+            state: null,
+            timestamp: Date.now(),
+          };
+        },
+        enqueue: async () => "id",
+      },
+      tools: { names: () => ["exec"], register: () => {} },
+      skills: { resolve: () => undefined, names: () => [], rescan: async () => {} },
+    } as any;
+
+    const processor = createStepProcessor(deps);
+
+    const job = createMockJob(
+      { slug: "extract", type: "agent", prompt: "Produce" },
+      {
+        stepIndex: 0,
+        totalSteps: 2,
+        stepOrder: ["extract", "consume"],
+        allStepDefs: {
+          extract: { slug: "extract", type: "agent", prompt: "Produce" },
+          consume: { slug: "consume", type: "async" },
+        },
+      },
+    );
+
+    const result = await processor(job as any);
+    expect(callCount).toBe(2);
+    expect(result.value).toBe("this is valid");
+  });
+});

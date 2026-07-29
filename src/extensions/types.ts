@@ -7,7 +7,7 @@
 
 import type { AgentEvent, AgentMessage, AgentTool, ThinkingLevel } from "@mariozechner/pi-agent-core";
 import type { WebSocketMessage } from "@shared/types";
-import { type Static, type TObject, Type } from "@sinclair/typebox";
+import { type Static, type TObject, type TSchema, Type } from "@sinclair/typebox";
 import type { ModelIntent } from "@src/models";
 import type { PushMessageOptions, PushMessageResult } from "@src/push";
 import type {
@@ -278,6 +278,24 @@ export interface StepExecutionContext {
 }
 
 /**
+ * Result of a pre-transition input validation check performed by the
+ * succeeding step's handler before the preceding step completes.
+ *
+ * When validation fails, the diagnostics are fed back to the producing agent
+ * as a repair prompt, giving it a chance to self-correct before the workflow
+ * advances.
+ */
+export interface StepInputValidation {
+  /** Whether the output is acceptable for the next step. */
+  valid: boolean;
+  /**
+   * Diagnostic messages explaining what's wrong. Fed back to the producing
+   * agent as repair instructions when `valid` is `false`.
+   */
+  diagnostics?: string[];
+}
+
+/**
  * Handler for a custom workflow step type registered by an extension.
  *
  * Extensions call {@link ExtensionContext.registerStepType} during initialization
@@ -293,6 +311,36 @@ export interface StepTypeHandler {
 
   /** Optional emoji or icon identifier for graph node rendering. */
   icon?: string;
+
+  /**
+   * Optional TypeBox schema describing the expected shape of input data from
+   * the preceding step. Used by the workflow engine to validate the preceding
+   * step's output BEFORE the transition occurs, enabling agent self-repair.
+   *
+   * When provided, the engine uses `Value.Check()` against this schema and
+   * formats `Value.Errors()` into diagnostics that are fed back to the
+   * producing agent for repair.
+   */
+  inputSchema?: TSchema;
+
+  /**
+   * Validate that data produced by the preceding step conforms to semantic
+   * expectations of this step.
+   *
+   * Called by the workflow engine BEFORE the preceding step completes, giving
+   * the producing step (typically an agent) a chance to repair its output.
+   * Only invoked when the preceding step is an agent step.
+   *
+   * The default validation (when this method is not provided) uses
+   * {@link inputSchema} with TypeBox `Value.Check` / `Value.Errors`.
+   * Override this method for domain-specific checks beyond structural
+   * validation (e.g. verifying column keys match the step config).
+   *
+   * @param output - The raw output from the preceding step
+   * @param stepDef - This step's definition (for checking config-specific invariants)
+   * @returns Validation result with diagnostics on failure
+   */
+  validateInput?(output: unknown, stepDef: Record<string, unknown>): StepInputValidation | Promise<StepInputValidation>;
 
   /**
    * Execute the custom step logic.

@@ -9,9 +9,18 @@
  * template resolution for any earlier step in the chain.
  */
 
-import type { ExtensionContext, Logger, QueueJob, StepExecutionContext, StepTypeHandler } from "@ext/types";
+import type {
+  ExtensionContext,
+  Logger,
+  QueueJob,
+  StepExecutionContext,
+  StepInputValidation,
+  StepTypeHandler,
+} from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
+import { Value } from "@sinclair/typebox/value";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
+import { formatValidationErrors } from "@src/utils/validation";
 import type { FlowProducer } from "bunqueue/client";
 import { normalizePrompt } from "./schemas";
 import type { TemplateContext, TemplateSecretResolver } from "./template";
@@ -279,6 +288,46 @@ async function executeWebhookStep(
   return await response.text();
 }
 
+/** Maximum number of repair attempts when input validation fails. */
+const MAX_VALIDATION_RETRIES = 2;
+
+/**
+ * Runs the next step's input validation against the current step's output.
+ *
+ * If the next step's handler provides a `validateInput` method, that is called.
+ * Otherwise, if `inputSchema` is defined, TypeBox `Value.Check` / `Value.Errors`
+ * is used for structural validation.
+ *
+ * @param output - The current step's output value
+ * @param nextStepDef - The next step's definition object
+ * @param handler - The next step's registered handler
+ * @returns Validation result, or `{ valid: true }` if no validation is configured
+ */
+async function runInputValidation(
+  output: unknown,
+  nextStepDef: Record<string, unknown>,
+  handler: StepTypeHandler,
+): Promise<StepInputValidation> {
+  // Prefer explicit validateInput method (domain-specific checks)
+  if (handler.validateInput) {
+    return handler.validateInput(output, nextStepDef);
+  }
+
+  // Fall back to TypeBox inputSchema validation
+  if (handler.inputSchema) {
+    if (Value.Check(handler.inputSchema, output)) {
+      return { valid: true };
+    }
+    const diagnostics = formatValidationErrors(handler.inputSchema, output, "\n")
+      .split("\n")
+      .filter((line) => line.trim().length > 0);
+    return { valid: false, diagnostics };
+  }
+
+  // No validation configured — pass through
+  return { valid: true };
+}
+
 /**
  * Creates the step processor function for the workflows queue.
  *
@@ -298,6 +347,47 @@ export function createStepProcessor(deps: StepWorkerDeps) {
       if (stepDef.type === "agent") {
         const agentStepDef = stepDef as import("./schemas").AgentStep;
         value = await executeAgentStep(job, normalizePrompt(agentStepDef.prompt), tmplCtx, deps);
+
+        // --- Input validation for the next step (agent repair loop) ---
+        const nextStepSlug = job.data.stepOrder?.[stepIndex + 1];
+        const nextStepDef = nextStepSlug
+          ? (job.data.allStepDefs?.[nextStepSlug] as Record<string, unknown> | undefined)
+          : undefined;
+
+        if (nextStepDef) {
+          const nextType = nextStepDef.type as string | undefined;
+          const nextHandler = nextType ? deps.getStepHandler?.(nextType) : undefined;
+
+          if (nextHandler && (nextHandler.validateInput || nextHandler.inputSchema)) {
+            let validation = await runInputValidation(value, nextStepDef, nextHandler);
+            let attempt = 0;
+
+            while (!validation.valid && attempt < MAX_VALIDATION_RETRIES) {
+              attempt++;
+              const diagnosticText =
+                validation.diagnostics?.join("\n- ") ?? "Output does not match the expected format.";
+              const repairPrompt = [
+                "Your output does not conform to what the next workflow step expects.",
+                "Please fix the following issues and respond with corrected output only:",
+                "",
+                `- ${diagnosticText}`,
+              ].join("\n");
+
+              await job.log(
+                `Input validation failed (attempt ${attempt}/${MAX_VALIDATION_RETRIES}): ${diagnosticText}`,
+              );
+              value = await executeAgentStep(job, repairPrompt, tmplCtx, deps);
+              validation = await runInputValidation(value, nextStepDef, nextHandler);
+            }
+
+            if (!validation.valid) {
+              const finalDiagnostics = validation.diagnostics?.join("; ") ?? "Unknown validation error";
+              const errMsg = `Input validation for next step "${nextStepSlug}" failed after ${MAX_VALIDATION_RETRIES} repair attempts: ${finalDiagnostics}`;
+              await job.log(errMsg);
+              throw new Error(errMsg);
+            }
+          }
+        }
       } else if (stepDef.type === "webhook") {
         value = await executeWebhookStep(job, tmplCtx, deps);
       } else {
