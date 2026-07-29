@@ -19,5 +19,7 @@ export { registerProgram } from "@src/tools/sandbox";
 export type { ArgDef, CommandDef, OptionDef, SubcommandDef } from "@src/utils/command";
 export { createCommand, formatFetchError, formatHttpError, ParsedArgs } from "@src/utils/command";
 export { FileWatcher } from "@src/utils/fileWatcher";
+export type { JsonValidationFailure, JsonValidationResult, JsonValidationSuccess } from "@src/utils/json";
+export { extractJson, validateJsonInput, validateJsonOutput } from "@src/utils/json";
 export { formatValidationErrors } from "@src/utils/validation";
 export type { SkillScriptContext } from "./types";

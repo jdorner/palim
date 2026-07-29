@@ -20,6 +20,8 @@ export interface WorkflowStepJobData {
   stepDef: WorkflowStep;
   /** All step definitions in the workflow, keyed by slug. Used for `{{steps.<slug>.config}}` resolution. */
   allStepDefs?: Record<string, unknown>;
+  /** Ordered list of step slugs matching the chain execution order. Used by input validation to identify the next step. */
+  stepOrder?: string[];
   /** Trigger payload - only present on the first step. */
   triggerPayload?: unknown;
   /** Session ID for persisting conversation context for this step. */

@@ -235,7 +235,7 @@ Extensions live in `src/extensions/<name>/index.ts` (or `src/extensions/core/<na
 3. Resolves dependencies (topological sort)
 4. Initializes in dependency order with a scoped `ExtensionContext`
 
-Extensions can register: tools, HTTP routes (auto-prefixed `/ext/<name>/`), job queues, agent event listeners, skills, UI contributions (sidebar navigation entries), and dynamic item providers for settings schema enrichment. Extension config is read from `EXT_<NAME>_<KEY>` env vars.
+Extensions can register: tools, HTTP routes (auto-prefixed `/ext/<name>/`), job queues, agent event listeners, skills, UI contributions (sidebar navigation entries), custom workflow step types (with optional input validation), and dynamic item providers for settings schema enrichment. Extension config is read from `EXT_<NAME>_<KEY>` env vars.
 
 Current extensions (11): **converter**, **error-analyzer**, **mcp**, **steering**, **telegram**, **web-fetch**, **wiki** | Core: **filewatcher**, **scheduler**, **webhooks**, **workflows**
 
