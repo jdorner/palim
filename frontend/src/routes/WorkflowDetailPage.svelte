@@ -804,8 +804,8 @@ onDestroy(() => {
 
       <Tabs.Content value="definition" class="flex flex-col flex-1 min-h-0">
         <!-- Graph area -->
-        <div class="flex flex-1 min-w-0 min-h-0 overflow-auto transition-all duration-200">
-          <div class="flex-1 min-w-0 overflow-auto">
+        <div class="flex flex-1 min-w-0 min-h-0 transition-all duration-200">
+          <div class="flex-1 min-w-0 min-h-0">
             <WorkflowGraph
               steps={(editDraft ?? workflow).steps.map((s) => ({
                 slug: s.slug,
@@ -908,11 +908,11 @@ onDestroy(() => {
                 </div>
 
                 <!-- Sidebar content -->
-                <div class="flex-1 overflow-y-auto min-h-0 p-4">
+                <div class="flex-1 overflow-y-auto min-h-0 p-4 flex flex-col">
                   {#if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) === "agent"}
                     <!-- Edit mode: agent step -->
-                    <div class="space-y-4">
-                      <div class="flex flex-col gap-1.5">
+                    <div class="flex flex-col gap-4 h-full">
+                      <div class="flex flex-col gap-1.5 shrink-0">
                         <span class="text-xs font-medium text-muted-foreground">Tools</span>
                         <MultiSelect
                           items={availableTools}
@@ -923,7 +923,7 @@ onDestroy(() => {
                         />
                       </div>
 
-                      <div class="flex flex-col gap-1.5">
+                      <div class="flex flex-col gap-1.5 shrink-0">
                         <span class="text-xs font-medium text-muted-foreground">Skills</span>
                         <MultiSelect
                           items={availableSkills}
@@ -934,11 +934,13 @@ onDestroy(() => {
                         />
                       </div>
 
-                      <div class="flex flex-col gap-1.5">
-                        <label for="step-prompt" class="text-xs font-medium text-muted-foreground">Prompt</label>
+                      <div class="flex flex-col gap-1.5 flex-1 min-h-0">
+                        <label for="step-prompt" class="text-xs font-medium text-muted-foreground shrink-0"
+                          >Prompt</label
+                        >
                         <textarea
                           id="step-prompt"
-                          class="w-full min-h-40 px-2 py-1.5 text-sm font-mono border border-border rounded-md bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+                          class="w-full flex-1 min-h-24 px-2 py-1.5 text-sm font-mono border border-border rounded-md bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
                           maxlength={10000}
                           value={editDraftStep.prompt ?? ""}
                           oninput={(e) => {
@@ -949,7 +951,7 @@ onDestroy(() => {
                           }}
                           placeholder="Enter step prompt..."
                         ></textarea>
-                        <div class="flex items-center justify-between">
+                        <div class="flex items-center justify-between shrink-0">
                           {#if validationErrors.get(`steps[${selectedStepIndex}].prompt`)}
                             <span class="text-xs text-destructive"
                               >{validationErrors.get(`steps[${selectedStepIndex}].prompt`)}</span
