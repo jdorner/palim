@@ -8,7 +8,7 @@ import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import PlayIcon from "phosphor-svelte/lib/PlayIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import WarningIcon from "phosphor-svelte/lib/WarningIcon";
-import { onDestroy } from "svelte";
+import { onDestroy, onMount } from "svelte";
 import { slide } from "svelte/transition";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
@@ -619,8 +619,36 @@ function handleWorkflowEvent(msg: WorkflowEvent) {
 
 const unsubWorkflow = workflowStore.subscribe(handleWorkflowEvent);
 
+/** Keyboard shortcuts for edit mode. */
+function handleKeydown(e: KeyboardEvent) {
+  if (!editMode) return;
+
+  if (e.key === "Escape") {
+    e.preventDefault();
+    cancelEdit();
+    return;
+  }
+
+  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
+    e.preventDefault();
+    if (!saveDisabled) saveWorkflow();
+    return;
+  }
+
+  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+    e.preventDefault();
+    if (!saveDisabled) saveWorkflow();
+    return;
+  }
+}
+
+onMount(() => {
+  window.addEventListener("keydown", handleKeydown);
+});
+
 onDestroy(() => {
   unsubWorkflow();
+  window.removeEventListener("keydown", handleKeydown);
 });
 </script>
 
