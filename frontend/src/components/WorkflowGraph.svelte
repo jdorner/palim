@@ -295,7 +295,7 @@ function handleNodeClick(ev: { event: MouseEvent | TouchEvent; node: Node }) {
 }
 </script>
 
-<div class="w-full border rounded-lg overflow-hidden bg-background" style="height: 650px">
+<div class="w-full h-full border rounded-lg overflow-hidden bg-background">
   <SvelteFlow
     {nodes}
     {edges}
