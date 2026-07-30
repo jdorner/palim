@@ -39,8 +39,8 @@ describe("generateExtensionTsconfig", () => {
 
     expect(result.compilerOptions.paths["@ext/types"]).toEqual([`${relative}/src/extensions/types.ts`]);
     expect(result.compilerOptions.paths["@ext/sdk"]).toEqual([`${relative}/src/extensions/sdk.ts`]);
-    expect(result.compilerOptions.paths["@src/*"]).toEqual([`${relative}/src/*`]);
-    expect(result.compilerOptions.paths["@shared/*"]).toEqual([`${relative}/shared/*`]);
+    expect(result.compilerOptions.paths["@src/*"]).toBeUndefined();
+    expect(result.compilerOptions.paths["@shared/*"]).toBeUndefined();
     expect(result.compilerOptions.paths["*"]).toEqual(["./node_modules/*", `${relative}/node_modules/*`]);
   });
 
@@ -64,7 +64,7 @@ describe("generateExtensionTsconfig", () => {
     const relative = "../..";
 
     expect(result.compilerOptions.typeRoots).toEqual([`${relative}/node_modules/@types`]);
-    expect(result.compilerOptions.paths["@src/*"]).toEqual([`${relative}/src/*`]);
+    expect(result.compilerOptions.paths["@src/*"]).toBeUndefined();
     expect(result.compilerOptions.paths["*"]).toEqual(["./node_modules/*", `${relative}/node_modules/*`]);
   });
 });
@@ -112,27 +112,20 @@ describe("generateExtensionTsconfig - Property Tests", () => {
       );
     });
 
-    test("@src/* resolves to coreProjectDir/src/", () => {
+    test("@src/* is not exposed to external extensions", () => {
       fc.assert(
         fc.property(distinctPathPairArb, ([extensionDir, coreProjectDir]) => {
           const result = generateExtensionTsconfig(extensionDir, coreProjectDir);
-          const srcPattern = result.compilerOptions.paths["@src/*"]![0]!;
-          // Remove the trailing * to get the directory prefix, then resolve
-          const srcPrefix = srcPattern.replace(/\*$/, "");
-          const resolved = path.resolve(extensionDir, srcPrefix);
-          expect(resolved).toBe(path.join(coreProjectDir, "src"));
+          expect(result.compilerOptions.paths["@src/*"]).toBeUndefined();
         }),
       );
     });
 
-    test("@shared/* resolves to coreProjectDir/shared/", () => {
+    test("@shared/* is not exposed to external extensions", () => {
       fc.assert(
         fc.property(distinctPathPairArb, ([extensionDir, coreProjectDir]) => {
           const result = generateExtensionTsconfig(extensionDir, coreProjectDir);
-          const sharedPattern = result.compilerOptions.paths["@shared/*"]![0]!;
-          const sharedPrefix = sharedPattern.replace(/\*$/, "");
-          const resolved = path.resolve(extensionDir, sharedPrefix);
-          expect(resolved).toBe(path.join(coreProjectDir, "shared"));
+          expect(result.compilerOptions.paths["@shared/*"]).toBeUndefined();
         }),
       );
     });
@@ -377,8 +370,8 @@ describe("generateExtensionTsconfig - Property 10: Tsconfig generation resilienc
         // Required path aliases
         expect(result.compilerOptions.paths["@ext/types"]).toBeDefined();
         expect(result.compilerOptions.paths["@ext/sdk"]).toBeDefined();
-        expect(result.compilerOptions.paths["@src/*"]).toBeDefined();
-        expect(result.compilerOptions.paths["@shared/*"]).toBeDefined();
+        expect(result.compilerOptions.paths["@src/*"]).toBeUndefined();
+        expect(result.compilerOptions.paths["@shared/*"]).toBeUndefined();
         expect(result.compilerOptions.paths["*"]).toBeDefined();
 
         // Required typeRoots
