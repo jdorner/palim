@@ -77,6 +77,7 @@ let activeTab = $state("definition");
 // Edit mode state
 let editMode = $state(false);
 let editDraft = $state<WorkflowDraft | null>(null);
+let fitViewTrigger = $state(0);
 let saving = $state(false);
 let saveError = $state<string | null>(null);
 let validationErrors = $state<Map<string, string>>(new Map());
@@ -146,6 +147,7 @@ function enterEditMode() {
   validationErrors = new Map();
   currentGraphEdges = [];
   editMode = true;
+  fitViewTrigger++;
   fetchMeta();
 }
 
@@ -155,6 +157,7 @@ function cancelEdit() {
   editDraft = null;
   saveError = null;
   validationErrors = new Map();
+  fitViewTrigger++;
   // Re-point sidebar to the original workflow step data
   if (sidebarOpen && selectedStepIndex >= 0 && workflow?.steps[selectedStepIndex]) {
     selectedStep = workflow.steps[selectedStepIndex] as StepDef;
@@ -415,6 +418,7 @@ async function saveWorkflow() {
     editMode = false;
     editDraft = null;
     validationErrors = new Map();
+    fitViewTrigger++;
     // Update sidebar step reference to fresh data
     if (sidebarOpen && selectedStepIndex >= 0 && workflow?.steps[selectedStepIndex]) {
       selectedStep = workflow.steps[selectedStepIndex] as StepDef;
@@ -628,7 +632,9 @@ onDestroy(() => {
   <div class="flex flex-col h-[calc(100vh-8rem)] overflow-hidden">
     <div class="flex flex-wrap items-center justify-between gap-2 mb-4 shrink-0">
       <div class="flex items-center gap-3 min-w-0">
-        <Button size="sm" variant="outline"
+        <Button
+          size="sm"
+          variant="outline"
           onclick={() => {
             navigate("/workflows");
           }}
@@ -816,6 +822,7 @@ onDestroy(() => {
               onNodeClick={onStepClick}
               onAddStep={addStep}
               onEdgesChange={editMode ? handleEdgesChange : undefined}
+              {fitViewTrigger}
             />
           </div>
 

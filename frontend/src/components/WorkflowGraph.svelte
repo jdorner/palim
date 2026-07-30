@@ -31,12 +31,22 @@ interface Props {
   trigger?: TriggerInfo;
   editMode?: boolean;
   selectedStepIndex?: number;
+  fitViewTrigger?: number;
   onNodeClick?: (step: StepInfo, index: number) => void;
   onAddStep?: () => void;
   onEdgesChange?: (edges: Edge[]) => void;
 }
 
-let { steps, trigger, editMode, selectedStepIndex = -1, onNodeClick, onAddStep, onEdgesChange }: Props = $props();
+let {
+  steps,
+  trigger,
+  editMode,
+  selectedStepIndex = -1,
+  fitViewTrigger = 0,
+  onNodeClick,
+  onAddStep,
+  onEdgesChange,
+}: Props = $props();
 
 let colorMode = $state<ColorMode>("light");
 
@@ -312,7 +322,7 @@ function handleNodeClick(ev: { event: MouseEvent | TouchEvent; node: Node }) {
     onnodedragstop={editMode ? handleNodeDragStop : undefined}
     onnodeclick={handleNodeClick}
   >
-    <FitViewOnInit />
+    <FitViewOnInit {fitViewTrigger} />
     <Background />
     <Controls />
   </SvelteFlow>
