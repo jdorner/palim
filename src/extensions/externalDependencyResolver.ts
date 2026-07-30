@@ -142,8 +142,6 @@ export function generateExtensionTsconfig(extensionDir: string, coreProjectDir: 
       paths: {
         "@ext/types": [`${relativeToCoreProject}/src/extensions/types.ts`],
         "@ext/sdk": [`${relativeToCoreProject}/src/extensions/sdk.ts`],
-        "@src/*": [`${relativeToCoreProject}/src/*`],
-        "@shared/*": [`${relativeToCoreProject}/shared/*`],
         "*": ["./node_modules/*", `${relativeToCoreProject}/node_modules/*`],
       },
     },

@@ -163,8 +163,8 @@ describe("ExternalDependencyResolver.writeTsconfig", () => {
     const relativePath = path.relative(EXT_DIR, CORE_DIR);
     expect(content.compilerOptions.paths["@ext/types"]).toEqual([`${relativePath}/src/extensions/types.ts`]);
     expect(content.compilerOptions.paths["@ext/sdk"]).toEqual([`${relativePath}/src/extensions/sdk.ts`]);
-    expect(content.compilerOptions.paths["@src/*"]).toEqual([`${relativePath}/src/*`]);
-    expect(content.compilerOptions.paths["@shared/*"]).toEqual([`${relativePath}/shared/*`]);
+    expect(content.compilerOptions.paths["@src/*"]).toBeUndefined();
+    expect(content.compilerOptions.paths["@shared/*"]).toBeUndefined();
   });
 });
 

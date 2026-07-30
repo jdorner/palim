@@ -143,8 +143,6 @@ The auto-generated `tsconfig.json` looks like this (paths are relative to your e
     "paths": {
       "@ext/types": ["<relative-path>/src/extensions/types.ts"],
       "@ext/sdk": ["<relative-path>/src/extensions/sdk.ts"],
-      "@src/*": ["<relative-path>/src/*"],
-      "@shared/*": ["<relative-path>/shared/*"],
       "*": ["./node_modules/*", "<relative-path>/node_modules/*"]
     }
   },
