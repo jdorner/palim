@@ -626,23 +626,21 @@ onDestroy(() => {
   <p class="text-sm text-destructive">{error}</p>
 {:else if workflow}
   <div class="flex flex-col h-[calc(100vh-8rem)] overflow-hidden">
-    <div class="flex items-center justify-between mb-4 shrink-0">
-      <div class="flex items-center gap-4 align-top">
-        <button
-          type="button"
-          class="px-3 py-1.5 text-sm rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+    <div class="flex flex-wrap items-center justify-between gap-2 mb-4 shrink-0">
+      <div class="flex items-center gap-3 min-w-0">
+        <Button size="sm" variant="outline"
           onclick={() => {
             navigate("/workflows");
           }}
         >
-          Back
-        </button>
-        <h2 class="text-lg font-semibold text-nowrap">{workflow.name}</h2>
+          &laquo;&nbsp;Back
+        </Button>
+        <h2 class="text-lg font-semibold truncate">{workflow.name}</h2>
         {#if !editMode && workflow.description}
-          <span class="text-sm text-muted-foreground">{workflow.description}</span>
+          <span class="hidden md:inline text-sm text-muted-foreground truncate">{workflow.description}</span>
         {/if}
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-wrap">
         {#if editMode}
           <Button size="sm" variant="default" onclick={saveWorkflow} disabled={saveDisabled}>
             {#if saving}
@@ -651,11 +649,11 @@ onDestroy(() => {
               Save
             {/if}
           </Button>
-          <Button size="sm" variant="outline" onclick={cancelEdit}> Cancel </Button>
+          <Button size="sm" variant="outline" onclick={cancelEdit}>Cancel</Button>
         {:else if confirmingDelete}
           <span class="text-sm font-bold text-destructive">Delete this workflow?</span>
-          <Button size="sm" variant="destructive" onclick={() => deleteWorkflow()}> Confirm </Button>
-          <Button size="sm" variant="outline" onclick={() => { confirmingDelete = false; }}> Cancel </Button>
+          <Button size="sm" variant="destructive" onclick={() => deleteWorkflow()}>Confirm</Button>
+          <Button size="sm" variant="outline" onclick={() => { confirmingDelete = false; }}>Cancel</Button>
         {:else}
           <Button size="sm" variant="outline" onclick={enterEditMode}>
             <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
