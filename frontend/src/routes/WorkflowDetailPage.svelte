@@ -968,9 +968,13 @@ onDestroy(() => {
                       </div>
 
                       <div class="flex flex-col gap-1.5 flex-1 min-h-0">
-                        <label for="step-prompt" class="text-xs font-medium text-muted-foreground shrink-0"
-                          >Prompt</label
-                        >
+                        <div class="flex items-center justify-between shrink-0">
+                          <label for="step-prompt" class="text-xs font-medium text-muted-foreground">Prompt</label>
+                          <span class="text-xs text-muted-foreground pr-1"
+                            >{(editDraftStep.prompt ?? "").length}
+                            / 10000</span
+                          >
+                        </div>
                         <textarea
                           id="step-prompt"
                           class="w-full flex-1 min-h-24 px-2 py-1.5 text-sm font-mono border border-border rounded-md bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
@@ -984,19 +988,11 @@ onDestroy(() => {
                           }}
                           placeholder="Enter step prompt..."
                         ></textarea>
-                        <div class="flex items-center justify-between shrink-0">
-                          {#if validationErrors.get(`steps[${selectedStepIndex}].prompt`)}
-                            <span class="text-xs text-destructive"
-                              >{validationErrors.get(`steps[${selectedStepIndex}].prompt`)}</span
-                            >
-                          {:else}
-                            <span></span>
-                          {/if}
-                          <span class="text-xs text-muted-foreground"
-                            >{(editDraftStep.prompt ?? "").length}
-                            / 10000</span
+                        {#if validationErrors.get(`steps[${selectedStepIndex}].prompt`)}
+                          <span class="text-xs text-destructive shrink-0"
+                            >{validationErrors.get(`steps[${selectedStepIndex}].prompt`)}</span
                           >
-                        </div>
+                        {/if}
                       </div>
                     </div>
                   {:else if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) === "webhook"}
