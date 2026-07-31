@@ -14,8 +14,8 @@
 
 export { parseSkillMd } from "@src/skills/frontmatter";
 export { getSkillsForContext } from "@src/skills/skills";
-export type { SkillEntry } from "@src/tools/sandbox";
-export { registerProgram } from "@src/tools/sandbox";
+export type { CreateShellOptions, SkillEntry } from "@src/tools/sandbox";
+export { createShell, registerProgram } from "@src/tools/sandbox";
 export type { ArgDef, CommandDef, OptionDef, SubcommandDef } from "@src/utils/command";
 export { createCommand, formatFetchError, formatHttpError, ParsedArgs } from "@src/utils/command";
 export { FileWatcher } from "@src/utils/fileWatcher";
