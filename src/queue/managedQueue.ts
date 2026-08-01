@@ -111,7 +111,7 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
 
   /** @inheritdoc */
   async add(name: string, data: T, opts?: { priority?: number; delay?: number }): Promise<string> {
-    const job = await this.queue.add(name, data, opts);
+    const job = await this.queue.add(name, data, { ...opts, attempts: 1 });
     return job.id;
   }
 
