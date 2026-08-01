@@ -411,7 +411,11 @@ export function createStepProcessor(deps: StepWorkerDeps) {
         value = await handler.execute(stepDef as unknown as Record<string, unknown>, stepExecCtx);
       }
     } catch (e) {
-      await job.log(String(e));
+      // Agent steps already log errors via the runAgent catch block.
+      // Only log here for non-agent step types to avoid duplicate entries.
+      if (stepDef.type !== "agent") {
+        await job.log(String(e));
+      }
       throw e;
     }
 
