@@ -12,7 +12,7 @@
         "@modelcontextprotocol/sdk": "^1.30.0",
         "@orama/orama": "^3.1.18",
         "@sinclair/typebox": "^0.34.52",
-        "bunqueue": "^2.8.48",
+        "bunqueue": "^2.8.54",
         "chokidar": "^5.0.0",
         "drizzle-orm": "^0.45.2",
         "elysia": "^1.4.29",
@@ -445,7 +445,7 @@
 
     "bun-types": ["bun-types@1.3.14", "", { "dependencies": { "@types/node": "*" } }, "sha512-4N0ig0fEomHt5R0KCFWjovxow98rIoRwKolrYdCcknNwMekCXRnWEUvgu5soYV8QXtVsrUD8B95MBOZGPvr6KQ=="],
 
-    "bunqueue": ["bunqueue@2.8.48", "", { "dependencies": { "croner": "10.0.1", "msgpackr": "^1.11.8" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.26.0" }, "optionalPeers": ["@modelcontextprotocol/sdk"], "bin": { "bunqueue": "dist/cli/index.js", "bunqueue-mcp": "dist/mcp/index.js" } }, "sha512-W87/yNAWphmF/Tzkh5DAOw1sdSAeIqjzD1EsD4CFGYP8zqtA97zPTaH6zumyt/ycF/vG0tYd/Ei6EnxK0ZUh4A=="],
+    "bunqueue": ["bunqueue@2.8.54", "", { "dependencies": { "croner": "10.0.1", "msgpackr": "^1.11.8" }, "peerDependencies": { "@modelcontextprotocol/sdk": "^1.26.0" }, "optionalPeers": ["@modelcontextprotocol/sdk"], "bin": { "bunqueue": "dist/cli/index.js", "bunqueue-mcp": "dist/mcp/index.js" } }, "sha512-lVwPyp6oicg3vW6pRDgOpGFA3nfTOReUdVl2pmqgAqqePNwEdMOJe3DfU0sieUh4+XhRNjFLL/b6u1lB2L6Srw=="],
 
     "bytes": ["bytes@3.1.2", "", {}, "sha512-/Nf7TyzTx6S3yRJObOAV7956r8cr2+Oj8AC5dt8wSP3BQAoeX58NoHyCU8P8zGkNXStjTSi6fzO6F0pBdcYbEg=="],
 

@@ -86,7 +86,6 @@ export async function dispatchWorkflow(
         ...(index === 0 ? { triggerPayload } : {}),
       },
       opts: {
-        failParentOnFailure: true,
         attempts: 1,
       },
     };
