@@ -1,5 +1,6 @@
 <script lang="ts">
 import { resetAuthCache, setToken } from "$lib/auth";
+import { Button } from "$lib/components/ui/button";
 import { navigate } from "../router";
 
 let token = "";
@@ -62,15 +63,9 @@ function handleKeydown(e: KeyboardEvent) {
         <p class="text-sm text-destructive">{error}</p>
       {/if}
 
-      <button
-        type="button"
-        onclick={handleSubmit}
-        disabled={submitting || !token}
-        class="w-full rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground
-          hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none"
-      >
+      <Button size="default" class="w-full" disabled={submitting || !token} onclick={handleSubmit}>
         {submitting ? "Validating..." : "Sign In"}
-      </button>
+      </Button>
     </div>
   </div>
 </div>
