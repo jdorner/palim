@@ -61,6 +61,10 @@ jobs:
         run: bun install --frozen-lockfile
         working-directory: frontend
 
+      - name: Svelte type-check
+        run: bun run check
+        working-directory: frontend
+
       - name: Build frontend
         run: bun run build
         working-directory: frontend

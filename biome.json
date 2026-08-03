@@ -43,7 +43,15 @@
     "lineWidth": 120
   },
   "files": {
-    "includes": ["**", "!node_modules", "!**/node_modules", "!frontend/node_modules", "!frontend/dist", "!.work"]
+    "includes": [
+      "**",
+      "!node_modules",
+      "!**/node_modules",
+      "!frontend/node_modules",
+      "!frontend/dist",
+      "!frontend/.svelte-check",
+      "!.work"
+    ]
   },
   "overrides": [
     {
