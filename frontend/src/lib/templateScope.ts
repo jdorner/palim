@@ -273,10 +273,13 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
     }
     if (path.length === 2) {
       // path=["steps", slug] -> show result/config
+      // "result" is only available for preceding steps (forward references are invalid at runtime)
       const slug = path[1]!;
+      const stepIndex = config.steps.findIndex((s) => s.slug === slug);
+      const isPreceding = stepIndex !== -1 && stepIndex < config.currentStepIndex;
       const stepSchema = config.outputSchemas?.steps[slug];
       const suggestions: Suggestion[] = [
-        { label: "result", terminal: !stepSchema },
+        ...(isPreceding ? [{ label: "result", terminal: !stepSchema }] : []),
         { label: "config", terminal: false },
       ];
       return suggestions.filter((s) => s.label.startsWith(prefix));

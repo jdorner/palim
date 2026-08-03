@@ -387,11 +387,20 @@ describe("Output Schema Suggestions", () => {
       });
 
       test("result is terminal when step has no schema", () => {
-        const results = getSuggestions(baseConfig, ["steps", "process"], "");
+        // "fetch" is at index 0, currentStepIndex=1, so it's preceding
+        const results = getSuggestions(baseConfig, ["steps", "fetch"], "r");
         const result = results.find((s) => s.label === "result");
-        // "process" step has no output schema defined
         expect(result).not.toBeUndefined();
-        expect(result!.terminal).toBe(true);
+        // "fetch" HAS an output schema, so result is non-terminal
+        // Test with a config where "fetch" has no schema:
+        const noSchemaConfig: ScopeConfig = {
+          ...baseConfig,
+          outputSchemas: { trigger: baseConfig.outputSchemas!.trigger, steps: {} },
+        };
+        const results2 = getSuggestions(noSchemaConfig, ["steps", "fetch"], "r");
+        const result2 = results2.find((s) => s.label === "result");
+        expect(result2).not.toBeUndefined();
+        expect(result2!.terminal).toBe(true);
       });
 
       test("config is always non-terminal (allows drilling into step definition)", () => {
@@ -683,5 +692,64 @@ describe("getSuggestions with edit draft structure (nested config)", () => {
     const labels = results.map((s) => s.label);
     expect(labels).toContain("name");
     expect(labels).toContain("columns");
+  });
+});
+
+describe("getSuggestions hides result for succeeding steps", () => {
+  const steps: Array<{ slug: string; [key: string]: unknown }> = [
+    { slug: "first", type: "agent", prompt: "do A" },
+    { slug: "second", type: "agent", prompt: "do B" },
+    { slug: "third", type: "agent", prompt: "do C" },
+  ];
+
+  test("preceding step shows both result and config", () => {
+    const config: ScopeConfig = { steps, currentStepIndex: 2, secretKeys: [] };
+    const results = getSuggestions(config, ["steps", "first"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).toContain("result");
+    expect(labels).toContain("config");
+  });
+
+  test("succeeding step shows only config, not result", () => {
+    const config: ScopeConfig = { steps, currentStepIndex: 0, secretKeys: [] };
+    const results = getSuggestions(config, ["steps", "second"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).not.toContain("result");
+    expect(labels).toContain("config");
+  });
+
+  test("step at same index as current shows only config", () => {
+    // This shouldn't normally happen (current step is excluded from slug list)
+    // but if it does, result should not be shown
+    const config: ScopeConfig = { steps, currentStepIndex: 1, secretKeys: [] };
+    const results = getSuggestions(config, ["steps", "second"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).not.toContain("result");
+    expect(labels).toContain("config");
+  });
+
+  test("preceding step with output schema shows non-terminal result", () => {
+    const config: ScopeConfig = {
+      steps,
+      currentStepIndex: 2,
+      secretKeys: [],
+      outputSchemas: { trigger: null, steps: { first: { data: "string" } } },
+    };
+    const results = getSuggestions(config, ["steps", "first"], "");
+    const result = results.find((s) => s.label === "result");
+    expect(result).not.toBeUndefined();
+    expect(result!.terminal).toBe(false);
+  });
+
+  test("succeeding step with output schema still hides result", () => {
+    const config: ScopeConfig = {
+      steps,
+      currentStepIndex: 0,
+      secretKeys: [],
+      outputSchemas: { trigger: null, steps: { second: { data: "string" } } },
+    };
+    const results = getSuggestions(config, ["steps", "second"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).not.toContain("result");
   });
 });
