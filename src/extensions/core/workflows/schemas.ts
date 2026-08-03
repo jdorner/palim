@@ -7,6 +7,29 @@
 
 import { type Static, Type } from "@sinclair/typebox";
 
+/**
+ * Recursive schema for describing the shape of a node's output.
+ *
+ * Used by the frontend autocomplete to suggest deep property paths.
+ * Values are either a type-hint string (leaf/terminal, e.g. "string", "number")
+ * or a nested object describing sub-properties (non-terminal).
+ *
+ * Example:
+ * ```json
+ * { "filename": "string", "metadata": { "size": "number", "type": "string" } }
+ * ```
+ */
+export const OutputSchemaSchema: ReturnType<typeof Type.Recursive> = Type.Recursive(
+  (Self) =>
+    Type.Record(Type.String(), Type.Union([Type.String(), Self]), {
+      description: "Output schema: keys are property names, values are type hints or nested schemas",
+    }),
+  { $id: "OutputSchema" },
+);
+
+/** TypeScript type for a node output schema definition. */
+export type OutputSchema = { [key: string]: string | OutputSchema };
+
 /** Trigger configuration - how a workflow is started. */
 export const TriggerSchema = Type.Object(
   {
@@ -17,6 +40,7 @@ export const TriggerSchema = Type.Object(
       Type.Literal("filewatcher"),
     ]),
     ref: Type.Optional(Type.String({ minLength: 1 })),
+    outputSchema: Type.Optional(OutputSchemaSchema),
   },
   { additionalProperties: false },
 );
@@ -35,6 +59,7 @@ export const AgentStepSchema = Type.Object(
     prompt: PromptSchema,
     tools: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
     skills: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    outputSchema: Type.Optional(OutputSchemaSchema),
   },
   { additionalProperties: false },
 );
@@ -47,6 +72,7 @@ export const WebhookStepSchema = Type.Object(
     url: Type.String({ minLength: 1 }),
     method: Type.Optional(Type.String()),
     body: Type.Optional(Type.String()),
+    outputSchema: Type.Optional(OutputSchemaSchema),
   },
   { additionalProperties: false },
 );

@@ -29,6 +29,7 @@ import {
 } from "$lib/workflowValidation";
 import MultiSelect from "../components/MultiSelect.svelte";
 import StatusDot from "../components/StatusDot.svelte";
+import TemplateAutocomplete from "../components/TemplateAutocomplete.svelte";
 import WorkflowGraph from "../components/WorkflowGraph.svelte";
 import { navigate, route } from "../router";
 
@@ -58,6 +59,10 @@ interface WorkflowDetail {
   enabled?: boolean;
   steps: StepDef[];
   warnings: Array<WarningsDef>;
+  outputSchemas?: {
+    trigger: Record<string, string | Record<string, unknown>> | null;
+    steps: Record<string, Record<string, string | Record<string, unknown>>>;
+  };
   runs: Array<{
     runId: string;
     status: string;
@@ -92,6 +97,14 @@ let availableTriggerRefs = $state<Record<string, string[]>>({
 });
 let metaLoading = $state(false);
 
+// Cached secret keys for template autocomplete
+let cachedSecretKeys = $state<string[]>([]);
+
+// Element references for template autocomplete
+let promptEl = $state<HTMLTextAreaElement | null>(null);
+let urlEl = $state<HTMLInputElement | null>(null);
+let bodyEl = $state<HTMLTextAreaElement | null>(null);
+
 /** Custom step types registered by extensions, derived from the extension store. */
 let customStepTypes = $derived(
   $extensions.filter((ext) => ext.enabled && ext.ui?.stepTypes?.length).flatMap((ext) => ext.ui!.stepTypes!),
@@ -115,6 +128,21 @@ async function fetchMeta() {
     availableTriggerRefs = { webhook: [], schedule: [], filewatcher: [] };
   } finally {
     metaLoading = false;
+  }
+}
+
+/** Prefetch secret keys for template autocomplete. Fails silently. */
+async function fetchSecretKeys(): Promise<void> {
+  try {
+    const res = await authFetch("/api/secrets");
+    if (res.ok) {
+      const data: { secrets: Array<{ key: string }> } = await res.json();
+      cachedSecretKeys = data.secrets.map((s) => s.key);
+    } else {
+      cachedSecretKeys = [];
+    }
+  } catch {
+    cachedSecretKeys = [];
   }
 }
 
@@ -149,6 +177,7 @@ function enterEditMode() {
   editMode = true;
   fitViewTrigger++;
   fetchMeta();
+  fetchSecretKeys();
 }
 
 /** Cancel edit mode, discard changes. */
@@ -977,6 +1006,7 @@ onDestroy(() => {
                         </div>
                         <textarea
                           id="step-prompt"
+                          bind:this={promptEl}
                           class="w-full flex-1 min-h-24 px-2 py-1.5 text-sm font-mono border border-border rounded-md bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
                           maxlength={10000}
                           value={editDraftStep.prompt ?? ""}
@@ -993,6 +1023,14 @@ onDestroy(() => {
                             >{validationErrors.get(`steps[${selectedStepIndex}].prompt`)}</span
                           >
                         {/if}
+                        <TemplateAutocomplete
+                          targetElement={promptEl}
+                          steps={editDraft?.steps ?? []}
+                          currentStepIndex={selectedStepIndex}
+                          secretKeys={cachedSecretKeys}
+                          outputSchemas={workflow?.outputSchemas}
+                          onChange={(newValue) => updateDraftStep(selectedStepIndex, (s) => { s.prompt = newValue; })}
+                        />
                       </div>
                     </div>
                   {:else if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) === "webhook"}
@@ -1002,6 +1040,7 @@ onDestroy(() => {
                         <label for="step-url" class="text-xs font-medium text-muted-foreground">URL</label>
                         <input
                           id="step-url"
+                          bind:this={urlEl}
                           type="text"
                           class="w-full px-2 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                           value={editDraftStep.url ?? ""}
@@ -1018,6 +1057,14 @@ onDestroy(() => {
                             >{validationErrors.get(`steps[${selectedStepIndex}].url`)}</span
                           >
                         {/if}
+                        <TemplateAutocomplete
+                          targetElement={urlEl}
+                          steps={editDraft?.steps ?? []}
+                          currentStepIndex={selectedStepIndex}
+                          secretKeys={cachedSecretKeys}
+                          outputSchemas={workflow?.outputSchemas}
+                          onChange={(newValue) => updateDraftStep(selectedStepIndex, (s) => { s.url = newValue; })}
+                        />
                       </div>
                       <div class="flex flex-col gap-1.5">
                         <label for="step-method" class="text-xs font-medium text-muted-foreground">Method</label>
@@ -1037,11 +1084,20 @@ onDestroy(() => {
                         <label for="step-body" class="text-xs font-medium text-muted-foreground">Body</label>
                         <textarea
                           id="step-body"
+                          bind:this={bodyEl}
                           class="w-full min-h-25 px-2 py-1.5 text-sm font-mono border border-border rounded-md bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
                           value={editDraftStep.body ?? ""}
                           oninput={(e) => updateDraftStep(selectedStepIndex, (s) => { s.body = (e.target as HTMLTextAreaElement).value; })}
                           placeholder="Optional request body..."
                         ></textarea>
+                        <TemplateAutocomplete
+                          targetElement={bodyEl}
+                          steps={editDraft?.steps ?? []}
+                          currentStepIndex={selectedStepIndex}
+                          secretKeys={cachedSecretKeys}
+                          outputSchemas={workflow?.outputSchemas}
+                          onChange={(newValue) => updateDraftStep(selectedStepIndex, (s) => { s.body = newValue; })}
+                        />
                       </div>
                     </div>
                   {:else if !editMode && selectedStep?.type === "agent" && selectedStep.prompt}

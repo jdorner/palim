@@ -718,6 +718,65 @@ export default extension;
 | `validateInput` | `(output, stepDef) => StepInputValidation \| Promise<StepInputValidation>` | Optional method for domain-specific input validation beyond what `inputSchema` can express. Takes precedence over `inputSchema` when both are present. |
 | `execute` | `(stepDef, ctx) => Promise<unknown>` | The execution logic; receives the full step definition and a scoped context |
 
+### Output Schema (Autocomplete Support)
+
+Steps and triggers can declare an `outputSchema` in the workflow definition to enable deep property path autocomplete in the editor. The schema describes the shape of the value produced by the node, allowing the autocomplete to suggest property names beyond `result` or `payload`.
+
+#### Built-in trigger schemas
+
+Filewatcher and scheduler triggers have built-in output schemas derived from their event payloads. These activate automatically without any configuration:
+
+- **filewatcher**: `{ source, id, slug, filename, event }` (all strings)
+- **schedule**: `{ source, id, slug, description, label }` (all strings)
+
+Webhook and manual triggers have no built-in schema since their payload is user-defined.
+
+#### Declaring output schemas in workflow definitions
+
+Add an `outputSchema` field to a trigger or step. Values are either type-hint strings (terminal) or nested objects (non-terminal):
+
+```json5
+{
+  name: "my-workflow",
+  trigger: {
+    type: "webhook",
+    ref: "github-push",
+    // Describes the shape of {{trigger.payload.<path>}}
+    outputSchema: {
+      action: "string",
+      repository: {
+        name: "string",
+        url: "string",
+        owner: { login: "string" }
+      },
+      sender: { login: "string" }
+    }
+  },
+  steps: [
+    {
+      slug: "fetch-data",
+      type: "agent",
+      prompt: "Fetch data for {{trigger.payload.repository.name}}",
+      tools: ["exec"],
+      // Describes the shape of {{steps.fetch-data.result.<path>}}
+      outputSchema: {
+        items: "array",
+        count: "number",
+        metadata: { source: "string", timestamp: "string" }
+      }
+    }
+  ]
+}
+```
+
+With these schemas, the editor autocomplete will suggest `repository`, `action`, `sender` after typing `{{trigger.payload.`, and `name`, `url`, `owner` after `{{trigger.payload.repository.`.
+
+An explicit `outputSchema` on a trigger overrides the built-in default for that trigger type.
+
+#### Config path autocomplete
+
+The `{{steps.<slug>.config.<path>}}` expressions support deep autocomplete automatically by introspecting the step's actual definition. No separate schema declaration is needed - the editor reads the step's JSON structure directly, including array index navigation (e.g. `sheets.0.columns`).
+
 ### Input Validation (Pre-Transition Checks)
 
 When a custom step type receives data from a preceding **agent step**, the agent's output may not conform to the expected structure. By the time `execute()` runs, the preceding agent is done and cannot self-correct.
@@ -822,10 +881,12 @@ Custom steps have access to the same template engine as built-in steps:
 
 | Expression | Description |
 | --- | --- |
-| `{{trigger.payload}}` | The workflow's trigger data |
+| `{{trigger.payload}}` | The workflow's trigger data (full object) |
+| `{{trigger.payload.<path>}}` | Dot-path into the trigger payload (e.g. `trigger.payload.filename`) |
 | `{{steps.<slug>.result}}` | Result from a completed earlier step |
+| `{{steps.<slug>.result.<path>}}` | Dot-path into a step result |
 | `{{steps.<slug>.config}}` | Static config of any step in the workflow (including later steps) |
-| `{{steps.<slug>.config.<path>}}` | Dot-path into a step's config |
+| `{{steps.<slug>.config.<path>}}` | Dot-path into a step's config (supports array indices, e.g. `config.sheets.0.columns`) |
 | `{{env.<VAR>}}` | Allowlisted environment variable |
 | `{{secret.<KEY>}}` | Encrypted secret (ACL-checked) |
 
