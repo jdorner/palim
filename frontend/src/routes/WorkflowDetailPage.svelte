@@ -17,6 +17,7 @@ import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { extensions } from "$lib/extensionStore";
 import { labelForStepType } from "$lib/stepTypes";
+import type { OutputSchemas } from "$lib/templateScope";
 import { formatTimestamp, isRunCancellable, renderMarkdown, statusVariant } from "$lib/utils";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import {
@@ -59,10 +60,7 @@ interface WorkflowDetail {
   enabled?: boolean;
   steps: StepDef[];
   warnings: Array<WarningsDef>;
-  outputSchemas?: {
-    trigger: Record<string, string | Record<string, unknown>> | null;
-    steps: Record<string, Record<string, string | Record<string, unknown>>>;
-  };
+  outputSchemas?: OutputSchemas;
   runs: Array<{
     runId: string;
     status: string;

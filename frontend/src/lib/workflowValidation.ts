@@ -20,6 +20,7 @@ export interface WorkflowDraft {
 
 /** Draft step within a workflow. */
 export interface StepDraft {
+  [key: string]: unknown;
   slug: string;
   type: string;
   prompt?: string;
