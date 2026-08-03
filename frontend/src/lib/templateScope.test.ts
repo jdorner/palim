@@ -219,3 +219,233 @@ describe("Template Scope Registry - Property Tests", () => {
     });
   });
 });
+
+import { getOutputSchemaSuggestions, getSuggestions, type ScopeConfig } from "./templateScope";
+
+describe("Output Schema Suggestions", () => {
+  const filewatcherSchema = {
+    source: "string",
+    id: "string",
+    slug: "string",
+    filename: "string",
+    event: "string",
+  };
+
+  const nestedSchema = {
+    name: "string",
+    metadata: {
+      size: "number",
+      type: "string",
+      tags: {
+        primary: "string",
+        secondary: "string",
+      },
+    },
+    active: "boolean",
+  };
+
+  describe("getOutputSchemaSuggestions", () => {
+    test("returns all top-level keys with empty prefix", () => {
+      const results = getOutputSchemaSuggestions(filewatcherSchema, [], "");
+      const labels = results.map((s) => s.label);
+      expect(labels).toEqual(["event", "filename", "id", "slug", "source"]);
+    });
+
+    test("filters by prefix (startsWith)", () => {
+      const results = getOutputSchemaSuggestions(filewatcherSchema, [], "s");
+      const labels = results.map((s) => s.label);
+      expect(labels).toEqual(["slug", "source"]);
+    });
+
+    test("marks string values as terminal", () => {
+      const results = getOutputSchemaSuggestions(filewatcherSchema, [], "");
+      for (const s of results) {
+        expect(s.terminal).toBe(true);
+      }
+    });
+
+    test("marks nested object values as non-terminal", () => {
+      const results = getOutputSchemaSuggestions(nestedSchema, [], "");
+      const metadataSuggestion = results.find((s) => s.label === "metadata");
+      expect(metadataSuggestion).not.toBeUndefined();
+      expect(metadataSuggestion!.terminal).toBe(false);
+    });
+
+    test("navigates into nested schemas via subPath", () => {
+      const results = getOutputSchemaSuggestions(nestedSchema, ["metadata"], "");
+      const labels = results.map((s) => s.label);
+      expect(labels).toEqual(["size", "tags", "type"]);
+    });
+
+    test("navigates multiple levels deep", () => {
+      const results = getOutputSchemaSuggestions(nestedSchema, ["metadata", "tags"], "");
+      const labels = results.map((s) => s.label);
+      expect(labels).toEqual(["primary", "secondary"]);
+    });
+
+    test("returns empty for invalid subPath segment", () => {
+      const results = getOutputSchemaSuggestions(nestedSchema, ["nonexistent"], "");
+      expect(results).toEqual([]);
+    });
+
+    test("returns empty for subPath pointing to a terminal value", () => {
+      const results = getOutputSchemaSuggestions(nestedSchema, ["name"], "");
+      expect(results).toEqual([]);
+    });
+
+    test("includes type hint as description for terminal values", () => {
+      const results = getOutputSchemaSuggestions(nestedSchema, ["metadata"], "size");
+      expect(results.length).toBe(1);
+      expect(results[0]!.label).toBe("size");
+      expect(results[0]!.description).toBe("number");
+      expect(results[0]!.terminal).toBe(true);
+    });
+
+    test("does not include description for non-terminal values", () => {
+      const results = getOutputSchemaSuggestions(nestedSchema, [], "metadata");
+      expect(results.length).toBe(1);
+      expect(results[0]!.description).toBeUndefined();
+    });
+  });
+
+  describe("getSuggestions with outputSchemas", () => {
+    const baseConfig: ScopeConfig = {
+      steps: [{ slug: "fetch" }, { slug: "process" }],
+      currentStepIndex: 1,
+      secretKeys: ["API_KEY"],
+      outputSchemas: {
+        trigger: filewatcherSchema,
+        steps: {
+          fetch: { data: "string", status: { code: "number", message: "string" } },
+        },
+      },
+    };
+
+    describe("trigger.payload with schema", () => {
+      test("payload is non-terminal when trigger schema exists", () => {
+        const results = getSuggestions(baseConfig, ["trigger"], "");
+        const payload = results.find((s) => s.label === "payload");
+        expect(payload).not.toBeUndefined();
+        expect(payload!.terminal).toBe(false);
+      });
+
+      test("payload is terminal when no trigger schema", () => {
+        const config: ScopeConfig = {
+          ...baseConfig,
+          outputSchemas: { trigger: null, steps: {} },
+        };
+        const results = getSuggestions(config, ["trigger"], "");
+        const payload = results.find((s) => s.label === "payload");
+        expect(payload).not.toBeUndefined();
+        expect(payload!.terminal).toBe(true);
+      });
+
+      test("payload is terminal when outputSchemas is undefined", () => {
+        const config: ScopeConfig = {
+          ...baseConfig,
+          outputSchemas: undefined,
+        };
+        const results = getSuggestions(config, ["trigger"], "");
+        const payload = results.find((s) => s.label === "payload");
+        expect(payload).not.toBeUndefined();
+        expect(payload!.terminal).toBe(true);
+      });
+
+      test("suggests trigger schema properties at trigger.payload level", () => {
+        const results = getSuggestions(baseConfig, ["trigger", "payload"], "");
+        const labels = results.map((s) => s.label);
+        expect(labels).toContain("filename");
+        expect(labels).toContain("slug");
+        expect(labels).toContain("event");
+      });
+
+      test("filters trigger schema properties by prefix", () => {
+        const results = getSuggestions(baseConfig, ["trigger", "payload"], "f");
+        const labels = results.map((s) => s.label);
+        expect(labels).toEqual(["filename"]);
+      });
+
+      test("returns empty for invalid deep path in trigger", () => {
+        const results = getSuggestions(baseConfig, ["trigger", "payload", "nonexistent"], "");
+        expect(results).toEqual([]);
+      });
+    });
+
+    describe("steps.<slug>.result with schema", () => {
+      test("result is non-terminal when step schema exists", () => {
+        const results = getSuggestions(baseConfig, ["steps", "fetch"], "");
+        const result = results.find((s) => s.label === "result");
+        expect(result).not.toBeUndefined();
+        expect(result!.terminal).toBe(false);
+      });
+
+      test("result is terminal when step has no schema", () => {
+        const results = getSuggestions(baseConfig, ["steps", "process"], "");
+        const result = results.find((s) => s.label === "result");
+        // "process" step has no output schema defined
+        expect(result).not.toBeUndefined();
+        expect(result!.terminal).toBe(true);
+      });
+
+      test("config is always terminal regardless of schema", () => {
+        const results = getSuggestions(baseConfig, ["steps", "fetch"], "");
+        const config = results.find((s) => s.label === "config");
+        expect(config).not.toBeUndefined();
+        expect(config!.terminal).toBe(true);
+      });
+
+      test("suggests step schema properties at steps.slug.result level", () => {
+        const results = getSuggestions(baseConfig, ["steps", "fetch", "result"], "");
+        const labels = results.map((s) => s.label);
+        expect(labels).toEqual(["data", "status"]);
+      });
+
+      test("navigates nested step schema", () => {
+        const results = getSuggestions(baseConfig, ["steps", "fetch", "result", "status"], "");
+        const labels = results.map((s) => s.label);
+        expect(labels).toEqual(["code", "message"]);
+      });
+
+      test("filters step schema properties by prefix", () => {
+        const results = getSuggestions(baseConfig, ["steps", "fetch", "result"], "d");
+        const labels = results.map((s) => s.label);
+        expect(labels).toEqual(["data"]);
+      });
+
+      test("returns empty for result sub-path when no schema", () => {
+        const results = getSuggestions(baseConfig, ["steps", "process", "result"], "");
+        expect(results).toEqual([]);
+      });
+    });
+
+    describe("backward compatibility (no outputSchemas)", () => {
+      const noSchemaConfig: ScopeConfig = {
+        steps: [{ slug: "fetch" }, { slug: "process" }],
+        currentStepIndex: 1,
+        secretKeys: [],
+      };
+
+      test("trigger.payload remains terminal", () => {
+        const results = getSuggestions(noSchemaConfig, ["trigger"], "");
+        const payload = results.find((s) => s.label === "payload");
+        expect(payload!.terminal).toBe(true);
+      });
+
+      test("steps.slug.result remains terminal", () => {
+        const results = getSuggestions(noSchemaConfig, ["steps", "fetch"], "");
+        const result = results.find((s) => s.label === "result");
+        expect(result!.terminal).toBe(true);
+      });
+
+      test("no suggestions beyond trigger.payload", () => {
+        const results = getSuggestions(noSchemaConfig, ["trigger", "payload"], "");
+        expect(results).toEqual([]);
+      });
+
+      test("no suggestions beyond steps.slug.result", () => {
+        const results = getSuggestions(noSchemaConfig, ["steps", "fetch", "result"], "");
+        expect(results).toEqual([]);
+      });
+    });
+  });
+});

@@ -59,6 +59,10 @@ interface WorkflowDetail {
   enabled?: boolean;
   steps: StepDef[];
   warnings: Array<WarningsDef>;
+  outputSchemas?: {
+    trigger: Record<string, string | Record<string, unknown>> | null;
+    steps: Record<string, Record<string, string | Record<string, unknown>>>;
+  };
   runs: Array<{
     runId: string;
     status: string;
@@ -1024,6 +1028,7 @@ onDestroy(() => {
                           steps={editDraft?.steps ?? []}
                           currentStepIndex={selectedStepIndex}
                           secretKeys={cachedSecretKeys}
+                          outputSchemas={workflow?.outputSchemas}
                           onChange={(newValue) => updateDraftStep(selectedStepIndex, (s) => { s.prompt = newValue; })}
                         />
                       </div>
@@ -1057,6 +1062,7 @@ onDestroy(() => {
                           steps={editDraft?.steps ?? []}
                           currentStepIndex={selectedStepIndex}
                           secretKeys={cachedSecretKeys}
+                          outputSchemas={workflow?.outputSchemas}
                           onChange={(newValue) => updateDraftStep(selectedStepIndex, (s) => { s.url = newValue; })}
                         />
                       </div>
@@ -1089,6 +1095,7 @@ onDestroy(() => {
                           steps={editDraft?.steps ?? []}
                           currentStepIndex={selectedStepIndex}
                           secretKeys={cachedSecretKeys}
+                          outputSchemas={workflow?.outputSchemas}
                           onChange={(newValue) => updateDraftStep(selectedStepIndex, (s) => { s.body = newValue; })}
                         />
                       </div>

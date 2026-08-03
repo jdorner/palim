@@ -133,6 +133,8 @@ describe("Autocomplete Engine - Property Tests", () => {
      * For any terminal Suggestion and any valid (text, cursorPos, triggerOffset, path, prefix)
      * tuple, computeInsertion(...) SHALL produce a newText where the characters at the insertion
      * point end with suggestion.label + "}}", and keepOpen SHALL be false.
+     * The remainder of the current segment (chars after cursor up to the next `.` or `}}`)
+     * is consumed/replaced by the insertion.
      */
     test("terminal suggestion inserts label + }} and keepOpen is false", () => {
       fc.assert(
@@ -141,11 +143,13 @@ describe("Autocomplete Engine - Property Tests", () => {
           fc.array(segmentArb, { minLength: 0, maxLength: 3 }),
           prefixArb,
           terminalSuggestionArb,
-          safeTextArb,
-          (before, path, prefix, suggestion, after) => {
-            // Build a valid context: before + "{{" + path.join(".") + "." + prefix + after
+          segmentArb, // segment tail (part of current segment after cursor)
+          safeTextArb, // true trailing text after the segment boundary
+          (before, path, prefix, suggestion, segTail, trailingText) => {
+            // Build a valid context: before + "{{" + path + prefix + segTail + "." + trailingText
+            // The segTail simulates cursor being mid-segment; boundary is the "."
             const pathStr = path.length > 0 ? `${path.join(".")}.` : "";
-            const text = `${before}{{${pathStr}${prefix}${after}`;
+            const text = `${before}{{${pathStr}${prefix}${segTail}.${trailingText}`;
             const triggerOffset = before.length;
             const cursorPos = before.length + 2 + pathStr.length + prefix.length;
 
@@ -161,9 +165,6 @@ describe("Autocomplete Engine - Property Tests", () => {
 
             // Text before the insertion point is preserved
             expect(result.newText.slice(0, insertStart)).toBe(text.slice(0, insertStart));
-
-            // Text after the insertion is preserved
-            expect(result.newText.slice(insertStart + suggestion.label.length + 2)).toBe(after);
 
             // Cursor is positioned after the inserted label + }}
             expect(result.newCursorPos).toBe(insertStart + suggestion.label.length + 2);
@@ -223,6 +224,8 @@ describe("Autocomplete Engine - Property Tests", () => {
      * For any non-terminal Suggestion and any valid (text, cursorPos, triggerOffset, path, prefix)
      * tuple, computeInsertion(...) SHALL produce a newText where the characters at the insertion
      * point end with suggestion.label + ".", and keepOpen SHALL be true.
+     * The remainder of the current segment (chars after cursor up to the next `.` or `}}`)
+     * is consumed/replaced by the insertion.
      */
     test("non-terminal suggestion inserts label + . and keepOpen is true", () => {
       fc.assert(
@@ -231,10 +234,12 @@ describe("Autocomplete Engine - Property Tests", () => {
           fc.array(segmentArb, { minLength: 0, maxLength: 3 }),
           prefixArb,
           nonTerminalSuggestionArb,
-          safeTextArb,
-          (before, path, prefix, suggestion, after) => {
+          segmentArb, // segment tail (part of current segment after cursor)
+          safeTextArb, // true trailing text after the segment boundary
+          (before, path, prefix, suggestion, segTail, trailingText) => {
+            // Build text with a boundary after the segment tail
             const pathStr = path.length > 0 ? `${path.join(".")}.` : "";
-            const text = `${before}{{${pathStr}${prefix}${after}`;
+            const text = `${before}{{${pathStr}${prefix}${segTail}.${trailingText}`;
             const triggerOffset = before.length;
             const cursorPos = before.length + 2 + pathStr.length + prefix.length;
 
@@ -250,9 +255,6 @@ describe("Autocomplete Engine - Property Tests", () => {
 
             // Text before the insertion point is preserved
             expect(result.newText.slice(0, insertStart)).toBe(text.slice(0, insertStart));
-
-            // Text after the insertion is preserved
-            expect(result.newText.slice(insertStart + suggestion.label.length + 1)).toBe(after);
 
             // Cursor is positioned after the inserted label + .
             expect(result.newCursorPos).toBe(insertStart + suggestion.label.length + 1);

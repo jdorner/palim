@@ -109,24 +109,33 @@ export function computeInsertion(
   prefix: string,
 ): InsertionResult {
   const prefixStart = cursorPos - prefix.length;
-  const before = text.slice(0, prefixStart);
-  const after = text.slice(cursorPos);
+
+  // Determine how much of the current segment remains after the cursor.
+  // When the cursor is mid-word (e.g. "filen|ame"), we need to consume
+  // the trailing part of the segment so it gets replaced entirely.
+  const afterCursor = text.slice(cursorPos);
+  const segmentEndMatch = afterCursor.match(/^[^.{}]*/);
+  const segmentTail = segmentEndMatch ? segmentEndMatch[0].length : 0;
 
   if (suggestion.terminal) {
-    // Terminal: replace prefix with label + "}}"
+    // Terminal: replace entire current segment with label + "}}"
     const inserted = `${suggestion.label}}}`;
-    // If there's already a `}}` right after cursor, consume it to avoid duplication
-    const afterCursor = text.slice(cursorPos);
-    const skipClosing = afterCursor.startsWith("}}") ? 2 : 0;
-    const after = text.slice(cursorPos + skipClosing);
-    const newText = before + inserted + after;
+    // Also skip a `}}` immediately after the segment tail to avoid duplication
+    let skipAfter = segmentTail;
+    if (text.slice(cursorPos + segmentTail, cursorPos + segmentTail + 2) === "}}") {
+      skipAfter += 2;
+    }
+    const after = text.slice(cursorPos + skipAfter);
+    const newText = text.slice(0, prefixStart) + inserted + after;
     const newCursorPos = prefixStart + inserted.length;
     return { newText, newCursorPos, keepOpen: false };
   }
 
-  // Non-terminal: replace prefix with label + "."
+  // Non-terminal: replace entire current segment with label + "."
   const inserted = `${suggestion.label}.`;
-  const newText = before + inserted + after;
+  // Skip the segment tail but preserve whatever comes after (dots, more segments, closing braces)
+  const after = text.slice(cursorPos + segmentTail);
+  const newText = text.slice(0, prefixStart) + inserted + after;
   const newCursorPos = prefixStart + inserted.length;
   return { newText, newCursorPos, keepOpen: true };
 }

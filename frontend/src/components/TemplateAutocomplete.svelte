@@ -1,6 +1,11 @@
 <script lang="ts">
 import { computeInsertion, detectTrigger, navigateHighlight, type TriggerContext } from "../lib/autocompleteEngine";
-import { getSuggestions as querySuggestions, type ScopeConfig, type Suggestion } from "../lib/templateScope";
+import {
+  type OutputSchemas,
+  getSuggestions as querySuggestions,
+  type ScopeConfig,
+  type Suggestion,
+} from "../lib/templateScope";
 
 interface Props {
   /** Reference to the target input/textarea element */
@@ -13,11 +18,13 @@ interface Props {
   secretKeys: string[];
   /** Optional env allowlist override */
   envAllowlist?: string[];
+  /** Resolved output schemas for deep property autocomplete */
+  outputSchemas?: OutputSchemas;
   /** Callback invoked with the new field value after insertion */
   onChange: (newValue: string) => void;
 }
 
-let { targetElement, steps, currentStepIndex, secretKeys, envAllowlist, onChange }: Props = $props();
+let { targetElement, steps, currentStepIndex, secretKeys, envAllowlist, outputSchemas, onChange }: Props = $props();
 
 /** Whether the popup is currently visible */
 let visible = $state(false);
@@ -238,7 +245,7 @@ function acceptSuggestion(index?: number): void {
     // Non-terminal: re-detect trigger and query next-segment suggestions
     const newTrigger = detectTrigger(result.newText, result.newCursorPos);
     if (newTrigger.active) {
-      const config: ScopeConfig = { steps, currentStepIndex, secretKeys, envAllowlist };
+      const config: ScopeConfig = { steps, currentStepIndex, secretKeys, envAllowlist, outputSchemas };
       const newSuggestions = querySuggestions(config, newTrigger.path, newTrigger.prefix);
       if (newSuggestions.length > 0) {
         show(newSuggestions, newTrigger);
@@ -264,7 +271,7 @@ function handleInput(): void {
   const trigger = detectTrigger(text, cursorPos);
 
   if (trigger.active) {
-    const config: ScopeConfig = { steps, currentStepIndex, secretKeys, envAllowlist };
+    const config: ScopeConfig = { steps, currentStepIndex, secretKeys, envAllowlist, outputSchemas };
     const newSuggestions = querySuggestions(config, trigger.path, trigger.prefix);
     if (newSuggestions.length > 0) {
       show(newSuggestions, trigger);
@@ -316,6 +323,46 @@ function handleKeydown(event: KeyboardEvent): void {
       event.preventDefault();
       event.stopPropagation();
       hide();
+      break;
+    }
+    case "Backspace": {
+      // Delete the entire current path segment back to the previous separator
+      if (!targetElement || !context?.active) break;
+      const cursorPos = targetElement.selectionStart ?? targetElement.value.length;
+      const prefix = context.prefix;
+
+      if (prefix.length > 0) {
+        // Delete the typed prefix (current segment)
+        event.preventDefault();
+        event.stopPropagation();
+        const prefixStart = cursorPos - prefix.length;
+        const before = targetElement.value.slice(0, prefixStart);
+        const after = targetElement.value.slice(cursorPos);
+        const newText = before + after;
+        targetElement.value = newText;
+        targetElement.selectionStart = prefixStart;
+        targetElement.selectionEnd = prefixStart;
+        targetElement.dispatchEvent(new InputEvent("input", { bubbles: true }));
+        onChange(newText);
+        handleInput();
+      } else if (context.path.length > 0) {
+        // Prefix is empty (cursor right after a dot) - delete the dot and the previous segment
+        event.preventDefault();
+        event.stopPropagation();
+        const lastSegment = context.path[context.path.length - 1]!;
+        // Remove ".<lastSegment>" (the dot + segment text before cursor)
+        const deleteLen = lastSegment.length + 1; // +1 for the dot
+        const deleteStart = cursorPos - deleteLen;
+        const before = targetElement.value.slice(0, deleteStart);
+        const after = targetElement.value.slice(cursorPos);
+        const newText = before + after;
+        targetElement.value = newText;
+        targetElement.selectionStart = deleteStart;
+        targetElement.selectionEnd = deleteStart;
+        targetElement.dispatchEvent(new InputEvent("input", { bubbles: true }));
+        onChange(newText);
+        handleInput();
+      }
       break;
     }
   }
@@ -377,7 +424,7 @@ $effect(() => {
   >
     <div class="max-h-50 overflow-y-auto p-1">
       {#if suggestions.length === 0}
-        <div class="px-3 py-2 text-sm text-muted-foreground">No suggestions</div>
+        <div class="px-3 py-2 text-xs text-muted-foreground">No suggestions</div>
       {:else}
         {#each suggestions as suggestion, i (suggestion.label)}
           <button
@@ -386,7 +433,7 @@ $effect(() => {
             role="option"
             tabindex="-1"
             aria-selected={i === highlightIndex}
-            class="w-full cursor-pointer rounded-sm px-3 py-1.5 text-left text-sm text-foreground transition-colors"
+            class="w-full cursor-pointer rounded-sm px-3 py-1.5 text-left text-xs text-foreground transition-colors"
             class:bg-accent={i === highlightIndex}
             class:text-accent-foreground={i === highlightIndex}
             class:hover:bg-accent={i !== highlightIndex}

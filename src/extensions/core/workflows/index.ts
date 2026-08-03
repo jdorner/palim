@@ -30,11 +30,12 @@ import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { SessionFactory } from "./engine";
 import { dispatchWorkflow } from "./engine";
 import { loadWorkflows } from "./loader";
-import type { AgentStep, WorkflowDefinition } from "./schemas";
+import type { AgentStep, OutputSchema, WorkflowDefinition } from "./schemas";
 import { WorkflowDefinitionSchema } from "./schemas";
 import type { TemplateSecretResolver } from "./template";
 import type { TemplateWarning } from "./templateValidation";
 import { validateWorkflowTemplates } from "./templateValidation";
+import { resolveTriggerOutputSchema } from "./triggerSchemas";
 import type { WorkflowStepJobData } from "./types";
 import { createStepProcessor } from "./worker";
 
@@ -618,7 +619,28 @@ export function createExtension(): Extension {
         });
         const depWarnings = getDependencyWarnings(wf, ctx);
 
-        return Response.json({ ...wf, runs, warnings: [...templateWarnings, ...depWarnings] });
+        // Build resolved output schemas for frontend autocomplete
+        const triggerOutputSchema = resolveTriggerOutputSchema(
+          wf.trigger.type,
+          wf.trigger.outputSchema as OutputSchema | undefined,
+        );
+        const stepOutputSchemas: Record<string, OutputSchema> = {};
+        for (const step of wf.steps) {
+          const schema = (step as { outputSchema?: OutputSchema }).outputSchema;
+          if (schema) {
+            stepOutputSchemas[step.slug] = schema;
+          }
+        }
+
+        return Response.json({
+          ...wf,
+          runs,
+          warnings: [...templateWarnings, ...depWarnings],
+          outputSchemas: {
+            trigger: triggerOutputSchema ?? null,
+            steps: stepOutputSchemas,
+          },
+        });
       });
 
       /**

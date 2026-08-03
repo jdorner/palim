@@ -7,6 +7,22 @@
  */
 
 /**
+ * Recursive output schema type matching the backend definition.
+ * Keys are property names, values are type hints (terminal) or nested schemas (non-terminal).
+ */
+export type OutputSchema = { [key: string]: string | OutputSchema };
+
+/**
+ * Output schemas resolved for the current workflow.
+ */
+export interface OutputSchemas {
+  /** Resolved trigger output schema (built-in or user-defined), or null if unavailable */
+  trigger: OutputSchema | null;
+  /** Step output schemas keyed by step slug */
+  steps: Record<string, OutputSchema>;
+}
+
+/**
  * A single autocomplete suggestion with classification metadata.
  */
 export interface Suggestion {
@@ -30,6 +46,8 @@ export interface ScopeConfig {
   secretKeys: string[];
   /** Environment variable allowlist (defaults to built-in set) */
   envAllowlist?: string[];
+  /** Resolved output schemas from the workflow API */
+  outputSchemas?: OutputSchemas;
 }
 
 /**
@@ -114,6 +132,39 @@ export function getSecretSuggestions(secretKeys: string[], prefix: string): Sugg
 }
 
 /**
+ * Returns suggestions from an output schema at a given sub-path.
+ * Navigates into nested schemas and returns property names at the target depth.
+ *
+ * @param schema - The output schema to traverse
+ * @param subPath - Path segments below the schema root (e.g. ["metadata"] for trigger.payload.metadata.)
+ * @param prefix - The currently typed text used for filtering
+ * @returns Array of matching suggestions derived from schema keys
+ */
+export function getOutputSchemaSuggestions(schema: OutputSchema, subPath: string[], prefix: string): Suggestion[] {
+  let current: OutputSchema = schema;
+
+  // Navigate into nested schemas following the sub-path
+  for (const segment of subPath) {
+    const value = current[segment];
+    if (value === undefined || typeof value === "string") {
+      // Path segment points to a terminal (type hint string) or doesn't exist
+      return [];
+    }
+    current = value;
+  }
+
+  // Return keys at the current level
+  return Object.entries(current)
+    .filter(([key]) => key.startsWith(prefix))
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => ({
+      label: key,
+      terminal: typeof value === "string",
+      description: typeof value === "string" ? value : undefined,
+    }));
+}
+
+/**
  * Computes autocomplete suggestions for a given path and typed prefix.
  * Dispatches to the correct sub-function based on path segments.
  *
@@ -142,11 +193,21 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
     }
     if (path.length === 2) {
       // path=["steps", slug] -> show result/config
+      const slug = path[1]!;
+      const stepSchema = config.outputSchemas?.steps[slug];
       const suggestions: Suggestion[] = [
-        { label: "result", terminal: true },
+        { label: "result", terminal: !stepSchema },
         { label: "config", terminal: true },
       ];
       return suggestions.filter((s) => s.label.startsWith(prefix));
+    }
+    if (path.length >= 3 && path[2] === "result") {
+      // path=["steps", slug, "result", ...] -> drill into step output schema
+      const slug = path[1]!;
+      const stepSchema = config.outputSchemas?.steps[slug];
+      if (!stepSchema) return [];
+      const subPath = path.slice(3); // segments after "result"
+      return getOutputSchemaSuggestions(stepSchema, subPath, prefix);
     }
     return [];
   }
@@ -154,8 +215,16 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
   if (namespace === "trigger") {
     if (path.length === 1) {
       // path=["trigger"] -> show payload
-      const suggestions: Suggestion[] = [{ label: "payload", terminal: true }];
+      const triggerSchema = config.outputSchemas?.trigger;
+      const suggestions: Suggestion[] = [{ label: "payload", terminal: !triggerSchema }];
       return suggestions.filter((s) => s.label.startsWith(prefix));
+    }
+    if (path.length >= 2 && path[1] === "payload") {
+      // path=["trigger", "payload", ...] -> drill into trigger output schema
+      const triggerSchema = config.outputSchemas?.trigger;
+      if (!triggerSchema) return [];
+      const subPath = path.slice(2); // segments after "payload"
+      return getOutputSchemaSuggestions(triggerSchema, subPath, prefix);
     }
     return [];
   }
