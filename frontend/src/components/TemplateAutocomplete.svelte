@@ -11,7 +11,7 @@ interface Props {
   /** Reference to the target input/textarea element */
   targetElement: HTMLTextAreaElement | HTMLInputElement | null;
   /** Workflow steps for scope computation */
-  steps: Array<{ slug: string }>;
+  steps: Array<{ slug: string; [key: string]: unknown }>;
   /** Current step index (zero-based) */
   currentStepIndex: number;
   /** Prefetched secret key names */

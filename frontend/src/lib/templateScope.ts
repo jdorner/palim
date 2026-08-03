@@ -38,8 +38,8 @@ export interface Suggestion {
  * Configuration for the scope registry.
  */
 export interface ScopeConfig {
-  /** All steps in the workflow draft */
-  steps: Array<{ slug: string }>;
+  /** All steps in the workflow draft (full step definitions for config introspection) */
+  steps: Array<{ slug: string; [key: string]: unknown }>;
   /** Zero-based index of the step currently being edited */
   currentStepIndex: number;
   /** Prefetched secret key names */
@@ -164,6 +164,78 @@ export function getOutputSchemaSuggestions(schema: OutputSchema, subPath: string
     }));
 }
 
+/** Step definition keys excluded from config suggestions (internal/structural). */
+const CONFIG_EXCLUDED_KEYS = new Set(["slug", "type"]);
+
+/**
+ * Returns suggestions by introspecting a runtime value (step config object or sub-value).
+ * Navigates into nested objects and arrays using dot-separated path segments,
+ * including numeric indices for array access (e.g. "0", "1").
+ *
+ * @param value - The runtime value to introspect (object, array, or primitive)
+ * @param subPath - Path segments to navigate into (e.g. ["sheets", "0", "columns"])
+ * @param prefix - The currently typed text used for filtering
+ * @param excludeKeys - Optional set of keys to exclude from suggestions at the top level
+ * @returns Array of matching suggestions derived from the value's structure
+ */
+export function getConfigSuggestions(
+  value: unknown,
+  subPath: string[],
+  prefix: string,
+  excludeKeys?: Set<string>,
+): Suggestion[] {
+  let current: unknown = value;
+
+  // Navigate into the value following the sub-path
+  for (const segment of subPath) {
+    if (current === null || current === undefined) return [];
+    if (Array.isArray(current)) {
+      const idx = Number.parseInt(segment, 10);
+      if (Number.isNaN(idx) || idx < 0 || idx >= current.length) return [];
+      current = current[idx];
+    } else if (typeof current === "object") {
+      current = (current as Record<string, unknown>)[segment];
+    } else {
+      return [];
+    }
+  }
+
+  if (current === null || current === undefined) return [];
+
+  // If current is an array, suggest numeric indices
+  if (Array.isArray(current)) {
+    return current
+      .map((_, i) => String(i))
+      .filter((idx) => idx.startsWith(prefix))
+      .map((idx) => ({
+        label: idx,
+        terminal: typeof current[Number.parseInt(idx, 10)] !== "object" || current[Number.parseInt(idx, 10)] === null,
+      }));
+  }
+
+  // If current is an object, suggest its keys
+  if (typeof current === "object") {
+    const entries = Object.entries(current as Record<string, unknown>);
+    const filtered = entries.filter(([key, val]) => {
+      if (val === undefined) return false;
+      if (excludeKeys?.has(key)) return false;
+      if (!key.startsWith(prefix)) return false;
+      return true;
+    });
+
+    return filtered
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([key, val]) => ({
+        label: key,
+        terminal: val === null || typeof val !== "object",
+        description: val !== null && typeof val !== "object" ? typeof val : undefined,
+      }));
+  }
+
+  // Primitive — no further suggestions
+  return [];
+}
+
 /**
  * Computes autocomplete suggestions for a given path and typed prefix.
  * Dispatches to the correct sub-function based on path segments.
@@ -178,7 +250,7 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
   if (path.length === 0) {
     // Filter out namespaces that would have no sub-items
     return getTopLevelSuggestions(prefix).filter((s) => {
-      if (s.label === "steps" && config.currentStepIndex === 0) return false;
+      if (s.label === "steps" && config.steps.length <= 1) return false;
       if (s.label === "secret" && config.secretKeys.length === 0) return false;
       return true;
     });
@@ -188,8 +260,16 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
 
   if (namespace === "steps") {
     if (path.length === 1) {
-      // path=["steps"] -> show step slugs
-      return getStepSlugs(config.steps, config.currentStepIndex, prefix);
+      // path=["steps"] -> show all step slugs except the current step.
+      // Config is accessible from any step (static); result only from preceding steps.
+      // We show all slugs and rely on backend validation to flag forward result references.
+      return config.steps
+        .filter((_, i) => i !== config.currentStepIndex)
+        .filter((step) => step.slug.startsWith(prefix))
+        .map((step) => ({
+          label: step.slug,
+          terminal: false,
+        }));
     }
     if (path.length === 2) {
       // path=["steps", slug] -> show result/config
@@ -197,7 +277,7 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
       const stepSchema = config.outputSchemas?.steps[slug];
       const suggestions: Suggestion[] = [
         { label: "result", terminal: !stepSchema },
-        { label: "config", terminal: true },
+        { label: "config", terminal: false },
       ];
       return suggestions.filter((s) => s.label.startsWith(prefix));
     }
@@ -208,6 +288,25 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
       if (!stepSchema) return [];
       const subPath = path.slice(3); // segments after "result"
       return getOutputSchemaSuggestions(stepSchema, subPath, prefix);
+    }
+    if (path.length >= 3 && path[2] === "config") {
+      // path=["steps", slug, "config", ...] -> introspect step definition
+      const slug = path[1]!;
+      const step = config.steps.find((s) => s.slug === slug);
+      if (!step) return [];
+      // For custom step types, the edit draft wraps extra fields in a `config` property.
+      // Use that nested object if present; otherwise introspect the step itself.
+      const configSource =
+        step.config && typeof step.config === "object" && !Array.isArray(step.config)
+          ? (step.config as Record<string, unknown>)
+          : step;
+      const subPath = path.slice(3); // segments after "config"
+      return getConfigSuggestions(
+        configSource,
+        subPath,
+        prefix,
+        subPath.length === 0 ? CONFIG_EXCLUDED_KEYS : undefined,
+      );
     }
     return [];
   }

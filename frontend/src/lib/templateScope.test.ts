@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import * as fc from "fast-check";
-import { getEnvSuggestions, getSecretSuggestions, getStepSlugs, getTopLevelSuggestions } from "./templateScope";
+import {
+  getConfigSuggestions,
+  getEnvSuggestions,
+  getOutputSchemaSuggestions,
+  getSecretSuggestions,
+  getStepSlugs,
+  getSuggestions,
+  getTopLevelSuggestions,
+  type ScopeConfig,
+} from "./templateScope";
 
 /**
  * Generators matching the design doc spec:
@@ -220,8 +229,6 @@ describe("Template Scope Registry - Property Tests", () => {
   });
 });
 
-import { getOutputSchemaSuggestions, getSuggestions, type ScopeConfig } from "./templateScope";
-
 describe("Output Schema Suggestions", () => {
   const filewatcherSchema = {
     source: "string",
@@ -387,11 +394,11 @@ describe("Output Schema Suggestions", () => {
         expect(result!.terminal).toBe(true);
       });
 
-      test("config is always terminal regardless of schema", () => {
+      test("config is always non-terminal (allows drilling into step definition)", () => {
         const results = getSuggestions(baseConfig, ["steps", "fetch"], "");
         const config = results.find((s) => s.label === "config");
         expect(config).not.toBeUndefined();
-        expect(config!.terminal).toBe(true);
+        expect(config!.terminal).toBe(false);
       });
 
       test("suggests step schema properties at steps.slug.result level", () => {
@@ -447,5 +454,234 @@ describe("Output Schema Suggestions", () => {
         expect(results).toEqual([]);
       });
     });
+  });
+});
+
+describe("getConfigSuggestions", () => {
+  const step = {
+    slug: "append-row",
+    type: "excel",
+    mode: "append",
+    path: "data/reports",
+    filename: "scanned-documents.xlsx",
+    sheets: [
+      {
+        name: "Scans",
+        columns: [
+          { header: "Date", key: "date", width: 12 },
+          { header: "Amount", key: "amount" },
+        ],
+        data: "{{steps.extract.result}}",
+      },
+    ],
+  };
+
+  test("returns top-level keys excluding slug and type", () => {
+    const results = getConfigSuggestions(step, [], "", new Set(["slug", "type"]));
+    const labels = results.map((s) => s.label);
+    expect(labels).toContain("mode");
+    expect(labels).toContain("path");
+    expect(labels).toContain("filename");
+    expect(labels).toContain("sheets");
+    expect(labels).not.toContain("slug");
+    expect(labels).not.toContain("type");
+  });
+
+  test("marks primitive values as terminal with type description", () => {
+    const results = getConfigSuggestions(step, [], "", new Set(["slug", "type"]));
+    const mode = results.find((s) => s.label === "mode");
+    expect(mode).not.toBeUndefined();
+    expect(mode!.terminal).toBe(true);
+    expect(mode!.description).toBe("string");
+  });
+
+  test("marks array values as non-terminal", () => {
+    const results = getConfigSuggestions(step, [], "", new Set(["slug", "type"]));
+    const sheets = results.find((s) => s.label === "sheets");
+    expect(sheets).not.toBeUndefined();
+    expect(sheets!.terminal).toBe(false);
+  });
+
+  test("suggests numeric indices for arrays", () => {
+    const results = getConfigSuggestions(step, ["sheets"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).toEqual(["0"]);
+  });
+
+  test("navigates into array elements by index", () => {
+    const results = getConfigSuggestions(step, ["sheets", "0"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).toContain("name");
+    expect(labels).toContain("columns");
+    expect(labels).toContain("data");
+  });
+
+  test("navigates into nested arrays (columns)", () => {
+    const results = getConfigSuggestions(step, ["sheets", "0", "columns"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).toEqual(["0", "1"]);
+  });
+
+  test("navigates into array element properties", () => {
+    const results = getConfigSuggestions(step, ["sheets", "0", "columns", "0"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).toContain("header");
+    expect(labels).toContain("key");
+    expect(labels).toContain("width");
+  });
+
+  test("filters by prefix", () => {
+    const results = getConfigSuggestions(step, [], "f", new Set(["slug", "type"]));
+    const labels = results.map((s) => s.label);
+    expect(labels).toEqual(["filename"]);
+  });
+
+  test("returns empty for invalid path", () => {
+    const results = getConfigSuggestions(step, ["nonexistent"], "");
+    expect(results).toEqual([]);
+  });
+
+  test("returns empty for out-of-bounds array index", () => {
+    const results = getConfigSuggestions(step, ["sheets", "5"], "");
+    expect(results).toEqual([]);
+  });
+
+  test("returns empty for primitive leaf", () => {
+    const results = getConfigSuggestions(step, ["mode"], "");
+    expect(results).toEqual([]);
+  });
+});
+
+describe("getSuggestions with config introspection", () => {
+  const stepsWithConfig: Array<{ slug: string; [key: string]: unknown }> = [
+    {
+      slug: "extract",
+      type: "agent",
+      prompt: "do stuff",
+      tools: ["exec"],
+    },
+    {
+      slug: "append-row",
+      type: "excel",
+      mode: "append",
+      sheets: [{ name: "Sheet1", columns: [{ header: "A" }] }],
+    },
+  ];
+
+  const config: ScopeConfig = {
+    steps: stepsWithConfig,
+    currentStepIndex: 1,
+    secretKeys: [],
+  };
+
+  test("steps.<slug>.config is non-terminal", () => {
+    const results = getSuggestions(config, ["steps", "extract"], "");
+    const configSuggestion = results.find((s) => s.label === "config");
+    expect(configSuggestion).not.toBeUndefined();
+    expect(configSuggestion!.terminal).toBe(false);
+  });
+
+  test("steps.<slug>.config. shows step fields (excluding slug/type)", () => {
+    const results = getSuggestions(config, ["steps", "extract", "config"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).toContain("prompt");
+    expect(labels).toContain("tools");
+    expect(labels).not.toContain("slug");
+    expect(labels).not.toContain("type");
+  });
+
+  test("steps.<slug>.config. works for custom step types", () => {
+    // Use currentStepIndex=2 so append-row (index 1) is visible
+    const cfg: ScopeConfig = { ...config, currentStepIndex: 2 };
+    const results = getSuggestions(cfg, ["steps", "append-row", "config"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).toContain("mode");
+    expect(labels).toContain("sheets");
+  });
+
+  test("steps.<slug>.config.sheets.0.columns navigates deep", () => {
+    const cfg: ScopeConfig = { ...config, currentStepIndex: 2 };
+    const results = getSuggestions(cfg, ["steps", "append-row", "config", "sheets", "0"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).toContain("name");
+    expect(labels).toContain("columns");
+  });
+
+  test("returns empty for unknown step slug", () => {
+    const results = getSuggestions(config, ["steps", "unknown", "config"], "");
+    expect(results).toEqual([]);
+  });
+});
+
+describe("getSuggestions with edit draft structure (nested config)", () => {
+  // This mirrors how WorkflowDetailPage structures custom step types in edit mode:
+  // Custom steps get their extra fields wrapped in a `config` property.
+  const draftSteps: Array<{ slug: string; [key: string]: unknown }> = [
+    {
+      slug: "extract",
+      type: "agent",
+      prompt: "extract data",
+      tools: ["exec"],
+      skills: undefined,
+      url: undefined,
+      method: undefined,
+      body: undefined,
+    },
+    {
+      slug: "append-row",
+      type: "excel",
+      prompt: undefined,
+      tools: undefined,
+      skills: undefined,
+      url: undefined,
+      method: undefined,
+      body: undefined,
+      config: {
+        mode: "append",
+        path: "data/reports",
+        filename: "output.xlsx",
+        sheets: [{ name: "Sheet1", columns: [{ header: "Date", key: "date" }] }],
+      },
+    },
+  ];
+
+  const scopeConfig: ScopeConfig = {
+    steps: draftSteps,
+    currentStepIndex: 0,
+    secretKeys: [],
+  };
+
+  test("custom step config shows fields from nested config object", () => {
+    const results = getSuggestions(scopeConfig, ["steps", "append-row", "config"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).toContain("mode");
+    expect(labels).toContain("path");
+    expect(labels).toContain("filename");
+    expect(labels).toContain("sheets");
+    // Should NOT show the draft's undefined fields
+    expect(labels).not.toContain("prompt");
+    expect(labels).not.toContain("tools");
+    expect(labels).not.toContain("body");
+    expect(labels).not.toContain("url");
+    expect(labels).not.toContain("config");
+  });
+
+  test("agent step config shows only defined fields", () => {
+    const results = getSuggestions(scopeConfig, ["steps", "extract", "config"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).toContain("prompt");
+    expect(labels).toContain("tools");
+    // undefined fields should be filtered out
+    expect(labels).not.toContain("skills");
+    expect(labels).not.toContain("url");
+    expect(labels).not.toContain("method");
+    expect(labels).not.toContain("body");
+  });
+
+  test("custom step deep navigation works through nested config", () => {
+    const results = getSuggestions(scopeConfig, ["steps", "append-row", "config", "sheets", "0"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).toContain("name");
+    expect(labels).toContain("columns");
   });
 });
