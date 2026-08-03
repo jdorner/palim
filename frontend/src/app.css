@@ -139,4 +139,10 @@
   a:hover {
     text-decoration-color: color-mix(in oklch, var(--color-amber-500) 40%, transparent);
   }
+
+  /* Form inputs: italic placeholders */
+  input::placeholder,
+  textarea::placeholder {
+    font-style: italic;
+  }
 }

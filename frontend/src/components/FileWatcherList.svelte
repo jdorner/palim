@@ -506,9 +506,3 @@ $effect(() => {
     </div>
   {/if}
 </div>
-
-<style>
-input::placeholder {
-  font-style: italic;
-}
-</style>
