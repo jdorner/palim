@@ -11,6 +11,7 @@ export const badgeVariants = tv({
       success: "border-transparent bg-green-700 text-white hover:bg-green-800",
       warning: "border-transparent bg-yellow-500 text-white hover:bg-yellow-600",
       outline: "text-foreground",
+      "warning-outline": "border-yellow-500/30 text-yellow-600 dark:text-yellow-400 dark:border-yellow-500/30",
     },
   },
   defaultVariants: {

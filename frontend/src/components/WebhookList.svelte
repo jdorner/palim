@@ -330,9 +330,7 @@ $effect(() => {
       </div>
 
       {#if formAuthType === "none"}
-        <div
-          class="flex items-center gap-2 rounded-md bg-yellow-500/10 px-3 py-1.5 text-yellow-600 dark:text-yellow-400"
-        >
+        <div class="warning-banner">
           <WarningIcon size={14} class="shrink-0" aria-hidden="true" />
           <span class="text-xs font-medium">{NO_AUTH_WARNING}</span>
         </div>
@@ -341,7 +339,7 @@ $effect(() => {
       {#if formError}
         <p class="text-sm font-bold text-destructive">{formError}</p>
       {/if}
-      <div class="h-px w-full bg-current opacity-15">&nbsp;</div>
+      <hr>
       <div class="flex gap-2">
         <Button size="sm" disabled={submitting} onclick={submitForm}>
           {submitting ? "Saving..." : formMode === "create" ? "Create" : "Save"}
@@ -395,13 +393,7 @@ $effect(() => {
             </div>
             <div class="flex items-center gap-2 shrink-0">
               {#if webhook.authType === "none"}
-                <Badge
-                  title={NO_AUTH_WARNING}
-                  variant="outline"
-                  class="text-yellow-600 dark:text-yellow-400 border-yellow-500/30"
-                  aria-label={NO_AUTH_WARNING}
-                  >none</Badge
-                >
+                <Badge title={NO_AUTH_WARNING} variant="warning-outline" aria-label={NO_AUTH_WARNING}>none</Badge>
               {:else}
                 <Badge variant="outline">{webhook.authType}</Badge>
               {/if}
@@ -510,13 +502,7 @@ $effect(() => {
               <TableCell>
                 {#if webhook.authType === "none"}
                   <div class="flex items-center gap-1.5">
-                    <Badge
-                      title={NO_AUTH_WARNING}
-                      variant="outline"
-                      class="text-yellow-600 dark:text-yellow-400 border-yellow-500/30"
-                      aria-label={NO_AUTH_WARNING}
-                      >none</Badge
-                    >
+                    <Badge title={NO_AUTH_WARNING} variant="warning-outline" aria-label={NO_AUTH_WARNING}>none</Badge>
                     <span title={NO_AUTH_WARNING}>
                       <WarningIcon
                         size={14}
@@ -578,9 +564,3 @@ $effect(() => {
     </div>
   {/if}
 </div>
-
-<style>
-input::placeholder {
-  font-style: italic;
-}
-</style>

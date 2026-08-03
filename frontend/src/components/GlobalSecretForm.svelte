@@ -359,7 +359,7 @@ function handleKeydown(event: KeyboardEvent) {
         <p class="text-sm font-bold text-destructive">{formError}</p>
       {/if}
 
-      <div class="h-px w-full bg-current opacity-15">&nbsp;</div>
+      <hr>
 
       <div class="flex gap-2">
         <Button size="sm" disabled={submitting} onclick={submitForm}>
