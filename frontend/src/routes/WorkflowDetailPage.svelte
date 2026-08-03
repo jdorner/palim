@@ -935,9 +935,7 @@ onDestroy(() => {
                   </div>
                   {#if editMode}
                     {#if validationErrors.get("steps.removeWarning")}
-                      <div
-                        class="flex items-center gap-1.5 px-2 py-1 rounded-md bg-yellow-500/10 text-yellow-600 dark:text-yellow-400"
-                      >
+                      <div class="warning-banner">
                         <WarningIcon size={12} class="shrink-0" aria-hidden="true" />
                         <span class="text-xs">{validationErrors.get("steps.removeWarning")}</span>
                       </div>
