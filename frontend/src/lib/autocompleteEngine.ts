@@ -113,8 +113,10 @@ export function computeInsertion(
   // Determine how much of the current segment remains after the cursor.
   // When the cursor is mid-word (e.g. "filen|ame"), we need to consume
   // the trailing part of the segment so it gets replaced entirely.
+  // Only consume identifier-like characters (alphanumeric, hyphens, underscores)
+  // that are part of the same expression segment.
   const afterCursor = text.slice(cursorPos);
-  const segmentEndMatch = afterCursor.match(/^[^.{}]*/);
+  const segmentEndMatch = afterCursor.match(/^[a-zA-Z0-9_-]*/);
   const segmentTail = segmentEndMatch ? segmentEndMatch[0].length : 0;
 
   if (suggestion.terminal) {
