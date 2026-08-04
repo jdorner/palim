@@ -3,7 +3,6 @@
  *
  * Handles:
  * - `GET    /api/sessions/:id/messages`
- * - `GET    /api/sessions/:id/usage`
  * - `DELETE /api/sessions/:id/messages`
  *
  * Note: Skill request routes are defined in `src/jobs/skillRequestQueue.ts`.
@@ -56,28 +55,6 @@ export function sessionRoutes() {
         }),
       },
     )
-    .get("/api/sessions/:id/usage", ({ params, status }) => {
-      try {
-        const sessionStore = getSessionStore();
-        const session = sessionStore.get(params.id);
-        if (!session) {
-          return status(404, { error: "Session not found" });
-        }
-
-        return {
-          sessionId: params.id,
-          totalInput: session.totalInputTokens,
-          totalOutput: session.totalOutputTokens,
-          totalCacheRead: session.totalCacheReadTokens,
-          totalCacheWrite: session.totalCacheWriteTokens,
-          totalTokens: session.totalTokens,
-          lastInputTokens: session.lastInputTokens,
-        };
-      } catch (error) {
-        log.error("Failed to fetch session usage", { error, sessionId: params.id });
-        return status(500, { error: "Failed to fetch session usage" });
-      }
-    })
     .delete(
       "/api/sessions/:id/messages",
       ({ params, query, status }) => {

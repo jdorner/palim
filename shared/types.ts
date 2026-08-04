@@ -23,7 +23,6 @@ export type {
   ScheduleEntry,
   SecretSchemaEntry,
   SelectedModelResponse,
-  SessionUsage,
   StepTypeInfo,
   TokenUsage,
   WebSocketMessage,

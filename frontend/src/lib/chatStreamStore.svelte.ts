@@ -11,7 +11,6 @@ import type {
   ChatWebSocketEvent,
   FeedbackReportEvent,
   PushMessageEvent,
-  SessionUsage,
 } from "../../../shared/types";
 import { authFetch } from "./auth";
 import {
@@ -117,8 +116,6 @@ class ChatStreamStore {
   messages = $state<Message[]>([]);
   /** Last error message, if any. */
   error = $state<string | null>(null);
-  /** Token usage for the active conversation's server-side session. */
-  sessionUsage = $state<SessionUsage | null>(null);
 
   /** Whether the chat page is currently visible to the user. */
   chatVisible = $state(false);
@@ -226,13 +223,10 @@ class ChatStreamStore {
       // Restore persisted server-side session ID
       const conv = this.conversations.find((c) => c.id === id);
       this.currentSessionId = conv?.sessionId ?? null;
-      // Fetch token usage from the server if session exists
-      this.fetchSessionUsage();
     } catch (err) {
       console.error("Failed to load messages:", err);
       this.messages = [];
       this.currentSessionId = null;
-      this.sessionUsage = null;
     }
   }
 
@@ -693,35 +687,6 @@ class ChatStreamStore {
   // -------------------------------------------------------------------------
 
   /**
-   * Fetches token usage for the current server-side session.
-   * Updates the `sessionUsage` reactive field. Fails silently.
-   */
-  async fetchSessionUsage(): Promise<void> {
-    if (!this.currentSessionId) {
-      this.sessionUsage = null;
-      return;
-    }
-    try {
-      const res = await authFetch(`/api/sessions/${this.currentSessionId}/usage`);
-      if (res.ok) {
-        const data = (await res.json()) as SessionUsage & { sessionId: string };
-        this.sessionUsage = {
-          totalInput: data.totalInput,
-          totalOutput: data.totalOutput,
-          totalCacheRead: data.totalCacheRead,
-          totalCacheWrite: data.totalCacheWrite,
-          totalTokens: data.totalTokens,
-          lastInputTokens: data.lastInputTokens,
-        };
-      } else {
-        this.sessionUsage = null;
-      }
-    } catch {
-      // Non-critical - silently ignore
-    }
-  }
-
-  /**
    * Starts a streaming request to the chat API.
    * @param message - The user message to send.
    * @param options - Optional flags for the request.
@@ -829,8 +794,6 @@ class ChatStreamStore {
     this.removeStream(chatId);
     // Refresh conversation list so updatedAt changes are reflected (triggers unread styling)
     await this.loadConversations();
-    // Refresh session usage to reflect the new assistant message's tokens
-    this.fetchSessionUsage();
   }
 
   /**

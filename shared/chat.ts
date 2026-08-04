@@ -38,19 +38,3 @@ export interface TokenUsage {
   /** Total tokens consumed (input + output). */
   totalTokens: number;
 }
-
-/** Aggregated token usage for a session, returned by the usage API endpoint. */
-export interface SessionUsage {
-  /** Sum of input tokens across all assistant messages. */
-  totalInput: number;
-  /** Sum of output tokens across all assistant messages. */
-  totalOutput: number;
-  /** Sum of cache-read tokens across all assistant messages. */
-  totalCacheRead: number;
-  /** Sum of cache-write tokens across all assistant messages. */
-  totalCacheWrite: number;
-  /** Sum of totalTokens across all assistant messages. */
-  totalTokens: number;
-  /** Input token count from the most recent assistant message (approximates current context size). */
-  lastInputTokens: number;
-}
