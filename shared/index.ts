@@ -6,7 +6,7 @@
  * @module
  */
 
-export type { ChatWebSocketEvent, SessionUsage, TokenUsage } from "./chat";
+export type { ChatWebSocketEvent, TokenUsage } from "./chat";
 export type {
   ExtensionInfo,
   ExtensionLifecycleEvent,
