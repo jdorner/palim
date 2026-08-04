@@ -11,9 +11,15 @@ interface Props {
   statusMessage?: string | null;
   /** Bindable variant for the status message. */
   statusVariant?: "success" | "error" | "info" | "accent";
+  /** Bindable list of available models (exposed so parent can reuse without duplicate fetch). */
+  availableModels?: AvailableModel[];
 }
 
-let { statusMessage = $bindable(null), statusVariant = $bindable("info") }: Props = $props();
+let {
+  statusMessage = $bindable(null),
+  statusVariant = $bindable("info"),
+  availableModels = $bindable([]),
+}: Props = $props();
 
 let models = $state<AvailableModel[]>([]);
 let selectedModelId = $state<string | null>(null);
@@ -43,6 +49,7 @@ async function fetchModels() {
     if (!selectedRes.ok) throw new Error(`Failed to load selection: HTTP ${selectedRes.status}`);
 
     models = await modelsRes.json();
+    availableModels = models;
     const selected = await selectedRes.json();
     selectedModelId = selected.modelId;
     reasoning = selected.reasoning ?? false;

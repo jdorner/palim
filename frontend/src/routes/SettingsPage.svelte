@@ -4,6 +4,7 @@ import CheckCircleIcon from "phosphor-svelte/lib/CheckCircleIcon";
 import GearIcon from "phosphor-svelte/lib/GearIcon";
 import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import WarningIcon from "phosphor-svelte/lib/WarningIcon";
+import { untrack } from "svelte";
 import { fly, slide } from "svelte/transition";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
@@ -98,17 +99,6 @@ async function handleIntentChange(intent: ModelIntent, modelId: string | null) {
   }
   if (intentMessageTimer) clearTimeout(intentMessageTimer);
   intentMessageTimer = setTimeout(() => (intentMessage = null), 3000);
-}
-
-async function fetchAvailableModels() {
-  try {
-    const res = await authFetch("/api/models");
-    if (res.ok) {
-      availableModels = await res.json();
-    }
-  } catch {
-    // Non-critical
-  }
 }
 
 async function fetchExtensions() {
@@ -207,9 +197,9 @@ function onTabChange(tab: string) {
 }
 
 $effect(() => {
-  fetchExtensions();
-  fetchAvailableModels();
-  modelStore.refresh();
+  untrack(() => {
+    fetchExtensions();
+  });
 });
 </script>
 
@@ -238,7 +228,11 @@ $effect(() => {
   <Tabs.Content value="model" class="space-y-4">
     <NotificationBanner message={bannerMessage} variant={bannerVariant} timeout={0} />
     <h3 class="text-sm font-semibold text-foreground">Default Model</h3>
-    <ModelSelector bind:statusMessage={modelStatusMessage} bind:statusVariant={modelStatusVariant} />
+    <ModelSelector
+      bind:statusMessage={modelStatusMessage}
+      bind:statusVariant={modelStatusVariant}
+      bind:availableModels
+    />
     <div class="flex items-center justify-between rounded-md border border-border px-3 py-2">
       <div>
         <p class="text-sm font-medium">Expand thinking by default</p>
