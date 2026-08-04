@@ -131,13 +131,16 @@ function buildStepSystemPrompt(skills: string[] | undefined, deps: StepWorkerDep
  * @param deps - Worker dependencies (FlowProducer for parent result access)
  * @returns Template context with trigger payload and all previous step results
  */
-function buildTemplateContext(job: QueueJob<WorkflowStepJobData>, deps: StepWorkerDeps): TemplateContext {
+async function buildTemplateContext(
+  job: QueueJob<WorkflowStepJobData>,
+  deps: StepWorkerDeps,
+): Promise<TemplateContext> {
   const data = job.data;
   let stepResults: Record<string, unknown> = {};
   let triggerPayload: unknown = data.triggerPayload;
 
   if (data.__flowParentId) {
-    const parentResult = deps.flowProducer.getParentResult<StepResult>(data.__flowParentId);
+    const parentResult = await deps.flowProducer.getParentResult<StepResult>(data.__flowParentId);
     if (parentResult?._stepResults) {
       stepResults = { ...parentResult._stepResults };
     }
@@ -340,7 +343,7 @@ export function createStepProcessor(deps: StepWorkerDeps) {
 
     await job.log(`[${workflowName}] Step ${stepIndex + 1}/${totalSteps}: ${stepSlug} (${stepDef.type})`);
 
-    const tmplCtx = buildTemplateContext(job, deps);
+    const tmplCtx = await buildTemplateContext(job, deps);
     let value: unknown;
 
     try {
