@@ -360,17 +360,12 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
         return true;
       }
 
-      // Job is likely active (processing). discard() pulls it out of the
-      // processing shard and moves it to the DLQ. We then retryDlq (which
-      // moves it from DLQ back to queue) and removeAsync to fully delete it.
-      const job = await this.queue.getJob(jobId);
-      if (job) {
-        job.discard();
-        // Allow the async discard operation to settle
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        this.queue.retryDlq(jobId);
-        await this.queue.removeAsync(jobId);
-        logger.info(`Discarded active job ${jobId} from "${this.queue.name}"`);
+      // Job is still active (being processed). Signal cooperative cancellation
+      // via the worker and return success — the processor will see the
+      // cancellation flag and exit, after which the job is cleaned up normally.
+      const signalled = this.worker.cancelJob(jobId, "Cancelled");
+      if (signalled) {
+        logger.info(`Signalled cancellation for active job ${jobId} in "${this.queue.name}"`);
         return true;
       }
 

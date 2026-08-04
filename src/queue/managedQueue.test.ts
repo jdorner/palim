@@ -99,7 +99,7 @@ describe("ManagedQueue.cancelJob", () => {
   });
 
   describe("active/processing jobs", () => {
-    test("cancels an active job via discard path", async () => {
+    test("signals cancellation for an active job via worker", async () => {
       let jobStarted: () => void;
       const jobStartedPromise = new Promise<void>((resolve) => {
         jobStarted = resolve;
@@ -111,10 +111,10 @@ describe("ManagedQueue.cancelJob", () => {
 
       const mq = new ManagedQueue<{ value: number }>(
         TEST_QUEUE,
-        async (_job: QueueJob<{ value: number }>) => {
+        async (job: QueueJob<{ value: number }>) => {
           // Signal that we've started processing
           jobStarted!();
-          // Block until unblocked (allows cleanup after test assertions)
+          // Block until unblocked (simulates processor checking cancellation)
           await blockPromise;
         },
         { concurrency: 1, dataPath: null },
@@ -133,13 +133,9 @@ describe("ManagedQueue.cancelJob", () => {
       expect(jobBefore).not.toBeNull();
       expect(jobBefore!.state).toBe("active");
 
-      // Cancel should succeed via the discard fallback path
+      // Cancel should succeed — signals cooperative cancellation
       const removed = await mq.cancelJob(jobId);
       expect(removed).toBe(true);
-
-      // Verify it's gone
-      const jobAfter = await mq.getJob(jobId);
-      expect(jobAfter).toBeNull();
 
       // Unblock the worker so close() can finish
       unblock!();
