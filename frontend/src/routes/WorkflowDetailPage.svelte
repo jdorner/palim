@@ -969,8 +969,10 @@ onDestroy(() => {
                       {/each}
                     </select>
                   {:else}
-                    <label for="step-type" class="text-xs font-medium text-muted-foreground">Type:</label>
-                    <Badge variant="outline" class="w-fit">{labelForStepType(selectedStep.type)}</Badge>
+                    <div class="flex items-center gap-2">
+                      <label for="step-type" class="text-xs font-medium text-muted-foreground">Type:</label>
+                      <Badge variant="outline" class="w-fit">{labelForStepType(selectedStep.type)}</Badge>
+                    </div>
                   {/if}
                 </div>
 
