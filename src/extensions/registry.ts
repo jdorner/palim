@@ -685,6 +685,7 @@ export class ExtensionRegistry {
             label: st.handler.label,
             icon: st.handler.icon,
             extensionName: st.extensionName,
+            configSchema: st.handler.schema ? JSON.parse(JSON.stringify(st.handler.schema)) : undefined,
           }));
           if (!manifestUi && registeredStepTypes.length === 0) return null;
           return {
