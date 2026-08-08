@@ -3,9 +3,12 @@
 
   Renders form fields automatically from a JSON Schema (derived from the
   extension's TypeBox handler schema). Supports text, number, boolean, enum,
-  textarea, multiselect, and password field types.
+  textarea, multiselect, tags, and password field types.
+
+  Field descriptions are shown via an (i) icon tooltip next to the label.
 -->
 <script lang="ts">
+import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import { buildInitialValues, getEnumOptions, getInputType, getLabel, getProperties } from "$lib/schemaForm";
 import MultiSelect from "./MultiSelect.svelte";
@@ -42,6 +45,17 @@ function updateValue(key: string, value: unknown) {
 }
 </script>
 
+{#snippet fieldLabel(key: string, label: string, description: string | null)}
+  <span class="inline-flex items-center gap-1">
+    <label class="text-xs font-medium text-muted-foreground" for="step-config-{key}">{label}</label>
+    {#if description}
+      <span class="text-muted-foreground/60 cursor-help" title={description}>
+        <InfoIcon class="w-3.5 h-3.5" aria-hidden="true" />
+      </span>
+    {/if}
+  </span>
+{/snippet}
+
 <div class="space-y-3">
   {#each propertyKeys as key (key)}
     {@const prop = properties[key]!}
@@ -58,13 +72,17 @@ function updateValue(key: string, value: unknown) {
             onChange={(v) => updateValue(key, v)}
             aria-label={label}
           />
-          <label class="text-xs font-medium" for="step-config-{key}">{label}</label>
+          <span class="inline-flex items-center gap-1">
+            <label class="text-xs font-medium" for="step-config-{key}">{label}</label>
+            {#if description}
+              <span class="text-muted-foreground/60 cursor-help" title={description}>
+                <InfoIcon class="w-3.5 h-3.5" aria-hidden="true" />
+              </span>
+            {/if}
+          </span>
         </div>
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else if inputType === "enum"}
-        <label class="text-xs font-medium text-muted-foreground" for="step-config-{key}">{label}</label>
+        {@render fieldLabel(key, label, description)}
         <select
           id="step-config-{key}"
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
@@ -75,11 +93,8 @@ function updateValue(key: string, value: unknown) {
             <option value={option}>{option}</option>
           {/each}
         </select>
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else if inputType === "multiselect"}
-        <label class="text-xs font-medium text-muted-foreground" for="step-config-{key}">{label}</label>
+        {@render fieldLabel(key, label, description)}
         <MultiSelect
           id="step-config-{key}"
           items={prop.availableItems as string[]}
@@ -87,11 +102,8 @@ function updateValue(key: string, value: unknown) {
           placeholder="Select items..."
           onchange={(val) => updateValue(key, val)}
         />
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else if inputType === "tags"}
-        <label class="text-xs font-medium text-muted-foreground" for="step-config-{key}">{label}</label>
+        {@render fieldLabel(key, label, description)}
         <input
           id="step-config-{key}"
           type="text"
@@ -104,11 +116,8 @@ function updateValue(key: string, value: unknown) {
             updateValue(key, items);
           }}
         >
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else if inputType === "number"}
-        <label class="text-xs font-medium text-muted-foreground" for="step-config-{key}">{label}</label>
+        {@render fieldLabel(key, label, description)}
         <input
           id="step-config-{key}"
           type="number"
@@ -119,11 +128,8 @@ function updateValue(key: string, value: unknown) {
           step={prop.multipleOf as number | undefined ?? "any"}
           oninput={(e) => updateValue(key, Number(e.currentTarget.value))}
         >
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else if inputType === "password"}
-        <label class="text-xs font-medium text-muted-foreground" for="step-config-{key}">{label}</label>
+        {@render fieldLabel(key, label, description)}
         <input
           id="step-config-{key}"
           type="password"
@@ -133,11 +139,8 @@ function updateValue(key: string, value: unknown) {
           maxlength={prop.maxLength as number | undefined}
           oninput={(e) => updateValue(key, e.currentTarget.value)}
         >
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else if inputType === "textarea"}
-        <label class="text-xs font-medium text-muted-foreground" for="step-config-{key}">{label}</label>
+        {@render fieldLabel(key, label, description)}
         <textarea
           id="step-config-{key}"
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-20"
@@ -147,11 +150,8 @@ function updateValue(key: string, value: unknown) {
           value={String(formValues[key] ?? "")}
           oninput={(e) => updateValue(key, e.currentTarget.value)}
         ></textarea>
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else if inputType === "text"}
-        <label class="text-xs font-medium text-muted-foreground" for="step-config-{key}">{label}</label>
+        {@render fieldLabel(key, label, description)}
         <input
           id="step-config-{key}"
           type="text"
@@ -161,9 +161,6 @@ function updateValue(key: string, value: unknown) {
           maxlength={prop.maxLength as number | undefined}
           oninput={(e) => updateValue(key, e.currentTarget.value)}
         >
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else}
         <span class="text-xs font-medium text-muted-foreground">{label}</span>
         <p class="text-xs text-muted-foreground italic">This field type is not supported in the form editor.</p>
