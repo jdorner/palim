@@ -41,6 +41,8 @@ export interface StepTypeInfo {
   icon?: string;
   /** Name of the extension that registered this step type. */
   extensionName: string;
+  /** JSON Schema describing the step's configuration fields (derived from the handler's TypeBox schema). */
+  configSchema?: Record<string, unknown>;
 }
 
 /** A single secret schema entry declared in an extension manifest. */

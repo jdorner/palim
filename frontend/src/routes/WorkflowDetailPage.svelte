@@ -30,6 +30,7 @@ import {
 } from "$lib/workflowValidation";
 import MultiSelect from "../components/MultiSelect.svelte";
 import StatusDot from "../components/StatusDot.svelte";
+import StepConfigForm from "../components/StepConfigForm.svelte";
 import TemplateAutocomplete from "../components/TemplateAutocomplete.svelte";
 import WorkflowGraph from "../components/WorkflowGraph.svelte";
 import { navigate, route } from "../router";
@@ -84,6 +85,8 @@ let fitViewTrigger = $state(0);
 let saving = $state(false);
 let saveError = $state<string | null>(null);
 let validationErrors = $state<Map<string, string>>(new Map());
+/** Whether to show the raw JSON editor instead of the schema-driven form for custom step types. */
+let editAsJson = $state(false);
 
 // Meta endpoint state for tools/skills
 let availableTools = $state<string[]>([]);
@@ -193,6 +196,7 @@ function cancelEdit() {
   editDraft = null;
   saveError = null;
   validationErrors = new Map();
+  editAsJson = false;
   fitViewTrigger++;
   // Re-point sidebar to the original workflow step data
   if (sidebarOpen && selectedStepIndex >= 0 && workflow?.steps[selectedStepIndex]) {
@@ -1156,38 +1160,66 @@ onDestroy(() => {
                       {/if}
                     </div>
                   {:else if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) !== "agent" && (editDraftStep.type ?? selectedStep?.type) !== "webhook"}
-                    <!-- Edit mode: custom step type - JSON config editor -->
+                    <!-- Edit mode: custom step type - schema-driven form or JSON fallback -->
+                    {@const stepType = editDraftStep.type ?? selectedStep?.type}
+                    {@const stepTypeInfo = customStepTypes.find(st => st.type === stepType)}
                     <div class="space-y-4">
-                      <div class="flex flex-col gap-1.5">
-                        <label for="step-config" class="text-xs font-medium text-muted-foreground"
-                          >Configuration (JSON)</label
+                      {#if stepTypeInfo?.configSchema && !editAsJson}
+                        <StepConfigForm
+                          schema={stepTypeInfo.configSchema}
+                          values={editDraftStep.config ?? {}}
+                          onchange={(vals) => updateDraftStep(selectedStepIndex, (s) => { s.config = vals; })}
+                        />
+                        <button
+                          type="button"
+                          class="text-xs text-muted-foreground underline hover:text-foreground"
+                          onclick={() => { editAsJson = true; }}
                         >
-                        <textarea
-                          id="step-config"
-                          class="w-full px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-32"
-                          rows="12"
-                          value={JSON.stringify(editDraftStep.config ?? {}, null, 2)}
-                          oninput={(e) => {
-                            const raw = (e.target as HTMLTextAreaElement).value;
-                            try {
-                              const parsed = JSON.parse(raw);
-                              updateDraftStep(selectedStepIndex, (s) => { s.config = parsed; });
-                              const newErrors = new Map(validationErrors);
-                              newErrors.delete(`steps[${selectedStepIndex}].config`);
-                              validationErrors = newErrors;
-                            } catch {
-                              const newErrors = new Map(validationErrors);
-                              newErrors.set(`steps[${selectedStepIndex}].config`, "Invalid JSON");
-                              validationErrors = newErrors;
-                            }
-                          }}
-                        ></textarea>
-                        {#if validationErrors.get(`steps[${selectedStepIndex}].config`)}
-                          <span class="text-xs text-destructive"
-                            >{validationErrors.get(`steps[${selectedStepIndex}].config`)}</span
-                          >
-                        {/if}
-                      </div>
+                          Edit as JSON
+                        </button>
+                      {:else}
+                        <div class="flex flex-col gap-1.5">
+                          <div class="flex items-center justify-between">
+                            <label for="step-config" class="text-xs font-medium text-muted-foreground"
+                              >Configuration (JSON)</label
+                            >
+                            {#if stepTypeInfo?.configSchema}
+                              <button
+                                type="button"
+                                class="text-xs text-muted-foreground underline hover:text-foreground"
+                                onclick={() => { editAsJson = false; }}
+                              >
+                                Use form editor
+                              </button>
+                            {/if}
+                          </div>
+                          <textarea
+                            id="step-config"
+                            class="w-full px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-32"
+                            rows="12"
+                            value={JSON.stringify(editDraftStep.config ?? {}, null, 2)}
+                            oninput={(e) => {
+                              const raw = (e.target as HTMLTextAreaElement).value;
+                              try {
+                                const parsed = JSON.parse(raw);
+                                updateDraftStep(selectedStepIndex, (s) => { s.config = parsed; });
+                                const newErrors = new Map(validationErrors);
+                                newErrors.delete(`steps[${selectedStepIndex}].config`);
+                                validationErrors = newErrors;
+                              } catch {
+                                const newErrors = new Map(validationErrors);
+                                newErrors.set(`steps[${selectedStepIndex}].config`, "Invalid JSON");
+                                validationErrors = newErrors;
+                              }
+                            }}
+                          ></textarea>
+                          {#if validationErrors.get(`steps[${selectedStepIndex}].config`)}
+                            <span class="text-xs text-destructive"
+                              >{validationErrors.get(`steps[${selectedStepIndex}].config`)}</span
+                            >
+                          {/if}
+                        </div>
+                      {/if}
                     </div>
                   {:else if !editMode && selectedStep.type !== "agent" && selectedStep.type !== "webhook"}
                     <!-- Read-only: custom step type config -->

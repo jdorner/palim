@@ -8,6 +8,7 @@ import { Value } from "typebox/value";
 import { authFetch } from "$lib/auth";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import { Button } from "$lib/components/ui/button";
+import { getEmptyValue, getEnumOptions, getInputType, getLabel } from "$lib/schemaForm";
 import MultiSelect from "./MultiSelect.svelte";
 
 interface Props {
@@ -93,62 +94,6 @@ $effect(() => {
   formValues = vals;
   savedValues = { ...vals };
 });
-
-/**
- * Get the appropriate empty/initial value for a property type.
- */
-function getEmptyValue(prop: Record<string, unknown>): unknown {
-  if (prop.type === "boolean") return false;
-  if (prop.type === "number" || prop.type === "integer") return 0;
-  if (prop.type === "array") return [];
-  if (isEnum(prop)) {
-    const options = getEnumOptions(prop);
-    return options.length > 0 ? options[0] : "";
-  }
-  return "";
-}
-
-/**
- * Detect if a property is an enum (anyOf with const values).
- */
-function isEnum(prop: Record<string, unknown>): boolean {
-  const anyOf = prop.anyOf as Array<Record<string, unknown>> | undefined;
-  if (!anyOf || !Array.isArray(anyOf)) return false;
-  return anyOf.every((item) => "const" in item);
-}
-
-/**
- * Extract enum options from an anyOf schema.
- */
-function getEnumOptions(prop: Record<string, unknown>): string[] {
-  const anyOf = prop.anyOf as Array<Record<string, unknown>> | undefined;
-  if (!anyOf) return [];
-  return anyOf.filter((item) => "const" in item).map((item) => String(item.const));
-}
-
-/**
- * Get a display label for a schema property.
- * Uses `title` if available, otherwise the property key.
- */
-function getLabel(key: string, prop: Record<string, unknown>): string {
-  return typeof prop.title === "string" ? prop.title : key;
-}
-
-/**
- * Determine the input type for a property.
- */
-function getInputType(
-  prop: Record<string, unknown>,
-): "text" | "textarea" | "number" | "boolean" | "enum" | "password" | "multiselect" | "unsupported" {
-  if (prop.sensitive === true) return "password";
-  if (prop.type === "array" && Array.isArray(prop.availableItems)) return "multiselect";
-  if (isEnum(prop)) return "enum";
-  if (prop.type === "boolean") return "boolean";
-  if (prop.type === "number" || prop.type === "integer") return "number";
-  if (prop.type === "string" && prop.multiline === true) return "textarea";
-  if (prop.type === "string") return "text";
-  return "unsupported";
-}
 
 /**
  * Validate the current form values against the schema using TypeBox 1.x.
@@ -305,6 +250,24 @@ function handleKeydown(event: KeyboardEvent) {
           placeholder="Select items..."
           onchange={(val) => updateValue(key, val)}
         />
+        {#if description}
+          <p class="text-xs text-muted-foreground">{description}</p>
+        {/if}
+      {:else if inputType === "tags"}
+        <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+        <input
+          id="settings-{key}"
+          type="text"
+          class="block w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring
+            {error ? 'border-destructive' : ''}"
+          value={Array.isArray(formValues[key]) ? (formValues[key] as string[]).join(", ") : ""}
+          placeholder="value1, value2, ..."
+          oninput={(e) => {
+            const raw = e.currentTarget.value;
+            const items = raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+            updateValue(key, items);
+          }}
+        >
         {#if description}
           <p class="text-xs text-muted-foreground">{description}</p>
         {/if}
