@@ -5,10 +5,11 @@
   extension's TypeBox handler schema). Supports text, number, boolean, enum,
   textarea, multiselect, tags, and password field types.
 
-  Field descriptions are shown via an (i) icon tooltip next to the label.
+  Field descriptions are shown via an (i) icon with a CSS tooltip on hover.
   String fields support template autocomplete when autocomplete context is provided.
 -->
 <script lang="ts">
+import { Popover } from "bits-ui";
 import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import { buildInitialValues, getEnumOptions, getInputType, getLabel, getProperties } from "$lib/schemaForm";
@@ -62,13 +63,31 @@ function updateValue(key: string, value: unknown) {
 }
 </script>
 
+{#snippet infoTip(description: string)}
+  <Popover.Root>
+    <Popover.Trigger
+      class="inline-flex items-center cursor-pointer text-muted-foreground/60 hover:text-muted-foreground"
+    >
+      <InfoIcon class="w-4 h-4" />
+    </Popover.Trigger>
+    <Popover.Portal>
+      <Popover.Content
+        class="z-50 max-w-64 rounded-md border border-border px-3 py-2 text-xs text-foreground shadow-md"
+        style="background: hsl(var(--popover));"
+        sideOffset={4}
+        side="top"
+      >
+        {description}
+      </Popover.Content>
+    </Popover.Portal>
+  </Popover.Root>
+{/snippet}
+
 {#snippet fieldLabel(key: string, label: string, description: string | null)}
   <span class="inline-flex items-center gap-1">
     <label class="text-xs font-medium text-muted-foreground" for="step-config-{key}">{label}</label>
     {#if description}
-      <span class="text-muted-foreground/60 cursor-help" title={description}>
-        <InfoIcon class="w-4 h-4" aria-hidden="true" />
-      </span>
+      {@render infoTip(description)}
     {/if}
   </span>
 {/snippet}
@@ -92,9 +111,7 @@ function updateValue(key: string, value: unknown) {
           <span class="inline-flex items-center gap-1">
             <label class="text-xs font-medium" for="step-config-{key}">{label}</label>
             {#if description}
-              <span class="text-muted-foreground/60 cursor-help" title={description}>
-                <InfoIcon class="w-4 h-4" aria-hidden="true" />
-              </span>
+              {@render infoTip(description)}
             {/if}
           </span>
         </div>
