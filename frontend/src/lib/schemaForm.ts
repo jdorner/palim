@@ -48,14 +48,15 @@ export function getEnumOptions(prop: SchemaProperty): string[] {
 
 /**
  * Get a display label for a schema property.
- * Uses the `title` annotation if available, otherwise falls back to the property key.
+ * Uses the `title` annotation if available, otherwise capitalizes the property key.
  *
  * @param key - The property key name
  * @param prop - The property schema object
  * @returns Human-readable label string
  */
 export function getLabel(key: string, prop: SchemaProperty): string {
-  return typeof prop.title === "string" ? prop.title : key;
+  if (typeof prop.title === "string") return prop.title;
+  return key.charAt(0).toUpperCase() + key.slice(1);
 }
 
 /**
