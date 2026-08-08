@@ -67,7 +67,7 @@ function updateValue(key: string, value: unknown) {
     <label class="text-xs font-medium text-muted-foreground" for="step-config-{key}">{label}</label>
     {#if description}
       <span class="text-muted-foreground/60 cursor-help" title={description}>
-        <InfoIcon class="w-3.5 h-3.5" aria-hidden="true" />
+        <InfoIcon class="w-4 h-4" aria-hidden="true" />
       </span>
     {/if}
   </span>
@@ -93,7 +93,7 @@ function updateValue(key: string, value: unknown) {
             <label class="text-xs font-medium" for="step-config-{key}">{label}</label>
             {#if description}
               <span class="text-muted-foreground/60 cursor-help" title={description}>
-                <InfoIcon class="w-3.5 h-3.5" aria-hidden="true" />
+                <InfoIcon class="w-4 h-4" aria-hidden="true" />
               </span>
             {/if}
           </span>
