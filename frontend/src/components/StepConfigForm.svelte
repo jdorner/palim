@@ -116,6 +116,22 @@ function updateValue(key: string, value: unknown) {
             updateValue(key, items);
           }}
         >
+      {:else if inputType === "json"}
+        {@render fieldLabel(key, label, description)}
+        <textarea
+          id="step-config-{key}"
+          class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-20"
+          rows={6}
+          value={JSON.stringify(formValues[key] ?? [], null, 2)}
+          oninput={(e) => {
+            try {
+              const parsed = JSON.parse(e.currentTarget.value);
+              updateValue(key, parsed);
+            } catch {
+              // Keep textarea editable even with invalid JSON — value updates only on valid parse
+            }
+          }}
+        ></textarea>
       {:else if inputType === "number"}
         {@render fieldLabel(key, label, description)}
         <input
