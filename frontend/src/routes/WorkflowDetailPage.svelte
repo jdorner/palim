@@ -1169,6 +1169,10 @@ onDestroy(() => {
                           schema={stepTypeInfo.configSchema}
                           values={editDraftStep.config ?? {}}
                           onchange={(vals) => updateDraftStep(selectedStepIndex, (s) => { s.config = vals; })}
+                          steps={editDraft?.steps ?? []}
+                          currentStepIndex={selectedStepIndex}
+                          secretKeys={cachedSecretKeys}
+                          outputSchemas={workflow?.outputSchemas}
                         />
                         <button
                           type="button"

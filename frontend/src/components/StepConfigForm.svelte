@@ -6,12 +6,15 @@
   textarea, multiselect, tags, and password field types.
 
   Field descriptions are shown via an (i) icon tooltip next to the label.
+  String fields support template autocomplete when autocomplete context is provided.
 -->
 <script lang="ts">
 import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import { buildInitialValues, getEnumOptions, getInputType, getLabel, getProperties } from "$lib/schemaForm";
+import type { OutputSchemas } from "$lib/templateScope";
 import MultiSelect from "./MultiSelect.svelte";
+import TemplateAutocomplete from "./TemplateAutocomplete.svelte";
 
 interface Props {
   /** JSON Schema describing the step configuration fields. */
@@ -20,9 +23,20 @@ interface Props {
   values: Record<string, unknown>;
   /** Callback fired when any field value changes. Receives the full updated values object. */
   onchange: (values: Record<string, unknown>) => void;
+  /** Workflow steps for template autocomplete scope (optional). */
+  steps?: Array<{ slug: string; [key: string]: unknown }>;
+  /** Index of the current step being edited (zero-based, for autocomplete scope). */
+  currentStepIndex?: number;
+  /** Prefetched secret keys for template autocomplete. */
+  secretKeys?: string[];
+  /** Resolved output schemas for deep property autocomplete. */
+  outputSchemas?: OutputSchemas;
 }
 
-let { schema, values, onchange }: Props = $props();
+let { schema, values, onchange, steps, currentStepIndex, secretKeys, outputSchemas }: Props = $props();
+
+/** Whether template autocomplete is available (all required context provided). */
+let autocompleteEnabled = $derived(steps !== undefined && currentStepIndex !== undefined && secretKeys !== undefined);
 
 /** Internal form state derived from props + schema defaults. */
 let formValues = $state<Record<string, unknown>>({});
@@ -30,6 +44,9 @@ let formValues = $state<Record<string, unknown>>({});
 /** Schema properties and keys (reactive). */
 let properties = $derived(getProperties(schema));
 let propertyKeys = $derived(Object.keys(properties));
+
+/** Element refs for text/textarea fields (keyed by property name). */
+let fieldRefs = $state<Record<string, HTMLTextAreaElement | HTMLInputElement | null>>({});
 
 /** Sync internal state when external values or schema change. */
 $effect(() => {
@@ -116,22 +133,6 @@ function updateValue(key: string, value: unknown) {
             updateValue(key, items);
           }}
         >
-      {:else if inputType === "json"}
-        {@render fieldLabel(key, label, description)}
-        <textarea
-          id="step-config-{key}"
-          class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-20"
-          rows={6}
-          value={JSON.stringify(formValues[key] ?? [], null, 2)}
-          oninput={(e) => {
-            try {
-              const parsed = JSON.parse(e.currentTarget.value);
-              updateValue(key, parsed);
-            } catch {
-              // Keep textarea editable even with invalid JSON — value updates only on valid parse
-            }
-          }}
-        ></textarea>
       {:else if inputType === "number"}
         {@render fieldLabel(key, label, description)}
         <input
@@ -159,24 +160,46 @@ function updateValue(key: string, value: unknown) {
         {@render fieldLabel(key, label, description)}
         <textarea
           id="step-config-{key}"
+          bind:this={fieldRefs[key]}
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-20"
           minlength={prop.minLength as number | undefined}
           maxlength={prop.maxLength as number | undefined}
           rows={4}
           value={String(formValues[key] ?? "")}
-          oninput={(e) => updateValue(key, e.currentTarget.value)}
+          oninput={(e) => updateValue(key, (e.target as HTMLTextAreaElement).value)}
         ></textarea>
+        {#if autocompleteEnabled}
+          <TemplateAutocomplete
+            targetElement={fieldRefs[key] ?? null}
+            steps={steps ?? []}
+            currentStepIndex={currentStepIndex ?? 0}
+            secretKeys={secretKeys ?? []}
+            {outputSchemas}
+            onChange={(newValue) => updateValue(key, newValue)}
+          />
+        {/if}
       {:else if inputType === "text"}
         {@render fieldLabel(key, label, description)}
         <input
           id="step-config-{key}"
+          bind:this={fieldRefs[key]}
           type="text"
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
           value={String(formValues[key] ?? "")}
           minlength={prop.minLength as number | undefined}
           maxlength={prop.maxLength as number | undefined}
-          oninput={(e) => updateValue(key, e.currentTarget.value)}
+          oninput={(e) => updateValue(key, (e.target as HTMLInputElement).value)}
         >
+        {#if autocompleteEnabled}
+          <TemplateAutocomplete
+            targetElement={fieldRefs[key] ?? null}
+            steps={steps ?? []}
+            currentStepIndex={currentStepIndex ?? 0}
+            secretKeys={secretKeys ?? []}
+            {outputSchemas}
+            onChange={(newValue) => updateValue(key, newValue)}
+          />
+        {/if}
       {:else}
         <span class="text-xs font-medium text-muted-foreground">{label}</span>
         <p class="text-xs text-muted-foreground italic">This field type is not supported in the form editor.</p>

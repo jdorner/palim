@@ -17,7 +17,6 @@ export type SchemaInputType =
   | "password"
   | "multiselect"
   | "tags"
-  | "json"
   | "unsupported";
 
 /** A single property descriptor from a JSON Schema `properties` object. */
@@ -68,11 +67,7 @@ export function getLabel(key: string, prop: SchemaProperty): string {
 export function getInputType(prop: SchemaProperty): SchemaInputType {
   if (prop.sensitive === true) return "password";
   if (prop.type === "array" && Array.isArray(prop.availableItems)) return "multiselect";
-  if (prop.type === "array") {
-    const items = prop.items as SchemaProperty | undefined;
-    if (items && items.type === "object") return "json";
-    return "tags";
-  }
+  if (prop.type === "array") return "tags";
   if (isEnum(prop)) return "enum";
   if (prop.type === "boolean") return "boolean";
   if (prop.type === "number" || prop.type === "integer") return "number";
