@@ -67,13 +67,25 @@ export function getLabel(key: string, prop: SchemaProperty): string {
 export function getInputType(prop: SchemaProperty): SchemaInputType {
   if (prop.sensitive === true) return "password";
   if (prop.type === "array" && Array.isArray(prop.availableItems)) return "multiselect";
-  if (prop.type === "array") return "tags";
+  if (prop.type === "array" && isSimpleStringArray(prop)) return "tags";
   if (isEnum(prop)) return "enum";
   if (prop.type === "boolean") return "boolean";
   if (prop.type === "number" || prop.type === "integer") return "number";
   if (prop.type === "string" && prop.multiline === true) return "textarea";
   if (prop.type === "string") return "text";
   return "unsupported";
+}
+
+/**
+ * Check if an array property has simple string items (not objects or nested arrays).
+ *
+ * @param prop - The property schema object with type "array"
+ * @returns True if items are plain strings
+ */
+function isSimpleStringArray(prop: SchemaProperty): boolean {
+  const items = prop.items as SchemaProperty | undefined;
+  if (!items) return false;
+  return items.type === "string";
 }
 
 /**

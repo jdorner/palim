@@ -218,8 +218,8 @@ function updateValue(key: string, value: unknown) {
           />
         {/if}
       {:else}
-        <span class="text-xs font-medium text-muted-foreground">{label}</span>
-        <p class="text-xs text-muted-foreground italic">This field type is not supported in the form editor.</p>
+        {@render fieldLabel(key, label, description)}
+        <p class="text-xs text-muted-foreground italic">Complex field — use "Edit as JSON" to configure.</p>
       {/if}
     </div>
   {/each}
