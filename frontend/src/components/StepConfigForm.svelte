@@ -9,7 +9,7 @@
   String fields support template autocomplete when autocomplete context is provided.
 -->
 <script lang="ts">
-import { Popover } from "bits-ui";
+import { Tooltip } from "bits-ui";
 import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import { buildInitialValues, getEnumOptions, getInputType, getLabel, getProperties } from "$lib/schemaForm";
@@ -79,23 +79,23 @@ function updateValue(key: string, value: unknown) {
 </script>
 
 {#snippet infoTip(description: string)}
-  <Popover.Root>
-    <Popover.Trigger
-      class="inline-flex items-center cursor-pointer text-muted-foreground/60 hover:text-muted-foreground"
+  <Tooltip.Root delayDuration={0}>
+    <Tooltip.Trigger
+      class="inline-flex items-center pointer-events-auto cursor-help text-muted-foreground/60 hover:text-muted-foreground"
     >
       <InfoIcon class="w-4 h-4" />
-    </Popover.Trigger>
-    <Popover.Portal>
-      <Popover.Content
+    </Tooltip.Trigger>
+    <Tooltip.Portal>
+      <Tooltip.Content
         class="z-50 max-w-64 rounded-md border border-border px-3 py-2 text-xs text-foreground shadow-md"
         style="background: hsl(var(--popover));"
         sideOffset={4}
         side="top"
       >
         {description}
-      </Popover.Content>
-    </Popover.Portal>
-  </Popover.Root>
+      </Tooltip.Content>
+    </Tooltip.Portal>
+  </Tooltip.Root>
 {/snippet}
 
 {#snippet fieldLabel(key: string, label: string, description: string | null)}

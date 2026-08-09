@@ -1,4 +1,5 @@
 <script lang="ts">
+import { Tooltip } from "bits-ui";
 import ChatTextIcon from "phosphor-svelte/lib/ChatTextIcon";
 import ClockIcon from "phosphor-svelte/lib/ClockIcon";
 import EyeIcon from "phosphor-svelte/lib/EyeIcon";
@@ -155,72 +156,74 @@ let showConnectionError = $derived(!$connected && !$hasConnected && !isLoginPage
 let hasUnreadChats = $derived(chatStream.conversations.some((c) => readState.isUnread(c.id, c.updatedAt)));
 </script>
 
-{#if showConnectionError}
-  <ConnectionError />
-{:else}
-  <div
-    class={isLoginPage
-    ? "min-h-screen"
-    : `flex ${isFullHeight ? "h-screen overflow-hidden" : "min-h-screen"}`}
-  >
-    {#if !isLoginPage}
-      <Sidebar jobCount={$jobs.length} scheduleCount={$schedules.length} {hasUnreadChats} />
-    {/if}
-
+<Tooltip.Provider delayDuration={0}>
+  {#if showConnectionError}
+    <ConnectionError />
+  {:else}
     <div
       class={isLoginPage
-      ? ""
-      : `flex-1 min-w-0 p-6 ${isFullHeight ? "flex flex-col overflow-hidden" : ""}`}
+    ? "min-h-screen"
+    : `flex ${isFullHeight ? "h-screen overflow-hidden" : "min-h-screen"}`}
     >
       {#if !isLoginPage}
-        <header class="flex items-center justify-between mb-6">
-          <h1 class="text-2xl font-bold flex items-center gap-2 pl-0.5">
-            {#if $pathname === "/schedules"}
-              <ClockIcon class="w-6 h-6 {automationStyle('schedule').color}" aria-hidden="true" />
-              Schedules
-            {:else if isChat}
-              <ChatTextIcon class="w-6 h-6 {automationStyle('chat').color}" aria-hidden="true" />
-              Chat
-            {:else if $pathname === "/webhooks"}
-              <LinkIcon class="w-6 h-6 {automationStyle('webhook').color}" aria-hidden="true" />
-              Webhooks
-            {:else if $pathname === "/filewatchers"}
-              <EyeIcon class="w-6 h-6 {automationStyle('filewatcher').color}" aria-hidden="true" />
-              File Watchers
-            {:else if $pathname.startsWith("/workflows")}
-              <FlowArrowIcon class="w-6 h-6 {automationStyle('workflow').color}" aria-hidden="true" />
-              Workflows
-            {:else if $pathname === "/settings"}
-              <GearIcon class="w-6 h-6 " aria-hidden="true" />
-              Settings
-            {:else if $pathname === "/mcp"}
-              <PlugIcon class="w-6 h-6 {automationStyle('mcp').color}" aria-hidden="true" />
-              MCP Servers
-            {:else}
-              <TrayIcon class="w-6 h-6" aria-hidden="true" />
-              Job Queues
-            {/if}
-          </h1>
-          <div class="flex items-center gap-3">
-            <ConnectionStatus connected={$connected} />
-            <ThemeToggle />
-            {#await checkAuthRequired() then isAuthRequired}
-              {#if isAuthRequired}
-                <Button
-                  type="button"
-                  variant="outline"
-                  onclick={forceLogout}
-                  class="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                >
-                  Logout
-                </Button>
-              {/if}
-            {/await}
-          </div>
-        </header>
+        <Sidebar jobCount={$jobs.length} scheduleCount={$schedules.length} {hasUnreadChats} />
       {/if}
 
-      <div class={isFullHeight ? "flex-1 min-h-0 flex flex-col overflow-hidden" : ""}><Router base="#" /></div>
+      <div
+        class={isLoginPage
+      ? ""
+      : `flex-1 min-w-0 p-6 ${isFullHeight ? "flex flex-col overflow-hidden" : ""}`}
+      >
+        {#if !isLoginPage}
+          <header class="flex items-center justify-between mb-6">
+            <h1 class="text-2xl font-bold flex items-center gap-2 pl-0.5">
+              {#if $pathname === "/schedules"}
+                <ClockIcon class="w-6 h-6 {automationStyle('schedule').color}" aria-hidden="true" />
+                Schedules
+              {:else if isChat}
+                <ChatTextIcon class="w-6 h-6 {automationStyle('chat').color}" aria-hidden="true" />
+                Chat
+              {:else if $pathname === "/webhooks"}
+                <LinkIcon class="w-6 h-6 {automationStyle('webhook').color}" aria-hidden="true" />
+                Webhooks
+              {:else if $pathname === "/filewatchers"}
+                <EyeIcon class="w-6 h-6 {automationStyle('filewatcher').color}" aria-hidden="true" />
+                File Watchers
+              {:else if $pathname.startsWith("/workflows")}
+                <FlowArrowIcon class="w-6 h-6 {automationStyle('workflow').color}" aria-hidden="true" />
+                Workflows
+              {:else if $pathname === "/settings"}
+                <GearIcon class="w-6 h-6 " aria-hidden="true" />
+                Settings
+              {:else if $pathname === "/mcp"}
+                <PlugIcon class="w-6 h-6 {automationStyle('mcp').color}" aria-hidden="true" />
+                MCP Servers
+              {:else}
+                <TrayIcon class="w-6 h-6" aria-hidden="true" />
+                Job Queues
+              {/if}
+            </h1>
+            <div class="flex items-center gap-3">
+              <ConnectionStatus connected={$connected} />
+              <ThemeToggle />
+              {#await checkAuthRequired() then isAuthRequired}
+                {#if isAuthRequired}
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onclick={forceLogout}
+                    class="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                  >
+                    Logout
+                  </Button>
+                {/if}
+              {/await}
+            </div>
+          </header>
+        {/if}
+
+        <div class={isFullHeight ? "flex-1 min-h-0 flex flex-col overflow-hidden" : ""}><Router base="#" /></div>
+      </div>
     </div>
-  </div>
-{/if}
+  {/if}
+</Tooltip.Provider>

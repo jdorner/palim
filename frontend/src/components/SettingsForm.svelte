@@ -1,8 +1,10 @@
 <script lang="ts">
+import { Tooltip } from "bits-ui";
 import ArrowCounterClockwiseIcon from "phosphor-svelte/lib/ArrowCounterClockwiseIcon";
 import ArrowUUpLeftIcon from "phosphor-svelte/lib/ArrowUUpLeftIcon";
 import CheckCircleIcon from "phosphor-svelte/lib/CheckCircleIcon";
 import FloppyDiskIcon from "phosphor-svelte/lib/FloppyDiskIcon";
+import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import WarningIcon from "phosphor-svelte/lib/WarningIcon";
 import { Value } from "typebox/value";
 import { authFetch } from "$lib/auth";
@@ -204,6 +206,24 @@ function handleKeydown(event: KeyboardEvent) {
 
 <svelte:window onkeydown={handleKeydown} />
 
+{#snippet infoTip(description: string)}
+  <Tooltip.Root delayDuration={0}>
+    <Tooltip.Trigger class="inline-flex items-center cursor-help text-muted-foreground/60 hover:text-muted-foreground">
+      <InfoIcon class="w-4 h-4" />
+    </Tooltip.Trigger>
+    <Tooltip.Portal>
+      <Tooltip.Content
+        class="z-50 max-w-64 rounded-md border border-border px-3 py-2 text-xs text-foreground shadow-md"
+        style="background: hsl(var(--popover));"
+        sideOffset={4}
+        side="top"
+      >
+        {description}
+      </Tooltip.Content>
+    </Tooltip.Portal>
+  </Tooltip.Root>
+{/snippet}
+
 <form bind:this={formEl} class="space-y-4" onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
   {#each propertyKeys as key (key)}
     {@const prop = properties[key]!}
@@ -214,8 +234,11 @@ function handleKeydown(event: KeyboardEvent) {
 
     <div class="space-y-1">
       {#if inputType === "boolean"}
-        <div>
+        <div class="flex items-center gap-1.5">
           <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+          {#if description}
+            {@render infoTip(description)}
+          {/if}
         </div>
         <ToggleSwitch
           id="settings-{key}"
@@ -223,11 +246,13 @@ function handleKeydown(event: KeyboardEvent) {
           onChange={(v) => updateValue(key, v)}
           aria-label={label}
         />
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else if inputType === "enum"}
-        <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+        <span class="inline-flex items-center gap-1.5">
+          <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+          {#if description}
+            {@render infoTip(description)}
+          {/if}
+        </span>
         <select
           id="settings-{key}"
           class="block w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
@@ -238,11 +263,13 @@ function handleKeydown(event: KeyboardEvent) {
             <option value={option}>{option}</option>
           {/each}
         </select>
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else if inputType === "multiselect"}
-        <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+        <span class="inline-flex items-center gap-1.5">
+          <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+          {#if description}
+            {@render infoTip(description)}
+          {/if}
+        </span>
         <MultiSelect
           id="settings-{key}"
           items={prop.availableItems as string[]}
@@ -250,11 +277,13 @@ function handleKeydown(event: KeyboardEvent) {
           placeholder="Select items..."
           onchange={(val) => updateValue(key, val)}
         />
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else if inputType === "tags"}
-        <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+        <span class="inline-flex items-center gap-1.5">
+          <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+          {#if description}
+            {@render infoTip(description)}
+          {/if}
+        </span>
         <input
           id="settings-{key}"
           type="text"
@@ -268,11 +297,13 @@ function handleKeydown(event: KeyboardEvent) {
             updateValue(key, items);
           }}
         >
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else if inputType === "number"}
-        <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+        <span class="inline-flex items-center gap-1.5">
+          <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+          {#if description}
+            {@render infoTip(description)}
+          {/if}
+        </span>
         <input
           id="settings-{key}"
           type="number"
@@ -284,11 +315,13 @@ function handleKeydown(event: KeyboardEvent) {
           step={prop.multipleOf as number | undefined ?? "any"}
           oninput={(e) => updateValue(key, Number(e.currentTarget.value))}
         >
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else if inputType === "password"}
-        <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+        <span class="inline-flex items-center gap-1.5">
+          <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+          {#if description}
+            {@render infoTip(description)}
+          {/if}
+        </span>
         <input
           id="settings-{key}"
           type="password"
@@ -299,11 +332,13 @@ function handleKeydown(event: KeyboardEvent) {
           maxlength={prop.maxLength as number | undefined}
           oninput={(e) => updateValue(key, e.currentTarget.value)}
         >
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else if inputType === "textarea"}
-        <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+        <span class="inline-flex items-center gap-1.5">
+          <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+          {#if description}
+            {@render infoTip(description)}
+          {/if}
+        </span>
         <textarea
           id="settings-{key}"
           class="block w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono leading-relaxed focus:outline-none focus:ring-1 focus:ring-ring resize-y min-h-32
@@ -314,11 +349,13 @@ function handleKeydown(event: KeyboardEvent) {
           value={String(formValues[key] ?? "")}
           oninput={(e) => updateValue(key, e.currentTarget.value)}
         ></textarea>
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else if inputType === "text"}
-        <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+        <span class="inline-flex items-center gap-1.5">
+          <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+          {#if description}
+            {@render infoTip(description)}
+          {/if}
+        </span>
         <input
           id="settings-{key}"
           type="text"
@@ -329,9 +366,6 @@ function handleKeydown(event: KeyboardEvent) {
           maxlength={prop.maxLength as number | undefined}
           oninput={(e) => updateValue(key, e.currentTarget.value)}
         >
-        {#if description}
-          <p class="text-xs text-muted-foreground">{description}</p>
-        {/if}
       {:else}
         <span class="text-sm font-medium text-muted-foreground">{label}</span>
         <p class="text-xs text-muted-foreground italic">This setting type is not configurable via the UI.</p>
