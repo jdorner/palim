@@ -136,7 +136,10 @@ export class JobCanceller {
     if (chainResult) {
       jobsToDelete = chainResult.siblings.map((job) => ({ id: job.id, queueName: job.queue }));
     } else {
-      jobsToDelete = [{ id: jobId, queueName: "" }];
+      // Not part of a chain — use the cached entry's queue name for targeted removal.
+      const cachedEntry = this.deps.getCachedJob(jobId);
+      const queueName = cachedEntry?.queue ?? "";
+      jobsToDelete = [{ id: jobId, queueName }];
     }
 
     let overallStatus = true;
@@ -151,14 +154,20 @@ export class JobCanceller {
           if (removed) {
             this.deps.evictJob(jobToDelete.id);
             this.markCancelled(jobToDelete.id);
+          } else if (job.state === "failed" || job.state === "completed") {
+            // Job is in a terminal state (e.g. DLQ) that cancelJob can't remove.
+            // Evict from cache so it doesn't linger as a stale entry.
+            this.deps.evictJob(jobToDelete.id);
           } else {
             overallStatus = false;
           }
         } else {
-          overallStatus = false;
+          // Job no longer exists in the queue — evict the stale cache entry.
+          this.deps.evictJob(jobToDelete.id);
         }
       } else {
-        overallStatus = false;
+        // Queue not found — evict the orphaned cache entry.
+        this.deps.evictJob(jobToDelete.id);
       }
     }
 
