@@ -1163,7 +1163,7 @@ onDestroy(() => {
                     <!-- Edit mode: custom step type - schema-driven form or JSON fallback -->
                     {@const stepType = editDraftStep.type ?? selectedStep?.type}
                     {@const stepTypeInfo = customStepTypes.find(st => st.type === stepType)}
-                    <div class="space-y-4">
+                    <div class="flex flex-col flex-1 min-h-0 gap-4">
                       {#if stepTypeInfo?.configSchema && !editAsJson}
                         <StepConfigForm
                           schema={stepTypeInfo.configSchema}
@@ -1182,7 +1182,7 @@ onDestroy(() => {
                           Edit as JSON
                         </button>
                       {:else}
-                        <div class="flex flex-col gap-1.5">
+                        <div class="flex flex-col gap-1.5 flex-1 min-h-0">
                           <div class="flex items-center justify-between">
                             <label for="step-config" class="text-xs font-medium text-muted-foreground"
                               >Configuration (JSON)</label
@@ -1199,8 +1199,7 @@ onDestroy(() => {
                           </div>
                           <textarea
                             id="step-config"
-                            class="w-full px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-32"
-                            rows="12"
+                            class="w-full flex-1 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
                             value={JSON.stringify(editDraftStep.config ?? {}, null, 2)}
                             oninput={(e) => {
                               const raw = (e.target as HTMLTextAreaElement).value;
