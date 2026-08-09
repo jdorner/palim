@@ -23,7 +23,9 @@ interface Props {
   /** Current configuration values. */
   values: Record<string, unknown>;
   /** Callback fired when any field value changes. Receives the full updated values object. */
-  onchange: (values: Record<string, unknown>) => void;
+  onchange?: (values: Record<string, unknown>) => void;
+  /** When true, all fields are rendered as read-only. */
+  readonly?: boolean;
   /** Workflow steps for template autocomplete scope (optional). */
   steps?: Array<{ slug: string; [key: string]: unknown }>;
   /** Index of the current step being edited (zero-based, for autocomplete scope). */
@@ -34,7 +36,16 @@ interface Props {
   outputSchemas?: OutputSchemas;
 }
 
-let { schema, values, onchange, steps, currentStepIndex, secretKeys, outputSchemas }: Props = $props();
+let {
+  schema,
+  values,
+  onchange,
+  readonly: isReadonly,
+  steps,
+  currentStepIndex,
+  secretKeys,
+  outputSchemas,
+}: Props = $props();
 
 /** Whether template autocomplete is available (all required context provided). */
 let autocompleteEnabled = $derived(steps !== undefined && currentStepIndex !== undefined && secretKeys !== undefined);
@@ -58,8 +69,9 @@ $effect(() => {
  * Update a single field and notify the parent.
  */
 function updateValue(key: string, value: unknown) {
+  if (isReadonly) return;
   formValues = { ...formValues, [key]: value };
-  onchange(formValues);
+  onchange?.(formValues);
 }
 </script>
 
@@ -92,7 +104,7 @@ function updateValue(key: string, value: unknown) {
   </span>
 {/snippet}
 
-<div class="space-y-3">
+<fieldset disabled={isReadonly} class="space-y-3" style={isReadonly ? "opacity: 0.8;" : ""}>
   {#each propertyKeys as key (key)}
     {@const prop = properties[key]!}
     {@const inputType = getInputType(prop)}
@@ -227,4 +239,4 @@ function updateValue(key: string, value: unknown) {
   {#if propertyKeys.length === 0}
     <p class="text-xs text-muted-foreground italic">No configuration fields defined for this step type.</p>
   {/if}
-</div>
+</fieldset>

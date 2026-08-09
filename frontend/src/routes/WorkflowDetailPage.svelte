@@ -1227,17 +1227,24 @@ onDestroy(() => {
                     </div>
                   {:else if !editMode && selectedStep.type !== "agent" && selectedStep.type !== "webhook"}
                     <!-- Read-only: custom step type config -->
-                    <div class="space-y-3">
-                      <div>
-                        <span class="text-xs font-medium text-muted-foreground">Configuration</span>
-                        <pre
-                          class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-64 overflow-y-auto mt-0.5"
-                        >{JSON.stringify(
-                          (() => { const { slug: _s, type: _t, input: _i, output: _o, ...rest } = selectedStep; return rest; })(),
-                          null, 2
-                        )}</pre>
+                    {@const roStepType = selectedStep.type}
+                    {@const roStepTypeInfo = customStepTypes.find(st => st.type === roStepType)}
+                    {#if roStepTypeInfo?.configSchema}
+                      {@const roConfig = (() => { const { slug: _s, type: _t, input: _i, output: _o, ...rest } = selectedStep; return rest; })()}
+                      <StepConfigForm schema={roStepTypeInfo.configSchema} values={roConfig} readonly={true} />
+                    {:else}
+                      <div class="space-y-3">
+                        <div>
+                          <span class="text-xs font-medium text-muted-foreground">Configuration</span>
+                          <pre
+                            class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-64 overflow-y-auto mt-0.5"
+                          >{JSON.stringify(
+                            (() => { const { slug: _s, type: _t, input: _i, output: _o, ...rest } = selectedStep; return rest; })(),
+                            null, 2
+                          )}</pre>
+                        </div>
                       </div>
-                    </div>
+                    {/if}
                   {:else}
                     <p class="text-sm text-muted-foreground">No details available for this step type.</p>
                   {/if}
