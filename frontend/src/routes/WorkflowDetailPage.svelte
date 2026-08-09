@@ -1163,7 +1163,7 @@ onDestroy(() => {
                     <!-- Edit mode: custom step type - schema-driven form or JSON fallback -->
                     {@const stepType = editDraftStep.type ?? selectedStep?.type}
                     {@const stepTypeInfo = customStepTypes.find(st => st.type === stepType)}
-                    <div class="space-y-4">
+                    <div class="flex flex-col flex-1 min-h-0 gap-4">
                       {#if stepTypeInfo?.configSchema && !editAsJson}
                         <StepConfigForm
                           schema={stepTypeInfo.configSchema}
@@ -1173,6 +1173,7 @@ onDestroy(() => {
                           currentStepIndex={selectedStepIndex}
                           secretKeys={cachedSecretKeys}
                           outputSchemas={workflow?.outputSchemas}
+                          itemOptions={{ skills: availableSkills }}
                         />
                         <button
                           type="button"
@@ -1182,7 +1183,7 @@ onDestroy(() => {
                           Edit as JSON
                         </button>
                       {:else}
-                        <div class="flex flex-col gap-1.5">
+                        <div class="flex flex-col gap-1.5 flex-1 min-h-0">
                           <div class="flex items-center justify-between">
                             <label for="step-config" class="text-xs font-medium text-muted-foreground"
                               >Configuration (JSON)</label
@@ -1199,8 +1200,7 @@ onDestroy(() => {
                           </div>
                           <textarea
                             id="step-config"
-                            class="w-full px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-32"
-                            rows="12"
+                            class="w-full flex-1 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
                             value={JSON.stringify(editDraftStep.config ?? {}, null, 2)}
                             oninput={(e) => {
                               const raw = (e.target as HTMLTextAreaElement).value;
@@ -1227,17 +1227,29 @@ onDestroy(() => {
                     </div>
                   {:else if !editMode && selectedStep.type !== "agent" && selectedStep.type !== "webhook"}
                     <!-- Read-only: custom step type config -->
-                    <div class="space-y-3">
-                      <div>
-                        <span class="text-xs font-medium text-muted-foreground">Configuration</span>
-                        <pre
-                          class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-64 overflow-y-auto mt-0.5"
-                        >{JSON.stringify(
-                          (() => { const { slug: _s, type: _t, input: _i, output: _o, ...rest } = selectedStep; return rest; })(),
-                          null, 2
-                        )}</pre>
+                    {@const roStepType = selectedStep.type}
+                    {@const roStepTypeInfo = customStepTypes.find(st => st.type === roStepType)}
+                    {#if roStepTypeInfo?.configSchema}
+                      {@const roConfig = (() => { const { slug: _s, type: _t, input: _i, output: _o, ...rest } = selectedStep; return rest; })()}
+                      <StepConfigForm
+                        schema={roStepTypeInfo.configSchema}
+                        values={roConfig}
+                        readonly={true}
+                        itemOptions={{ skills: availableSkills }}
+                      />
+                    {:else}
+                      <div class="space-y-3">
+                        <div>
+                          <span class="text-xs font-medium text-muted-foreground">Configuration</span>
+                          <pre
+                            class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-64 overflow-y-auto mt-0.5"
+                          >{JSON.stringify(
+                            (() => { const { slug: _s, type: _t, input: _i, output: _o, ...rest } = selectedStep; return rest; })(),
+                            null, 2
+                          )}</pre>
+                        </div>
                       </div>
-                    </div>
+                    {/if}
                   {:else}
                     <p class="text-sm text-muted-foreground">No details available for this step type.</p>
                   {/if}

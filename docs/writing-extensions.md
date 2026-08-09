@@ -304,7 +304,7 @@ Avoid unnecessary prefixes like `/admin/` - all extension routes are already beh
 
 | Method | Description |
 | --- | --- |
-| `ctx.dynamicItems.register(name, fn)` | Register a dynamic item provider for settings schema enrichment |
+| `ctx.dynamicItems.register(name, fn)` | Register a dynamic item provider for settings and step type schema enrichment |
 
 ### State
 
@@ -940,7 +940,89 @@ Registered step types automatically appear in:
 - Graph nodes with the registered label and icon
 - The read-only type badge in the step sidebar
 
-For custom step types, the editor renders a JSON textarea for the step configuration (fields beyond `slug` and `type`). Structured form editors can be added later.
+When a step type declares a `schema`, the workflow editor renders a **schema-driven configuration form** instead of a raw JSON textarea. Each schema property becomes a form field with appropriate controls (text inputs, textareas, toggles, dropdowns, multiselects). Users can toggle between the form editor and raw JSON at any time via the "Edit as JSON" / "Use form editor" links.
+
+#### Schema Annotations for Form Rendering
+
+The form renderer uses TypeBox annotations on schema properties to determine labels, descriptions, and input types:
+
+| Annotation | Purpose | Example |
+| --- | --- | --- |
+| `title` | Form field label (falls back to capitalized property key) | `title: "Output Path"` |
+| `description` | Shown as an (i) tooltip icon next to the label | `description: "Relative path to the output directory"` |
+| `default` | Pre-populated value for new steps | `default: true` |
+| `multiline` | Renders a textarea instead of a single-line input (strings only) | `multiline: true` |
+| `minimum` / `maximum` | Number input constraints | `minimum: 1` |
+| `minLength` / `maxLength` | String length constraints | `minLength: 1` |
+| `dynamicItems` | Names a provider that populates available items at runtime (arrays only) | `dynamicItems: "all-skill-names"` |
+
+**Supported property types:**
+
+| TypeBox type | Rendered as |
+| --- | --- |
+| `Type.String()` | Text input |
+| `Type.String()` with `multiline: true` | Textarea (with template autocomplete) |
+| `Type.Boolean()` | Toggle switch |
+| `Type.Number()` / `Type.Integer()` | Number input |
+| `Type.Union([Type.Literal(...), ...])` | Select dropdown |
+| `Type.Array(Type.String())` | Comma-separated text input ("tags") |
+| `Type.Array(Type.String())` with `dynamicItems` or `availableItems` | Multiselect |
+| Complex types (objects, arrays of objects) | Not supported in form — user is directed to JSON editor |
+
+**Template autocomplete** is automatically enabled on text and textarea fields. Typing `{{` opens a suggestion popup with available template expressions (trigger payload, step results, secrets, env vars).
+
+#### Example with Annotations
+
+```typescript
+import { Type } from "@sinclair/typebox";
+
+const handler: StepTypeHandler = {
+  schema: Type.Object({
+    command: Type.String({
+      title: "Command",
+      multiline: true,
+      minLength: 1,
+      description: "Shell command to execute. Supports {{template}} expressions.",
+    }),
+    skills: Type.Optional(
+      Type.Array(Type.String({ minLength: 1 }), {
+        title: "Skills",
+        description: "Skills to mount in the sandbox.",
+        dynamicItems: "all-skill-names",
+      }),
+    ),
+    failOnNonZero: Type.Optional(
+      Type.Boolean({
+        title: "Fail on Non-Zero Exit",
+        description: "Throw an error if the command exits with a non-zero code.",
+        default: true,
+      }),
+    ),
+  }),
+  label: "Sandbox Command",
+  icon: "💻",
+  async execute(stepDef, ctx) { /* ... */ },
+};
+```
+
+This renders as: a multiline textarea for the command (with template autocomplete), a multiselect for skills (populated from the `"all-skill-names"` provider), and a toggle for the fail flag (defaulting to on).
+
+#### Dynamic Items for Step Type Schemas
+
+Step type config schemas support the same `dynamicItems` mechanism as extension settings schemas. When the API serves step type metadata to the frontend, each schema property with a `dynamicItems` annotation is enriched with the provider's current values in `availableItems`.
+
+To register a provider, use `ctx.dynamicItems.register()` during `initialize()`:
+
+```typescript
+async initialize(ctx) {
+  // Make skill names available for multiselect fields
+  ctx.dynamicItems.register("all-skill-names", () => ctx.skills.names());
+
+  ctx.stepTypes.register("sandbox-exec", handler);
+}
+```
+
+Any step type (from any extension) can reference this provider in its schema. Providers are global — one extension can register a provider that another extension's step type schema references.
 
 ### Error Handling
 
