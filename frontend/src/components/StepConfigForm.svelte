@@ -34,6 +34,8 @@ interface Props {
   secretKeys?: string[];
   /** Resolved output schemas for deep property autocomplete. */
   outputSchemas?: OutputSchemas;
+  /** Per-field available items for multiselect rendering (key = property name, value = options). */
+  itemOptions?: Record<string, string[]>;
 }
 
 let {
@@ -45,6 +47,7 @@ let {
   currentStepIndex,
   secretKeys,
   outputSchemas,
+  itemOptions,
 }: Props = $props();
 
 /** Whether template autocomplete is available (all required context provided). */
@@ -144,6 +147,15 @@ function updateValue(key: string, value: unknown) {
         <MultiSelect
           id="step-config-{key}"
           items={prop.availableItems as string[]}
+          selected={Array.isArray(formValues[key]) ? formValues[key] as string[] : []}
+          placeholder="Select items..."
+          onchange={(val) => updateValue(key, val)}
+        />
+      {:else if inputType === "tags" && itemOptions?.[key]}
+        {@render fieldLabel(key, label, description)}
+        <MultiSelect
+          id="step-config-{key}"
+          items={itemOptions[key]!}
           selected={Array.isArray(formValues[key]) ? formValues[key] as string[] : []}
           placeholder="Select items..."
           onchange={(val) => updateValue(key, val)}

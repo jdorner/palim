@@ -21,6 +21,7 @@ import {
 } from "@src/skills/loader";
 import type { SkillEntry } from "@src/tools/sandbox";
 import { formatValidationErrors } from "@src/utils/validation";
+import { enrichSchemaWithDynamicItems } from "@src/web/dynamicItemProviders";
 import { FlowProducer } from "bunqueue/client";
 import { eq } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
@@ -685,7 +686,9 @@ export class ExtensionRegistry {
             label: st.handler.label,
             icon: st.handler.icon,
             extensionName: st.extensionName,
-            configSchema: st.handler.schema ? JSON.parse(JSON.stringify(st.handler.schema)) : undefined,
+            configSchema: st.handler.schema
+              ? enrichSchemaWithDynamicItems(JSON.parse(JSON.stringify(st.handler.schema)))
+              : undefined,
           }));
           if (!manifestUi && registeredStepTypes.length === 0) return null;
           return {

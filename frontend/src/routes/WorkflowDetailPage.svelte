@@ -1173,6 +1173,7 @@ onDestroy(() => {
                           currentStepIndex={selectedStepIndex}
                           secretKeys={cachedSecretKeys}
                           outputSchemas={workflow?.outputSchemas}
+                          itemOptions={{ skills: availableSkills }}
                         />
                         <button
                           type="button"
@@ -1230,7 +1231,12 @@ onDestroy(() => {
                     {@const roStepTypeInfo = customStepTypes.find(st => st.type === roStepType)}
                     {#if roStepTypeInfo?.configSchema}
                       {@const roConfig = (() => { const { slug: _s, type: _t, input: _i, output: _o, ...rest } = selectedStep; return rest; })()}
-                      <StepConfigForm schema={roStepTypeInfo.configSchema} values={roConfig} readonly={true} />
+                      <StepConfigForm
+                        schema={roStepTypeInfo.configSchema}
+                        values={roConfig}
+                        readonly={true}
+                        itemOptions={{ skills: availableSkills }}
+                      />
                     {:else}
                       <div class="space-y-3">
                         <div>
