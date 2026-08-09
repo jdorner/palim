@@ -174,6 +174,15 @@ export class QueueMonitor {
 
       queue.onEvent("stalled", ({ jobId }) => {
         log.warn(`Job ${jobId} stalled in queue ${queue.name}`);
+        // Stalled jobs are moved to DLQ by bunqueue (state becomes "failed").
+        // Update the cache to reflect the terminal state so stale "active"
+        // entries don't persist in initial_state snapshots.
+        const entry = this.jobCache.get(jobId);
+        if (entry) {
+          entry.status = "failed";
+          entry.completedAt = Date.now();
+          this.broadcast({ type: "job_updated", job: entry });
+        }
       });
 
       queue.onEvent("error", ({ message }) => {

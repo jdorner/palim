@@ -350,6 +350,31 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
         return false;
       }
 
+      // If the job is in the DLQ (failed state from stall/max-attempts), removeAsync
+      // cannot handle it. Pause the queue to prevent the worker from picking up the
+      // job, retry it (moves from DLQ to waiting), then remove and resume.
+      if (stateBefore === "failed") {
+        this.queue.pause();
+        try {
+          await this.queue.retryJob(jobId);
+          await this.queue.removeAsync(jobId);
+        } finally {
+          this.queue.resume();
+        }
+        const stateAfter = await this.queue.getJobState(jobId);
+        if (stateAfter === "unknown") {
+          logger.info(`Removed DLQ job ${jobId} from "${this.queue.name}"`);
+          try {
+            getLogStore().deleteMany([jobId]);
+          } catch {
+            logger.warn(`Failed to clean persisted logs for DLQ job ${jobId}`);
+          }
+          return true;
+        }
+        logger.warn(`Job ${jobId} still present after retry+remove in "${this.queue.name}" (state: ${stateAfter})`);
+        return false;
+      }
+
       // removeAsync handles queue, waitingDeps, and waitingChildren states.
       await this.queue.removeAsync(jobId);
 
