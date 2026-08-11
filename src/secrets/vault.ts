@@ -329,11 +329,11 @@ export class SecretVault {
    * @param consumer - The consumer identity performing the deletion (for audit)
    * @returns True if the secret was deleted, false if it was not found
    */
-  async remove(scope: string, key: string, consumer: string): Promise<boolean> {
+  remove(scope: string, key: string, consumer: string): boolean {
     const secretName = `${scope}/${key}`;
 
     // Check existence before delete (drizzle .run() returns void)
-    const exists = await this.has(scope, key);
+    const exists = this.has(scope, key);
     if (!exists) {
       return false;
     }
@@ -360,7 +360,7 @@ export class SecretVault {
    * @param key - The secret key to check
    * @returns True if the secret exists
    */
-  async has(scope: string, key: string): Promise<boolean> {
+  has(scope: string, key: string): boolean {
     const row = this.db
       .select({ count: sql<number>`COUNT(*)` })
       .from(secretsVault)
@@ -595,7 +595,7 @@ export class SecretVault {
    * @param key - The secret key to remove
    * @returns True if the secret was deleted, false if not found
    */
-  async removeGlobal(key: string): Promise<boolean> {
+  removeGlobal(key: string): boolean {
     return this.remove(SecretVault.GLOBAL_SCOPE, key, "admin:web");
   }
 
