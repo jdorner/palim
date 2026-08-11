@@ -12,11 +12,11 @@
 import type { WebSocketMessage } from "@shared/types";
 import type { ManagedQueuePort } from "@src/queue";
 import createLogger from "logging";
+import type { LoadedExtension } from "../internalTypes";
+import type { Extension } from "../types";
 import type { EventBus } from "./eventBus";
 import type { ExtensionContextDeps } from "./extensionContext";
 import { createExtensionContext } from "./extensionContext";
-import type { LoadedExtension } from "./internalTypes";
-import type { Extension } from "./types";
 
 const logger = createLogger("ExtensionRegistry");
 

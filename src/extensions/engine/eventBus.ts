@@ -7,7 +7,7 @@
  */
 
 import createLogger from "logging";
-import type { EventCallback, EventParam, EventType } from "./types";
+import type { EventCallback, EventParam, EventType } from "../types";
 
 const logger = createLogger("EventBus");
 

@@ -12,7 +12,7 @@
 import { Value } from "@sinclair/typebox/value";
 import { formatValidationErrors } from "@src/utils/validation";
 import createLogger from "logging";
-import { type Extension, ExtensionManifestSchema } from "./types";
+import { type Extension, ExtensionManifestSchema } from "../types";
 
 const logger = createLogger("ExtensionRegistry");
 

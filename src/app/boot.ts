@@ -30,9 +30,9 @@ import type {
   RunAgentOptions,
 } from "@src/extensions";
 import { ExtensionRegistry } from "@src/extensions";
-import type { EventBus } from "@src/extensions/eventBus";
-import { ExtensionWatcher } from "@src/extensions/extensionWatcher";
-import { ExternalDependencyResolver } from "@src/extensions/externalDependencyResolver";
+import type { EventBus } from "@src/extensions/engine/eventBus";
+import { ExtensionWatcher } from "@src/extensions/engine/extensionWatcher";
+import { ExternalDependencyResolver } from "@src/extensions/engine/externalDependencyResolver";
 import type { AgentJob, AgentProcessorConfig, AgentProcessorResult, ChatJob } from "@src/jobs";
 import { runAgent as coreRunAgent } from "@src/jobs";
 import { buildModelConfig, detectAndSetProvider, fetchAvailableModels, getModelForIntent } from "@src/models";

@@ -9,7 +9,7 @@
 import type { AgentEvent, AgentMessage, AgentTool, ThinkingLevel } from "@mariozechner/pi-agent-core";
 import { Agent } from "@mariozechner/pi-agent-core";
 import type { Model, TextContent } from "@mariozechner/pi-ai";
-import type { EventBus } from "@src/extensions/eventBus";
+import type { EventBus } from "@src/extensions/engine/eventBus";
 import type { AgentEventContext, BeforeAgentStartEvent, CoreQueueName } from "@src/extensions/types";
 import type { QueueJob } from "@src/queue";
 import { getSessionStore } from "@src/session";
