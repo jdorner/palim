@@ -144,7 +144,7 @@ shared/
 └── types.ts                 # Types shared between backend and frontend
                              # (JobEntry, LogEntry, WebSocketMessage, ChatWebSocketEvent,
                              #  WorkflowWebSocketEvent, FeedbackReportEvent, ApprovalRequestEvent,
-                             #  ExtensionLifecycleEvent, PushMessageEvent, TokenUsage, SessionUsage,
+                             #  ExtensionLifecycleEvent, PushMessageEvent, TokenUsage,
                              #  ScheduleEntry, NavigationEntry, ExtensionUiContribution,
                              #  ExtensionInfo, AvailableModel, SelectedModelResponse)
 
@@ -168,8 +168,10 @@ frontend/                    # Svelte 5 web UI (page-based routing)
     │   ├── ChatInput, ChatView, ContextGauge, ConversationList, MessageArea
     │   ├── JobList, JobLogs, JobFilters
     │   ├── ScheduleList, SettingsForm, WorkflowGraph, WorkflowStepNode, FitViewOnInit
+    │   ├── StepConfigForm, TemplateAutocomplete, MultiSelect
     │   ├── WebhookList, FileWatcherList
-    │   ├── ModelSelector, Sidebar
+    │   ├── ModelSelector, IntentModelSelector, Sidebar
+    │   ├── GlobalSecretForm, SecretForm, PushSegment, StatusDot, AddStepNode
     │   └── ...
     └── lib/                 # Stores, auth, UI primitives
         ├── appStore.ts, auth.ts, chatStore.ts
@@ -177,6 +179,7 @@ frontend/                    # Svelte 5 web UI (page-based routing)
         ├── chatStreamStore.svelte.ts, connectionStore.svelte.ts
         ├── modelStore.svelte.ts, readState.svelte.ts, settingsStore.svelte.ts
         ├── workflowRunStore.svelte.ts, workflowValidation.ts
+        ├── autocompleteEngine.ts, schemaForm.ts, templateScope.ts, stepTypes.ts
         ├── utils.ts
         └── components/      # Reusable UI (shadcn-style primitives)
 
@@ -215,7 +218,7 @@ The `AppBootstrap` class separates construction from lifecycle:
 
 The agent's shell runs inside a **just-bash** virtual filesystem. The directory configured via `AGENT_WORK_DIR` is mounted at `/home/user/work`, giving the agent full access to that directory while isolating it from the rest of the host filesystem. Skills are mounted at `/home/user/skills`. File operations within the sandbox are real (they read/write the actual `AGENT_WORK_DIR` on disk), but the agent cannot access anything outside the mounted paths.
 
-Built-in programs: `whoami`, `date`, `uname`, `hostname`, `skill read <name>`. The `mv` command is intentionally disabled (use `cp` + `rm`).
+Built-in programs: `skill` (subcommands: `read <name>`, `list`), `push` (available when a session ID is set; sends content to the chat UI). Extension skills can register additional programs via `registerProgram`.
 
 ### Job Queues
 
