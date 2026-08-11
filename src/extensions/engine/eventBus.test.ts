@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
+import type { EventParam } from "../types";
 import { EventBus } from "./eventBus";
-import type { EventParam } from "./types";
 
 describe("EventBus", () => {
   describe("scoped delivery", () => {

@@ -8,8 +8,8 @@
 import { describe, expect, test } from "bun:test";
 import { Value } from "@sinclair/typebox/value";
 import fc from "fast-check";
+import { ExtensionManifestSchema, ExtensionUiSchema, NavigationEntrySchema } from "../types";
 import { ExtensionRegistry } from "./registry";
-import { ExtensionManifestSchema, ExtensionUiSchema, NavigationEntrySchema } from "./types";
 
 /**
  * Validates: Requirements 1.1, 1.3

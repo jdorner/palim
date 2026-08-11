@@ -11,7 +11,7 @@
 import { schema } from "@src/db";
 import { eq } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
-import type { ConfigValue } from "./types";
+import type { ConfigValue } from "../types";
 
 /**
  * Dependencies for creating a config resolver instance.

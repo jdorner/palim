@@ -4,9 +4,9 @@
 
 import { describe, expect, test } from "bun:test";
 import { Type } from "@sinclair/typebox";
+import type { StepTypeHandler } from "../types";
 import { EventBus } from "./eventBus";
 import { createExtensionContext, type ExtensionContextDeps } from "./extensionContext";
-import type { StepTypeHandler } from "./types";
 
 /** Creates minimal deps for testing registerStepType. */
 function createTestDeps(extensionName = "test-ext"): ExtensionContextDeps {

@@ -3,9 +3,9 @@
  */
 
 export { serverOrigin } from "@src/config";
-export { EventBus } from "./eventBus";
-export type { RegistryInitDeps } from "./registry";
-export { ExtensionRegistry, getExtensionBaseUrl } from "./registry";
+export { EventBus } from "./engine/eventBus";
+export type { RegistryInitDeps } from "./engine/registry";
+export { ExtensionRegistry, getExtensionBaseUrl } from "./engine/registry";
 export type {
   AgentEventContext,
   CoreQueueName,

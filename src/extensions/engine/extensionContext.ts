@@ -20,9 +20,7 @@ import { registerDynamicItemProvider as registerProviderFn } from "@src/web/dyna
 import type { FlowProducer } from "bunqueue/client";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";
-import { createConfigResolver } from "./configResolver";
-import type { EventBus } from "./eventBus";
-import type { LoadedExtension, RegisteredRoute, RegisteredStepType } from "./internalTypes";
+import type { LoadedExtension, RegisteredRoute, RegisteredStepType } from "../internalTypes";
 import type {
   AgentEventContext,
   AgentProcessorResult,
@@ -36,7 +34,9 @@ import type {
   RouteHandler,
   RunAgentOptions,
   StepTypeHandler,
-} from "./types";
+} from "../types";
+import { createConfigResolver } from "./configResolver";
+import type { EventBus } from "./eventBus";
 
 const logger = createLogger("ExtensionContext");
 
@@ -120,7 +120,7 @@ export interface ExtContextLifecycle {
   /** Checks whether the given extension is enabled. */
   isExtensionEnabledFn: (name: string) => boolean;
   /** Look up a registered step type handler by type name. */
-  getStepHandlerFn?: (type: string) => import("./types").StepTypeHandler | undefined;
+  getStepHandlerFn?: (type: string) => import("../types").StepTypeHandler | undefined;
 }
 
 /** Full dependency set for creating an extension context. */

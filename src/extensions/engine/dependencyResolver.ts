@@ -7,7 +7,7 @@
  * - Missing dependencies -> treated as unresolvable, returned in circular set
  */
 
-import type { Extension } from "./types";
+import type { Extension } from "../types";
 
 export interface DependencyResolutionResult {
   /** Extensions in valid initialization order (dependencies before dependents). */

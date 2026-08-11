@@ -24,12 +24,13 @@ import { FlowProducer } from "bunqueue/client";
 import { eq } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";
+import type { LoadedExtension } from "../internalTypes";
+import type { AgentProcessorResult, CoreQueueName, Extension, RouteRegistry, RunAgentOptions } from "../types";
 import { resolveDependencyOrder } from "./dependencyResolver";
 import { discoverExtensions as discoverExtensionsFn, validateExtension as validateExtensionFn } from "./discovery";
 import { EventBus } from "./eventBus";
 import type { ExtensionContextDeps } from "./extensionContext";
 import { ExternalDependencyResolver } from "./externalDependencyResolver";
-import type { LoadedExtension } from "./internalTypes";
 import {
   type ActivationDeps,
   activateExtension,
@@ -38,7 +39,6 @@ import {
   type LifecycleState,
   type LoadedEntry,
 } from "./lifecycle";
-import type { AgentProcessorResult, CoreQueueName, Extension, RouteRegistry, RunAgentOptions } from "./types";
 
 const logger = createLogger("ExtensionRegistry");
 
@@ -459,7 +459,7 @@ export class ExtensionRegistry {
    *
    * @returns Flat array of all registered step type entries
    */
-  getRegisteredStepTypes(): import("./internalTypes").RegisteredStepType[] {
+  getRegisteredStepTypes(): import("../internalTypes").RegisteredStepType[] {
     return this.loaded.filter((l) => l.state === "active").flatMap((l) => l.stepTypes);
   }
 

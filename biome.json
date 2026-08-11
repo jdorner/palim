@@ -69,7 +69,12 @@
       }
     },
     {
-      "includes": ["src/extensions/*/index.ts", "src/extensions/*/*.ts", "src/extensions/*/skills/**/*.ts"],
+      "includes": [
+        "src/extensions/*/index.ts",
+        "src/extensions/*/*.ts",
+        "src/extensions/*/skills/**/*.ts",
+        "!src/extensions/engine/**"
+      ],
       "linter": {
         "rules": {
           "style": {
