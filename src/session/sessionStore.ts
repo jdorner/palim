@@ -155,6 +155,42 @@ function omitMetaFields(meta: Record<string, unknown>): Record<string, unknown> 
 }
 
 /**
+ * Accumulates token usage counters on a session row within a transaction.
+ *
+ * Increments the running totals for input, output, cache read, cache write,
+ * and total tokens, and updates `lastInputTokens` with the current value.
+ *
+ * @param tx - The active database transaction
+ * @param sessionId - The session to update
+ * @param usage - The raw usage object from the assistant message
+ */
+function updateTokenTotals(
+  tx: Parameters<Parameters<BunSQLiteDatabase<typeof schema>["transaction"]>[0]>[0],
+  sessionId: string,
+  usage: unknown,
+): void {
+  const u = usage as {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    totalTokens?: number;
+  };
+  tx.update(schema.sessions)
+    .set({
+      updatedAt: Date.now(),
+      totalInputTokens: sql`${schema.sessions.totalInputTokens} + ${u.input ?? 0}`,
+      totalOutputTokens: sql`${schema.sessions.totalOutputTokens} + ${u.output ?? 0}`,
+      totalCacheReadTokens: sql`${schema.sessions.totalCacheReadTokens} + ${u.cacheRead ?? 0}`,
+      totalCacheWriteTokens: sql`${schema.sessions.totalCacheWriteTokens} + ${u.cacheWrite ?? 0}`,
+      totalTokens: sql`${schema.sessions.totalTokens} + ${u.totalTokens ?? 0}`,
+      lastInputTokens: u.input ?? 0,
+    })
+    .where(eq(schema.sessions.id, sessionId))
+    .run();
+}
+
+/**
  * SQLite-backed implementation of {@link SessionStorePort}.
  *
  * All operations are synchronous (Bun's SQLite driver is sync) and
@@ -371,25 +407,7 @@ export class SessionStore implements SessionStorePort {
 
       // Update session timestamp and token totals for assistant messages
       if (msg.role === "assistant" && usage) {
-        const u = usage as {
-          input?: number;
-          output?: number;
-          cacheRead?: number;
-          cacheWrite?: number;
-          totalTokens?: number;
-        };
-        tx.update(schema.sessions)
-          .set({
-            updatedAt: Date.now(),
-            totalInputTokens: sql`${schema.sessions.totalInputTokens} + ${u.input ?? 0}`,
-            totalOutputTokens: sql`${schema.sessions.totalOutputTokens} + ${u.output ?? 0}`,
-            totalCacheReadTokens: sql`${schema.sessions.totalCacheReadTokens} + ${u.cacheRead ?? 0}`,
-            totalCacheWriteTokens: sql`${schema.sessions.totalCacheWriteTokens} + ${u.cacheWrite ?? 0}`,
-            totalTokens: sql`${schema.sessions.totalTokens} + ${u.totalTokens ?? 0}`,
-            lastInputTokens: u.input ?? 0,
-          })
-          .where(eq(schema.sessions.id, sessionId))
-          .run();
+        updateTokenTotals(tx, sessionId, usage);
       } else {
         tx.update(schema.sessions).set({ updatedAt: Date.now() }).where(eq(schema.sessions.id, sessionId)).run();
       }
