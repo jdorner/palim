@@ -7,7 +7,6 @@ import type { FSWatcher } from "node:fs";
 import { watch as fsWatch } from "node:fs";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ExtensionInfo, WebSocketMessage } from "@shared/types";
-import { Value } from "@sinclair/typebox/value";
 import { PROJECT_DIR, serverOrigin } from "@src/config";
 import { getDb, schema } from "@src/db";
 import type { PushMessageFn } from "@src/push";
@@ -20,25 +19,26 @@ import {
   loadSkillScripts as loadSkillScriptsFn,
 } from "@src/skills/loader";
 import type { SkillEntry } from "@src/tools/sandbox";
-import { formatValidationErrors } from "@src/utils/validation";
 import { enrichSchemaWithDynamicItems } from "@src/web/dynamicItemProviders";
 import { FlowProducer } from "bunqueue/client";
 import { eq } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";
 import { resolveDependencyOrder } from "./dependencyResolver";
+import { discoverExtensions as discoverExtensionsFn, validateExtension as validateExtensionFn } from "./discovery";
 import { EventBus } from "./eventBus";
-import { createExtensionContext } from "./extensionContext";
+import type { ExtensionContextDeps } from "./extensionContext";
 import { ExternalDependencyResolver } from "./externalDependencyResolver";
 import type { LoadedExtension } from "./internalTypes";
-import type { RouteRegistry } from "./types";
 import {
-  type AgentProcessorResult,
-  type CoreQueueName,
-  type Extension,
-  ExtensionManifestSchema,
-  type RunAgentOptions,
-} from "./types";
+  type ActivationDeps,
+  activateExtension,
+  cleanupRegistrations,
+  deactivateExtension,
+  type LifecycleState,
+  type LoadedEntry,
+} from "./lifecycle";
+import type { AgentProcessorResult, CoreQueueName, Extension, RouteRegistry, RunAgentOptions } from "./types";
 
 const logger = createLogger("ExtensionRegistry");
 
@@ -360,124 +360,15 @@ export class ExtensionRegistry {
    * and extensions nested under core/.
    */
   private async discoverExtensions(): Promise<Extension[]> {
-    const extensions: Extension[] = [];
-    const dirs = this.extensionDirs;
-    const patterns = ["*/index.ts", "core/*/index.ts"];
-
-    for (const dir of dirs) {
-      try {
-        for (const pattern of patterns) {
-          const glob = new Bun.Glob(pattern);
-          for (const entry of glob.scanSync({ cwd: dir, absolute: false })) {
-            const modulePath = `${dir}/${entry}`;
-            const ext = await this.loadExtensionModule(modulePath);
-            if (ext) extensions.push(ext);
-          }
-        }
-      } catch {
-        logger.warn(`Extensions directory not found or unreadable: ${dir}`);
-      }
-    }
-
-    return extensions;
-  }
-
-  /**
-   * Dynamically import a single extension module and validate its exports.
-   */
-  private async loadExtensionModule(modulePath: string): Promise<Extension | null> {
-    try {
-      const mod = await import(modulePath);
-      const ext: Extension = mod.default ?? mod;
-
-      if (!this.validateExtension(ext, modulePath)) {
-        return null;
-      }
-
-      return ext;
-    } catch (err) {
-      logger.error(`Failed to import extension module at ${modulePath}:`, err);
-      return null;
-    }
+    return discoverExtensionsFn(this.extensionDirs);
   }
 
   /**
    * Validate that a module export satisfies the Extension interface.
-   * Checks TypeBox schema conformance, settingsSchema shape, duplicate
-   * routes within ui.navigation, and presence of lifecycle methods.
+   * Delegates to the standalone {@link validateExtensionFn} function.
    */
   validateExtension(ext: unknown, modulePath: string): ext is Extension {
-    if (!ext || typeof ext !== "object") {
-      logger.error(`Extension at ${modulePath}: export is not an object`);
-      return false;
-    }
-
-    const candidate = ext as Record<string, unknown>;
-
-    // Validate manifest with TypeBox
-    if (!candidate.manifest || !Value.Check(ExtensionManifestSchema, candidate.manifest)) {
-      const errorDetail = candidate.manifest
-        ? formatValidationErrors(ExtensionManifestSchema, candidate.manifest)
-        : "missing manifest";
-      logger.error(`Extension at ${modulePath}: invalid manifest - ${errorDetail}`);
-      return false;
-    }
-
-    // Validate settingsSchema if present (must be a TObject with type "object" and properties)
-    const manifest = candidate.manifest as Record<string, unknown>;
-    if (manifest.settingsSchema != null) {
-      const schema = manifest.settingsSchema as Record<string, unknown>;
-      if (schema.type !== "object" || typeof schema.properties !== "object" || schema.properties === null) {
-        logger.error(
-          `Extension at ${modulePath}: settingsSchema must be a TypeBox Type.Object() (got type="${schema.type}")`,
-        );
-        return false;
-      }
-    }
-
-    // Validate secretsSchema for duplicate key names (TypeBox catches structure, this catches duplicates)
-    if (manifest.secretsSchema != null) {
-      const secretsSchema = manifest.secretsSchema as Array<{ key: string }>;
-      const keyNames = new Set<string>();
-      const duplicates: string[] = [];
-      for (const entry of secretsSchema) {
-        if (keyNames.has(entry.key)) {
-          duplicates.push(entry.key);
-        }
-        keyNames.add(entry.key);
-      }
-      if (duplicates.length > 0) {
-        logger.warn(
-          `Extension at ${modulePath}: secretsSchema has duplicate key names: ${duplicates.join(", ")} - skipping secrets schema`,
-        );
-        manifest.secretsSchema = undefined;
-      }
-    }
-
-    // Check for duplicate routes within the manifest's ui.navigation array
-    const ui = manifest.ui as { navigation?: Array<{ route: string }> } | undefined;
-    if (ui?.navigation && ui.navigation.length > 0) {
-      const routes = new Set<string>();
-      for (const entry of ui.navigation) {
-        if (routes.has(entry.route)) {
-          logger.error(`Extension at ${modulePath}: duplicate route "${entry.route}" in ui.navigation`);
-          return false;
-        }
-        routes.add(entry.route);
-      }
-    }
-
-    if (typeof candidate.initialize !== "function") {
-      logger.error(`Extension at ${modulePath}: missing initialize() method`);
-      return false;
-    }
-
-    if (typeof candidate.shutdown !== "function") {
-      logger.error(`Extension at ${modulePath}: missing shutdown() method`);
-      return false;
-    }
-
-    return true;
+    return validateExtensionFn(ext, modulePath);
   }
 
   /**
@@ -513,89 +404,36 @@ export class ExtensionRegistry {
    */
   private async initializeExtension(ext: Extension, modulePath?: string): Promise<void> {
     const name = ext.manifest.name;
-    const deps = this.initDeps!;
 
-    const { context, loaded } = createExtensionContext({
-      extensionName: name,
-      workDir: this.workDir,
-      dataDir: this.dataDir,
-      extensionsDir: this.builtinExtensionsDir,
-      toolNameSet: this.toolNameSet,
-      routeKeySet: this.routeKeySet,
-      stepTypeNameSet: this.stepTypeNameSet,
-      eventBus: this.eventBus,
-      broadcastFn: deps.broadcastFn,
-      flowProducer: this.flowProducer,
-      resolveSkillFn: (n) => this.resolveSkill(n),
-      database: deps.database,
-      getCoreQueueFn: this.getCoreQueueFn,
-      getExtensionQueuesFn: () => this.getRegisteredQueues(),
-      runAgentFn: deps.runAgentFn,
-      sessionStore: deps.sessionStore,
-      pushMessageFn: deps.pushMessageFn,
-      isExtensionEnabledFn: (n) => this.isExtensionEnabled(n),
-      secretVault: deps.secretVault,
-      routeRegistry: deps.routeRegistry,
-      rescanSkillsFn: () => this.discoverAndLoadSkills(),
-      getSkillNamesFn: () => this.getSkillNames(),
-      getStepHandlerFn: (type) => this.getRegisteredStepTypes().find((st) => st.type === type)?.handler,
-      settingsSchema: ext.manifest.settingsSchema as Record<string, unknown> | undefined,
-    });
+    // Add to loaded list as suspended first, then activate
+    const entry: LoadedEntry = {
+      name,
+      extension: ext,
+      modulePath,
+      tools: [],
+      routes: [],
+      queues: [],
+      stepTypes: [],
+      state: "suspended",
+    };
+    this.loaded.push(entry);
 
     try {
-      await ext.initialize(context);
-
-      this.loaded.push({ name, extension: ext, modulePath, ...loaded, state: "active" });
+      await activateExtension(entry, this.getLifecycleState(), this.getActivationDeps());
 
       // Build a concise summary of what the extension registered
       const parts: string[] = [];
-      if (loaded.tools.length > 0) parts.push(`${loaded.tools.length} tool(s)`);
-      if (loaded.routes.length > 0) parts.push(`${loaded.routes.length} route(s)`);
-      if (loaded.queues.length > 0) parts.push(`${loaded.queues.length} queue(s)`);
+      if (entry.tools.length > 0) parts.push(`${entry.tools.length} tool(s)`);
+      if (entry.routes.length > 0) parts.push(`${entry.routes.length} route(s)`);
+      if (entry.queues.length > 0) parts.push(`${entry.queues.length} queue(s)`);
       const summary = parts.length > 0 ? ` (${parts.join(", ")})` : "";
       logger.info(`Initialized extension "${name}" v${ext.manifest.version}${summary}`);
-
-      // Notify caller about any queues created by this extension
-      if (deps.onQueueCreated) {
-        for (const mq of loaded.queues) {
-          deps.onQueueCreated(mq);
-        }
-      }
     } catch (err) {
       logger.error(`Failed to initialize extension "${name}":`, err);
-
-      // Clean up any partial registrations from the failed context
-      for (const tool of loaded.tools) {
-        this.toolNameSet.delete(tool.name);
+      // Entry remains in loaded list as suspended with error (set by activateExtension)
+      if (!entry.error) {
+        entry.error = err instanceof Error ? err.message : String(err);
       }
-      for (const st of loaded.stepTypes) {
-        this.stepTypeNameSet.delete(st.type);
-      }
-      for (const route of loaded.routes) {
-        this.routeKeySet.delete(`${route.method}:${route.fullPath}`);
-      }
-      this.eventBus.unsubscribeAll(name);
-      for (const q of loaded.queues) {
-        try {
-          await q.close();
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-
-      // Still add to loaded list as suspended so it remains visible in the UI
-      const errorMsg = err instanceof Error ? err.message : String(err);
-      this.loaded.push({
-        name,
-        extension: ext,
-        modulePath,
-        tools: [],
-        routes: [],
-        queues: [],
-        stepTypes: [],
-        state: "suspended",
-        error: errorMsg,
-      });
     }
   }
 
@@ -822,65 +660,7 @@ export class ExtensionRegistry {
       throw new Error(`Cannot deactivate extension "${name}": not found in loaded list`);
     }
 
-    // No-op if already suspended
-    if (entry.state === "suspended") {
-      return;
-    }
-
-    // Shutdown the extension (errors are logged but don't prevent cleanup)
-    try {
-      await entry.extension.shutdown();
-      logger.debug(`Shut down extension "${name}"`);
-    } catch (err) {
-      logger.error(`Error shutting down extension "${name}":`, err);
-    }
-
-    // Clean up tools from the global set
-    for (const tool of entry.tools) {
-      this.toolNameSet.delete(tool.name);
-    }
-
-    // Clean up step types from the global set
-    for (const st of entry.stepTypes) {
-      this.stepTypeNameSet.delete(st.type);
-    }
-
-    // Clean up route keys and add prefix to disabled set
-    for (const route of entry.routes) {
-      this.routeKeySet.delete(`${route.method}:${route.fullPath}`);
-    }
-    this.disabledRoutePrefixes.add(`/ext/${name}`);
-
-    // Clean up event subscriptions
-    this.eventBus.unsubscribeAll(name);
-
-    // Close queues
-    for (const q of entry.queues) {
-      try {
-        await q.close();
-      } catch (err) {
-        logger.error(`Error closing queue for extension "${name}":`, err);
-      }
-    }
-
-    // Clear registrations and transition to suspended
-    entry.tools = [];
-    entry.routes = [];
-    entry.queues = [];
-    entry.stepTypes = [];
-    entry.state = "suspended";
-
-    // Broadcast lifecycle event
-    if (this.initDeps) {
-      this.initDeps.broadcastFn({
-        type: "extension_lifecycle",
-        action: "deactivated",
-        name,
-        version: entry.extension.manifest.version,
-      });
-    }
-
-    logger.info(`Deactivated extension "${name}"`);
+    await deactivateExtension(entry, this.getLifecycleState(), this.initDeps?.broadcastFn);
   }
 
   /**
@@ -898,99 +678,11 @@ export class ExtensionRegistry {
       throw new Error(`Cannot activate extension "${name}": not found in loaded list`);
     }
 
-    // No-op if already active
-    if (entry.state === "active") {
-      return;
-    }
-
-    const deps = this.initDeps;
-    if (!deps) {
+    if (!this.initDeps) {
       throw new Error(`Cannot activate extension "${name}": registry not initialized`);
     }
 
-    const ext = entry.extension;
-
-    // Create a fresh context
-    const { context, loaded } = createExtensionContext({
-      extensionName: name,
-      workDir: this.workDir,
-      dataDir: this.dataDir,
-      extensionsDir: this.builtinExtensionsDir,
-      toolNameSet: this.toolNameSet,
-      routeKeySet: this.routeKeySet,
-      stepTypeNameSet: this.stepTypeNameSet,
-      eventBus: this.eventBus,
-      broadcastFn: deps.broadcastFn,
-      flowProducer: this.flowProducer,
-      resolveSkillFn: (n) => this.resolveSkill(n),
-      database: deps.database,
-      getCoreQueueFn: this.getCoreQueueFn,
-      getExtensionQueuesFn: () => this.getRegisteredQueues(),
-      runAgentFn: deps.runAgentFn,
-      sessionStore: deps.sessionStore,
-      pushMessageFn: deps.pushMessageFn,
-      isExtensionEnabledFn: (n) => this.isExtensionEnabled(n),
-      secretVault: deps.secretVault,
-      routeRegistry: deps.routeRegistry,
-      rescanSkillsFn: () => this.discoverAndLoadSkills(),
-      getSkillNamesFn: () => this.getSkillNames(),
-      getStepHandlerFn: (type) => this.getRegisteredStepTypes().find((st) => st.type === type)?.handler,
-      settingsSchema: ext.manifest.settingsSchema as Record<string, unknown> | undefined,
-    });
-
-    try {
-      await ext.initialize(context);
-    } catch (err) {
-      // Partial registration cleanup on failed initialize
-      for (const tool of loaded.tools) {
-        this.toolNameSet.delete(tool.name);
-      }
-      for (const st of loaded.stepTypes) {
-        this.stepTypeNameSet.delete(st.type);
-      }
-      for (const route of loaded.routes) {
-        this.routeKeySet.delete(`${route.method}:${route.fullPath}`);
-      }
-      this.eventBus.unsubscribeAll(name);
-      for (const q of loaded.queues) {
-        try {
-          await q.close();
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-      // Store error on the entry so it's visible in the UI
-      entry.error = err instanceof Error ? err.message : String(err);
-      throw err;
-    }
-
-    // Update the loaded entry with new registrations
-    entry.tools = loaded.tools;
-    entry.routes = loaded.routes;
-    entry.queues = loaded.queues;
-    entry.stepTypes = loaded.stepTypes;
-    entry.state = "active";
-    entry.error = null;
-
-    // Remove from disabled route prefixes
-    this.disabledRoutePrefixes.delete(`/ext/${name}`);
-
-    // Notify monitor about any queues created
-    if (deps.onQueueCreated) {
-      for (const mq of loaded.queues) {
-        deps.onQueueCreated(mq);
-      }
-    }
-
-    // Broadcast lifecycle event
-    deps.broadcastFn({
-      type: "extension_lifecycle",
-      action: "activated",
-      name,
-      version: ext.manifest.version,
-    });
-
-    logger.info(`Activated extension "${name}" v${ext.manifest.version}`);
+    await activateExtension(entry, this.getLifecycleState(), this.getActivationDeps());
   }
 
   /**
@@ -1074,6 +766,7 @@ export class ExtensionRegistry {
 
     // Reverse init order
     const reversed = [...this.loaded].reverse();
+    const state = this.getLifecycleState();
 
     for (const entry of reversed) {
       try {
@@ -1083,32 +776,7 @@ export class ExtensionRegistry {
         logger.error(`Error shutting down extension "${entry.name}":`, err);
       }
 
-      // Clean up tools from the global set
-      for (const tool of entry.tools) {
-        this.toolNameSet.delete(tool.name);
-      }
-
-      // Clean up step types from the global set
-      for (const st of entry.stepTypes) {
-        this.stepTypeNameSet.delete(st.type);
-      }
-
-      // Clean up route keys from the global set
-      for (const route of entry.routes) {
-        this.routeKeySet.delete(`${route.method}:${route.fullPath}`);
-      }
-
-      // Clean up event subscriptions
-      this.eventBus.unsubscribeAll(entry.name);
-
-      // Close queues (handles both worker and queue internally)
-      for (const q of entry.queues) {
-        try {
-          await q.close();
-        } catch (err) {
-          logger.error(`Error closing queue for extension "${entry.name}":`, err);
-        }
-      }
+      await cleanupRegistrations(entry, state);
     }
 
     this.loaded = [];
@@ -1116,6 +784,56 @@ export class ExtensionRegistry {
 
     // Close the shared FlowProducer
     await this.flowProducer.close();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Private helpers for lifecycle delegation
+  // ---------------------------------------------------------------------------
+
+  /** Returns the subset of registry state needed by lifecycle operations. */
+  private getLifecycleState(): LifecycleState {
+    return {
+      toolNameSet: this.toolNameSet,
+      routeKeySet: this.routeKeySet,
+      stepTypeNameSet: this.stepTypeNameSet,
+      disabledRoutePrefixes: this.disabledRoutePrefixes,
+      eventBus: this.eventBus,
+    };
+  }
+
+  /** Builds the activation dependencies for the lifecycle module. */
+  private getActivationDeps(): ActivationDeps {
+    const deps = this.initDeps!;
+    return {
+      buildContextDeps: (extensionName: string, ext: Extension): ExtensionContextDeps => ({
+        extensionName,
+        workDir: this.workDir,
+        dataDir: this.dataDir,
+        extensionsDir: this.builtinExtensionsDir,
+        toolNameSet: this.toolNameSet,
+        routeKeySet: this.routeKeySet,
+        stepTypeNameSet: this.stepTypeNameSet,
+        eventBus: this.eventBus,
+        broadcastFn: deps.broadcastFn,
+        flowProducer: this.flowProducer,
+        resolveSkillFn: (n) => this.resolveSkill(n),
+        database: deps.database,
+        getCoreQueueFn: this.getCoreQueueFn,
+        getExtensionQueuesFn: () => this.getRegisteredQueues(),
+        runAgentFn: deps.runAgentFn,
+        sessionStore: deps.sessionStore,
+        pushMessageFn: deps.pushMessageFn,
+        isExtensionEnabledFn: (n) => this.isExtensionEnabled(n),
+        secretVault: deps.secretVault,
+        routeRegistry: deps.routeRegistry,
+        rescanSkillsFn: () => this.discoverAndLoadSkills(),
+        getSkillNamesFn: () => this.getSkillNames(),
+        getStepHandlerFn: (type) => this.getRegisteredStepTypes().find((st) => st.type === type)?.handler,
+        settingsSchema: ext.manifest.settingsSchema as Record<string, unknown> | undefined,
+      }),
+      broadcastFn: deps.broadcastFn,
+      onQueueCreated: deps.onQueueCreated,
+    };
   }
 }
 

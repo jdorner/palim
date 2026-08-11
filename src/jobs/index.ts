@@ -6,4 +6,6 @@ export { abortJob } from "./cancellation.ts";
 export type { ChatJob, ChatQueueDeps } from "./chatQueue.ts";
 export { createChatQueue } from "./chatQueue.ts";
 export { AGENT_QUEUE_DEFAULTS } from "./defaults.ts";
+export type { BaseAgentJob, JobQueueDeps } from "./jobQueueFactory.ts";
+export { createJobQueue } from "./jobQueueFactory.ts";
 export { buildAgentSystemPrompt, buildChatSystemPrompt } from "./systemPrompts.ts";
