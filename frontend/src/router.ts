@@ -17,6 +17,7 @@ export const { p, navigate, isActive, route } = createRouter({
   "/workflows": () => import("./routes/WorkflowsPage.svelte"),
   "/workflows/:name": () => import("./routes/WorkflowDetailPage.svelte"),
   "/workflows/:name/runs/:runId": () => import("./routes/WorkflowRunPage.svelte"),
+  "/ext-page/:extensionName": () => import("./routes/ExtensionPage.svelte"),
 
   hooks: {
     async beforeLoad(context) {

@@ -24,7 +24,8 @@ import { checkAuthRequired, forceLogout, registerDisconnect } from "$lib/auth";
 import { chatStream } from "$lib/chatStreamStore.svelte";
 import { Button } from "$lib/components/ui/button";
 import { connectionManager } from "$lib/connectionStore.svelte";
-import { extensions, fetchBadgesForEnabledExtensions, fetchExtensions } from "$lib/extensionStore";
+import { extensionNavItems, extensions, fetchBadgesForEnabledExtensions, fetchExtensions } from "$lib/extensionStore";
+import { resolveIcon } from "$lib/iconRegistry";
 import { readState } from "$lib/readState.svelte";
 import { automationStyle } from "$lib/utils";
 import { workflowStore } from "$lib/workflowRunStore.svelte";
@@ -132,7 +133,8 @@ onDestroy(() => {
 
 let isLoginPage = $derived($pathname === "/login");
 let isChat = $derived($pathname === "/" || $pathname === "/chat" || $pathname.startsWith("/chat/"));
-let isFullHeight = $derived(isChat);
+let isExtensionPage = $derived($pathname.startsWith("/ext-page/"));
+let isFullHeight = $derived(isChat || isExtensionPage);
 
 // Connect when navigating away from login (after successful login),
 // disconnect when navigating to login (logout).
@@ -154,6 +156,12 @@ $effect(() => {
 let showConnectionError = $derived(!$connected && !$hasConnected && !isLoginPage && !initialGracePeriod);
 
 let hasUnreadChats = $derived(chatStream.conversations.some((c) => readState.isUnread(c.id, c.updatedAt)));
+
+/** Current extension nav item (when on an extension page). */
+let currentExtNavItem = $derived.by(() => {
+  if (!isExtensionPage) return null;
+  return $extensionNavItems.find((item) => $pathname === item.route || $pathname.startsWith(`${item.route}/`)) ?? null;
+});
 </script>
 
 <Tooltip.Provider delayDuration={0}>
@@ -198,6 +206,12 @@ let hasUnreadChats = $derived(chatStream.conversations.some((c) => readState.isU
               {:else if $pathname === "/mcp"}
                 <PlugIcon class="w-6 h-6 {automationStyle('mcp').color}" aria-hidden="true" />
                 MCP Servers
+              {:else if isExtensionPage && currentExtNavItem}
+                {@const IconComponent = resolveIcon(currentExtNavItem.icon)}
+                {#if IconComponent}
+                  <IconComponent class="w-6 h-6 {currentExtNavItem.iconColor ?? ''}" aria-hidden="true" />
+                {/if}
+                {currentExtNavItem.label}
               {:else}
                 <TrayIcon class="w-6 h-6" aria-hidden="true" />
                 Job Queues

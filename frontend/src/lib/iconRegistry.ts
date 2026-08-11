@@ -5,6 +5,7 @@ import FlowArrowIcon from "phosphor-svelte/lib/FlowArrowIcon";
 import GearIcon from "phosphor-svelte/lib/GearIcon";
 import LinkIcon from "phosphor-svelte/lib/LinkIcon";
 import PlugIcon from "phosphor-svelte/lib/PlugIcon";
+import ReceiptIcon from "phosphor-svelte/lib/ReceiptIcon";
 import TrayIcon from "phosphor-svelte/lib/TrayIcon";
 import type { Component } from "svelte";
 
@@ -17,6 +18,7 @@ export const iconRegistry: Record<string, Component> = {
   GearIcon,
   LinkIcon,
   PlugIcon,
+  ReceiptIcon,
   TrayIcon,
 };
 
