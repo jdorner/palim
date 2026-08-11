@@ -1,9 +1,6 @@
-import assert from "node:assert";
-import { default as path } from "node:path";
 import type { AgentTool, AgentToolResult, AgentToolUpdateCallback } from "@mariozechner/pi-agent-core";
 import { type Static, Type } from "@sinclair/typebox";
-import { WORK_DIR } from "@src/config";
-import { mainLogger as log, shellLogger as shellLog } from "@src/utils/logger";
+import { shellLogger as shellLog } from "@src/utils/logger";
 import type { Bash } from "just-bash";
 
 // ---------------------------------------------------------------------------
@@ -71,29 +68,6 @@ const EditFileParams = Type.Object(
 const ExecuteCommandParams = Type.Object({
   command: Type.String({ description: "Shell command to execute" }),
 });
-
-// ---------------------------------------------------------------------------
-// Host path helper (used by OCR, not by sandbox file tools)
-// ---------------------------------------------------------------------------
-
-/**
- * Validate that an absolute path resolves within the work directory.
- * Used by non-sandbox code (e.g. OCR) that operates on host paths directly.
- *
- * @param absolutePath - Already-resolved absolute path
- * @returns The validated absolute path
- * @throws If the path escapes the work directory
- */
-export function assertInsideWorkDir(absolutePath: string): string {
-  assert(WORK_DIR && WORK_DIR.length > 0);
-
-  const resolved = path.resolve(absolutePath);
-  if (!resolved.startsWith(WORK_DIR)) {
-    log.error(`Access denied: ${absolutePath}`);
-    throw new Error(`Access denied: ${absolutePath}`);
-  }
-  return resolved;
-}
 
 // ---------------------------------------------------------------------------
 // Tool names - exported so callers can filter / reference them by name
