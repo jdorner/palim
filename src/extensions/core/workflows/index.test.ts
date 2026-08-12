@@ -127,6 +127,10 @@ function createMockContext(workDir: string) {
       extensions: workDir,
     },
     fetch: globalThis.fetch,
+    urls: {
+      origin: "http://localhost:3000",
+      base: "http://localhost:3000/ext/workflows",
+    },
     tools: {
       register: () => {},
       names: () => ["tool-beta", "tool-alpha", "tool-gamma"],
