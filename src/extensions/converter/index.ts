@@ -86,6 +86,8 @@ const MIME_TO_EXT: Record<string, string> = {
   "image/gif": ".gif",
   "image/bmp": ".bmp",
   "image/tiff": ".tiff",
+  "image/heic": ".heic",
+  "image/heif": ".heif",
 };
 
 /**
