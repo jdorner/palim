@@ -486,6 +486,41 @@ async initialize(ctx) {
 
 For most extensions, no explicit subscription is needed - `ctx.config.get()` automatically reads fresh values after a settings change.
 
+**Deriving defaults from the schema:**
+
+When calling `ctx.config.get()` with a fallback value, reference the schema's `default` instead of duplicating the literal. This keeps the single source of truth in the manifest:
+
+```typescript
+export const manifest = {
+  name: "my-extension",
+  version: "1.0.0",
+  settingsSchema: Type.Object({
+    outputPath: Type.String({
+      title: "Output path",
+      default: "data/reports/output.xlsx",
+    }),
+  }),
+} satisfies ExtensionManifest;
+
+// In initialize() or any helper that has access to the manifest:
+const outputPath = ctx.config.get<string>(
+  "OUTPUT_PATH",
+  manifest.settingsSchema.properties.outputPath.default,
+);
+```
+
+If you need the default in a separate file (e.g. route handlers), export the manifest and import it where needed:
+
+```typescript
+// routes.ts
+import { manifest } from "./index";
+
+const outputPath = ctx.config.get<string>(
+  "OUTPUT_PATH",
+  manifest.settingsSchema.properties.outputPath.default,
+);
+```
+
 ## Logging
 
 Every extension receives a pre-scoped logger via `ctx.log`. Use it instead of importing the `logging` package directly.
