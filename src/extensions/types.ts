@@ -222,7 +222,20 @@ export type RouteHandler = (ctx: Context) => Response | Promise<Response>;
 /** Minimal route registration surface for wiring extension routes into the HTTP server. */
 export interface RouteRegistry {
   /** Register a single HTTP route handler for an extension. */
-  registerRoute(method: HttpMethod, path: string, handler: RouteHandler): void;
+  registerRoute(method: HttpMethod, path: string, handler: RouteHandler, options?: RouteOptions): void;
+}
+
+/**
+ * Options passed through to the underlying HTTP server route definition.
+ * Maps to Elysia route-level configuration (e.g. skipping body parsing).
+ */
+export interface RouteOptions {
+  /**
+   * Controls body parsing behavior.
+   * Set to `"none"` to skip body parsing entirely (raw request body).
+   * Can also be a specific content type like `"json"`, `"text"`, `"formdata"`, `"urlencoded"`.
+   */
+  parse?: "none" | "json" | "text" | "formdata" | "urlencoded" | string;
 }
 
 // ---------------------------------------------------------------------------
@@ -468,7 +481,7 @@ export interface ExtensionContext {
 
   /** HTTP route registration (path auto-prefixed with `/ext/{extensionName}/`). */
   readonly routes: {
-    register(method: HttpMethod, path: string, handler: RouteHandler): void;
+    register(method: HttpMethod, path: string, handler: RouteHandler, options?: RouteOptions): void;
   };
 
   // -------------------------------------------------------------------------

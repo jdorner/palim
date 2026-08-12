@@ -33,6 +33,7 @@ import type {
   HttpMethod,
   QueueEventName,
   RouteHandler,
+  RouteOptions,
   RunAgentOptions,
   StepTypeHandler,
   WorkflowDispatchResult,
@@ -256,7 +257,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
    * @param handler The route handler function
    * @throws If the route path is already registered
    */
-  function registerRoute(method: HttpMethod, path: string, handler: RouteHandler): void {
+  function registerRoute(method: HttpMethod, path: string, handler: RouteHandler, options?: RouteOptions): void {
     const cleanPath = path.replace(/^\/+/, "");
     const fullPath = `/ext/${extensionName}/${cleanPath}`;
     const routeKey = `${method}:${fullPath}`;
@@ -268,12 +269,12 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     }
 
     routeKeySet.add(routeKey);
-    routes.push({ method, fullPath, handler });
+    routes.push({ method, fullPath, handler, options });
     logger.debug(`Extension "${extensionName}" registered route ${method} ${fullPath}`);
 
     // Wire directly into the HTTP server
     if (routeRegistry) {
-      routeRegistry.registerRoute(method, fullPath, handler);
+      routeRegistry.registerRoute(method, fullPath, handler, options);
     }
   }
 
