@@ -3,7 +3,7 @@
  * via bunqueue's {@link FlowProducer.addChain}.
  */
 
-import type { Logger } from "@ext/types";
+import type { Logger, WorkflowDispatchResult } from "@ext/types";
 import type { FlowProducer, FlowStep } from "bunqueue/client";
 import type { WorkflowDefinition } from "./schemas";
 import type { WorkflowStepJobData } from "./types";
@@ -14,14 +14,6 @@ import type { WorkflowStepJobData } from "./types";
  */
 export interface SessionFactory {
   create(opts: { source: string; sourceId?: string; metadata?: Record<string, unknown> }): { id: string };
-}
-
-/** Result of dispatching a workflow. */
-export interface WorkflowDispatchResult {
-  /** Unique identifier for this workflow run. */
-  workflowRunId: string;
-  /** Job IDs for each step in the chain. */
-  jobIds: string[];
 }
 
 /** Queue name used for all workflow step jobs. */

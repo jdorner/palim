@@ -26,6 +26,7 @@ import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ex
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import { Value } from "@sinclair/typebox/value";
 import { serverOrigin } from "@src/config";
+import { setWorkflowDispatchFn } from "@src/extensions/engine/extensionContext";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { SessionFactory } from "./engine";
 import { dispatchWorkflow } from "./engine";
@@ -278,6 +279,29 @@ export function createExtension(): Extension {
       store.clear();
       for (const [k, v] of loaded) store.set(k, v);
       logger.info(`Loaded ${store.size} workflow definition(s)`);
+
+      // Register the dispatch function so all extension contexts can use ctx.workflows.dispatch()
+      setWorkflowDispatchFn(async (name, payload) => {
+        const wf = store.get(name);
+        if (!wf) {
+          throw new Error(`Workflow not found: ${name}`);
+        }
+        if (wf.enabled === false) {
+          throw new Error(`Workflow is disabled: ${name}`);
+        }
+        const result = await dispatchWorkflow(flowProducer, wf, payload ?? null, logger, sessionFactory);
+        ctx.messaging.broadcast({
+          type: "workflow_started",
+          workflowRunId: result.workflowRunId,
+          workflowName: wf.name,
+          steps: wf.steps.map((s, i) => ({
+            slug: s.slug,
+            type: s.type,
+            jobId: result.jobIds[i],
+          })),
+        });
+        return result;
+      });
 
       // Watch for file changes and hot-reload
       try {

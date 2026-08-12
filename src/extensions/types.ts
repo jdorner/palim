@@ -371,6 +371,25 @@ export interface StepTypeInfo {
 // Agent execution
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Workflow dispatch
+// ---------------------------------------------------------------------------
+
+/**
+ * Result returned by {@link ExtensionContext.workflows.dispatch}.
+ * Contains the IDs needed to track the dispatched workflow run.
+ */
+export interface WorkflowDispatchResult {
+  /** Unique identifier for the created workflow run. */
+  workflowRunId: string;
+  /** Job IDs for each step in the dispatched workflow (in execution order). */
+  jobIds: string[];
+}
+
+// ---------------------------------------------------------------------------
+// Agent execution
+// ---------------------------------------------------------------------------
+
 /** Result returned by {@link ExtensionContext.runAgent}. */
 export interface AgentProcessorResult {
   /** The assistant's final text response. */
@@ -664,6 +683,29 @@ export interface ExtensionContext {
 
     /** Broadcast a WebSocket message to all connected frontend clients. */
     broadcast(message: WebSocketMessage): void;
+  };
+
+  // -------------------------------------------------------------------------
+  // Workflows
+  // -------------------------------------------------------------------------
+
+  /** Programmatic workflow dispatch (triggers named workflow runs without HTTP self-calls). */
+  readonly workflows: {
+    /**
+     * Dispatch a named workflow run.
+     *
+     * Looks up the workflow definition by name, validates it is enabled,
+     * creates a new run with the provided payload as trigger data, and
+     * broadcasts a `workflow_started` WebSocket event.
+     *
+     * @param name - The workflow definition name (matches the `name` field in the workflow JSON5)
+     * @param payload - Optional trigger payload passed to the workflow as `{{trigger.*}}`
+     * @returns The run ID and step job IDs
+     * @throws {Error} If the workflow is not found ("Workflow not found: <name>")
+     * @throws {Error} If the workflow is disabled ("Workflow is disabled: <name>")
+     * @throws {Error} If the workflows extension has not initialized yet ("Workflows extension not initialized")
+     */
+    dispatch(name: string, payload?: unknown): Promise<WorkflowDispatchResult>;
   };
 
   // -------------------------------------------------------------------------
