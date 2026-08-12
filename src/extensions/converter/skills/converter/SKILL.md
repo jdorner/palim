@@ -11,7 +11,7 @@ The converter skill provides a `convert` shell command that transforms files int
 Supported file types:
 
 - PDF documents (each page is converted to an image and processed)
-- Images: PNG, JPEG, WebP, GIF, BMP, TIFF
+- Images: PNG, JPEG, WebP, GIF, BMP, TIFF, HEIC, HEIF
 
 File types are detected by reading magic bytes from the file header, not by file extension.
 
