@@ -189,6 +189,9 @@ function createMockContext(workDir: string) {
     dynamicItems: {
       register: () => {},
     },
+    workflows: {
+      dispatch: async () => ({ workflowRunId: "run-1", jobIds: ["job-1"] }),
+    },
   };
 
   return { ctx, routes };

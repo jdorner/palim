@@ -34,11 +34,32 @@ import type {
   RouteHandler,
   RunAgentOptions,
   StepTypeHandler,
+  WorkflowDispatchResult,
 } from "../types";
 import { createConfigResolver } from "./configResolver";
 import type { EventBus } from "./eventBus";
 
 const logger = createLogger("ExtensionContext");
+
+// ---------------------------------------------------------------------------
+// Late-bound workflow dispatch function
+// ---------------------------------------------------------------------------
+
+/**
+ * Module-level dispatch function set by the workflows core extension during
+ * its initialization. Shared across all extension contexts via closure.
+ */
+let workflowDispatchFn: ((name: string, payload?: unknown) => Promise<WorkflowDispatchResult>) | undefined;
+
+/**
+ * Registers the workflow dispatch implementation. Called once by the workflows
+ * core extension during its `initialize()` phase.
+ *
+ * @param fn - The dispatch function that looks up a workflow by name and triggers a run
+ */
+export function setWorkflowDispatchFn(fn: (name: string, payload?: unknown) => Promise<WorkflowDispatchResult>): void {
+  workflowDispatchFn = fn;
+}
 
 /**
  * Dependencies injected from the registry so the context can wire into
@@ -579,6 +600,14 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
             throw new Error(`Extension "${extensionName}": pushMessage is not available`);
           },
       broadcast,
+    },
+    workflows: {
+      async dispatch(name: string, payload?: unknown): Promise<WorkflowDispatchResult> {
+        if (!workflowDispatchFn) {
+          throw new Error("Workflows extension not initialized");
+        }
+        return workflowDispatchFn(name, payload);
+      },
     },
     db: database,
     fetch: authenticatedFetch,

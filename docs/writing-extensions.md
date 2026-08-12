@@ -263,6 +263,42 @@ Avoid unnecessary prefixes like `/admin/` - all extension routes are already beh
 | `ctx.messaging.broadcast(message)` | Push a WebSocket message to all frontend clients |
 | `ctx.messaging.push(sessionId, content, opts?)` | Send a push message to a session |
 
+### Workflows (`ctx.workflows`)
+
+| Method | Description |
+| --- | --- |
+| `ctx.workflows.dispatch(name, payload?)` | Trigger a named workflow run and return the run ID + step job IDs |
+
+Dispatch a workflow programmatically without HTTP self-calls. The method looks up the workflow definition by name, validates it is enabled, creates a run with the provided payload as trigger data, and broadcasts a `workflow_started` WebSocket event.
+
+```typescript
+async initialize(ctx) {
+  ctx.routes.register("POST", "/process", async (reqCtx) => {
+    const body = reqCtx.body as { filePath: string };
+
+    const result = await ctx.workflows.dispatch("invoice-process", {
+      filePath: body.filePath,
+      project: "default",
+    });
+
+    return Response.json({
+      workflowRunId: result.workflowRunId,
+      jobIds: result.jobIds,
+    });
+  });
+}
+```
+
+**Error cases:**
+
+| Condition | Error message |
+| --- | --- |
+| Workflow name not found in loaded definitions | `Workflow not found: <name>` |
+| Workflow exists but has `enabled: false` | `Workflow is disabled: <name>` |
+| Called before the workflows core extension initializes | `Workflows extension not initialized` |
+
+Extensions that use `ctx.workflows.dispatch()` should declare `"workflows"` in their manifest `dependencies` to ensure correct initialization order.
+
 ### Agent Execution (`ctx.agent`)
 
 | Method | Description |
