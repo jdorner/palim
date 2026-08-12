@@ -44,9 +44,13 @@ export async function verifyAuth(
     ["sign"],
   );
   const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody));
-  const expectedHex = `sha256=${Array.from(new Uint8Array(signature))
+  const computedHex = Array.from(new Uint8Array(signature))
     .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")}`;
+    .join("");
+
+  // Support both formats: raw hex ("abcdef...") and prefixed ("sha256=abcdef...")
+  const hasPrefix = headerValue.startsWith("sha256=");
+  const expectedHex = hasPrefix ? `sha256=${computedHex}` : computedHex;
 
   const expectedBytes = Buffer.from(expectedHex);
   const actualBytes = Buffer.from(headerValue);

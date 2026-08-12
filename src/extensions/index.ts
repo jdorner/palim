@@ -18,6 +18,7 @@ export type {
   HttpMethod,
   QueueEventCallback,
   RouteHandler,
+  RouteOptions,
   RouteRegistry,
   RunAgentOptions,
   SkillScriptContext,

@@ -26,6 +26,7 @@ import type {
   HttpMethod,
   RegistryInitDeps,
   RouteHandler,
+  RouteOptions,
   RouteRegistry,
   RunAgentOptions,
 } from "@src/extensions";
@@ -317,14 +318,18 @@ export class AppBootstrap {
 
     // Route registry that wraps Elysia for extension route wiring.
     const routeRegistry: RouteRegistry = {
-      registerRoute(method: HttpMethod, path: string, handler: RouteHandler) {
+      registerRoute(method: HttpMethod, path: string, handler: RouteHandler, options?: RouteOptions) {
         const m = method.toLowerCase() as "get" | "post" | "put" | "delete";
         const app = elysiaApp as any;
         if (typeof app[m] !== "function") {
           log.error(`RouteRegistry: Elysia does not support method "${method}"`);
           return;
         }
-        app[m](path, handler);
+        if (options) {
+          app[m](path, handler, options);
+        } else {
+          app[m](path, handler);
+        }
       },
     };
 

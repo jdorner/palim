@@ -5,7 +5,7 @@
 
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ManagedQueuePort } from "@src/queue";
-import type { Extension, HttpMethod, RouteHandler, StepTypeHandler } from "./types";
+import type { Extension, HttpMethod, RouteHandler, RouteOptions, StepTypeHandler } from "./types";
 
 /** A route registered by an extension (includes the fully-qualified path). */
 export interface RegisteredRoute {
@@ -13,6 +13,8 @@ export interface RegisteredRoute {
   /** Full path including the /ext/{extensionName}/ prefix. */
   fullPath: string;
   handler: RouteHandler;
+  /** Optional route-level configuration (e.g. parse options). */
+  options?: RouteOptions;
 }
 
 /** A custom workflow step type registered by an extension. */

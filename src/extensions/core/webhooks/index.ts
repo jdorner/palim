@@ -90,56 +90,62 @@ export function createExtension(): Extension {
 
       // ---------------------------------------------------------------
       // Receiver route: POST /ext/webhooks/receive/:slug
+      // Body parsing is disabled so we receive the raw bytes for HMAC verification.
       // ---------------------------------------------------------------
-      ctx.routes.register("POST", "/receive/:slug", async (reqCtx) => {
-        const slug = (reqCtx.params as Record<string, string>).slug;
-        if (!slug) return Response.json({ error: "Missing slug" }, { status: 400 });
+      ctx.routes.register(
+        "POST",
+        "/receive/:slug",
+        async (reqCtx) => {
+          const slug = (reqCtx.params as Record<string, string>).slug;
+          if (!slug) return Response.json({ error: "Missing slug" }, { status: 400 });
 
-        const registration = findWebhook(slug);
-        if (!registration) return Response.json({ error: "Webhook not found" }, { status: 404 });
-        if (!registration.enabled) return Response.json({ error: "Webhook is disabled" }, { status: 403 });
+          const registration = findWebhook(slug);
+          if (!registration) return Response.json({ error: "Webhook not found" }, { status: 404 });
+          if (!registration.enabled) return Response.json({ error: "Webhook is disabled" }, { status: 403 });
 
-        // Deny unauthenticated webhooks in non-development environments
-        if (registration.authType === "none" && !IS_DEV) {
-          logger.warn(`Blocked unauthenticated webhook "${slug}" - authType "none" is only allowed in development`);
-          return Response.json(
-            { error: "Unauthenticated webhooks are only available in development mode" },
-            { status: 403 },
-          );
-        }
+          // Deny unauthenticated webhooks in non-development environments
+          if (registration.authType === "none" && !IS_DEV) {
+            logger.warn(`Blocked unauthenticated webhook "${slug}" - authType "none" is only allowed in development`);
+            return Response.json(
+              { error: "Unauthenticated webhooks are only available in development mode" },
+              { status: 403 },
+            );
+          }
 
-        // Read raw body for HMAC verification
-        const rawBody = typeof reqCtx.body === "string" ? reqCtx.body : JSON.stringify(reqCtx.body ?? "");
+          // Read raw body directly from request (body parsing is disabled)
+          const rawBody = await reqCtx.request.text();
 
-        if (rawBody.length > maxPayloadSize) {
-          return Response.json({ error: "Payload too large" }, { status: 413 });
-        }
+          if (rawBody.length > maxPayloadSize) {
+            return Response.json({ error: "Payload too large" }, { status: 413 });
+          }
 
-        // Verify authentication
-        const headerValue = reqCtx.headers[registration.headerName.toLowerCase()] ?? null;
-        const authentic = await verifyAuth(registration, headerValue, rawBody);
-        if (!authentic) {
-          logger.warn(`Auth failed for webhook "${slug}"`);
-          return Response.json({ error: "Unauthorized" }, { status: 401 });
-        }
+          // Verify authentication
+          const headerValue = reqCtx.headers[registration.headerName.toLowerCase()] ?? null;
+          const authentic = await verifyAuth(registration, headerValue, rawBody);
+          if (!authentic) {
+            logger.warn(`Auth failed for webhook "${slug}"`);
+            return Response.json({ error: "Unauthorized" }, { status: 401 });
+          }
 
-        // Parse payload
-        let payload: unknown;
-        try {
-          payload = typeof reqCtx.body === "string" ? JSON.parse(reqCtx.body) : reqCtx.body;
-        } catch {
-          payload = rawBody;
-        }
+          // Parse payload
+          let payload: unknown;
+          try {
+            payload = JSON.parse(rawBody);
+          } catch {
+            payload = rawBody;
+          }
 
-        // Emit domain event for downstream consumers (e.g. workflow engine)
-        ctx.events.emit({
-          type: "webhook:received",
-          context: { source: "webhooks", id: slug, slug, payload },
-        });
+          // Emit domain event for downstream consumers (e.g. workflow engine)
+          ctx.events.emit({
+            type: "webhook:received",
+            context: { source: "webhooks", id: slug, slug, payload },
+          });
 
-        logger.info(`Webhook "${slug}" received -> event emitted`);
-        return Response.json({ ok: true }, { status: 202 });
-      });
+          logger.info(`Webhook "${slug}" received -> event emitted`);
+          return Response.json({ ok: true }, { status: 202 });
+        },
+        { parse: "none" },
+      );
 
       // ---------------------------------------------------------------
       // CRUD routes for webhook registrations

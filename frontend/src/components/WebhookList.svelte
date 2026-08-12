@@ -37,6 +37,7 @@ let formSlug = $state("");
 let formName = $state("");
 let formAuthType = $state<"hmac-sha256" | "bearer" | "none">("hmac-sha256");
 let formSecret = $state("");
+let formHeaderName = $state("");
 let formEnabled = $state(true);
 let formError = $state<string | null>(null);
 let submitting = $state(false);
@@ -94,6 +95,7 @@ function openEditForm(webhook: Webhook) {
   formName = webhook.name;
   formAuthType = webhook.authType as "hmac-sha256" | "bearer" | "none";
   formSecret = "";
+  formHeaderName = webhook.headerName || "";
   formEnabled = webhook.enabled;
   formError = null;
 }
@@ -146,6 +148,7 @@ async function submitForm() {
           name: formName,
           authType: formAuthType,
           secret: formAuthType === "none" ? "" : formSecret,
+          ...(formAuthType === "hmac-sha256" && formHeaderName ? { headerName: formHeaderName } : {}),
         }),
       });
       const body = await res.json();
@@ -160,6 +163,7 @@ async function submitForm() {
         enabled: formEnabled,
       };
       if (formSecret) updates.secret = formSecret;
+      if (formAuthType === "hmac-sha256") updates.headerName = formHeaderName || undefined;
       const res = await authFetch(`/ext/webhooks/${editingSlug}`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
@@ -187,6 +191,7 @@ function resetForm() {
   formName = "";
   formAuthType = "hmac-sha256";
   formSecret = "";
+  formHeaderName = "";
   formEnabled = true;
   formError = null;
 }
@@ -308,7 +313,25 @@ $effect(() => {
             <option value="hmac-sha256">HMAC-SHA256</option>
           </select>
         </div>
-        {#if formAuthType !== "none"}
+        {#if formAuthType === "hmac-sha256"}
+          <div class="space-y-1">
+            <label for="wh-header" class="text-xs font-medium text-muted-foreground">Header Name</label>
+            <input
+              id="wh-header"
+              type="text"
+              bind:value={formHeaderName}
+              placeholder="X-Hub-Signature-256"
+              class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+            >
+            <p class="text-xs text-muted-foreground">Leave blank for default</p>
+          </div>
+        {:else}
+          <div class="space-y-1"></div>
+        {/if}
+      </div>
+
+      {#if formAuthType !== "none"}
+        <div class="grid grid-cols-2 gap-3">
           <div class="space-y-1">
             <label for="wh-secret" class="text-xs font-medium text-muted-foreground">
               Secret
@@ -318,16 +341,13 @@ $effect(() => {
               id="wh-secret"
               type="password"
               bind:value={formSecret}
-              placeholder={formMode === "edit"
-                ? "unchanged"
-                : "min 8 characters"}
+              placeholder={formMode === "edit" ? "unchanged" : "min 8 characters"}
               class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
             >
           </div>
-        {:else}
           <div class="space-y-1"></div>
-        {/if}
-      </div>
+        </div>
+      {/if}
 
       {#if formAuthType === "none"}
         <div class="warning-banner">
