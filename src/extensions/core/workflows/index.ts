@@ -25,7 +25,6 @@ import path from "node:path";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import { Value } from "@sinclair/typebox/value";
-import { serverOrigin } from "@src/config";
 import { setWorkflowDispatchFn } from "@src/extensions/engine/extensionContext";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { SessionFactory } from "./engine";
@@ -497,7 +496,7 @@ export function createExtension(): Extension {
        * @returns `{ webhook: string[], schedule: string[], filewatcher: string[] }`
        */
       ctx.routes.register("GET", "/meta/triggers", async () => {
-        const origin = serverOrigin();
+        const origin = ctx.urls.origin;
 
         const [webhookSlugs, schedulerIds, filewatcherSlugs] = await Promise.all([
           ctx
@@ -880,7 +879,7 @@ export function createExtension(): Extension {
         if (body.trigger.type !== "manual" && body.trigger.ref) {
           const triggerType = body.trigger.type;
           const ref = body.trigger.ref;
-          const origin = serverOrigin();
+          const origin = ctx.urls.origin;
           let refExists = false;
 
           try {

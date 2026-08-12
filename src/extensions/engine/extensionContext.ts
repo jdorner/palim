@@ -8,6 +8,7 @@
 import type { RouteRegistry } from "@ext/types";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { WebSocketMessage } from "@shared/types";
+import { serverOrigin } from "@src/config";
 import type { PushMessageFn } from "@src/push";
 import type { JobInfo, JobProcessor, ManagedQueueOptions, ManagedQueuePort, QueueJob, QueueJobLogs } from "@src/queue";
 import { ManagedQueue } from "@src/queue";
@@ -611,6 +612,10 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     },
     db: database,
     fetch: authenticatedFetch,
+    urls: {
+      origin: serverOrigin(),
+      base: `${serverOrigin()}/ext/${extensionName}`,
+    },
     isEnabled,
     stepTypes: {
       register: registerStepType,

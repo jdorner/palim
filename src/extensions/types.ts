@@ -686,6 +686,18 @@ export interface ExtensionContext {
   };
 
   // -------------------------------------------------------------------------
+  // URLs
+  // -------------------------------------------------------------------------
+
+  /** Pre-computed URL references for this extension. */
+  readonly urls: {
+    /** Server origin (scheme + host + port, e.g. "http://localhost:3000"). */
+    readonly origin: string;
+    /** This extension's base URL including the route prefix (e.g. "http://localhost:3000/ext/invoice-scanner"). */
+    readonly base: string;
+  };
+
+  // -------------------------------------------------------------------------
   // Workflows
   // -------------------------------------------------------------------------
 
