@@ -87,6 +87,8 @@ let saveError = $state<string | null>(null);
 let validationErrors = $state<Map<string, string>>(new Map());
 /** Whether to show the raw JSON editor instead of the schema-driven form for custom step types. */
 let editAsJson = $state(false);
+/** Whether to show raw JSON in read-only view mode. */
+let viewAsJson = $state(false);
 
 // Meta endpoint state for tools/skills
 let availableTools = $state<string[]>([]);
@@ -197,6 +199,7 @@ function cancelEdit() {
   saveError = null;
   validationErrors = new Map();
   editAsJson = false;
+  viewAsJson = false;
   fitViewTrigger++;
   // Re-point sidebar to the original workflow step data
   if (sidebarOpen && selectedStepIndex >= 0 && workflow?.steps[selectedStepIndex]) {
@@ -572,6 +575,7 @@ function onStepClick(step: { slug: string; type: string }, index: number) {
   selectedStep = def as StepDef;
   selectedStepIndex = stepIndex;
   sidebarOpen = true;
+  viewAsJson = false;
 }
 
 function closeSidebar() {
@@ -1229,7 +1233,25 @@ onDestroy(() => {
                     <!-- Read-only: custom step type config -->
                     {@const roStepType = selectedStep.type}
                     {@const roStepTypeInfo = customStepTypes.find(st => st.type === roStepType)}
-                    {#if roStepTypeInfo?.configSchema}
+                    {#if viewAsJson}
+                      <div class="flex flex-col gap-1.5 flex-1 min-h-0">
+                        <div class="flex items-center justify-between">
+                          <span class="text-xs font-medium text-muted-foreground">Configuration (JSON)</span>
+                          {#if roStepTypeInfo?.configSchema}
+                            <button
+                              type="button"
+                              class="text-xs text-muted-foreground underline hover:text-foreground"
+                              onclick={() => { viewAsJson = false; }}
+                            >
+                              View as form
+                            </button>
+                          {/if}
+                        </div>
+                        <pre
+                          class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded flex-1 overflow-y-auto"
+                        >{JSON.stringify(selectedStep, null, 2)}</pre>
+                      </div>
+                    {:else if roStepTypeInfo?.configSchema}
                       {@const roConfig = (() => { const { slug: _s, type: _t, input: _i, output: _o, ...rest } = selectedStep; return rest; })()}
                       <StepConfigForm
                         schema={roStepTypeInfo.configSchema}
@@ -1237,6 +1259,13 @@ onDestroy(() => {
                         readonly={true}
                         itemOptions={{ skills: availableSkills }}
                       />
+                      <button
+                        type="button"
+                        class="text-xs text-muted-foreground underline hover:text-foreground mt-3"
+                        onclick={() => { viewAsJson = true; }}
+                      >
+                        View as JSON
+                      </button>
                     {:else}
                       <div class="space-y-3">
                         <div>
@@ -1248,6 +1277,13 @@ onDestroy(() => {
                             null, 2
                           )}</pre>
                         </div>
+                        <button
+                          type="button"
+                          class="text-xs text-muted-foreground underline hover:text-foreground"
+                          onclick={() => { viewAsJson = true; }}
+                        >
+                          View as JSON
+                        </button>
                       </div>
                     {/if}
                   {:else}
