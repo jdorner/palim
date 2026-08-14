@@ -87,6 +87,8 @@ let saveError = $state<string | null>(null);
 let validationErrors = $state<Map<string, string>>(new Map());
 /** Whether to show the raw JSON editor instead of the schema-driven form for custom step types. */
 let editAsJson = $state(false);
+/** Whether to show raw JSON in read-only view mode. */
+let viewAsJson = $state(false);
 
 // Meta endpoint state for tools/skills
 let availableTools = $state<string[]>([]);
@@ -197,6 +199,7 @@ function cancelEdit() {
   saveError = null;
   validationErrors = new Map();
   editAsJson = false;
+  viewAsJson = false;
   fitViewTrigger++;
   // Re-point sidebar to the original workflow step data
   if (sidebarOpen && selectedStepIndex >= 0 && workflow?.steps[selectedStepIndex]) {
@@ -572,6 +575,7 @@ function onStepClick(step: { slug: string; type: string }, index: number) {
   selectedStep = def as StepDef;
   selectedStepIndex = stepIndex;
   sidebarOpen = true;
+  viewAsJson = false;
 }
 
 function closeSidebar() {
@@ -1112,53 +1116,98 @@ onDestroy(() => {
                       </div>
                     </div>
                   {:else if !editMode && selectedStep?.type === "agent" && selectedStep.prompt}
-                    <div class="space-y-3">
-                      <div class="flex items-center gap-1.5 flex-wrap">
-                        <span class="text-xs font-medium text-muted-foreground">Tools:</span>
-                        {#if selectedStep.tools?.length}
-                          {#each selectedStep.tools as tool}
-                            <Badge variant="outline" class="text-xs">{tool}</Badge>
-                          {/each}
-                        {:else}
-                          <Badge variant="outline" class="text-xs">none</Badge>
-                        {/if}
-                      </div>
-
-                      <div class="flex items-center gap-1.5 flex-wrap">
-                        <span class="text-xs font-medium text-muted-foreground">Skills:</span>
-                        {#if selectedStep.skills?.length}
-                          {#each selectedStep.skills as skill}
-                            <Badge variant="outline" class="text-xs">{skill}</Badge>
-                          {/each}
-                        {:else}
-                          <Badge variant="outline" class="text-xs">none</Badge>
-                        {/if}
-                      </div>
-
-                      <div>
-                        <span class="text-xs font-medium text-muted-foreground">Prompt:</span>
+                    {#if viewAsJson}
+                      <div class="flex flex-col gap-2 flex-1 min-h-0">
                         <pre
-                          class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded mt-1"
-                        >{@html renderMarkdown(selectedStep.prompt)}</pre>
-                      </div>
-                    </div>
-                  {:else if !editMode && selectedStep.type === "webhook"}
-                    <div class="space-y-3">
-                      <div>
-                        <span class="text-xs font-medium text-muted-foreground">URL</span>
-                        <code class="block text-xs font-mono bg-muted px-2 py-1 rounded mt-0.5"
-                          >{selectedStep.method ?? "POST"} {selectedStep.url}</code
+                          class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded flex-1 overflow-y-auto"
+                        >{JSON.stringify(selectedStep, null, 2)}</pre>
+                        <button
+                          type="button"
+                          class="text-xs text-muted-foreground underline hover:text-foreground"
+                          onclick={() => { viewAsJson = false; }}
                         >
+                          View as form
+                        </button>
                       </div>
-                      {#if selectedStep.body}
-                        <div>
-                          <span class="text-xs font-medium text-muted-foreground">Body</span>
-                          <pre
-                            class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-32 overflow-y-auto mt-0.5"
-                          >{selectedStep.body}</pre>
+                    {:else}
+                      <div class="space-y-3">
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                          <span class="text-xs font-medium text-muted-foreground">Tools:</span>
+                          {#if selectedStep.tools?.length}
+                            {#each selectedStep.tools as tool}
+                              <Badge variant="outline" class="text-xs">{tool}</Badge>
+                            {/each}
+                          {:else}
+                            <Badge variant="outline" class="text-xs">none</Badge>
+                          {/if}
                         </div>
-                      {/if}
-                    </div>
+
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                          <span class="text-xs font-medium text-muted-foreground">Skills:</span>
+                          {#if selectedStep.skills?.length}
+                            {#each selectedStep.skills as skill}
+                              <Badge variant="outline" class="text-xs">{skill}</Badge>
+                            {/each}
+                          {:else}
+                            <Badge variant="outline" class="text-xs">none</Badge>
+                          {/if}
+                        </div>
+
+                        <div>
+                          <span class="text-xs font-medium text-muted-foreground">Prompt:</span>
+                          <pre
+                            class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded mt-1"
+                          >{@html renderMarkdown(selectedStep.prompt)}</pre>
+                        </div>
+
+                        <button
+                          type="button"
+                          class="text-xs text-muted-foreground underline hover:text-foreground"
+                          onclick={() => { viewAsJson = true; }}
+                        >
+                          View as JSON
+                        </button>
+                      </div>
+                    {/if}
+                  {:else if !editMode && selectedStep.type === "webhook"}
+                    {#if viewAsJson}
+                      <div class="flex flex-col gap-2 flex-1 min-h-0">
+                        <pre
+                          class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded flex-1 overflow-y-auto"
+                        >{JSON.stringify(selectedStep, null, 2)}</pre>
+                        <button
+                          type="button"
+                          class="text-xs text-muted-foreground underline hover:text-foreground"
+                          onclick={() => { viewAsJson = false; }}
+                        >
+                          View as form
+                        </button>
+                      </div>
+                    {:else}
+                      <div class="space-y-3">
+                        <div>
+                          <span class="text-xs font-medium text-muted-foreground">URL</span>
+                          <code class="block text-xs font-mono bg-muted px-2 py-1 rounded mt-0.5"
+                            >{selectedStep.method ?? "POST"} {selectedStep.url}</code
+                          >
+                        </div>
+                        {#if selectedStep.body}
+                          <div>
+                            <span class="text-xs font-medium text-muted-foreground">Body</span>
+                            <pre
+                              class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-32 overflow-y-auto mt-0.5"
+                            >{selectedStep.body}</pre>
+                          </div>
+                        {/if}
+                        <button
+                          type="button"
+                          class="text-xs text-muted-foreground underline hover:text-foreground"
+                          onclick={() => { viewAsJson = true; }}
+                        >
+                          View as JSON
+                        </button>
+                      </div>
+                    {/if}
                   {:else if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) !== "agent" && (editDraftStep.type ?? selectedStep?.type) !== "webhook"}
                     <!-- Edit mode: custom step type - schema-driven form or JSON fallback -->
                     {@const stepType = editDraftStep.type ?? selectedStep?.type}
@@ -1229,7 +1278,20 @@ onDestroy(() => {
                     <!-- Read-only: custom step type config -->
                     {@const roStepType = selectedStep.type}
                     {@const roStepTypeInfo = customStepTypes.find(st => st.type === roStepType)}
-                    {#if roStepTypeInfo?.configSchema}
+                    {#if viewAsJson}
+                      <div class="flex flex-col gap-2 flex-1 min-h-0">
+                        <pre
+                          class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded flex-1 overflow-y-auto"
+                        >{JSON.stringify(selectedStep, null, 2)}</pre>
+                        <button
+                          type="button"
+                          class="text-xs text-muted-foreground underline hover:text-foreground"
+                          onclick={() => { viewAsJson = false; }}
+                        >
+                          View as form
+                        </button>
+                      </div>
+                    {:else if roStepTypeInfo?.configSchema}
                       {@const roConfig = (() => { const { slug: _s, type: _t, input: _i, output: _o, ...rest } = selectedStep; return rest; })()}
                       <StepConfigForm
                         schema={roStepTypeInfo.configSchema}
@@ -1237,6 +1299,13 @@ onDestroy(() => {
                         readonly={true}
                         itemOptions={{ skills: availableSkills }}
                       />
+                      <button
+                        type="button"
+                        class="text-xs text-muted-foreground underline hover:text-foreground mt-3"
+                        onclick={() => { viewAsJson = true; }}
+                      >
+                        View as JSON
+                      </button>
                     {:else}
                       <div class="space-y-3">
                         <div>
@@ -1248,6 +1317,13 @@ onDestroy(() => {
                             null, 2
                           )}</pre>
                         </div>
+                        <button
+                          type="button"
+                          class="text-xs text-muted-foreground underline hover:text-foreground"
+                          onclick={() => { viewAsJson = true; }}
+                        >
+                          View as JSON
+                        </button>
                       </div>
                     {/if}
                   {:else}
