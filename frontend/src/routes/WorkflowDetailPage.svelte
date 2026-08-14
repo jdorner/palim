@@ -1236,7 +1236,7 @@ onDestroy(() => {
                     {#if viewAsJson}
                       <div class="flex flex-col gap-1.5 flex-1 min-h-0">
                         <div class="flex items-center justify-between">
-                          <label class="text-xs font-medium text-muted-foreground">Configuration (JSON)</label>
+                          <span class="text-xs font-medium text-muted-foreground">Configuration (JSON)</span>
                           {#if roStepTypeInfo?.configSchema}
                             <button
                               type="button"
