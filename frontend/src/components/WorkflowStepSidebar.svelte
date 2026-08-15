@@ -104,8 +104,6 @@ let {
 
 // Element references for template autocomplete
 let promptEl = $state<HTMLTextAreaElement | null>(null);
-let urlEl = $state<HTMLInputElement | null>(null);
-let bodyEl = $state<HTMLTextAreaElement | null>(null);
 </script>
 
 <div class="w-95 h-full flex flex-col">
@@ -166,7 +164,6 @@ let bodyEl = $state<HTMLTextAreaElement | null>(null);
         }}
       >
         <option value="agent">{labelForStepType("agent")}</option>
-        <option value="webhook">{labelForStepType("webhook")}</option>
         {#each customStepTypes as stepType}
           <option value={stepType.type}>{stepType.icon ?? ""} {stepType.label}</option>
         {/each}
@@ -240,71 +237,6 @@ let bodyEl = $state<HTMLTextAreaElement | null>(null);
           />
         </div>
       </div>
-    {:else if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) === "webhook"}
-      <!-- Edit mode: webhook step -->
-      <div class="space-y-4">
-        <div class="flex flex-col gap-1.5">
-          <label for="step-url" class="text-xs font-medium text-muted-foreground">URL</label>
-          <input
-            id="step-url"
-            bind:this={urlEl}
-            type="text"
-            class="w-full px-2 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-            value={editDraftStep.url ?? ""}
-            oninput={(e) => {
-              onUpdateDraftStep(selectedStepIndex, (s) => { s.url = (e.target as HTMLInputElement).value; });
-              const newErrors = new Map(validationErrors);
-              newErrors.delete(`steps[${selectedStepIndex}].url`);
-              onValidationErrorsChange(newErrors);
-            }}
-            placeholder="https://..."
-          >
-          {#if validationErrors.get(`steps[${selectedStepIndex}].url`)}
-            <span class="text-xs text-destructive">{validationErrors.get(`steps[${selectedStepIndex}].url`)}</span>
-          {/if}
-          <TemplateAutocomplete
-            targetElement={urlEl}
-            steps={editDraft?.steps ?? []}
-            currentStepIndex={selectedStepIndex}
-            secretKeys={cachedSecretKeys}
-            {outputSchemas}
-            onChange={(newValue) => onUpdateDraftStep(selectedStepIndex, (s) => { s.url = newValue; })}
-          />
-        </div>
-        <div class="flex flex-col gap-1.5">
-          <label for="step-method" class="text-xs font-medium text-muted-foreground">Method</label>
-          <select
-            id="step-method"
-            class="px-2 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-            value={editDraftStep.method ?? "POST"}
-            onchange={(e) => onUpdateDraftStep(selectedStepIndex, (s) => { s.method = (e.target as HTMLSelectElement).value; })}
-          >
-            <option value="GET">GET</option>
-            <option value="POST">POST</option>
-            <option value="PUT">PUT</option>
-            <option value="DELETE">DELETE</option>
-          </select>
-        </div>
-        <div class="flex flex-col gap-1.5">
-          <label for="step-body" class="text-xs font-medium text-muted-foreground">Body</label>
-          <textarea
-            id="step-body"
-            bind:this={bodyEl}
-            class="w-full min-h-25 px-2 py-1.5 text-sm font-mono border border-border rounded-md bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
-            value={editDraftStep.body ?? ""}
-            oninput={(e) => onUpdateDraftStep(selectedStepIndex, (s) => { s.body = (e.target as HTMLTextAreaElement).value; })}
-            placeholder="Optional request body..."
-          ></textarea>
-          <TemplateAutocomplete
-            targetElement={bodyEl}
-            steps={editDraft?.steps ?? []}
-            currentStepIndex={selectedStepIndex}
-            secretKeys={cachedSecretKeys}
-            {outputSchemas}
-            onChange={(newValue) => onUpdateDraftStep(selectedStepIndex, (s) => { s.body = newValue; })}
-          />
-        </div>
-      </div>
     {:else if !editMode && selectedStep?.type === "agent" && selectedStep.prompt}
       <div class="space-y-3">
         <div class="flex items-center gap-1.5 flex-wrap">
@@ -336,24 +268,7 @@ let bodyEl = $state<HTMLTextAreaElement | null>(null);
           >{@html renderMarkdown(selectedStep.prompt)}</pre>
         </div>
       </div>
-    {:else if !editMode && selectedStep.type === "webhook"}
-      <div class="space-y-3">
-        <div>
-          <span class="text-xs font-medium text-muted-foreground">URL</span>
-          <code class="block text-xs font-mono bg-muted px-2 py-1 rounded mt-0.5"
-            >{selectedStep.method ?? "POST"} {selectedStep.url}</code
-          >
-        </div>
-        {#if selectedStep.body}
-          <div>
-            <span class="text-xs font-medium text-muted-foreground">Body</span>
-            <pre
-              class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-32 overflow-y-auto mt-0.5"
-            >{selectedStep.body}</pre>
-          </div>
-        {/if}
-      </div>
-    {:else if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) !== "agent" && (editDraftStep.type ?? selectedStep?.type) !== "webhook"}
+    {:else if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) !== "agent"}
       <!-- Edit mode: custom step type - schema-driven form or JSON fallback -->
       {@const stepType = editDraftStep.type ?? selectedStep?.type}
       {@const stepTypeInfo = customStepTypes.find(st => st.type === stepType)}
@@ -415,7 +330,7 @@ let bodyEl = $state<HTMLTextAreaElement | null>(null);
           </div>
         {/if}
       </div>
-    {:else if !editMode && selectedStep.type !== "agent" && selectedStep.type !== "webhook"}
+    {:else if !editMode && selectedStep.type !== "agent"}
       <!-- Read-only: custom step type config -->
       {@const roStepType = selectedStep.type}
       {@const roStepTypeInfo = customStepTypes.find(st => st.type === roStepType)}

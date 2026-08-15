@@ -26,9 +26,6 @@ export interface StepDraft {
   prompt?: string;
   tools?: string[];
   skills?: string[];
-  url?: string;
-  method?: string;
-  body?: string;
   /** Raw JSON config for custom (extension-registered) step types. */
   config?: Record<string, unknown>;
 }
@@ -151,9 +148,6 @@ export function validateWorkflowDraft(draft: WorkflowDraft): Map<string, string>
     if (step.type === "agent" && (!step.prompt || step.prompt.trim().length === 0)) {
       errors.set(`steps[${i}].prompt`, "Prompt is required for agent steps");
     }
-    if (step.type === "webhook" && (!step.url || step.url.trim().length === 0)) {
-      errors.set(`steps[${i}].url`, "URL is required for webhook steps");
-    }
   }
 
   // Validate step slugs uniqueness
@@ -184,21 +178,6 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
     }
     if (step.skills && step.skills.length > 0) {
       result.skills = step.skills;
-    }
-    return result;
-  }
-
-  if (step.type === "webhook") {
-    const result: Record<string, unknown> = {
-      slug: step.slug,
-      type: "webhook",
-      url: step.url,
-    };
-    if (step.method) {
-      result.method = step.method;
-    }
-    if (step.body) {
-      result.body = step.body;
     }
     return result;
   }

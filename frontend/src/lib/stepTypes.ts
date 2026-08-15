@@ -26,7 +26,7 @@ export function getCustomStepLabel(type: string): string | undefined {
 
 /**
  * Returns a human-readable label (with icon) for a workflow step type.
- * Handles built-in types (trigger, agent, webhook) and custom extension types.
+ * Handles the built-in agent type and custom extension types (including http-request).
  *
  * @param type - The step type identifier
  * @param triggerType - Optional trigger subtype (webhook, schedule, manual, filewatcher)
@@ -37,20 +37,18 @@ export function labelForStepType(type: string, triggerType?: string): string {
     case "trigger":
       switch (triggerType) {
         case "webhook":
-          return "🔗 Webhook Trigger";
+          return "\uD83D\uDD17 Webhook Trigger";
         case "schedule":
-          return "⏰ Schedule Trigger";
+          return "\u23F0 Schedule Trigger";
         case "manual":
-          return "▶️ Manual Trigger";
+          return "\u25B6\uFE0F Manual Trigger";
         case "filewatcher":
-          return "👁️ File Watcher Trigger";
+          return "\uD83D\uDC41\uFE0F File Watcher Trigger";
         default:
-          return "⚡ Trigger";
+          return "\u26A1 Trigger";
       }
     case "agent":
-      return "🤖 Agent";
-    case "webhook":
-      return "📡 Webhook";
+      return "\uD83E\uDD16 Agent";
     default:
       return getCustomStepLabel(type) ?? `\u2699\uFE0F ${type.charAt(0).toUpperCase()}${type.slice(1)}`;
   }
