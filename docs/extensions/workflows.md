@@ -43,19 +43,21 @@ Run an AI agent with a prompt, optional tools, and optional skills:
 }
 ```
 
-### Webhook Steps
+### HTTP Request Steps
 
-Make an outbound HTTP request:
+Make an outbound HTTP request (provided by the `core-wf-steps` extension):
 
 ```json5
 {
   "slug": "notify-api",
-  "type": "webhook",
+  "type": "http-request",
   "url": "https://api.example.com/notify",
   "method": "POST",
   "body": "{\"status\": \"complete\"}"
 }
 ```
+
+The `http-request` step type supports additional options: custom `headers`, `timeout` (ms), `responseFormat` (`"json"` or `"text"`), and `expectedStatus` (array of acceptable status codes).
 
 ## Definition Schema
 

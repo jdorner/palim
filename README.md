@@ -50,7 +50,7 @@ After first start, check Settings > Extensions in the web UI to enable the capab
 
 - **Conversational AI** - Multi-turn sessions with streamed responses and persistent chat history
 - **Local LLM support** - Use any inference engine with an OpenAI-compatible API (llama.cpp, llama-swap, vLLM, etc.)
-- **Extension system** - 11 built-in extensions covering webhooks, scheduling, Telegram, workflows, wiki, MCP bridging, and more
+- **Extension system** - 12 built-in extensions covering webhooks, scheduling, Telegram, workflows, wiki, MCP bridging, and more
 - **Sandboxed execution** - The agent's shell runs inside a virtual filesystem where only `AGENT_WORK_DIR` is mounted - file operations are real, but the agent cannot access anything outside that directory
 
 ## Scope
@@ -62,8 +62,7 @@ After first start, check Settings > Extensions in the web UI to enable the capab
 
 ## Extensions
 
-Palim ships with 11 built-in extensions (7 optional, 4 core):
-basic
+Palim ships with 12 built-in extensions (7 optional, 5 core):
 
 | Extension | Type | Purpose |
 | --------- | ---- | ------- |
@@ -71,6 +70,7 @@ basic
 | `scheduler` | Core | Cron and interval-based job scheduling with persistence |
 | `webhooks` | Core | Authenticated HTTP endpoints for receiving external service events |
 | `workflows` | Core | Multi-step job pipelines defined in JSON5 |
+| `core-wf-steps` | Core | Built-in workflow step types (HTTP Request) |
 | `converter` | Optional | Converts files (PDFs, images) to markdown via vision LLM |
 | `error-analyzer` | Optional | Automatic failure analysis and error reporting for jobs and workflows |
 | `mcp` | Optional | Bridges MCP (Model Context Protocol) servers into the skill system |
@@ -175,7 +175,7 @@ src/
 ├── jobs/          # Job queue definitions (agent, chat)
 ├── queue/         # ManagedQueue abstraction over bunqueue
 ├── web/           # Elysia HTTP server, WebSocket, REST routes
-├── extensions/    # Plugin system (11 built-in extensions)
+├── extensions/    # Plugin system (12 built-in extensions)
 │   └── core/      # Non-deactivatable infrastructure extensions
 ├── secrets/       # Encrypted vault, ACL, audit logging
 ├── skills/        # Skill loading and YAML frontmatter parsing

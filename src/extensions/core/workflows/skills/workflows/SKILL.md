@@ -37,7 +37,7 @@ Workflows chain multiple agent jobs into sequential pipelines where the output o
   "steps": [
     {
       "slug": "step-name", // required, unique within workflow, kebab-case
-      "type": "agent", // "agent" or "webhook"
+      "type": "agent", // "agent" or any registered step type (e.g. "http-request", "sandbox-exec")
       // optional, tool names for agent steps
       "tools": ["exec"],
       // optional, skill names for agent steps
@@ -50,8 +50,8 @@ Workflows chain multiple agent jobs into sequential pipelines where the output o
     },
     {
       "slug": "call-api",
-      "type": "webhook", // outbound HTTP request
-      "url": "https://example.com", // required for webhook steps
+      "type": "http-request", // outbound HTTP request (registered by core-wf-steps extension)
+      "url": "https://example.com", // required
       "method": "POST", // optional, defaults to POST
       "body": "{\"key\": \"value\"}", // optional
     },
@@ -178,19 +178,21 @@ Agent step with skills — the agent gets the full skill context and can read sk
 }
 ```
 
-### Webhook step
+### HTTP Request step
 
-Makes an outbound HTTP request. The response body becomes the step result.
+Makes an outbound HTTP request. The response body becomes the step result (provided by the `core-wf-steps` extension).
 
 ```json5
 {
   "slug": "notify-slack",
-  "type": "webhook",
+  "type": "http-request",
   "url": "{{env.SLACK_WEBHOOK_URL}}",
   "method": "POST",
   "body": "{\"text\": \"Invoice {{steps.extract-data.result.invoice}} processed.\"}",
 }
 ```
+
+Additional options: `headers` (key-value map), `timeout` (ms, default 30000), `responseFormat` (`"json"` or `"text"`), `expectedStatus` (array of acceptable status codes).
 
 ## Trigger types
 

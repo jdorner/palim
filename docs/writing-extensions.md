@@ -1106,7 +1106,7 @@ Step type "excel" is not available. The extension providing this step type may b
 ### Constraints
 
 - Step type names must be globally unique (one extension per type)
-- Built-in types (`agent`, `webhook`) cannot be overridden
+- Built-in types (`agent`) cannot be overridden
 - Step type names follow the same pattern as extension names: `^[a-z][a-z0-9-]*$`
 - Disabling the providing extension makes the step type unavailable at runtime (workflows fail explicitly)
 
