@@ -75,10 +75,14 @@ function getTemplateFields(step: WorkflowStep): [string, string][] {
     const agentStep = step as import("./schemas").AgentStep;
     const prompt = Array.isArray(agentStep.prompt) ? agentStep.prompt.join("\n") : agentStep.prompt;
     fields.push(["prompt", prompt]);
-  } else if (step.type === "webhook") {
-    const webhookStep = step as import("./schemas").WebhookStep;
-    fields.push(["url", webhookStep.url]);
-    if (webhookStep.body) fields.push(["body", webhookStep.body]);
+  } else {
+    // Custom step types: scan all string-valued config fields for template expressions
+    const { slug: _s, type: _t, outputSchema: _os, ...config } = step as Record<string, unknown>;
+    for (const [key, value] of Object.entries(config)) {
+      if (typeof value === "string") {
+        fields.push([key, value]);
+      }
+    }
   }
   return fields;
 }

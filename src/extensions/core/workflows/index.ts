@@ -132,7 +132,7 @@ export function validateWorkflowDependencies(
 }
 
 /** Built-in step types handled directly by the workflow engine. */
-const BUILTIN_STEP_TYPES = new Set(["agent", "webhook"]);
+const BUILTIN_STEP_TYPES = new Set(["agent"]);
 
 /**
  * Produces per-step warnings for dependencies that are not currently available.

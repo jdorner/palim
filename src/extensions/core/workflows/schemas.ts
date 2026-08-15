@@ -64,19 +64,6 @@ export const AgentStepSchema = Type.Object(
   { additionalProperties: false },
 );
 
-/** A webhook step - makes an outbound HTTP request. */
-export const WebhookStepSchema = Type.Object(
-  {
-    slug: Type.String({ minLength: 1, pattern: "^[a-z][a-z0-9-]*$" }),
-    type: Type.Literal("webhook"),
-    url: Type.String({ minLength: 1 }),
-    method: Type.Optional(Type.String()),
-    body: Type.Optional(Type.String()),
-    outputSchema: Type.Optional(OutputSchemaSchema),
-  },
-  { additionalProperties: false },
-);
-
 /**
  * A generic step for custom (extension-registered) step types.
  *
@@ -95,11 +82,12 @@ export const GenericStepSchema = Type.Object(
 /**
  * Discriminated union of all supported step types.
  *
- * Built-in types (agent, webhook) are validated strictly with closed schemas.
- * Custom step types fall through to `GenericStepSchema` which requires only
- * `slug` + `type` and allows additional properties for extension-specific config.
+ * The `agent` type is validated strictly with a closed schema.
+ * Custom step types (including `http-request`) fall through to
+ * `GenericStepSchema` which requires only `slug` + `type` and allows
+ * additional properties for extension-specific config.
  */
-export const StepSchema = Type.Union([AgentStepSchema, WebhookStepSchema, GenericStepSchema]);
+export const StepSchema = Type.Union([AgentStepSchema, GenericStepSchema]);
 
 /** Root workflow definition schema. */
 export const WorkflowDefinitionSchema = Type.Object(
@@ -121,9 +109,6 @@ export type WorkflowStep = Static<typeof StepSchema>;
 
 /** TypeScript type for an agent step. */
 export type AgentStep = Static<typeof AgentStepSchema>;
-
-/** TypeScript type for a webhook step. */
-export type WebhookStep = Static<typeof WebhookStepSchema>;
 
 /** TypeScript type for a generic (custom extension) step. */
 export type GenericStep = Static<typeof GenericStepSchema>;

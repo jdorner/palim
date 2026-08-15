@@ -311,30 +311,6 @@ describe("serializeStep", () => {
     expect(result).not.toHaveProperty("body");
   });
 
-  test("webhook step includes only webhook-valid fields", () => {
-    const step = {
-      slug: "hook-step",
-      type: "webhook" as const,
-      url: "http://example.com/hook",
-      method: "POST",
-      body: '{"data": true}',
-      prompt: "This should be stripped",
-      tools: ["read_file"],
-      skills: ["wiki"],
-    };
-    const result = serializeStep(step);
-    expect(result).toEqual({
-      slug: "hook-step",
-      type: "webhook",
-      url: "http://example.com/hook",
-      method: "POST",
-      body: '{"data": true}',
-    });
-    expect(result).not.toHaveProperty("prompt");
-    expect(result).not.toHaveProperty("tools");
-    expect(result).not.toHaveProperty("skills");
-  });
-
   test("agent step omits tools when empty array", () => {
     const step = {
       slug: "agent-step",
@@ -369,24 +345,6 @@ describe("serializeStep", () => {
       tools: ["tool-a"],
     });
     expect(result).not.toHaveProperty("skills");
-  });
-
-  test("webhook step omits method and body when falsy", () => {
-    const step = {
-      slug: "hook-step",
-      type: "webhook" as const,
-      url: "http://example.com",
-      method: "",
-      body: "",
-    };
-    const result = serializeStep(step);
-    expect(result).toEqual({
-      slug: "hook-step",
-      type: "webhook",
-      url: "http://example.com",
-    });
-    expect(result).not.toHaveProperty("method");
-    expect(result).not.toHaveProperty("body");
   });
 
   test("custom step type merges slug + type + config", () => {
@@ -485,17 +443,18 @@ describe("serializeWorkflowDraft", () => {
       trigger: { type: "manual", ref: "" },
       enabled: false,
       steps: [
-        { slug: "agent-step", type: "agent", prompt: "Hello", url: "http://junk.com", method: "GET" },
-        { slug: "hook-step", type: "webhook", url: "http://real.com", prompt: "Junk", tools: ["x"] },
+        { slug: "agent-step", type: "agent", prompt: "Hello", config: { junk: true } },
+        { slug: "req-step", type: "http-request", config: { url: "http://real.com", method: "POST" } },
       ],
     };
     const result = serializeWorkflowDraft(draft) as { steps: Record<string, unknown>[] };
-    // Agent step should not have url or method
-    expect(result.steps[0]).not.toHaveProperty("url");
-    expect(result.steps[0]).not.toHaveProperty("method");
-    // Webhook step should not have prompt or tools
-    expect(result.steps[1]).not.toHaveProperty("prompt");
-    expect(result.steps[1]).not.toHaveProperty("tools");
+    // Agent step should only have slug, type, prompt
+    expect(result.steps[0]).not.toHaveProperty("config");
+    expect(result.steps[0]).toHaveProperty("prompt");
+    // Custom step should spread config into the output
+    expect(result.steps[1]).toHaveProperty("url");
+    expect(result.steps[1]).toHaveProperty("method");
+    expect(result.steps[1]).not.toHaveProperty("config");
   });
 
   test("omits ref when trigger type is manual even if ref is set", () => {
@@ -552,31 +511,6 @@ describe("validateWorkflowDraft - type-specific validation", () => {
     expect(errors.has("steps[0].prompt")).toBe(true);
   });
 
-  test("catches missing url on webhook steps", () => {
-    const draft = {
-      name: "my-workflow",
-      description: "",
-      trigger: { type: "manual", ref: "" },
-      enabled: true,
-      steps: [{ slug: "step-one", type: "webhook", url: "" }],
-    };
-    const errors = validateWorkflowDraft(draft);
-    expect(errors.has("steps[0].url")).toBe(true);
-    expect(errors.get("steps[0].url")).toContain("URL is required");
-  });
-
-  test("catches missing url (undefined) on webhook steps", () => {
-    const draft = {
-      name: "my-workflow",
-      description: "",
-      trigger: { type: "manual", ref: "" },
-      enabled: true,
-      steps: [{ slug: "step-one", type: "webhook" }],
-    };
-    const errors = validateWorkflowDraft(draft);
-    expect(errors.has("steps[0].url")).toBe(true);
-  });
-
   test("no prompt error for agent step with valid prompt", () => {
     const draft = {
       name: "my-workflow",
@@ -587,17 +521,5 @@ describe("validateWorkflowDraft - type-specific validation", () => {
     };
     const errors = validateWorkflowDraft(draft);
     expect(errors.has("steps[0].prompt")).toBe(false);
-  });
-
-  test("no url error for webhook step with valid url", () => {
-    const draft = {
-      name: "my-workflow",
-      description: "",
-      trigger: { type: "manual", ref: "" },
-      enabled: true,
-      steps: [{ slug: "step-one", type: "webhook", url: "http://example.com" }],
-    };
-    const errors = validateWorkflowDraft(draft);
-    expect(errors.has("steps[0].url")).toBe(false);
   });
 });

@@ -1,8 +1,8 @@
 /**
  * Workflow step worker - processes step jobs on the `workflows:steps` queue.
  *
- * Routes execution by step type: agent steps use {@link ExtensionContext.runAgent}
- * and webhook steps make outbound HTTP requests via `fetch()`.
+ * Routes execution by step type: agent steps use {@link ExtensionContext.runAgent},
+ * and all other step types are dispatched to registered {@link StepTypeHandler}s.
  *
  * Each step's result is wrapped in a {@link StepResult} that carries
  * accumulated results from all previous steps, enabling `{{steps.<slug>.result}}`
@@ -249,48 +249,6 @@ async function executeAgentStep(
   return result.answer;
 }
 
-/**
- * Execute a webhook step - resolves templates in URL/body and makes an HTTP request.
- *
- * @param job - The step job
- * @param tmplCtx - Resolved template context
- * @param deps - Worker dependencies
- * @returns The HTTP response body as a string
- */
-async function executeWebhookStep(
-  job: QueueJob<WorkflowStepJobData>,
-  tmplCtx: TemplateContext,
-  _deps: StepWorkerDeps,
-): Promise<string> {
-  const stepDef = job.data.stepDef;
-  if (stepDef.type !== "webhook") throw new Error("Expected webhook step");
-  const webhookDef = stepDef as import("./schemas").WebhookStep;
-
-  const { resolved: url, warnings: urlWarnings } = await resolveTemplates(webhookDef.url, tmplCtx);
-  for (const w of urlWarnings) await job.log(`\u26A0 Template (url): ${w}`);
-
-  const method = webhookDef.method?.toUpperCase() || "POST";
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
-
-  let body: string | undefined;
-  if (webhookDef.body) {
-    const { resolved, warnings } = await resolveTemplates(webhookDef.body, tmplCtx);
-    for (const w of warnings) await job.log(`\u26A0 Template (body): ${w}`);
-    body = resolved;
-  }
-
-  await job.log(`Webhook ${method} ${url}`);
-
-  const response = await fetch(url, { method, headers, body });
-
-  if (!response.ok) {
-    const text = await response.text();
-    throw new Error(`Webhook failed: ${response.status} ${response.statusText} - ${text}`);
-  }
-
-  return await response.text();
-}
-
 /** Maximum number of repair attempts when input validation fails. */
 const MAX_VALIDATION_RETRIES = 2;
 
@@ -335,7 +293,7 @@ async function runInputValidation(
  * Creates the step processor function for the workflows queue.
  *
  * @param deps - Worker dependencies
- * @returns A job processor that handles agent, webhook, and custom extension step types
+ * @returns A job processor that handles agent and custom extension step types
  */
 export function createStepProcessor(deps: StepWorkerDeps) {
   return async (job: QueueJob<WorkflowStepJobData>): Promise<StepResult> => {
@@ -391,8 +349,6 @@ export function createStepProcessor(deps: StepWorkerDeps) {
             }
           }
         }
-      } else if (stepDef.type === "webhook") {
-        value = await executeWebhookStep(job, tmplCtx, deps);
       } else {
         // Look up a registered custom step type handler
         const stepType = (stepDef as unknown as { type: string }).type;

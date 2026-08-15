@@ -150,10 +150,10 @@ function enterEditMode() {
     trigger: { type: workflow.trigger.type, ref: workflow.trigger.ref ?? "" },
     enabled: workflow.enabled ?? true,
     steps: workflow.steps.map((s) => {
-      const { slug, type, prompt, tools, skills, url, method, body, ...rest } = s;
-      const isCustomType = type !== "agent" && type !== "webhook";
+      const { slug, type, prompt, tools, skills } = s;
+      const isCustomType = type !== "agent";
       if (isCustomType) {
-        // For custom step types, skills/tools/prompt/url/method/body are part of
+        // For custom step types, skills/tools/prompt are part of
         // the step config (schema-defined), not top-level draft fields.
         // Rebuild config from all fields except slug and type.
         const { slug: _s, type: _t, input: _i, output: _o, ...config } = s;
@@ -169,9 +169,6 @@ function enterEditMode() {
         prompt,
         tools: tools ? [...tools] : undefined,
         skills: skills ? [...skills] : undefined,
-        url,
-        method,
-        body,
       };
     }),
   };
