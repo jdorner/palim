@@ -71,13 +71,13 @@ export const AgentStepSchema = Type.Object(
  * since the extension's own schema handles detailed validation.
  * The `type` field must not match built-in types (enforced at load time).
  */
-export const GenericStepSchema = Type.Object(
-  {
+export const GenericStepSchema = Type.Intersect([
+  Type.Object({
     slug: Type.String({ minLength: 1, pattern: "^[a-z][a-z0-9-]*$" }),
     type: Type.String({ minLength: 1 }),
-  },
-  { additionalProperties: true },
-);
+  }),
+  Type.Record(Type.String(), Type.Unknown()),
+]);
 
 /**
  * Discriminated union of all supported step types.
@@ -105,7 +105,7 @@ export const WorkflowDefinitionSchema = Type.Object(
 export type WorkflowDefinition = Static<typeof WorkflowDefinitionSchema>;
 
 /** TypeScript type for a single workflow step. */
-export type WorkflowStep = Static<typeof StepSchema>;
+export type WorkflowStep = AgentStep | GenericStep;
 
 /** TypeScript type for an agent step. */
 export type AgentStep = Static<typeof AgentStepSchema>;
