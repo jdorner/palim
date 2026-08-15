@@ -428,7 +428,7 @@ async function saveWorkflow() {
   };
 
   // Run full validation
-  const errors = validateWorkflowDraft(orderedDraft);
+  const errors = validateWorkflowDraft(orderedDraft, customStepTypes);
   if (errors.size > 0) {
     validationErrors = errors;
     return;
