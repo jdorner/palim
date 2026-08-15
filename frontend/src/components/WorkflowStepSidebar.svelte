@@ -340,6 +340,17 @@ let promptEl = $state<HTMLTextAreaElement | null>(null);
                   onUpdateDraftStep(selectedStepIndex, (s) => { s.config = parsed; });
                   const newErrors = new Map(validationErrors);
                   newErrors.delete(`steps[${selectedStepIndex}].config`);
+                  // Live schema validation for JSON editor
+                  const prefix = `steps[${selectedStepIndex}].config.`;
+                  for (const k of [...newErrors.keys()]) {
+                    if (k.startsWith(prefix)) newErrors.delete(k);
+                  }
+                  if (stepTypeInfo?.configSchema) {
+                    const configErrors = validateStepConfig(parsed, stepTypeInfo.configSchema);
+                    for (const [field, msg] of configErrors) {
+                      newErrors.set(`${prefix}${field}`, msg);
+                    }
+                  }
                   onValidationErrorsChange(newErrors);
                 } catch {
                   const newErrors = new Map(validationErrors);
