@@ -6,6 +6,7 @@ import { labelForStepType } from "$lib/stepTypes";
 import type { OutputSchemas } from "$lib/templateScope";
 import { renderMarkdown } from "$lib/utils";
 import type { StepDraft, WorkflowDraft } from "$lib/workflowValidation";
+import { validateStepConfig } from "$lib/workflowValidation";
 import MultiSelect from "./MultiSelect.svelte";
 import StepConfigForm from "./StepConfigForm.svelte";
 import TemplateAutocomplete from "./TemplateAutocomplete.svelte";
@@ -277,12 +278,35 @@ let promptEl = $state<HTMLTextAreaElement | null>(null);
           <StepConfigForm
             schema={stepTypeInfo.configSchema}
             values={editDraftStep.config ?? {}}
-            onchange={(vals) => onUpdateDraftStep(selectedStepIndex, (s) => { s.config = vals; })}
+            onchange={(vals) => {
+              onUpdateDraftStep(selectedStepIndex, (s) => { s.config = vals; });
+              // Live validation: re-check config against schema and update errors
+              const prefix = `steps[${selectedStepIndex}].config.`;
+              const newErrors = new Map(validationErrors);
+              // Remove old config errors for this step
+              for (const k of [...newErrors.keys()]) {
+                if (k.startsWith(prefix)) newErrors.delete(k);
+              }
+              // Run validation and add fresh errors
+              const configErrors = validateStepConfig(vals ?? {}, stepTypeInfo.configSchema!);
+              for (const [field, msg] of configErrors) {
+                newErrors.set(`${prefix}${field}`, msg);
+              }
+              onValidationErrorsChange(newErrors);
+            }}
             steps={editDraft?.steps ?? []}
             currentStepIndex={selectedStepIndex}
             secretKeys={cachedSecretKeys}
             {outputSchemas}
             itemOptions={{ skills: availableSkills }}
+            fieldErrors={(() => {
+              const prefix = `steps[${selectedStepIndex}].config.`;
+              const m = new Map<string, string>();
+              for (const [k, v] of validationErrors) {
+                if (k.startsWith(prefix)) m.set(k.slice(prefix.length), v);
+              }
+              return m;
+            })()}
           />
           <button
             type="button"

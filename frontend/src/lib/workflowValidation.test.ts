@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { validateSlug, validateStepSlugsUnique, validateWorkflowDraft, type WorkflowDraft } from "./workflowValidation";
+import {
+  type StepTypeSchema,
+  validateSlug,
+  validateStepConfig,
+  validateStepSlugsUnique,
+  validateWorkflowDraft,
+  type WorkflowDraft,
+} from "./workflowValidation";
 
 describe("workflowValidation", () => {
   describe("validateSlug", () => {
@@ -521,5 +528,148 @@ describe("validateWorkflowDraft - type-specific validation", () => {
     };
     const errors = validateWorkflowDraft(draft);
     expect(errors.has("steps[0].prompt")).toBe(false);
+  });
+});
+
+describe("validateStepConfig", () => {
+  const schema = {
+    type: "object",
+    properties: {
+      url: { type: "string", title: "URL", minLength: 1 },
+      method: { type: "string", title: "Method" },
+      timeout: { type: "number", title: "Timeout", minimum: 1000, maximum: 300000 },
+      body: { type: "string", title: "Body", maxLength: 50 },
+    },
+    required: ["url"],
+  };
+
+  test("returns no errors for valid config", () => {
+    const errors = validateStepConfig({ url: "http://example.com", method: "POST" }, schema);
+    expect(errors).toEqual([]);
+  });
+
+  test("catches missing required field", () => {
+    const errors = validateStepConfig({ method: "GET" }, schema);
+    expect(errors.length).toBe(1);
+    expect(errors[0][0]).toBe("url");
+    expect(errors[0][1]).toContain("required");
+  });
+
+  test("catches empty required string field", () => {
+    const errors = validateStepConfig({ url: "" }, schema);
+    expect(errors.length).toBe(1);
+    expect(errors[0][0]).toBe("url");
+    expect(errors[0][1]).toContain("required");
+  });
+
+  test("catches minLength violation", () => {
+    // url has minLength: 1, but "required" check fires first for empty strings.
+    // Use a non-required field or test url with a 1-char value (passes minLength).
+    // Let's add a scenario where a non-required field has minLength > 1.
+    const strictSchema = {
+      type: "object",
+      properties: {
+        name: { type: "string", title: "Name", minLength: 3 },
+      },
+      required: [],
+    };
+    const errors = validateStepConfig({ name: "ab" }, strictSchema);
+    expect(errors.length).toBe(1);
+    expect(errors[0][0]).toBe("name");
+    expect(errors[0][1]).toContain("at least 3");
+  });
+
+  test("catches maxLength violation", () => {
+    const errors = validateStepConfig({ url: "http://x.com", body: "x".repeat(51) }, schema);
+    expect(errors.length).toBe(1);
+    expect(errors[0][0]).toBe("body");
+    expect(errors[0][1]).toContain("must not exceed 50");
+  });
+
+  test("catches minimum violation on number", () => {
+    const errors = validateStepConfig({ url: "http://x.com", timeout: 500 }, schema);
+    expect(errors.length).toBe(1);
+    expect(errors[0][0]).toBe("timeout");
+    expect(errors[0][1]).toContain("at least 1000");
+  });
+
+  test("catches maximum violation on number", () => {
+    const errors = validateStepConfig({ url: "http://x.com", timeout: 999999 }, schema);
+    expect(errors.length).toBe(1);
+    expect(errors[0][0]).toBe("timeout");
+    expect(errors[0][1]).toContain("must not exceed 300000");
+  });
+
+  test("skips validation for absent optional fields", () => {
+    const errors = validateStepConfig({ url: "http://x.com" }, schema);
+    expect(errors).toEqual([]);
+  });
+});
+
+describe("validateWorkflowDraft with step type schemas", () => {
+  const stepTypeSchemas: StepTypeSchema[] = [
+    {
+      type: "http-request",
+      configSchema: {
+        type: "object",
+        properties: {
+          url: { type: "string", title: "URL", minLength: 1 },
+          method: { type: "string", title: "Method" },
+        },
+        required: ["url"],
+      },
+    },
+  ];
+
+  test("catches missing required config field on custom step", () => {
+    const draft: WorkflowDraft = {
+      name: "test-wf",
+      description: "",
+      trigger: { type: "manual", ref: "" },
+      enabled: true,
+      steps: [{ slug: "req-step", type: "http-request", config: { method: "GET" } }],
+    };
+    const errors = validateWorkflowDraft(draft, stepTypeSchemas);
+    expect(errors.has("steps[0].config.url")).toBe(true);
+    expect(errors.get("steps[0].config.url")).toContain("required");
+  });
+
+  test("passes when required config fields are present", () => {
+    const draft: WorkflowDraft = {
+      name: "test-wf",
+      description: "",
+      trigger: { type: "manual", ref: "" },
+      enabled: true,
+      steps: [{ slug: "req-step", type: "http-request", config: { url: "http://example.com" } }],
+    };
+    const errors = validateWorkflowDraft(draft, stepTypeSchemas);
+    expect(errors.has("steps[0].config.url")).toBe(false);
+  });
+
+  test("skips config validation when no schema available for step type", () => {
+    const draft: WorkflowDraft = {
+      name: "test-wf",
+      description: "",
+      trigger: { type: "manual", ref: "" },
+      enabled: true,
+      steps: [{ slug: "unknown-step", type: "unknown-type", config: {} }],
+    };
+    const errors = validateWorkflowDraft(draft, stepTypeSchemas);
+    // No config errors since there's no schema for "unknown-type"
+    const configErrors = [...errors.keys()].filter((k) => k.includes("config"));
+    expect(configErrors.length).toBe(0);
+  });
+
+  test("skips config validation when no stepTypeSchemas provided", () => {
+    const draft: WorkflowDraft = {
+      name: "test-wf",
+      description: "",
+      trigger: { type: "manual", ref: "" },
+      enabled: true,
+      steps: [{ slug: "req-step", type: "http-request", config: {} }],
+    };
+    const errors = validateWorkflowDraft(draft);
+    const configErrors = [...errors.keys()].filter((k) => k.includes("config"));
+    expect(configErrors.length).toBe(0);
   });
 });

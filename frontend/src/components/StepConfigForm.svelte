@@ -36,6 +36,8 @@ interface Props {
   outputSchemas?: OutputSchemas;
   /** Per-field available items for multiselect rendering (key = property name, value = options). */
   itemOptions?: Record<string, string[]>;
+  /** Validation errors keyed by config field name (e.g. "url", "timeout"). */
+  fieldErrors?: Map<string, string>;
 }
 
 let {
@@ -48,6 +50,7 @@ let {
   secretKeys,
   outputSchemas,
   itemOptions,
+  fieldErrors,
 }: Props = $props();
 
 /** Whether template autocomplete is available (all required context provided). */
@@ -105,6 +108,12 @@ function updateValue(key: string, value: unknown) {
       {@render infoTip(description)}
     {/if}
   </span>
+{/snippet}
+
+{#snippet fieldError(key: string)}
+  {#if fieldErrors?.get(key)}
+    <span class="text-xs text-destructive">{fieldErrors.get(key)}</span>
+  {/if}
 {/snippet}
 
 <fieldset disabled={isReadonly} class="space-y-3" style={isReadonly ? "opacity: 0.8;" : ""}>
@@ -245,6 +254,7 @@ function updateValue(key: string, value: unknown) {
         {@render fieldLabel(key, label, description)}
         <p class="text-xs text-muted-foreground italic">Complex field — use "Edit as JSON" to configure.</p>
       {/if}
+      {@render fieldError(key)}
     </div>
   {/each}
 

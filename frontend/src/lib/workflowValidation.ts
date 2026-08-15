@@ -94,12 +94,82 @@ export function validateStepSlugsUnique(slugs: string[]): ValidationResult {
 }
 
 /**
+ * Validates a custom step's config values against a JSON Schema.
+ * Checks required fields, minLength for strings, and minimum/maximum for numbers.
+ *
+ * @param config - The step config values to validate
+ * @param schema - The JSON Schema object describing expected config fields
+ * @returns Array of [fieldName, errorMessage] tuples for each violation
+ */
+export function validateStepConfig(
+  config: Record<string, unknown>,
+  schema: Record<string, unknown>,
+): [string, string][] {
+  const errors: [string, string][] = [];
+  const properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
+  const required = (schema.required ?? []) as string[];
+
+  for (const key of required) {
+    const value = config[key];
+    if (value === undefined || value === null || value === "") {
+      const prop = properties[key];
+      const label = (prop?.title as string) ?? key;
+      errors.push([key, `${label} is required`]);
+    }
+  }
+
+  for (const [key, prop] of Object.entries(properties)) {
+    const value = config[key];
+
+    // Skip fields that are absent and not required (already caught above if required)
+    if (value === undefined || value === null || value === "") continue;
+
+    if (prop.type === "string" && typeof value === "string") {
+      const minLength = prop.minLength as number | undefined;
+      if (minLength && value.length < minLength) {
+        const label = (prop.title as string) ?? key;
+        errors.push([key, `${label} must be at least ${minLength} characters`]);
+      }
+      const maxLength = prop.maxLength as number | undefined;
+      if (maxLength && value.length > maxLength) {
+        const label = (prop.title as string) ?? key;
+        errors.push([key, `${label} must not exceed ${maxLength} characters`]);
+      }
+    }
+
+    if ((prop.type === "number" || prop.type === "integer") && typeof value === "number") {
+      const minimum = prop.minimum as number | undefined;
+      if (minimum !== undefined && value < minimum) {
+        const label = (prop.title as string) ?? key;
+        errors.push([key, `${label} must be at least ${minimum}`]);
+      }
+      const maximum = prop.maximum as number | undefined;
+      if (maximum !== undefined && value > maximum) {
+        const label = (prop.title as string) ?? key;
+        errors.push([key, `${label} must not exceed ${maximum}`]);
+      }
+    }
+  }
+
+  return errors;
+}
+
+/** Schema metadata for a custom step type, used for config validation. */
+export interface StepTypeSchema {
+  /** The step type identifier. */
+  type: string;
+  /** JSON Schema describing the step's config fields. */
+  configSchema?: Record<string, unknown>;
+}
+
+/**
  * Validates a complete workflow draft and returns a map of field paths to error messages.
  * An empty map indicates the draft is valid.
  * @param draft - The workflow draft to validate
+ * @param stepTypeSchemas - Optional array of custom step type schemas for config validation
  * @returns Map where keys are field paths (e.g. "name", "steps[0].slug") and values are error messages
  */
-export function validateWorkflowDraft(draft: WorkflowDraft): Map<string, string> {
+export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: StepTypeSchema[]): Map<string, string> {
   const errors = new Map<string, string>();
 
   // Validate name
@@ -147,6 +217,17 @@ export function validateWorkflowDraft(draft: WorkflowDraft): Map<string, string>
     // Type-specific validation
     if (step.type === "agent" && (!step.prompt || step.prompt.trim().length === 0)) {
       errors.set(`steps[${i}].prompt`, "Prompt is required for agent steps");
+    }
+
+    // Custom step type config validation against the registered schema
+    if (step.type !== "agent" && stepTypeSchemas) {
+      const schemaInfo = stepTypeSchemas.find((s) => s.type === step.type);
+      if (schemaInfo?.configSchema) {
+        const configErrors = validateStepConfig(step.config ?? {}, schemaInfo.configSchema);
+        for (const [field, message] of configErrors) {
+          errors.set(`steps[${i}].config.${field}`, message);
+        }
+      }
     }
   }
 
