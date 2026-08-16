@@ -332,6 +332,7 @@ Palim has two layers of secret management:
 - **No hardcoded URLs/ports:** Derive from `src/config.ts` or env vars
 - **Tool implementation:** Implements `AgentTool` from pi-agent-core, TypeBox parameter schemas, file tools enforce path scoping to `WORK_DIR`
 - **Path aliases:** `@src/*` maps to `./src/*`, `@shared/*` maps to `./shared/*`, `@ext/sdk` maps to `./src/extensions/sdk.ts`, `@ext/types` maps to `./src/extensions/types.ts`
+- **Type checking:** Always run `bunx tsc --noEmit` without file arguments. Never pass individual files to tsc — it ignores tsconfig.json when files are specified on the command line.
 
 ## Common Commands
 
