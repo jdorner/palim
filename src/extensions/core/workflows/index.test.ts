@@ -2,10 +2,12 @@
  * Tests for the workflows extension utility functions, step ordering logic, and route handlers.
  */
 
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test, xdescribe } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { Extension, ExtensionContext, HttpMethod, RouteHandler } from "@ext/types";
+import { drizzle } from "drizzle-orm/bun-sqlite";
 import { buildRunStatus, createExtension, validateWorkflowDependencies } from "./index";
 import type { WorkflowDefinition } from "./schemas";
 
@@ -164,7 +166,41 @@ function createMockContext(workDir: string) {
     config: {
       get: (() => undefined) as unknown as ExtensionContext["config"]["get"],
     },
-    db: {} as unknown as ExtensionContext["db"],
+    db: (() => {
+      const sqlite = new Database(":memory:");
+      sqlite.run("PRAGMA journal_mode = WAL");
+      sqlite.run(`
+        CREATE TABLE IF NOT EXISTS \`workflow_runs\` (
+          \`id\` text PRIMARY KEY NOT NULL,
+          \`workflow_name\` text NOT NULL,
+          \`status\` text NOT NULL DEFAULT 'running',
+          \`step_results\` text NOT NULL DEFAULT '{}',
+          \`trigger_payload\` text,
+          \`current_step_index\` integer NOT NULL DEFAULT 0,
+          \`full_step_order\` text NOT NULL,
+          \`failure_reason\` text,
+          \`created_at\` integer NOT NULL,
+          \`updated_at\` integer NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS \`idx_workflow_runs_name\` ON \`workflow_runs\` (\`workflow_name\`);
+        CREATE INDEX IF NOT EXISTS \`idx_workflow_runs_status\` ON \`workflow_runs\` (\`status\`);
+        CREATE TABLE IF NOT EXISTS \`workflow_signals\` (
+          \`id\` text PRIMARY KEY NOT NULL,
+          \`run_id\` text NOT NULL,
+          \`step_slug\` text NOT NULL,
+          \`event\` text NOT NULL,
+          \`status\` text NOT NULL DEFAULT 'waiting',
+          \`input_schema\` text,
+          \`timeout_ms\` integer,
+          \`payload\` text,
+          \`created_at\` integer NOT NULL,
+          \`received_at\` integer
+        );
+        CREATE INDEX IF NOT EXISTS \`idx_workflow_signals_run_event\` ON \`workflow_signals\` (\`run_id\`, \`event\`);
+        CREATE INDEX IF NOT EXISTS \`idx_workflow_signals_status\` ON \`workflow_signals\` (\`status\`);
+      `);
+      return drizzle(sqlite);
+    })() as unknown as ExtensionContext["db"],
     isEnabled: (() => true) as unknown as ExtensionContext["isEnabled"],
     agent: {
       run: async () => ({ answer: "", state: null, timestamp: Date.now() }),

@@ -139,6 +139,7 @@ export const sessionMessages = sqliteTable(
 
 export { fileWatchers as extFilewatcherWatchers } from "@src/extensions/core/filewatcher/schema";
 export { webhooks as extWebhooksRegistrations } from "@src/extensions/core/webhooks/schema";
+export { workflowRuns as extWorkflowRuns } from "@src/extensions/core/workflows/runSchema";
 //export { extInstallerRegistry } from "@src/extensions/ext-installer/schema";
 //export { toolUsage as extIntrospectionToolUsage } from "@src/extensions/introspection/schema";
 export { mcpServers as extMcpServers } from "@src/extensions/mcp/schema";

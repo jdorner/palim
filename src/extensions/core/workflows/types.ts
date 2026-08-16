@@ -26,6 +26,8 @@ export interface WorkflowStepJobData {
   triggerPayload?: unknown;
   /** Session ID for persisting conversation context for this step. */
   sessionId: string;
+  /** Accumulated step results from previous segments (injected by segment dispatcher into first job of non-first segments). */
+  accumulatedStepResults?: Record<string, unknown>;
   /** Injected by bunqueue FlowProducer for chained jobs. */
   __flowParentId?: string;
 }

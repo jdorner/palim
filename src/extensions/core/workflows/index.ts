@@ -27,17 +27,23 @@ import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import { Value } from "@sinclair/typebox/value";
 import { setWorkflowDispatchFn } from "@src/extensions/engine/extensionContext";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
+import { recoverFromCrash } from "./crashRecovery";
 import type { SessionFactory } from "./engine";
 import { dispatchWorkflow } from "./engine";
 import { loadWorkflows } from "./loader";
+import * as runStore from "./runStore";
+import { initRunStore } from "./runStore";
 import type { AgentStep, OutputSchema, WorkflowDefinition } from "./schemas";
 import { WorkflowDefinitionSchema } from "./schemas";
+import { dispatchNextSegment } from "./segmentDispatcher";
+import { CONTROL_FLOW_TYPES, segmentWorkflow } from "./segmenter";
+import { initSignalStore } from "./signalStore";
 import type { TemplateSecretResolver } from "./template";
 import type { TemplateWarning } from "./templateValidation";
 import { validateWorkflowTemplates } from "./templateValidation";
 import { resolveTriggerOutputSchema } from "./triggerSchemas";
 import type { WorkflowStepJobData } from "./types";
-import { createStepProcessor } from "./worker";
+import { createStepProcessor, type StepResult } from "./worker";
 
 /**
  * Derives the overall run status from the states of its individual steps.
@@ -237,10 +243,12 @@ export function createExtension(): Extension {
     watcher: FSWatcher | null;
     reloadTimer: ReturnType<typeof setTimeout> | null;
     workflowsDir: string;
+    recoveryCleanup: (() => void) | null;
   } = {
     watcher: null,
     reloadTimer: null,
     workflowsDir: "",
+    recoveryCleanup: null,
   };
 
   /**
@@ -269,6 +277,17 @@ export function createExtension(): Extension {
       logger = ctx.log;
       const flowProducer = ctx.queues.getFlowProducer();
       const sessionFactory: SessionFactory = { create: (opts) => ctx.sessions.create(opts) };
+
+      // Initialize data stores with the shared database instance
+      initRunStore(ctx.db);
+      initSignalStore(ctx.db);
+
+      // Recover interrupted runs from previous process crash
+      const recovery = recoverFromCrash({
+        log: logger,
+        broadcast: (event) => ctx.messaging.broadcast(event),
+      });
+      state.recoveryCleanup = recovery.cleanup;
 
       // Load workflow definitions
       state.workflowsDir = path.join(ctx.paths.work, "workflows");
@@ -357,17 +376,85 @@ export function createExtension(): Extension {
           jobId: d.id,
         });
       });
-      stepsQueue.onEvent("completed", ({ job }) => {
+      stepsQueue.onEvent("completed", async ({ job }) => {
         if (!job) return;
         const d = stepData(job);
+
+        // Always broadcast workflow_step_completed
         ctx.messaging.broadcast({
           type: "workflow_step_completed",
           workflowRunId: d.workflowRunId,
           stepSlug: d.stepSlug,
           jobId: d.id,
         });
-        if (d.stepIndex === d.totalSteps - 1) {
-          ctx.messaging.broadcast({ type: "workflow_completed", workflowRunId: d.workflowRunId });
+
+        // Persist step result to Run Store for all runs.
+        // The completed event carries `returnvalue` at runtime (from bunqueue's CompletedEvent)
+        // even though it's not exposed in ManagedQueue's TypeScript types.
+        const jobResult = (job as unknown as { returnvalue?: StepResult }).returnvalue;
+        if (jobResult) {
+          try {
+            runStore.updateStepResult(d.workflowRunId, d.stepSlug, jobResult.value);
+          } catch (err) {
+            logger.error(`Failed to persist step result for run ${d.workflowRunId}, step ${d.stepSlug}:`, err);
+          }
+        }
+
+        // Determine if this is a multi-segment workflow
+        const wf = store.get(d.workflowName);
+        const isMultiSegment = wf ? segmentWorkflow(wf.steps).length > 1 : false;
+
+        if (!isMultiSegment) {
+          // Single-segment: preserve existing behavior
+          if (d.stepIndex === d.totalSteps - 1) {
+            // Mark run as completed in Run Store (best effort)
+            try {
+              runStore.updateStatus(d.workflowRunId, "completed");
+            } catch {
+              // best effort
+            }
+            ctx.messaging.broadcast({ type: "workflow_completed", workflowRunId: d.workflowRunId });
+          }
+        } else {
+          // Multi-segment: check if this step is the last in the current execution segment.
+          // The next step being a CF node (or beyond the workflow) means the segment boundary is reached.
+          const nextStepIndex = d.stepIndex + 1;
+          const nextStep = wf!.steps[nextStepIndex];
+          const isLastInSegment = !nextStep || CONTROL_FLOW_TYPES.has(nextStep.type);
+
+          if (isLastInSegment) {
+            // Dispatch next segment (segment dispatcher handles completion when nextStepIndex >= steps.length)
+            try {
+              await dispatchNextSegment(d.workflowRunId, nextStepIndex, {
+                steps: wf!.steps,
+                allStepDefs: d.allStepDefs ?? {},
+                flowProducer,
+                sessionFactory,
+                log: logger,
+                broadcast: (event) => ctx.messaging.broadcast(event),
+              });
+            } catch (err) {
+              logger.error(`Failed to dispatch next segment for run ${d.workflowRunId}:`, err);
+              // Best-effort: mark run as failed
+              try {
+                runStore.updateStatus(
+                  d.workflowRunId,
+                  "failed",
+                  `Segment dispatch failed: ${err instanceof Error ? err.message : String(err)}`,
+                );
+              } catch {
+                // best effort
+              }
+              ctx.messaging.broadcast({
+                type: "workflow_failed",
+                workflowRunId: d.workflowRunId,
+                failedStep: d.stepSlug,
+                error: `Segment dispatch failed: ${err instanceof Error ? err.message : String(err)}`,
+              });
+            }
+          }
+          // If NOT last in segment, do nothing extra -- the next step in the chain
+          // is already queued by FlowProducer.addChain() and will process naturally.
         }
       });
       stepsQueue.onEvent("failed", ({ jobId, failedReason, job }) => {
@@ -987,6 +1074,10 @@ export function createExtension(): Extension {
     },
 
     async shutdown() {
+      if (state.recoveryCleanup) {
+        state.recoveryCleanup();
+        state.recoveryCleanup = null;
+      }
       if (state.watcher) {
         state.watcher.close();
         state.watcher = null;
