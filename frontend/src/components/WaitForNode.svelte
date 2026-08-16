@@ -1,5 +1,6 @@
 <script lang="ts">
 import { Handle, Position } from "@xyflow/svelte";
+import PauseCircleIcon from "phosphor-svelte/lib/PauseCircleIcon";
 import { labelForStepType } from "$lib/stepTypes";
 
 interface Props {
@@ -7,7 +8,6 @@ interface Props {
     slug: string;
     type: string;
     status?: "waiting" | "active" | "completed" | "failed" | "waiting-signal";
-    triggerType?: string;
     selected?: boolean;
   };
 }
@@ -27,15 +27,20 @@ let colorClass = $derived(
     ? "bg-orange-100 border-orange-400 dark:bg-orange-900/30 dark:border-orange-500"
     : (statusColors[data.status ?? "waiting"] ?? statusColors.waiting),
 );
-let typeLabel = $derived(labelForStepType(data.type, data.triggerType));
-let isTrigger = $derived(data.type === "trigger");
+let typeLabel = $derived(labelForStepType(data.type));
+let isWaitingSignal = $derived(data.status === "waiting-signal");
 </script>
 
-<div class="px-4 py-3 rounded-lg border-2 shadow-sm w-45 text-center {colorClass}" class:border-dashed={isTrigger}>
-  {#if !isTrigger}
-    <Handle type="target" position={Position.Top} />
-  {/if}
-  <div class="text-xs font-medium text-foreground">{data.slug}</div>
+<div class="relative px-4 py-3 rounded-lg border-2 shadow-sm w-45 text-center {colorClass}">
+  <Handle type="target" position={Position.Top} />
+  <div class="flex items-center justify-center gap-1.5">
+    <PauseCircleIcon
+      size={14}
+      class={isWaitingSignal ? "text-amber-500" : "text-muted-foreground"}
+      aria-hidden="true"
+    />
+    <div class="text-xs font-medium text-foreground">{data.slug}</div>
+  </div>
   <div class="text-[10px] text-muted-foreground mt-0.5">{typeLabel}</div>
   <Handle type="source" position={Position.Bottom} />
 </div>

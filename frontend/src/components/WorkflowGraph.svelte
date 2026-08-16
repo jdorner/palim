@@ -11,13 +11,15 @@ import {
 import "@xyflow/svelte/dist/style.css";
 import { onMount, untrack } from "svelte";
 import AddStepNode from "./AddStepNode.svelte";
+import ControlFlowNode from "./ControlFlowNode.svelte";
 import FitViewOnInit from "./FitViewOnInit.svelte";
+import WaitForNode from "./WaitForNode.svelte";
 import WorkflowStepNode from "./WorkflowStepNode.svelte";
 
 interface StepInfo {
   slug: string;
   type: string;
-  status?: "waiting" | "active" | "completed" | "failed";
+  status?: "waiting" | "active" | "completed" | "failed" | "waiting-signal";
   jobId?: string;
 }
 
@@ -55,11 +57,18 @@ function stepNodeId(index: number): string {
   return `step-${index}`;
 }
 
-const nodeTypes = { step: WorkflowStepNode, addStep: AddStepNode };
+const nodeTypes = { step: WorkflowStepNode, controlFlow: ControlFlowNode, waitFor: WaitForNode, addStep: AddStepNode };
 
 const STEP_NODE_WIDTH = 180;
 const ADD_NODE_SIZE = 24;
 const ADD_NODE_X = (STEP_NODE_WIDTH - ADD_NODE_SIZE) / 2;
+
+/** Maps a workflow step type to the corresponding graph node type. */
+function nodeTypeForStep(stepType: string): string {
+  if (stepType === "if" || stepType === "case") return "controlFlow";
+  if (stepType === "waitFor") return "waitFor";
+  return "step";
+}
 
 // --- Nodes ---
 
@@ -84,7 +93,7 @@ function buildNodes(positions?: Map<string, { x: number; y: number }>): Node[] {
       : []),
     ...steps.map((s, i) => ({
       id: stepNodeId(i),
-      type: "step",
+      type: nodeTypeForStep(s.type),
       position: positions?.get(stepNodeId(i)) ?? { x: 0, y: (i + offset) * 100 },
       data: { slug: s.slug, type: s.type, status: s.status ?? "waiting", selected: i === selectedStepIndex },
     })),
@@ -184,12 +193,17 @@ let derivedEdges = $derived<Edge[]>([
         },
       ]
     : []),
-  ...steps.slice(1).map((_, i) => ({
-    id: `${stepNodeId(i)}-${stepNodeId(i + 1)}`,
-    source: stepNodeId(i),
-    target: stepNodeId(i + 1),
-    animated: steps[i + 1]!.status === "active",
-  })),
+  ...steps.slice(1).map((_, i) => {
+    const sourceStep = steps[i]!;
+    const isConditionalEdge = sourceStep.type === "if" || sourceStep.type === "case";
+    return {
+      id: `${stepNodeId(i)}-${stepNodeId(i + 1)}`,
+      source: stepNodeId(i),
+      target: stepNodeId(i + 1),
+      animated: steps[i + 1]!.status === "active",
+      style: isConditionalEdge ? "stroke-dasharray: 5 5;" : undefined,
+    };
+  }),
   ...(editMode && steps.length > 0
     ? [
         {

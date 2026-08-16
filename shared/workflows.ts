@@ -18,7 +18,13 @@ export type WorkflowWebSocketEvent =
   | { type: "workflow_step_started"; workflowRunId: string; stepSlug: string; jobId: string }
   | { type: "workflow_step_completed"; workflowRunId: string; stepSlug: string; jobId: string; chosenBranch?: string }
   | { type: "workflow_step_failed"; workflowRunId: string; stepSlug: string; jobId: string; error: string }
-  | { type: "workflow_step_waiting"; workflowRunId: string; stepSlug: string; event: string }
+  | {
+      type: "workflow_step_waiting";
+      workflowRunId: string;
+      stepSlug: string;
+      event: string;
+      inputSchema?: Record<string, unknown> | null;
+    }
   | { type: "workflow_step_resumed"; workflowRunId: string; stepSlug: string; signalEvent: string }
   | { type: "workflow_completed"; workflowRunId: string }
   | { type: "workflow_failed"; workflowRunId: string; failedStep: string; error: string }

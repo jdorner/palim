@@ -12,8 +12,12 @@ import type { WebSocketMessage } from "../../../shared/types";
 export interface RunStep {
   slug: string;
   type: string;
-  status: "waiting" | "active" | "completed" | "failed";
+  status: "waiting" | "active" | "completed" | "failed" | "waiting-signal";
   jobId: string;
+  /** Signal event name (populated when status is waiting-signal). */
+  waitEvent?: string;
+  /** JSON Schema for signal payload validation (populated when status is waiting-signal). */
+  waitInputSchema?: Record<string, unknown> | null;
 }
 
 /** Workflow run detail tracked by the store. */
@@ -35,6 +39,8 @@ export type WorkflowEvent = Extract<
   | { type: "workflow_step_started" }
   | { type: "workflow_step_completed" }
   | { type: "workflow_step_failed" }
+  | { type: "workflow_step_waiting" }
+  | { type: "workflow_step_resumed" }
   | { type: "workflow_completed" }
   | { type: "workflow_failed" }
   | { type: "workflow_reload" }
@@ -142,6 +148,29 @@ class WorkflowStore {
             steps: this.run.steps.map((s) =>
               s.slug === message.stepSlug ? { ...s, status: "completed" as const } : s,
             ),
+          };
+        }
+        break;
+
+      case "workflow_step_waiting":
+        if (message.workflowRunId === this.activeRunId) {
+          const waitSchema = message.inputSchema ?? null;
+          this.run = {
+            ...this.run,
+            steps: this.run.steps.map((s) =>
+              s.slug === message.stepSlug
+                ? { ...s, status: "waiting-signal" as const, waitEvent: message.event, waitInputSchema: waitSchema }
+                : s,
+            ),
+          };
+        }
+        break;
+
+      case "workflow_step_resumed":
+        if (message.workflowRunId === this.activeRunId) {
+          this.run = {
+            ...this.run,
+            steps: this.run.steps.map((s) => (s.slug === message.stepSlug ? { ...s, status: "active" as const } : s)),
           };
         }
         break;

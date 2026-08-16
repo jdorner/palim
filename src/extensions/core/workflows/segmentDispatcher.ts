@@ -646,6 +646,7 @@ function handleWaitForNode(
     workflowRunId: runId,
     stepSlug: waitForStep.slug,
     event: waitForStep.event,
+    inputSchema: waitForStep.inputSchema ?? null,
   });
 
   log.info(

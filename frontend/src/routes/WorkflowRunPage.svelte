@@ -1,5 +1,6 @@
 <script lang="ts">
 import ArrowCounterClockwiseIcon from "phosphor-svelte/lib/ArrowCounterClockwiseIcon";
+import PauseCircleIcon from "phosphor-svelte/lib/PauseCircleIcon";
 import { onDestroy, onMount } from "svelte";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
@@ -7,6 +8,7 @@ import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { formatTimestamp, isRunCancellable, renderMarkdown, statusVariant } from "$lib/utils";
 import { type RunStep, workflowStore } from "$lib/workflowRunStore.svelte";
+import SignalDeliveryForm from "../components/SignalDeliveryForm.svelte";
 import WorkflowGraph from "../components/WorkflowGraph.svelte";
 import { navigate, route } from "../router";
 
@@ -198,6 +200,18 @@ onDestroy(() => {
             <div class="flex-1 overflow-y-auto min-h-0 p-4">
               {#if inspectedStep.status === "waiting"}
                 <p class="text-sm text-muted-foreground">Waiting for previous step to complete</p>
+              {:else if inspectedStep.status === "waiting-signal"}
+                <div class="flex items-center gap-2 mb-3">
+                  <PauseCircleIcon size={16} class="text-amber-500" aria-hidden="true" />
+                  <p class="text-sm text-muted-foreground">Waiting for external signal</p>
+                </div>
+                {#if inspectedStep.waitEvent}
+                  <SignalDeliveryForm
+                    runId={run.runId}
+                    event={inspectedStep.waitEvent}
+                    inputSchema={inspectedStep.waitInputSchema}
+                  />
+                {/if}
               {:else if loadingLogs}
                 <p class="text-sm text-muted-foreground">Loading logs...</p>
               {:else if stepLogs.length === 0}

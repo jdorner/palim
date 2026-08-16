@@ -879,17 +879,43 @@ export function createExtension(): Extension {
         const sorted = [...steps].sort((a, b) => a.stepIndex - b.stepIndex);
         const workflowName = sorted[0]!.workflowName;
         const wf = store.get(workflowName);
+
+        // Check Run Store for waiting-signal status and enrich step data
+        const run = runStore.get(runId);
+        // If run is waiting-signal, find the actual waiting signal record
+        let activeSignal: signalStore.SignalRecord | null = null;
+        if (run?.status === "waiting-signal") {
+          const allWaiting = signalStore.getAllWaiting().filter((s) => s.runId === runId);
+          activeSignal = allWaiting[0] ?? null;
+        }
+
+        const runStatus =
+          run?.status === "waiting-signal" ? "waiting-signal" : buildRunStatus(sorted.map((s) => s.state));
+
         return Response.json({
           runId,
           workflowName,
-          status: buildRunStatus(sorted.map((s) => s.state)),
+          status: runStatus,
           trigger: wf?.trigger ?? null,
-          steps: sorted.map((d) => ({
-            slug: d.stepSlug,
-            type: d.stepDef.type,
-            status: d.state,
-            jobId: d.id,
-          })),
+          steps: sorted.map((d) => {
+            // Override status for the waitFor step that is currently waiting for a signal
+            if (activeSignal && d.stepSlug === activeSignal.stepSlug) {
+              return {
+                slug: d.stepSlug,
+                type: d.stepDef.type,
+                status: "waiting-signal",
+                jobId: d.id,
+                waitEvent: activeSignal.event,
+                waitInputSchema: activeSignal.inputSchema,
+              };
+            }
+            return {
+              slug: d.stepSlug,
+              type: d.stepDef.type,
+              status: d.state,
+              jobId: d.id,
+            };
+          }),
         });
       });
 

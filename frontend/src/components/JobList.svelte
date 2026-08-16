@@ -50,11 +50,12 @@ type DisplayItem =
 
 /**
  * Computes an aggregate status for a workflow group.
- * Priority: active > failed > waiting/delayed > completed
+ * Priority: failed > active > waiting-signal > waiting/delayed > completed
  */
 function computeAggregateStatus(workflowJobs: JobEntry[]): string {
-  if (workflowJobs.some((j) => j.status === "active")) return "active";
   if (workflowJobs.some((j) => j.status === "failed")) return "failed";
+  if (workflowJobs.some((j) => j.status === "active")) return "active";
+  if (workflowJobs.some((j) => j.status === "waiting-signal")) return "waiting-signal";
   if (workflowJobs.some((j) => j.status === "waiting" || j.status === "delayed")) return "waiting";
   if (workflowJobs.every((j) => j.status === "completed")) return "completed";
   return "unknown";

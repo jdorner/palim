@@ -49,6 +49,14 @@ export function labelForStepType(type: string, triggerType?: string): string {
       }
     case "agent":
       return "\uD83E\uDD16 Agent";
+    case "if":
+      return "\u2194\uFE0F If";
+    case "case":
+      return "\uD83D\uDD00 Case";
+    case "waitFor":
+      return "\u23F8\uFE0F Wait For";
+    case "emit":
+      return "\uD83D\uDCE1 Emit";
     default:
       return getCustomStepLabel(type) ?? `\u2699\uFE0F ${type.charAt(0).toUpperCase()}${type.slice(1)}`;
   }
