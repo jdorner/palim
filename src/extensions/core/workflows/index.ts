@@ -140,7 +140,7 @@ export function validateWorkflowDependencies(
 }
 
 /** Built-in step types handled directly by the workflow engine. */
-const BUILTIN_STEP_TYPES = new Set(["agent"]);
+const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "waitFor", "emit"]);
 
 /**
  * Produces per-step warnings for dependencies that are not currently available.
