@@ -61,6 +61,8 @@ export interface SignalStore {
   getWaiting(runId: string, event: string): SignalRecord | null;
   /** Retrieves all signal records with status `waiting`. */
   getAllWaiting(): SignalRecord[];
+  /** Retrieves all signal records with status `waiting` for a specific event name. */
+  getAllWaitingByEvent(event: string): SignalRecord[];
   /** Atomically marks a signal as received with the given payload. No-op if not waiting. */
   markReceived(id: string, payload: unknown): void;
   /** Atomically marks a signal as timed out. No-op if not waiting. */
@@ -190,6 +192,25 @@ export function getWaiting(runId: string, event: string): SignalRecord | null {
  */
 export function getAllWaiting(): SignalRecord[] {
   const rows = db.select().from(workflowSignals).where(eq(workflowSignals.status, "waiting")).all();
+
+  return rows.map(rowToSignal);
+}
+
+/**
+ * Retrieves all signal records with status `waiting` for a specific event name.
+ *
+ * Used by the `emit` handler to find all runs waiting for a particular event.
+ * More efficient than loading all waiting signals and filtering in memory.
+ *
+ * @param event - The signal event name to query
+ * @returns Array of waiting signal records matching the event name
+ */
+export function getAllWaitingByEvent(event: string): SignalRecord[] {
+  const rows = db
+    .select()
+    .from(workflowSignals)
+    .where(and(eq(workflowSignals.event, event), eq(workflowSignals.status, "waiting")))
+    .all();
 
   return rows.map(rowToSignal);
 }

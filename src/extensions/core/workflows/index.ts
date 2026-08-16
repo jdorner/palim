@@ -24,6 +24,7 @@ import { mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
+import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { setWorkflowDispatchFn } from "@src/extensions/engine/extensionContext";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
@@ -37,6 +38,7 @@ import type { AgentStep, OutputSchema, WorkflowDefinition } from "./schemas";
 import { WorkflowDefinitionSchema } from "./schemas";
 import { dispatchNextSegment } from "./segmentDispatcher";
 import { CONTROL_FLOW_TYPES, segmentWorkflow } from "./segmenter";
+import * as signalStore from "./signalStore";
 import { initSignalStore } from "./signalStore";
 import type { TemplateSecretResolver } from "./template";
 import type { TemplateWarning } from "./templateValidation";
@@ -417,6 +419,45 @@ export function createExtension(): Extension {
           }
         } else {
           // Multi-segment: check if this step is the last in the current execution segment.
+
+          // Branch step handling: steps dispatched by CF handlers (if/case) carry __isBranchStep.
+          if (d.__isBranchStep && d.__resumeStepIndex === undefined) {
+            // Non-last branch step: chain continues via bunqueue, no segment dispatch needed.
+            return;
+          }
+
+          if (d.__resumeStepIndex !== undefined) {
+            // Last branch step: dispatch next segment at the resume index (step after the CF node).
+            try {
+              await dispatchNextSegment(d.workflowRunId, d.__resumeStepIndex, {
+                steps: wf!.steps,
+                allStepDefs: d.allStepDefs ?? {},
+                flowProducer,
+                sessionFactory,
+                log: logger,
+                broadcast: (event) => ctx.messaging.broadcast(event),
+              });
+            } catch (err) {
+              logger.error(`Failed to dispatch next segment after branch for run ${d.workflowRunId}:`, err);
+              try {
+                runStore.updateStatus(
+                  d.workflowRunId,
+                  "failed",
+                  `Segment dispatch failed: ${err instanceof Error ? err.message : String(err)}`,
+                );
+              } catch {
+                // best effort
+              }
+              ctx.messaging.broadcast({
+                type: "workflow_failed",
+                workflowRunId: d.workflowRunId,
+                failedStep: d.stepSlug,
+                error: `Segment dispatch failed: ${err instanceof Error ? err.message : String(err)}`,
+              });
+            }
+            return;
+          }
+
           // The next step being a CF node (or beyond the workflow) means the segment boundary is reached.
           const nextStepIndex = d.stepIndex + 1;
           const nextStep = wf!.steps[nextStepIndex];
@@ -910,6 +951,153 @@ export function createExtension(): Extension {
         logger.info(`Retried workflow run ${runId} (${retried.length} failed step(s) re-queued)`);
         return Response.json({ ok: true, workflowRunId: runId, retriedSteps: retried }, { status: 202 });
       });
+
+      /**
+       * Signal delivery endpoint - resumes a waiting workflow run.
+       *
+       * Validates: run exists, run is waiting-signal for the specified event,
+       * payload size <= 1MB, inputSchema validation (if defined).
+       * Atomically marks signal received, stores payload, transitions run
+       * to running, dispatches next segment, and broadcasts resumed event.
+       *
+       * @returns `{ accepted: true, runId, event, runStatus: "running" }` on success (200)
+       */
+      ctx.routes.register(
+        "POST",
+        "/runs/:runId/signal/:event",
+        async (reqCtx) => {
+          const runId = (reqCtx.params as Record<string, string>).runId;
+          const event = (reqCtx.params as Record<string, string>).event;
+          if (!runId || !event) return Response.json({ error: "Missing runId or event" }, { status: 400 });
+
+          // Read raw body and enforce 1MB size limit (Requirement 5.8)
+          const rawBody = await reqCtx.request.text();
+          if (rawBody.length > 1_000_000) {
+            return Response.json({ error: "Payload too large" }, { status: 413 });
+          }
+
+          // Parse JSON payload
+          let payload: unknown = null;
+          if (rawBody.length > 0) {
+            try {
+              payload = JSON.parse(rawBody);
+            } catch {
+              return Response.json({ error: "Invalid JSON payload" }, { status: 400 });
+            }
+          }
+
+          // Check run exists (Requirement 6.3)
+          const run = runStore.get(runId);
+          if (!run) return Response.json({ error: "Run not found" }, { status: 404 });
+
+          // Check run is in waiting-signal status (Requirement 6.4)
+          if (run.status !== "waiting-signal") {
+            return Response.json(
+              { error: `Run is not awaiting a signal (current status: "${run.status}")` },
+              { status: 409 },
+            );
+          }
+
+          // Check a waiting signal record exists for this event (Requirement 5.5, 6.4)
+          const signal = signalStore.getWaiting(runId, event);
+          if (!signal) {
+            return Response.json({ error: `Run is not awaiting signal "${event}"` }, { status: 409 });
+          }
+
+          // Validate payload against inputSchema if defined (Requirement 5.4, 6.5)
+          if (signal.inputSchema) {
+            const schema = signal.inputSchema as TSchema;
+            if (!Value.Check(schema, payload)) {
+              const errors = [...Value.Errors(schema, payload)];
+              return Response.json(
+                {
+                  error: "Validation failed",
+                  details: errors.map((e) => ({ path: e.path, message: e.message })),
+                },
+                { status: 422 },
+              );
+            }
+          }
+
+          // Atomically mark signal as received (Requirement 5.2, 6.2)
+          signalStore.markReceived(signal.id, payload);
+
+          // Verify the mark succeeded (race protection)
+          const stillWaiting = signalStore.getWaiting(runId, event);
+          if (stillWaiting) {
+            // The mark did not take effect (race condition or concurrent delivery)
+            return Response.json({ error: "Signal has already been delivered" }, { status: 409 });
+          }
+
+          // Store payload as the waitFor step result in Run Store (Requirement 2.6, 6.7)
+          try {
+            runStore.updateStepResult(runId, signal.stepSlug, payload);
+          } catch (err) {
+            logger.error(`Failed to store signal payload for run ${runId}, step ${signal.stepSlug}:`, err);
+            return Response.json({ error: "Internal error" }, { status: 500 });
+          }
+
+          // Transition run status to running (Requirement 2.6)
+          try {
+            runStore.updateStatus(runId, "running");
+          } catch (err) {
+            logger.error(`Failed to transition run ${runId} to running:`, err);
+            return Response.json({ error: "Internal error" }, { status: 500 });
+          }
+
+          // Broadcast workflow_step_resumed (Requirement 10.2)
+          ctx.messaging.broadcast({
+            type: "workflow_step_resumed",
+            workflowRunId: runId,
+            stepSlug: signal.stepSlug,
+            signalEvent: event,
+          });
+
+          // Dispatch next segment asynchronously (Requirement 6.7)
+          const wf = store.get(run.workflowName);
+          if (wf) {
+            const nextStepIndex = run.currentStepIndex + 1;
+            dispatchNextSegment(runId, nextStepIndex, {
+              steps: wf.steps,
+              allStepDefs: Object.fromEntries(wf.steps.map((s) => [s.slug, s])),
+              flowProducer,
+              sessionFactory,
+              log: logger,
+              broadcast: (evt) => ctx.messaging.broadcast(evt),
+            }).catch((err) => {
+              logger.error(`Failed to dispatch next segment after signal delivery for run ${runId}:`, err);
+              try {
+                runStore.updateStatus(
+                  runId,
+                  "failed",
+                  `Segment dispatch failed after signal: ${err instanceof Error ? err.message : String(err)}`,
+                );
+              } catch {
+                // best effort
+              }
+              ctx.messaging.broadcast({
+                type: "workflow_failed",
+                workflowRunId: runId,
+                failedStep: signal.stepSlug,
+                error: `Segment dispatch failed after signal: ${err instanceof Error ? err.message : String(err)}`,
+              });
+            });
+          } else {
+            // Workflow definition no longer loaded - fail the run
+            logger.error(`Workflow definition "${run.workflowName}" not found for signal delivery on run ${runId}`);
+            runStore.updateStatus(runId, "failed", `Workflow definition "${run.workflowName}" not found`);
+            ctx.messaging.broadcast({
+              type: "workflow_failed",
+              workflowRunId: runId,
+              failedStep: signal.stepSlug,
+              error: `Workflow definition "${run.workflowName}" not found`,
+            });
+          }
+
+          return Response.json({ accepted: true, runId, event, runStatus: "running" });
+        },
+        { parse: "none" },
+      );
 
       ctx.routes.register("DELETE", "/runs/:runId", async (reqCtx) => {
         const runId = (reqCtx.params as Record<string, string>).runId;

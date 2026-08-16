@@ -3,6 +3,9 @@
  *
  * Validates workflow structure at load time: trigger config,
  * step definitions, and the root workflow object.
+ *
+ * Control flow nodes (`if`, `case`, `waitFor`, `emit`) use a recursive
+ * step schema so that branches can nest arbitrary step types.
  */
 
 import { type Static, Type } from "@sinclair/typebox";
@@ -51,10 +54,13 @@ export const TriggerSchema = Type.Object(
  */
 export const PromptSchema = Type.Union([Type.String({ minLength: 1 }), Type.Array(Type.String(), { minItems: 1 })]);
 
+/** Slug pattern shared by all step types. */
+const SlugPattern = "^[a-z][a-z0-9-]*$";
+
 /** An agent step - runs an LLM prompt via {@link runAgent}. */
 export const AgentStepSchema = Type.Object(
   {
-    slug: Type.String({ minLength: 1, pattern: "^[a-z][a-z0-9-]*$" }),
+    slug: Type.String({ minLength: 1, pattern: SlugPattern }),
     type: Type.Literal("agent"),
     prompt: PromptSchema,
     tools: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
@@ -73,21 +79,151 @@ export const AgentStepSchema = Type.Object(
  */
 export const GenericStepSchema = Type.Intersect([
   Type.Object({
-    slug: Type.String({ minLength: 1, pattern: "^[a-z][a-z0-9-]*$" }),
+    slug: Type.String({ minLength: 1, pattern: SlugPattern }),
     type: Type.String({ minLength: 1 }),
   }),
   Type.Record(Type.String(), Type.Unknown()),
 ]);
 
+// ---------------------------------------------------------------------------
+// Control Flow Schemas
+// ---------------------------------------------------------------------------
+
 /**
- * Discriminated union of all supported step types.
+ * Condition schema for `if` nodes.
  *
- * The `agent` type is validated strictly with a closed schema.
- * Custom step types (including `http-request`) fall through to
- * `GenericStepSchema` which requires only `slug` + `type` and allows
- * additional properties for extension-specific config.
+ * Contains a `ref` template expression and exactly one comparison operator.
+ * Operator uniqueness is enforced at runtime by the condition evaluator.
  */
-export const StepSchema = Type.Union([AgentStepSchema, GenericStepSchema]);
+export const ConditionSchema = Type.Object({
+  /** Template expression that resolves to the value to test. */
+  ref: Type.String({ minLength: 1 }),
+  /** Strict equality after String() coercion. */
+  eq: Type.Optional(Type.Unknown()),
+  /** Logical negation of eq. */
+  neq: Type.Optional(Type.Unknown()),
+  /** Greater than (numeric if both parseable, otherwise lexicographic). */
+  gt: Type.Optional(Type.Unknown()),
+  /** Greater than or equal. */
+  gte: Type.Optional(Type.Unknown()),
+  /** Less than. */
+  lt: Type.Optional(Type.Unknown()),
+  /** Less than or equal. */
+  lte: Type.Optional(Type.Unknown()),
+  /** Membership check: resolved value is in the array (String() coercion). */
+  in: Type.Optional(Type.Array(Type.Unknown())),
+  /** Case-sensitive substring check. */
+  contains: Type.Optional(Type.Unknown()),
+  /** Truthiness check: not null, not undefined, not empty string. */
+  exists: Type.Optional(Type.Boolean()),
+  /** Regular expression test against String(resolvedValue). */
+  matches: Type.Optional(Type.String()),
+});
+
+/** TypeScript type for a condition object. */
+export type ConditionDef = Static<typeof ConditionSchema>;
+
+/** Event name pattern shared by `waitFor` and `emit` nodes. */
+const EventNamePattern = "^[a-z][a-z0-9._-]*$";
+
+/**
+ * WaitFor node schema - pauses execution until an external signal arrives.
+ */
+export const WaitForStepSchema = Type.Object(
+  {
+    slug: Type.String({ minLength: 1, pattern: SlugPattern }),
+    type: Type.Literal("waitFor"),
+    /** Signal event name to wait for. */
+    event: Type.String({ minLength: 1, maxLength: 128, pattern: EventNamePattern }),
+    /** Timeout in milliseconds (1 second to 7 days). */
+    timeout: Type.Optional(Type.Integer({ minimum: 1000, maximum: 604800000 })),
+    /** JSON Schema for validating the incoming signal payload. */
+    inputSchema: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * Emit node schema - sends a named signal to other waiting workflows.
+ */
+export const EmitStepSchema = Type.Object(
+  {
+    slug: Type.String({ minLength: 1, pattern: SlugPattern }),
+    type: Type.Literal("emit"),
+    /** Signal event name to emit. */
+    event: Type.String({ minLength: 1, maxLength: 128, pattern: EventNamePattern }),
+    /** Optional payload template expression. */
+    payload: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * Recursive step schema that supports nested control flow.
+ *
+ * TypeBox `Type.Recursive()` is used so that `if` and `case` branches
+ * can contain arbitrary steps (including nested control flow nodes).
+ */
+export const StepSchema = Type.Recursive(
+  (Self) => {
+    const IfStep = Type.Object(
+      {
+        slug: Type.String({ minLength: 1, pattern: SlugPattern }),
+        type: Type.Literal("if"),
+        condition: ConditionSchema,
+        // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+        then: Type.Array(Self, { minItems: 1 }),
+        else: Type.Optional(Type.Array(Self, { minItems: 1 })),
+      },
+      { additionalProperties: false },
+    );
+
+    const CaseStep = Type.Object(
+      {
+        slug: Type.String({ minLength: 1, pattern: SlugPattern }),
+        type: Type.Literal("case"),
+        match: Type.String({ minLength: 1 }),
+        paths: Type.Record(Type.String(), Type.Array(Self, { minItems: 1 })),
+        default: Type.Optional(Type.Array(Self, { minItems: 1 })),
+      },
+      { additionalProperties: false },
+    );
+
+    return Type.Union([AgentStepSchema, IfStep, CaseStep, WaitForStepSchema, EmitStepSchema, GenericStepSchema]);
+  },
+  { $id: "WorkflowStep" },
+);
+
+/**
+ * Non-recursive `IfStepSchema` exported for direct usage in validation messages and type checking.
+ * Uses `Type.Any()` for nested step arrays since full recursion is handled by `StepSchema`.
+ */
+export const IfStepSchema = Type.Object(
+  {
+    slug: Type.String({ minLength: 1, pattern: SlugPattern }),
+    type: Type.Literal("if"),
+    condition: ConditionSchema,
+    // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+    then: Type.Array(Type.Any(), { minItems: 1 }),
+    else: Type.Optional(Type.Array(Type.Any(), { minItems: 1 })),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * Non-recursive `CaseStepSchema` exported for direct usage in validation messages and type checking.
+ * Uses `Type.Any()` for nested step arrays since full recursion is handled by `StepSchema`.
+ */
+export const CaseStepSchema = Type.Object(
+  {
+    slug: Type.String({ minLength: 1, pattern: SlugPattern }),
+    type: Type.Literal("case"),
+    match: Type.String({ minLength: 1 }),
+    paths: Type.Record(Type.String(), Type.Array(Type.Any(), { minItems: 1 })),
+    default: Type.Optional(Type.Array(Type.Any(), { minItems: 1 })),
+  },
+  { additionalProperties: false },
+);
 
 /** Root workflow definition schema. */
 export const WorkflowDefinitionSchema = Type.Object(
@@ -104,8 +240,43 @@ export const WorkflowDefinitionSchema = Type.Object(
 /** TypeScript type for a validated workflow definition. */
 export type WorkflowDefinition = Static<typeof WorkflowDefinitionSchema>;
 
-/** TypeScript type for a single workflow step. */
-export type WorkflowStep = AgentStep | GenericStep;
+/** TypeScript type for an `if` step. */
+export interface IfStep {
+  slug: string;
+  type: "if";
+  condition: ConditionDef;
+  then: WorkflowStep[];
+  else?: WorkflowStep[];
+}
+
+/** TypeScript type for a `case` step. */
+export interface CaseStep {
+  slug: string;
+  type: "case";
+  match: string;
+  paths: Record<string, WorkflowStep[]>;
+  default?: WorkflowStep[];
+}
+
+/** TypeScript type for a `waitFor` step. */
+export interface WaitForStep {
+  slug: string;
+  type: "waitFor";
+  event: string;
+  timeout?: number;
+  inputSchema?: Record<string, unknown>;
+}
+
+/** TypeScript type for an `emit` step. */
+export interface EmitStep {
+  slug: string;
+  type: "emit";
+  event: string;
+  payload?: string;
+}
+
+/** TypeScript type for a single workflow step (all types). */
+export type WorkflowStep = AgentStep | IfStep | CaseStep | WaitForStep | EmitStep | GenericStep;
 
 /** TypeScript type for an agent step. */
 export type AgentStep = Static<typeof AgentStepSchema>;
@@ -125,4 +296,58 @@ export type Trigger = Static<typeof TriggerSchema>;
  */
 export function normalizePrompt(prompt: string | string[]): string {
   return Array.isArray(prompt) ? prompt.join("\n") : prompt;
+}
+
+// ---------------------------------------------------------------------------
+// Global Slug Uniqueness Validator
+// ---------------------------------------------------------------------------
+
+/**
+ * Recursively collects all step slugs from a step list, including slugs
+ * nested inside `then`, `else`, `default`, and `paths` branches of
+ * control flow nodes.
+ *
+ * @param steps - The top-level or nested step array
+ * @param collector - Accumulator set of all found slugs
+ * @param duplicates - Accumulator set of duplicate slugs
+ */
+function collectSlugs(steps: WorkflowStep[], collector: Map<string, boolean>, duplicates: Set<string>): void {
+  for (const step of steps) {
+    if (collector.has(step.slug)) {
+      duplicates.add(step.slug);
+    } else {
+      collector.set(step.slug, true);
+    }
+
+    if (step.type === "if") {
+      const ifStep = step as IfStep;
+      collectSlugs(ifStep.then, collector, duplicates);
+      if (ifStep.else) {
+        collectSlugs(ifStep.else, collector, duplicates);
+      }
+    } else if (step.type === "case") {
+      const caseStep = step as CaseStep;
+      for (const pathSteps of Object.values(caseStep.paths)) {
+        collectSlugs(pathSteps, collector, duplicates);
+      }
+      if (caseStep.default) {
+        collectSlugs(caseStep.default, collector, duplicates);
+      }
+    }
+  }
+}
+
+/**
+ * Validates that all step slugs in a workflow are globally unique,
+ * including those nested in control flow branches (`then`, `else`,
+ * `default`, `paths`).
+ *
+ * @param steps - The workflow's top-level step array
+ * @returns Array of duplicate slug names (empty if no duplicates)
+ */
+export function validateGlobalSlugUniqueness(steps: WorkflowStep[]): string[] {
+  const collector = new Map<string, boolean>();
+  const duplicates = new Set<string>();
+  collectSlugs(steps, collector, duplicates);
+  return [...duplicates];
 }
