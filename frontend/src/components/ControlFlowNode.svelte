@@ -40,7 +40,7 @@ let typeLabel = $derived(labelForStepType(data.type));
     <div class="text-xs font-medium text-foreground">{data.slug}</div>
     <div class="text-[10px] text-muted-foreground mt-0.5">{typeLabel}</div>
   </div>
-  <!-- Handles at top and bottom points of the diamond -->
-  <Handle type="target" position={Position.Top} />
-  <Handle type="source" position={Position.Bottom} />
+  <!-- Handles at left and right points of the diamond -->
+  <Handle type="target" position={Position.Left} />
+  <Handle type="source" position={Position.Right} />
 </div>

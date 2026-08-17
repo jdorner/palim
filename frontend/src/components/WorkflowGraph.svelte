@@ -60,8 +60,10 @@ function stepNodeId(index: number): string {
 const nodeTypes = { step: WorkflowStepNode, controlFlow: ControlFlowNode, waitFor: WaitForNode, addStep: AddStepNode };
 
 const STEP_NODE_WIDTH = 180;
+const STEP_NODE_HEIGHT = 56;
+const STEP_SPACING_X = 240;
 const ADD_NODE_SIZE = 24;
-const ADD_NODE_X = (STEP_NODE_WIDTH - ADD_NODE_SIZE) / 2;
+const ADD_NODE_Y = (STEP_NODE_HEIGHT - ADD_NODE_SIZE) / 2;
 
 /** Maps a workflow step type to the corresponding graph node type. */
 function nodeTypeForStep(stepType: string): string {
@@ -81,7 +83,7 @@ function buildNodes(positions?: Map<string, { x: number; y: number }>): Node[] {
           {
             id: "__trigger__",
             type: "step",
-            position: positions?.get("__trigger__") ?? { x: 0, y: 0 },
+            position: positions?.get("__trigger__") ?? { x: 0, y: STEP_NODE_HEIGHT / 2 },
             data: {
               slug: trigger.ref ?? trigger.type,
               type: "trigger",
@@ -94,7 +96,7 @@ function buildNodes(positions?: Map<string, { x: number; y: number }>): Node[] {
     ...steps.map((s, i) => ({
       id: stepNodeId(i),
       type: nodeTypeForStep(s.type),
-      position: positions?.get(stepNodeId(i)) ?? { x: 0, y: (i + offset) * 100 },
+      position: positions?.get(stepNodeId(i)) ?? { x: (i + offset) * STEP_SPACING_X, y: STEP_NODE_HEIGHT / 2 },
       data: { slug: s.slug, type: s.type, status: s.status ?? "waiting", selected: i === selectedStepIndex },
     })),
     ...(editMode && steps.length > 0
@@ -103,8 +105,8 @@ function buildNodes(positions?: Map<string, { x: number; y: number }>): Node[] {
             id: "__addStep__",
             type: "addStep",
             position: positions?.get("__addStep__") ?? {
-              x: ADD_NODE_X,
-              y: (steps.length + offset) * 100,
+              x: (steps.length + offset) * STEP_SPACING_X,
+              y: ADD_NODE_Y,
             },
             data: {},
           },

@@ -33,9 +33,9 @@ let isTrigger = $derived(data.type === "trigger");
 
 <div class="px-4 py-3 rounded-lg border-2 shadow-sm w-45 text-center {colorClass}" class:border-dashed={isTrigger}>
   {#if !isTrigger}
-    <Handle type="target" position={Position.Top} />
+    <Handle type="target" position={Position.Left} />
   {/if}
   <div class="text-xs font-medium text-foreground">{data.slug}</div>
   <div class="text-[10px] text-muted-foreground mt-0.5">{typeLabel}</div>
-  <Handle type="source" position={Position.Bottom} />
+  <Handle type="source" position={Position.Right} />
 </div>

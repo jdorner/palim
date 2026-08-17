@@ -32,7 +32,7 @@ let isWaitingSignal = $derived(data.status === "waiting-signal");
 </script>
 
 <div class="relative px-4 py-3 rounded-lg border-2 shadow-sm w-45 text-center {colorClass}">
-  <Handle type="target" position={Position.Top} />
+  <Handle type="target" position={Position.Left} />
   <div class="flex items-center justify-center gap-1.5">
     <PauseCircleIcon
       size={14}
@@ -42,5 +42,5 @@ let isWaitingSignal = $derived(data.status === "waiting-signal");
     <div class="text-xs font-medium text-foreground">{data.slug}</div>
   </div>
   <div class="text-[10px] text-muted-foreground mt-0.5">{typeLabel}</div>
-  <Handle type="source" position={Position.Bottom} />
+  <Handle type="source" position={Position.Right} />
 </div>
