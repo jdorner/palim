@@ -10,6 +10,8 @@ import {
 } from "@xyflow/svelte";
 import "@xyflow/svelte/dist/style.css";
 import { onMount, untrack } from "svelte";
+import { flattenWorkflow, type StepData } from "$lib/workflowGraph";
+import { computeLayout } from "$lib/workflowLayout";
 import AddStepNode from "./AddStepNode.svelte";
 import ControlFlowNode from "./ControlFlowNode.svelte";
 import FitViewOnInit from "./FitViewOnInit.svelte";
@@ -21,6 +23,7 @@ interface StepInfo {
   type: string;
   status?: "waiting" | "active" | "completed" | "failed" | "waiting-signal";
   jobId?: string;
+  [key: string]: unknown;
 }
 
 interface TriggerInfo {
@@ -34,8 +37,9 @@ interface Props {
   editMode?: boolean;
   selectedStepIndex?: number;
   fitViewTrigger?: number;
+  customStepTypes?: Array<{ type: string; label: string; icon?: string }>;
   onNodeClick?: (step: StepInfo, index: number) => void;
-  onAddStep?: () => void;
+  onAddStep?: (type?: string, branchContext?: { parentNodeId: string; branch: string }) => void;
   onEdgesChange?: (edges: Edge[]) => void;
 }
 
@@ -45,6 +49,7 @@ let {
   editMode,
   selectedStepIndex = -1,
   fitViewTrigger = 0,
+  customStepTypes = [],
   onNodeClick,
   onAddStep,
   onEdgesChange,
@@ -52,211 +57,161 @@ let {
 
 let colorMode = $state<ColorMode>("light");
 
-/** Creates a stable node ID from a step's array index. */
-function stepNodeId(index: number): string {
-  return `step-${index}`;
-}
-
 const nodeTypes = { step: WorkflowStepNode, controlFlow: ControlFlowNode, waitFor: WaitForNode, addStep: AddStepNode };
 
-const STEP_NODE_WIDTH = 180;
-const STEP_NODE_HEIGHT = 56;
-const STEP_SPACING_X = 240;
-const ADD_NODE_SIZE = 24;
-const ADD_NODE_Y = (STEP_NODE_HEIGHT - ADD_NODE_SIZE) / 2;
+// ---------------------------------------------------------------------------
+// Layout computation using flatten + dagre
+// ---------------------------------------------------------------------------
 
-/** Maps a workflow step type to the corresponding graph node type. */
-function nodeTypeForStep(stepType: string): string {
-  if (stepType === "if" || stepType === "case") return "controlFlow";
-  if (stepType === "waitFor") return "waitFor";
-  return "step";
-}
+/** Compute the full graph layout from current steps. */
+function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
+  const flatGraph = flattenWorkflow(steps as StepData[]);
+  const layout = computeLayout(flatGraph, {
+    trigger,
+    includeAddNode: editMode && steps.length > 0,
+  });
 
-// --- Nodes ---
+  // Merge runtime status and selection state into node data
+  const nodesWithStatus = layout.nodes.map((node) => {
+    if (node.id === "__trigger__") return node;
 
-/** Build the full node array from current step data, using provided positions. */
-function buildNodes(positions?: Map<string, { x: number; y: number }>): Node[] {
-  const offset = trigger ? 1 : 0;
-  return [
-    ...(trigger
-      ? [
-          {
-            id: "__trigger__",
-            type: "step",
-            position: positions?.get("__trigger__") ?? { x: 0, y: STEP_NODE_HEIGHT / 2 },
-            data: {
-              slug: trigger.ref ?? trigger.type,
-              type: "trigger",
-              status: "completed" as const,
-              triggerType: trigger.type,
-            },
-          },
-        ]
-      : []),
-    ...steps.map((s, i) => ({
-      id: stepNodeId(i),
-      type: nodeTypeForStep(s.type),
-      position: positions?.get(stepNodeId(i)) ?? { x: (i + offset) * STEP_SPACING_X, y: STEP_NODE_HEIGHT / 2 },
-      data: { slug: s.slug, type: s.type, status: s.status ?? "waiting", selected: i === selectedStepIndex },
-    })),
-    ...(editMode && steps.length > 0
-      ? [
-          {
-            id: "__addStep__",
-            type: "addStep",
-            position: positions?.get("__addStep__") ?? {
-              x: (steps.length + offset) * STEP_SPACING_X,
-              y: ADD_NODE_Y,
-            },
-            data: {},
-          },
-        ]
-      : []),
-  ];
-}
+    // Inject addStep node callbacks and custom types (root + branch)
+    if (node.id === "__addStep__" || node.id.startsWith("__addStep:")) {
+      const branchContext =
+        node.data.parentNodeId && node.data.branch
+          ? { parentNodeId: node.data.parentNodeId as string, branch: node.data.branch as string }
+          : undefined;
 
-// Derived nodes for view mode (no user interaction, positions are static)
-let derivedNodes = $derived<Node[]>(buildNodes());
-
-// Mutable node state for edit mode — preserves drag positions
-let editableNodes = $state<Node[]>([]);
-
-// Track editMode and step count transitions
-let prevEditModeForNodes = $state(false);
-let prevStepCountForNodes = $state(0);
-
-// Seed editable nodes on edit mode entry or step add/remove.
-// On step data change (slug/type), update only node.data without touching position.
-$effect(() => {
-  const enteringEditMode = editMode && !prevEditModeForNodes;
-  const stepsAddedOrRemoved = editMode && steps.length !== prevStepCountForNodes;
-
-  if (enteringEditMode || stepsAddedOrRemoved) {
-    // Full re-seed: new positions for new nodes, keep existing positions
-    const existingPositions = new Map(untrack(() => editableNodes).map((n) => [n.id, n.position]));
-    editableNodes = buildNodes(existingPositions);
-  } else if (editMode) {
-    // Data-only update: preserve positions, just sync node.data from steps
-    editableNodes = untrack(() => editableNodes).map((node) => {
-      if (node.id === "__trigger__") {
-        return {
-          ...node,
-          data: {
-            slug: trigger?.ref ?? trigger?.type ?? "",
-            type: "trigger",
-            status: "completed" as const,
-            triggerType: trigger?.type ?? "",
-          },
-        };
-      }
-      if (node.id === "__addStep__") return node;
-      const idx = Number.parseInt(node.id.replace("step-", ""), 10);
-      const step = steps[idx];
-      if (!step) return node;
       return {
         ...node,
         data: {
-          slug: step.slug,
-          type: step.type,
-          status: step.status ?? "waiting",
-          selected: idx === selectedStepIndex,
+          ...node.data,
+          onSelectType: (type: string) => onAddStep?.(type, branchContext),
+          customStepTypes,
         },
       };
+    }
+
+    // Find the corresponding step for status overlay.
+    // Root-level nodes have IDs like "step-0", "step-1", etc.
+    // Branch nodes have IDs like "step-0.then-0", "step-1.path-create-0", etc.
+    const rootIndex = parseRootIndex(node.id);
+    const step = rootIndex !== null ? steps[rootIndex] : undefined;
+    // Mark as selected if this node belongs to the currently selected top-level step
+    const isSelected = rootIndex !== null && rootIndex === selectedStepIndex;
+
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        status: step?.status ?? node.data.status ?? "waiting",
+        selected: isSelected,
+      },
+    };
+  });
+
+  // Animate edges to active nodes
+  const edgesWithAnimation = layout.edges.map((edge) => {
+    const targetNode = nodesWithStatus.find((n) => n.id === edge.target);
+    const isActive = targetNode?.data?.status === "active";
+    return { ...edge, animated: isActive || edge.animated };
+  });
+
+  return { nodes: nodesWithStatus, edges: edgesWithAnimation };
+}
+
+/**
+ * Extracts the root-level step index from a node ID.
+ * - "step-2" -> 2
+ * - "step-1.then-0" -> 1 (the parent CF node index)
+ * - "__trigger__" -> null
+ */
+function parseRootIndex(nodeId: string): number | null {
+  if (!nodeId.startsWith("step-")) return null;
+  const match = nodeId.match(/^step-(\d+)/);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+// ---------------------------------------------------------------------------
+// View mode: derived layout (recomputed when steps/trigger/selection change)
+// ---------------------------------------------------------------------------
+
+let derivedLayout = $derived(computeGraphLayout());
+let derivedNodes = $derived<Node[]>(derivedLayout.nodes);
+let derivedEdges = $derived<Edge[]>(derivedLayout.edges);
+
+// ---------------------------------------------------------------------------
+// Edit mode: mutable state seeded from layout
+// ---------------------------------------------------------------------------
+
+let editableNodes = $state<Node[]>([]);
+let editableEdges = $state<Edge[]>([]);
+
+let prevEditMode = $state(false);
+let prevNodeCount = $state(0);
+
+// Seed editable state when entering edit mode or when the graph structure changes.
+$effect(() => {
+  // Compute the flat node count to detect both top-level and branch step additions
+  const flatGraph = flattenWorkflow(steps as StepData[]);
+  const currentNodeCount = flatGraph.nodes.length;
+
+  const enteringEditMode = editMode && !prevEditMode;
+  const structureChanged = editMode && currentNodeCount !== prevNodeCount;
+
+  if (enteringEditMode || structureChanged) {
+    // Recompute layout but preserve existing positions for user-dragged nodes
+    const layout = computeGraphLayout();
+    const existingPositions = new Map(untrack(() => editableNodes).map((n) => [n.id, n.position]));
+
+    editableNodes = layout.nodes.map((node) => {
+      // Always use fresh positions for addStep nodes (they move as branches grow)
+      if (node.id.startsWith("__addStep")) return node;
+      const existing = existingPositions.get(node.id);
+      return existing ? { ...node, position: existing } : node;
+    });
+    editableEdges = [...layout.edges];
+  } else if (editMode) {
+    // Data-only update: sync slug/type/status/selected without touching positions
+    const layout = computeGraphLayout();
+    const layoutDataMap = new Map(layout.nodes.map((n) => [n.id, n.data]));
+
+    editableNodes = untrack(() => editableNodes).map((node) => {
+      const newData = layoutDataMap.get(node.id);
+      return newData ? { ...node, data: newData } : node;
     });
   }
 
-  prevEditModeForNodes = !!editMode;
+  prevEditMode = !!editMode;
   if (editMode) {
-    prevStepCountForNodes = steps.length;
+    prevNodeCount = currentNodeCount;
   }
 });
 
-// The nodes passed to SvelteFlow
+// The state passed to SvelteFlow
 let nodes = $derived<Node[]>(editMode ? editableNodes : derivedNodes);
+let edges = $derived<Edge[]>(editMode ? editableEdges : derivedEdges);
 
-/** Apply node position changes from SvelteFlow (drag). */
+// ---------------------------------------------------------------------------
+// Node drag
+// ---------------------------------------------------------------------------
+
 function handleNodeDragStop(ev: { event: MouseEvent | TouchEvent; targetNode: Node | null; nodes: Node[] }) {
   const { targetNode } = ev;
   if (!targetNode) return;
   editableNodes = editableNodes.map((n) => (n.id === targetNode.id ? { ...n, position: targetNode.position } : n));
 }
 
-// --- Edges ---
-
-// Edges derived from the steps data (used in view mode)
-let derivedEdges = $derived<Edge[]>([
-  ...(trigger && steps.length > 0
-    ? [
-        {
-          id: `__trigger__-${stepNodeId(0)}`,
-          source: "__trigger__",
-          target: stepNodeId(0),
-          animated: steps[0]!.status === "active",
-        },
-      ]
-    : []),
-  ...steps.slice(1).map((_, i) => {
-    const sourceStep = steps[i]!;
-    const isConditionalEdge = sourceStep.type === "if" || sourceStep.type === "case";
-    return {
-      id: `${stepNodeId(i)}-${stepNodeId(i + 1)}`,
-      source: stepNodeId(i),
-      target: stepNodeId(i + 1),
-      animated: steps[i + 1]!.status === "active",
-      style: isConditionalEdge ? "stroke-dasharray: 5 5;" : undefined,
-    };
-  }),
-  ...(editMode && steps.length > 0
-    ? [
-        {
-          id: `${stepNodeId(steps.length - 1)}--addStep--`,
-          source: stepNodeId(steps.length - 1),
-          target: "__addStep__",
-          animated: false,
-        },
-      ]
-    : []),
-]);
-
-// Mutable edge state for edit mode — seeded from derived edges
-let editableEdges = $state<Edge[]>([]);
-
-// Track previous editMode and step count to detect when to re-seed edges
-let prevEditMode = $state(false);
-let prevStepCount = $state(0);
-
-// Seed editable edges when entering edit mode or when steps are added/removed.
-$effect(() => {
-  const enteringEditMode = editMode && !prevEditMode;
-  const stepsAddedOrRemoved = editMode && steps.length !== prevStepCount;
-
-  if (enteringEditMode || stepsAddedOrRemoved) {
-    editableEdges = [...derivedEdges];
-  }
-
-  prevEditMode = !!editMode;
-  if (editMode) {
-    prevStepCount = steps.length;
-  }
-});
-
-// The edges passed to SvelteFlow — mutable in edit mode, derived in view mode
-let edges = $derived<Edge[]>(editMode ? editableEdges : derivedEdges);
-
-// --- Connection validation ---
+// ---------------------------------------------------------------------------
+// Edge interactions (edit mode)
+// ---------------------------------------------------------------------------
 
 function isValidConnection({ source, target }: { source: string; target: string }): boolean {
   if (source === target) return false;
-
   const currentEdges = editMode ? editableEdges : derivedEdges;
-
   if (currentEdges.some((e) => e.target === target && e.source !== source)) return false;
-  if (currentEdges.some((e) => e.source === source && e.target !== target)) return false;
-
   return true;
 }
-
-// --- Edge event handlers ---
 
 function handleConnect(connection: Connection) {
   const { source, target } = connection;
@@ -287,9 +242,6 @@ function handleBeforeReconnect(newEdge: Edge, _oldEdge: Edge): Edge | null {
   const targetHasIncoming = edgesWithoutOld.some((e) => e.target === newEdge.target && e.source !== newEdge.source);
   if (targetHasIncoming) return null;
 
-  const sourceHasOutgoing = edgesWithoutOld.some((e) => e.source === newEdge.source && e.target !== newEdge.target);
-  if (sourceHasOutgoing) return null;
-
   return newEdge;
 }
 
@@ -298,7 +250,24 @@ function handleReconnect(newEdge: Edge) {
   onEdgesChange?.(editableEdges);
 }
 
-// --- Misc ---
+// ---------------------------------------------------------------------------
+// Node click
+// ---------------------------------------------------------------------------
+
+function handleNodeClick(ev: { event: MouseEvent | TouchEvent; node: Node }) {
+  // AddStepNode handles its own clicks via the popover menu
+  if (ev.node.id === "__addStep__" || ev.node.id.startsWith("__addStep:")) return;
+
+  const rootIndex = parseRootIndex(ev.node.id);
+  if (rootIndex === null) return;
+
+  const step = steps[rootIndex];
+  if (step && onNodeClick) onNodeClick(step, rootIndex);
+}
+
+// ---------------------------------------------------------------------------
+// Dark mode sync
+// ---------------------------------------------------------------------------
 
 onMount(() => {
   function sync() {
@@ -309,16 +278,6 @@ onMount(() => {
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
   return () => observer.disconnect();
 });
-
-function handleNodeClick(ev: { event: MouseEvent | TouchEvent; node: Node }) {
-  if (ev.node.id === "__addStep__") {
-    onAddStep?.();
-    return;
-  }
-  const index = Number.parseInt(ev.node.id.replace("step-", ""), 10);
-  const step = steps[index];
-  if (step && onNodeClick) onNodeClick(step, index);
-}
 </script>
 
 <div class="w-full h-full border rounded-lg overflow-hidden bg-background">
