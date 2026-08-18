@@ -1005,11 +1005,25 @@ export function createExtension(): Extension {
         const runStatus =
           run?.status === "waiting-signal" ? "waiting-signal" : buildRunStatus(sorted.map((s) => s.state));
 
+        // Extract chosenBranch info from step results for CF nodes
+        const chosenBranches: Record<string, string> = {};
+        if (run?.stepResults) {
+          for (const [slug, result] of Object.entries(run.stepResults)) {
+            if (slug.startsWith("__")) continue;
+            if (result && typeof result === "object" && "chosenBranch" in result) {
+              chosenBranches[slug] = (result as { chosenBranch: string }).chosenBranch;
+            } else if (result && typeof result === "object" && "matched" in result) {
+              chosenBranches[slug] = (result as { matched: string }).matched;
+            }
+          }
+        }
+
         return Response.json({
           runId,
           workflowName,
           status: runStatus,
           trigger: wf?.trigger ?? null,
+          chosenBranches,
           steps: sorted.map((d) => {
             // Override status for the waitFor step that is currently waiting for a signal
             if (activeSignal && d.stepSlug === activeSignal.stepSlug) {

@@ -21,10 +21,13 @@ import WorkflowStepNode from "./WorkflowStepNode.svelte";
 interface StepInfo {
   slug: string;
   type: string;
-  status?: "waiting" | "active" | "completed" | "failed" | "waiting-signal";
+  status?: "waiting" | "active" | "completed" | "failed" | "waiting-signal" | "skipped";
   jobId?: string;
   [key: string]: unknown;
 }
+
+/** Status type for the statusMap prop. */
+type StepStatus = "waiting" | "active" | "completed" | "failed" | "waiting-signal" | "skipped";
 
 interface TriggerInfo {
   type: string;
@@ -38,6 +41,12 @@ interface Props {
   selectedStepIndex?: number;
   fitViewTrigger?: number;
   customStepTypes?: Array<{ type: string; label: string; icon?: string }>;
+  /**
+   * Optional slug-based status map for runtime status overlay.
+   * When provided, node status is resolved by slug lookup instead of by array index.
+   * Used by WorkflowRunPage to overlay execution status onto the full definition graph.
+   */
+  statusMap?: Record<string, StepStatus>;
   onNodeClick?: (step: StepInfo, index: number) => void;
   onAddStep?: (type?: string, branchContext?: { parentNodeId: string; branch: string }) => void;
   onEdgesChange?: (edges: Edge[]) => void;
@@ -50,6 +59,7 @@ let {
   selectedStepIndex = -1,
   fitViewTrigger = 0,
   customStepTypes = [],
+  statusMap,
   onNodeClick,
   onAddStep,
   onEdgesChange,
@@ -93,6 +103,21 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
     }
 
     // Find the corresponding step for status overlay.
+    // If a statusMap is provided (run page), resolve status by node slug.
+    // Otherwise fall back to index-based lookup (detail/edit page).
+    if (statusMap) {
+      const slug = node.data.slug as string;
+      const status = statusMap[slug] ?? "waiting";
+      return {
+        ...node,
+        data: {
+          ...node.data,
+          status,
+          selected: false,
+        },
+      };
+    }
+
     // Root-level nodes have IDs like "step-0", "step-1", etc.
     // Branch nodes have IDs like "step-0.then-0", "step-1.path-create-0", etc.
     const rootIndex = parseRootIndex(node.id);
@@ -130,6 +155,45 @@ function parseRootIndex(nodeId: string): number | null {
   if (!nodeId.startsWith("step-")) return null;
   const match = nodeId.match(/^step-(\d+)/);
   return match ? Number.parseInt(match[1], 10) : null;
+}
+
+/**
+ * Recursively searches the step tree for a step with the given slug.
+ * Returns a StepInfo-compatible object or undefined if not found.
+ */
+function findStepBySlug(stepsArray: StepInfo[], slug: string): StepInfo | undefined {
+  for (const step of stepsArray) {
+    if (step.slug === slug) return step;
+    // Search in if branches
+    if (step.type === "if") {
+      const thenSteps = (step as { then?: StepInfo[] }).then;
+      if (thenSteps) {
+        const found = findStepBySlug(thenSteps, slug);
+        if (found) return found;
+      }
+      const elseSteps = (step as { else?: StepInfo[] }).else;
+      if (elseSteps) {
+        const found = findStepBySlug(elseSteps, slug);
+        if (found) return found;
+      }
+    }
+    // Search in case branches
+    if (step.type === "case") {
+      const paths = (step as { paths?: Record<string, StepInfo[]> }).paths;
+      if (paths) {
+        for (const pathSteps of Object.values(paths)) {
+          const found = findStepBySlug(pathSteps, slug);
+          if (found) return found;
+        }
+      }
+      const defaultSteps = (step as { default?: StepInfo[] }).default;
+      if (defaultSteps) {
+        const found = findStepBySlug(defaultSteps, slug);
+        if (found) return found;
+      }
+    }
+  }
+  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -257,6 +321,16 @@ function handleReconnect(newEdge: Edge) {
 function handleNodeClick(ev: { event: MouseEvent | TouchEvent; node: Node }) {
   // AddStepNode handles its own clicks via the popover menu
   if (ev.node.id === "__addStep__" || ev.node.id.startsWith("__addStep:")) return;
+
+  // When statusMap is provided (run page), resolve by slug for all nodes
+  if (statusMap && onNodeClick) {
+    const slug = ev.node.data?.slug as string | undefined;
+    if (!slug) return;
+    // Find a matching step in the steps array (may be nested for branch steps)
+    const matchingStep = findStepBySlug(steps, slug);
+    if (matchingStep) onNodeClick(matchingStep, -1);
+    return;
+  }
 
   const rootIndex = parseRootIndex(ev.node.id);
   if (rootIndex === null) return;

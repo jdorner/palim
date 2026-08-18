@@ -27,6 +27,8 @@ export interface RunDetail {
   status: string;
   trigger?: { type: string; ref?: string } | null;
   steps: RunStep[];
+  /** Branch choices made by control flow nodes (if/case). Keyed by CF step slug. */
+  chosenBranches?: Record<string, string>;
 }
 
 /** Callback signature for workflow event subscribers. */
@@ -60,6 +62,11 @@ class WorkflowStore {
   run = $state<RunDetail | null>(null);
   /** The run ID being observed (set by the page). */
   activeRunId = $state<string | null>(null);
+  /**
+   * Tracks which branch was chosen for each control flow step (if/case).
+   * Keyed by step slug, value is the branch label (e.g. "then", "else", path key).
+   */
+  chosenBranches = $state<Record<string, string>>({});
 
   // -------------------------------------------------------------------------
   // Event subscribers (for WorkflowsPage, WorkflowDetailPage, etc.)
@@ -91,12 +98,14 @@ class WorkflowStore {
   track(runId: string, detail: RunDetail): void {
     this.activeRunId = runId;
     this.run = detail;
+    this.chosenBranches = detail.chosenBranches ?? {};
   }
 
   /** Clears the tracked run (called when the page unmounts). */
   untrack(): void {
     this.activeRunId = null;
     this.run = null;
+    this.chosenBranches = {};
   }
 
   // -------------------------------------------------------------------------
@@ -143,6 +152,10 @@ class WorkflowStore {
 
       case "workflow_step_completed":
         if (message.workflowRunId === this.activeRunId) {
+          // Track which branch was chosen for control flow nodes
+          if (message.chosenBranch) {
+            this.chosenBranches = { ...this.chosenBranches, [message.stepSlug]: message.chosenBranch };
+          }
           this.run = {
             ...this.run,
             steps: this.run.steps.map((s) =>

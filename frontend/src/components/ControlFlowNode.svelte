@@ -7,7 +7,7 @@ interface Props {
   data: {
     slug: string;
     type: string;
-    status?: "waiting" | "active" | "completed" | "failed" | "waiting-signal";
+    status?: "waiting" | "active" | "completed" | "failed" | "waiting-signal" | "skipped";
     selected?: boolean;
     /** Branch labels for source handles (e.g. ["then", "else"] or path keys). */
     branches?: string[];
@@ -22,6 +22,7 @@ const statusColors: Record<string, string> = {
   completed: "bg-green-100 border-green-400 dark:bg-green-900/30 dark:border-green-600",
   failed: "bg-red-100 border-red-400 dark:bg-red-900/30 dark:border-red-600",
   "waiting-signal": "bg-amber-100 border-amber-400 dark:bg-amber-900/30 dark:border-amber-600",
+  skipped: "bg-muted/50 border-border/50 opacity-50",
 };
 
 let colorClass = $derived(
