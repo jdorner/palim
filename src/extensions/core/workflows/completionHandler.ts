@@ -17,7 +17,7 @@ import type { FlowProducer } from "bunqueue/client";
 import type { SessionFactory } from "./engine";
 import * as runStore from "./runStore";
 import type { WorkflowStep } from "./schemas";
-import { dispatchBranchSteps, dispatchNextSegment } from "./segmentDispatcher";
+import { dispatchBranchSteps, dispatchNextSegment, failRun } from "./segmentDispatcher";
 import { CONTROL_FLOW_TYPES, segmentWorkflow } from "./segmenter";
 import type { WorkflowStepJobData } from "./types";
 import type { StepResult } from "./worker";
@@ -233,24 +233,6 @@ async function handleSegmentBoundary(
     log.error(`Failed to dispatch next segment for run ${d.workflowRunId}:`, err);
     failRun(d.workflowRunId, d.stepSlug, `Segment dispatch failed: ${errorMessage(err)}`, deps);
   }
-}
-
-/**
- * Marks a workflow run as failed and broadcasts the failure event.
- * Best-effort: swallows Run Store errors.
- */
-function failRun(runId: string, failedStep: string, error: string, deps: CompletionHandlerDeps): void {
-  try {
-    runStore.updateStatus(runId, "failed", error);
-  } catch {
-    // best effort
-  }
-  deps.broadcast({
-    type: "workflow_failed",
-    workflowRunId: runId,
-    failedStep,
-    error,
-  });
 }
 
 /**

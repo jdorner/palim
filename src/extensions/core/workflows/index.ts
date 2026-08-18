@@ -38,7 +38,7 @@ import * as runStore from "./runStore";
 import { initRunStore } from "./runStore";
 import type { AgentStep, OutputSchema, WorkflowDefinition } from "./schemas";
 import { WorkflowDefinitionSchema } from "./schemas";
-import { dispatchBranchSteps, dispatchNextSegment } from "./segmentDispatcher";
+import { dispatchBranchSteps, dispatchNextSegment, failRun } from "./segmentDispatcher";
 import * as signalStore from "./signalStore";
 import { initSignalStore } from "./signalStore";
 import * as signalTimers from "./signalTimers";
@@ -1188,21 +1188,12 @@ export function createExtension(): Extension {
                   },
                 ).catch((err) => {
                   logger.error(`Failed to dispatch branch continuation after signal for run ${runId}:`, err);
-                  try {
-                    runStore.updateStatus(
-                      runId,
-                      "failed",
-                      `Branch continuation failed: ${err instanceof Error ? err.message : String(err)}`,
-                    );
-                  } catch {
-                    /* best effort */
-                  }
-                  ctx.messaging.broadcast({
-                    type: "workflow_failed",
-                    workflowRunId: runId,
-                    failedStep: signal.stepSlug,
-                    error: `Branch continuation failed: ${err instanceof Error ? err.message : String(err)}`,
-                  });
+                  failRun(
+                    runId,
+                    signal.stepSlug,
+                    `Branch continuation failed: ${err instanceof Error ? err.message : String(err)}`,
+                    { log: logger, broadcast: (evt) => ctx.messaging.broadcast(evt) },
+                  );
                 });
               }
             } else {
@@ -1217,32 +1208,20 @@ export function createExtension(): Extension {
                 broadcast: (evt) => ctx.messaging.broadcast(evt),
               }).catch((err) => {
                 logger.error(`Failed to dispatch next segment after signal delivery for run ${runId}:`, err);
-                try {
-                  runStore.updateStatus(
-                    runId,
-                    "failed",
-                    `Segment dispatch failed after signal: ${err instanceof Error ? err.message : String(err)}`,
-                  );
-                } catch {
-                  // best effort
-                }
-                ctx.messaging.broadcast({
-                  type: "workflow_failed",
-                  workflowRunId: runId,
-                  failedStep: signal.stepSlug,
-                  error: `Segment dispatch failed after signal: ${err instanceof Error ? err.message : String(err)}`,
-                });
+                failRun(
+                  runId,
+                  signal.stepSlug,
+                  `Segment dispatch failed after signal: ${err instanceof Error ? err.message : String(err)}`,
+                  { log: logger, broadcast: (evt) => ctx.messaging.broadcast(evt) },
+                );
               });
             }
           } else {
             // Workflow definition no longer loaded - fail the run
             logger.error(`Workflow definition "${run.workflowName}" not found for signal delivery on run ${runId}`);
-            runStore.updateStatus(runId, "failed", `Workflow definition "${run.workflowName}" not found`);
-            ctx.messaging.broadcast({
-              type: "workflow_failed",
-              workflowRunId: runId,
-              failedStep: signal.stepSlug,
-              error: `Workflow definition "${run.workflowName}" not found`,
+            failRun(runId, signal.stepSlug, `Workflow definition "${run.workflowName}" not found`, {
+              log: logger,
+              broadcast: (evt) => ctx.messaging.broadcast(evt),
             });
           }
 

@@ -748,7 +748,7 @@ function storeBranchContinuation(
  * @param error - Human-readable error description
  * @param deps - Dependencies (for logging and broadcasting)
  */
-function failRun(
+export function failRun(
   runId: string,
   failedStep: string,
   error: string,
