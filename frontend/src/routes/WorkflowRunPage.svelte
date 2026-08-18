@@ -288,17 +288,17 @@ onDestroy(() => {
   <div class="flex flex-col h-[calc(100vh-8rem)] overflow-hidden">
     <div class="flex items-center justify-between mb-4 shrink-0">
       <div class="flex items-center gap-3">
-        <button
-          type="button"
-          class="px-3 py-1.5 text-sm rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
+        <Button
+          size="sm"
+          variant="outline"
           onclick={() => {
             navigate("/workflows/:name", {
               params: { name: `${workflowName}` },
             });
           }}
         >
-          Back
-        </button>
+          &laquo;&nbsp;Back
+        </Button>
         <span class="text-xs text-muted-foreground font-mono">Run: {run.runId.slice(0, 8)}</span>
       </div>
       <div class="flex items-center gap-2">
