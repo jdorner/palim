@@ -170,11 +170,20 @@ class WorkflowStore {
           if (message.chosenBranch) {
             this.chosenBranches = { ...this.chosenBranches, [message.stepSlug]: message.chosenBranch };
           }
+          const existsCompleted = this.run.steps.some((s) => s.slug === message.stepSlug);
           this.run = {
             ...this.run,
-            steps: this.run.steps.map((s) =>
-              s.slug === message.stepSlug ? { ...s, status: "completed" as const } : s,
-            ),
+            steps: existsCompleted
+              ? this.run.steps.map((s) => (s.slug === message.stepSlug ? { ...s, status: "completed" as const } : s))
+              : [
+                  ...this.run.steps,
+                  {
+                    slug: message.stepSlug,
+                    type: "",
+                    status: "completed" as const,
+                    jobId: message.jobId,
+                  },
+                ],
           };
         }
         break;

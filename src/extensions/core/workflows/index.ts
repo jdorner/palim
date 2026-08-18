@@ -878,7 +878,7 @@ export function createExtension(): Extension {
               if (mappedSlugs.has(slug)) continue;
               if (persistedRun.stepResults && slug in persistedRun.stepResults && !slug.startsWith("__")) {
                 const stepDef = wf?.steps.find((s: { slug: string }) => s.slug === slug);
-                if (stepDef && stepDef.type === "waitFor") {
+                if (stepDef && (stepDef.type === "waitFor" || stepDef.type === "if" || stepDef.type === "case")) {
                   const stepIndex = persistedRun.fullStepOrder.indexOf(slug);
                   run.steps.push({
                     slug,
@@ -1112,17 +1112,18 @@ export function createExtension(): Extension {
                 }
               }
             } else if (run) {
-              // No active signal — inject completed waitFor steps from stepResults
+              // No active signal — inject completed inline steps from stepResults.
+              // Control flow nodes (if, case, waitFor) are handled inline without queue jobs.
               const mappedSlugs = new Set(mapped.map((s) => s.slug));
               for (const slug of run.fullStepOrder) {
                 if (mappedSlugs.has(slug)) continue;
                 // Check if this slug has a result in stepResults (meaning it executed)
                 if (run.stepResults && slug in run.stepResults && !slug.startsWith("__")) {
                   const stepDef = wf?.steps.find((s: { slug: string }) => s.slug === slug);
-                  if (stepDef && stepDef.type === "waitFor") {
+                  if (stepDef && (stepDef.type === "waitFor" || stepDef.type === "if" || stepDef.type === "case")) {
                     mapped.push({
                       slug,
-                      type: "waitFor",
+                      type: stepDef.type,
                       status: "completed",
                       jobId: runId,
                     });
