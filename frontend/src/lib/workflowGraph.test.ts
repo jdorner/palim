@@ -69,6 +69,7 @@ describe("flattenWorkflow", () => {
           slug: "check",
           type: "if",
           condition: { ref: "{{trigger.status}}", eq: "ok" },
+          // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword
           then: [{ slug: "success", type: "agent", prompt: "It worked" }],
         },
       ];
@@ -103,6 +104,7 @@ describe("flattenWorkflow", () => {
           slug: "branch",
           type: "if",
           condition: { ref: "{{trigger.value}}", gt: 10 },
+          // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword
           then: [{ slug: "high", type: "agent", prompt: "High value" }],
           else: [{ slug: "low", type: "agent", prompt: "Low value" }],
         },
@@ -133,6 +135,7 @@ describe("flattenWorkflow", () => {
           slug: "gate",
           type: "if",
           condition: { ref: "{{trigger.ok}}", exists: true },
+          // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword
           then: [
             { slug: "step-a", type: "agent", prompt: "A" },
             { slug: "step-b", type: "agent", prompt: "B" },
@@ -223,11 +226,13 @@ describe("flattenWorkflow", () => {
           slug: "outer",
           type: "if",
           condition: { ref: "{{a}}", eq: "1" },
+          // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword
           then: [
             {
               slug: "inner",
               type: "if",
               condition: { ref: "{{b}}", eq: "2" },
+              // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword
               then: [{ slug: "deep", type: "agent", prompt: "Deep" }],
             },
           ],
@@ -249,6 +254,7 @@ describe("flattenWorkflow", () => {
           slug: "gate",
           type: "if",
           condition: { ref: "{{ok}}", exists: true },
+          // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword
           then: [
             {
               slug: "dispatch",
@@ -281,6 +287,7 @@ describe("flattenWorkflow", () => {
           slug: "check",
           type: "if",
           condition: { ref: "{{setup.ok}}", eq: "true" },
+          // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword
           then: [{ slug: "proceed", type: "agent", prompt: "Go" }],
         },
         { slug: "cleanup", type: "agent", prompt: "Cleanup" },
@@ -461,6 +468,7 @@ describe("unflattenWorkflow", () => {
           slug: "check",
           type: "if",
           condition: { ref: "{{trigger.status}}", eq: "active" },
+          // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword
           then: [
             { slug: "handle", type: "agent", prompt: "Handle active" },
             { slug: "notify", type: "emit", event: "handled" },
@@ -496,6 +504,7 @@ describe("unflattenWorkflow", () => {
           slug: "outer",
           type: "if",
           condition: { ref: "{{setup.ok}}", exists: true },
+          // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword
           then: [
             {
               slug: "inner",
