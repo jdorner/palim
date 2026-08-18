@@ -438,8 +438,8 @@ export function createExtension(): Extension {
         const wf = store.get(d.workflowName);
         const isMultiSegment = wf ? segmentWorkflow(wf.steps).length > 1 : false;
 
-        if (!isMultiSegment) {
-          // Single-segment: preserve existing behavior
+        if (!isMultiSegment && !d.isBranchStep) {
+          // Single-segment without branch steps: preserve existing behavior
           if (d.stepIndex === d.totalSteps - 1) {
             // Mark run as completed in Run Store (best effort)
             try {
