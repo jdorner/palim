@@ -308,30 +308,30 @@ export function normalizePrompt(prompt: string | string[]): string {
  * control flow nodes.
  *
  * @param steps - The top-level or nested step array
- * @param collector - Accumulator set of all found slugs
+ * @param seen - Accumulator set of all found slugs
  * @param duplicates - Accumulator set of duplicate slugs
  */
-function collectSlugs(steps: WorkflowStep[], collector: Map<string, boolean>, duplicates: Set<string>): void {
+function collectSlugs(steps: WorkflowStep[], seen: Set<string>, duplicates: Set<string>): void {
   for (const step of steps) {
-    if (collector.has(step.slug)) {
+    if (seen.has(step.slug)) {
       duplicates.add(step.slug);
     } else {
-      collector.set(step.slug, true);
+      seen.add(step.slug);
     }
 
     if (step.type === "if") {
       const ifStep = step as IfStep;
-      collectSlugs(ifStep.then, collector, duplicates);
+      collectSlugs(ifStep.then, seen, duplicates);
       if (ifStep.else) {
-        collectSlugs(ifStep.else, collector, duplicates);
+        collectSlugs(ifStep.else, seen, duplicates);
       }
     } else if (step.type === "case") {
       const caseStep = step as CaseStep;
       for (const pathSteps of Object.values(caseStep.paths)) {
-        collectSlugs(pathSteps, collector, duplicates);
+        collectSlugs(pathSteps, seen, duplicates);
       }
       if (caseStep.default) {
-        collectSlugs(caseStep.default, collector, duplicates);
+        collectSlugs(caseStep.default, seen, duplicates);
       }
     }
   }
@@ -346,8 +346,8 @@ function collectSlugs(steps: WorkflowStep[], collector: Map<string, boolean>, du
  * @returns Array of duplicate slug names (empty if no duplicates)
  */
 export function validateGlobalSlugUniqueness(steps: WorkflowStep[]): string[] {
-  const collector = new Map<string, boolean>();
+  const seen = new Set<string>();
   const duplicates = new Set<string>();
-  collectSlugs(steps, collector, duplicates);
+  collectSlugs(steps, seen, duplicates);
   return [...duplicates];
 }
