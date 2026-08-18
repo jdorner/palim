@@ -136,7 +136,7 @@ export async function dispatchNextSegment(
     }
 
     if (nextStep.type === "waitFor") {
-      handleWaitForNode(runId, nextStepIndex, nextStep as WaitForStep, run, deps);
+      handleWaitForNode(runId, nextStepIndex, nextStep as WaitForStep, deps);
       return;
     }
 
@@ -498,14 +498,12 @@ async function handleCaseNode(
  * @param runId - The workflow run ID
  * @param stepIndex - The index of the `waitFor` node in the flat step list
  * @param waitForStep - The `waitFor` step definition
- * @param _run - The current run state from the Run Store (unused, kept for handler signature consistency)
  * @param deps - Injected dependencies
  */
 function handleWaitForNode(
   runId: string,
   stepIndex: number,
   waitForStep: WaitForStep,
-  _run: runStore.WorkflowRun,
   deps: SegmentDispatcherDeps,
 ): void {
   const { log, broadcast } = deps;
@@ -646,7 +644,7 @@ export async function dispatchBranchSteps(
       await handleCaseNode(runId, run.currentStepIndex, cfStep as CaseStep, run, deps);
     } else if (cfStep.type === "waitFor") {
       storeBranchContinuation(runId, remainingBranchSteps, resumeStepIndex, log);
-      handleWaitForNode(runId, run.currentStepIndex, cfStep as WaitForStep, run, deps);
+      handleWaitForNode(runId, run.currentStepIndex, cfStep as WaitForStep, deps);
     } else {
       log.error(`Unknown CF type "${cfStep.type}" in branch for run ${runId}`);
       failRun(runId, parentStepSlug, `Unknown control flow type "${cfStep.type}" in branch`, deps);
