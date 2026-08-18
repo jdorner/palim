@@ -154,52 +154,72 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   // Run dagre layout
   dagre.layout(g);
 
-  // Post-process: ensure branch targets are ordered vertically to match handle order.
-  // For each CF node, the first branch (e.g. "then") should be above the second ("else").
+  // Post-process: ensure branch targets are vertically separated and ordered.
+  // Dagre does not guarantee vertical ordering of branches, so we enforce it:
+  // For each CF node, collect all nodes (step nodes + addStep nodes) per branch,
+  // then ensure branches are vertically stacked in order with sufficient spacing.
   for (const node of graph.nodes) {
     if (node.data.type !== "if" && node.data.type !== "case") continue;
 
-    const childBranches = branchAddSteps.filter((b) => b.parentNodeId === node.id);
-    for (let i = 0; i < childBranches.length - 1; i++) {
-      const upper = g.node(childBranches[i].nodeId);
-      const lower = g.node(childBranches[i + 1].nodeId);
-      if (upper && lower && upper.y > lower.y) {
-        // Swap Y positions
-        const tmpY = upper.y;
-        upper.y = lower.y;
-        lower.y = tmpY;
-      }
-    }
-  }
+    const branchLabels =
+      node.data.type === "if"
+        ? ["then", "else"]
+        : (() => {
+            const pathEdges = graph.edges.filter((e) => e.source === node.id && e.label && e.label !== "default");
+            const labels = [...new Set(pathEdges.map((e) => e.label!))];
+            if (graph.nodes.some((n) => n.parent?.nodeId === node.id && n.parent?.branch === "default")) {
+              labels.push("default");
+            }
+            return labels;
+          })();
 
-  // Also reorder actual branch step nodes (not just addStep nodes)
-  for (const node of graph.nodes) {
-    if (node.data.type !== "if" && node.data.type !== "case") continue;
-
-    const branchLabels = node.data.type === "if" ? ["then", "else"] : [];
     if (branchLabels.length < 2) continue;
 
-    for (let i = 0; i < branchLabels.length - 1; i++) {
-      const upperNodes = graph.nodes.filter(
-        (n) => n.parent?.nodeId === node.id && n.parent?.branch === branchLabels[i],
-      );
-      const lowerNodes = graph.nodes.filter(
-        (n) => n.parent?.nodeId === node.id && n.parent?.branch === branchLabels[i + 1],
-      );
+    const cfPos = g.node(node.id);
+    if (!cfPos) continue;
 
-      if (upperNodes.length > 0 && lowerNodes.length > 0) {
-        const upperFirst = g.node(upperNodes[0].id);
-        const lowerFirst = g.node(lowerNodes[0].id);
-        if (upperFirst && lowerFirst && upperFirst.y > lowerFirst.y) {
-          // Swap all nodes of these two branches
-          for (const un of upperNodes) {
-            const pos = g.node(un.id);
-            if (pos) pos.y = pos.y - (upperFirst.y - lowerFirst.y);
-          }
-          for (const ln of lowerNodes) {
-            const pos = g.node(ln.id);
-            if (pos) pos.y = pos.y + (upperFirst.y - lowerFirst.y);
-          }
+    // Collect all node IDs per branch (step nodes + addStep nodes)
+    const branchNodeIds: string[][] = branchLabels.map((label) => {
+      const stepIds = graph.nodes
+        .filter((n) => n.parent?.nodeId === node.id && n.parent?.branch === label)
+        .map((n) => n.id);
+      const addStepId = branchAddSteps.find((b) => b.parentNodeId === node.id && b.branch === label)?.nodeId;
+      if (addStepId) stepIds.push(addStepId);
+      return stepIds;
+    });
+
+    // Calculate the vertical center (median Y) of each branch
+    const branchCenters = branchNodeIds.map((ids) => {
+      if (ids.length === 0) return cfPos.y;
+      const ys = ids.map((id) => g.node(id)?.y ?? cfPos.y);
+      return ys.reduce((sum, y) => sum + y, 0) / ys.length;
+    });
+
+    // Desired vertical spacing between branch centers
+    const minSpacing = NODE_HEIGHT + LAYOUT_OPTIONS.nodesep!;
+
+    // Check if branches overlap or are not in the correct order
+    let needsReorder = false;
+    for (let i = 0; i < branchCenters.length - 1; i++) {
+      if (branchCenters[i + 1] - branchCenters[i] < minSpacing) {
+        needsReorder = true;
+        break;
+      }
+    }
+
+    if (needsReorder) {
+      // Place branches symmetrically around the CF node's Y position
+      const totalSpan = (branchLabels.length - 1) * minSpacing;
+      const startY = cfPos.y - totalSpan / 2;
+
+      for (let i = 0; i < branchLabels.length; i++) {
+        const targetCenter = startY + i * minSpacing;
+        const currentCenter = branchCenters[i];
+        const delta = targetCenter - currentCenter;
+
+        for (const id of branchNodeIds[i]) {
+          const pos = g.node(id);
+          if (pos) pos.y += delta;
         }
       }
     }
