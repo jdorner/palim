@@ -111,7 +111,7 @@ describe("ManagedQueue.cancelJob", () => {
 
       const mq = new ManagedQueue<{ value: number }>(
         TEST_QUEUE,
-        async (job: QueueJob<{ value: number }>) => {
+        async (_job: QueueJob<{ value: number }>) => {
           // Signal that we've started processing
           jobStarted!();
           // Block until unblocked (simulates processor checking cancellation)
