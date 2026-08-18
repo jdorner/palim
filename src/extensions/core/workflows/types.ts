@@ -32,6 +32,17 @@ export interface WorkflowStepJobData {
   isBranchStep?: boolean;
   /** Set on the LAST branch step only. When present, the completion handler dispatches the next segment at this index instead of using stepIndex + 1. */
   resumeStepIndex?: number;
+  /**
+   * Carries remaining branch steps when a branch is segmented at CF boundaries.
+   * When the last step of a branch segment completes, the completion handler uses
+   * this context to dispatch the next branch segment or handle inline CF nodes.
+   */
+  branchContext?: {
+    /** Remaining branch steps (after the current segment). */
+    remainingSteps: import("./schemas").WorkflowStep[];
+    /** The main-flow step index to resume at after the entire branch finishes. */
+    resumeStepIndex: number;
+  };
   /** Injected by bunqueue FlowProducer for chained jobs. */
   __flowParentId?: string;
 }

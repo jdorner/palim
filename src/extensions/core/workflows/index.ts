@@ -453,8 +453,59 @@ export function createExtension(): Extension {
           // Multi-segment: check if this step is the last in the current execution segment.
 
           // Branch step handling: steps dispatched by CF handlers (if/case) carry isBranchStep.
-          if (d.isBranchStep && d.resumeStepIndex === undefined) {
+          if (d.isBranchStep && d.resumeStepIndex === undefined && !d.branchContext) {
             // Non-last branch step: chain continues via bunqueue, no segment dispatch needed.
+            return;
+          }
+
+          if (d.branchContext) {
+            // Last step of a branch segment with remaining branch steps (possibly CF).
+            // Dispatch the remaining branch steps using the segmentation-aware helper.
+            const { remainingSteps, resumeStepIndex: branchResumeIdx } = d.branchContext;
+            try {
+              const run = runStore.get(d.workflowRunId);
+              if (run) {
+                const { dispatchBranchSteps } = await import("./segmentDispatcher");
+                await dispatchBranchSteps(
+                  d.workflowRunId,
+                  remainingSteps as import("./schemas").WorkflowStep[],
+                  branchResumeIdx,
+                  d.stepSlug,
+                  run,
+                  {
+                    steps: wf!.steps,
+                    allStepDefs: d.allStepDefs ?? {},
+                    flowProducer,
+                    sessionFactory,
+                    log: logger,
+                    broadcast: (event) => ctx.messaging.broadcast(event),
+                    getWorkflowDefinition: (name) => {
+                      const def = store.get(name);
+                      return def ? { steps: def.steps } : undefined;
+                    },
+                  },
+                );
+              } else {
+                logger.error(`Run ${d.workflowRunId} not found for branch continuation`);
+              }
+            } catch (err) {
+              logger.error(`Failed to dispatch branch continuation for run ${d.workflowRunId}:`, err);
+              try {
+                runStore.updateStatus(
+                  d.workflowRunId,
+                  "failed",
+                  `Branch continuation failed: ${err instanceof Error ? err.message : String(err)}`,
+                );
+              } catch {
+                // best effort
+              }
+              ctx.messaging.broadcast({
+                type: "workflow_failed",
+                workflowRunId: d.workflowRunId,
+                failedStep: d.stepSlug,
+                error: `Branch continuation failed: ${err instanceof Error ? err.message : String(err)}`,
+              });
+            }
             return;
           }
 
@@ -1144,32 +1195,89 @@ export function createExtension(): Extension {
           // Dispatch next segment asynchronously (Requirement 6.7)
           const wf = store.get(run.workflowName);
           if (wf) {
-            const nextStepIndex = run.currentStepIndex + 1;
-            dispatchNextSegment(runId, nextStepIndex, {
-              steps: wf.steps,
-              allStepDefs: Object.fromEntries(wf.steps.map((s) => [s.slug, s])),
-              flowProducer,
-              sessionFactory,
-              log: logger,
-              broadcast: (evt) => ctx.messaging.broadcast(evt),
-            }).catch((err) => {
-              logger.error(`Failed to dispatch next segment after signal delivery for run ${runId}:`, err);
+            // Check for branch continuation (waitFor was inside a branch)
+            const branchCont = run.stepResults.__branchContinuation as
+              | { remainingSteps: import("./schemas").WorkflowStep[]; resumeStepIndex: number }
+              | undefined;
+
+            if (branchCont && branchCont.remainingSteps.length > 0) {
+              // Clear the branch continuation marker
               try {
-                runStore.updateStatus(
-                  runId,
-                  "failed",
-                  `Segment dispatch failed after signal: ${err instanceof Error ? err.message : String(err)}`,
-                );
+                runStore.updateStepResult(runId, "__branchContinuation", null);
               } catch {
                 // best effort
               }
-              ctx.messaging.broadcast({
-                type: "workflow_failed",
-                workflowRunId: runId,
-                failedStep: signal.stepSlug,
-                error: `Segment dispatch failed after signal: ${err instanceof Error ? err.message : String(err)}`,
+
+              // Resume with remaining branch steps
+              const { dispatchBranchSteps } = await import("./segmentDispatcher");
+              const updatedRun = runStore.get(runId);
+              if (updatedRun) {
+                dispatchBranchSteps(
+                  runId,
+                  branchCont.remainingSteps,
+                  branchCont.resumeStepIndex,
+                  signal.stepSlug,
+                  updatedRun,
+                  {
+                    steps: wf.steps,
+                    allStepDefs: Object.fromEntries(wf.steps.map((s) => [s.slug, s])),
+                    flowProducer,
+                    sessionFactory,
+                    log: logger,
+                    broadcast: (evt) => ctx.messaging.broadcast(evt),
+                    getWorkflowDefinition: (name) => {
+                      const def = store.get(name);
+                      return def ? { steps: def.steps } : undefined;
+                    },
+                  },
+                ).catch((err) => {
+                  logger.error(`Failed to dispatch branch continuation after signal for run ${runId}:`, err);
+                  try {
+                    runStore.updateStatus(
+                      runId,
+                      "failed",
+                      `Branch continuation failed: ${err instanceof Error ? err.message : String(err)}`,
+                    );
+                  } catch {
+                    /* best effort */
+                  }
+                  ctx.messaging.broadcast({
+                    type: "workflow_failed",
+                    workflowRunId: runId,
+                    failedStep: signal.stepSlug,
+                    error: `Branch continuation failed: ${err instanceof Error ? err.message : String(err)}`,
+                  });
+                });
+              }
+            } else {
+              // Normal main-flow resume
+              const nextStepIndex = run.currentStepIndex + 1;
+              dispatchNextSegment(runId, nextStepIndex, {
+                steps: wf.steps,
+                allStepDefs: Object.fromEntries(wf.steps.map((s) => [s.slug, s])),
+                flowProducer,
+                sessionFactory,
+                log: logger,
+                broadcast: (evt) => ctx.messaging.broadcast(evt),
+              }).catch((err) => {
+                logger.error(`Failed to dispatch next segment after signal delivery for run ${runId}:`, err);
+                try {
+                  runStore.updateStatus(
+                    runId,
+                    "failed",
+                    `Segment dispatch failed after signal: ${err instanceof Error ? err.message : String(err)}`,
+                  );
+                } catch {
+                  // best effort
+                }
+                ctx.messaging.broadcast({
+                  type: "workflow_failed",
+                  workflowRunId: runId,
+                  failedStep: signal.stepSlug,
+                  error: `Segment dispatch failed after signal: ${err instanceof Error ? err.message : String(err)}`,
+                });
               });
-            });
+            }
           } else {
             // Workflow definition no longer loaded - fail the run
             logger.error(`Workflow definition "${run.workflowName}" not found for signal delivery on run ${runId}`);

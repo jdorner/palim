@@ -19,7 +19,7 @@ import { evaluateCondition } from "./condition";
 import { buildFlowSteps, type SessionFactory } from "./engine";
 import * as runStore from "./runStore";
 import type { CaseStep, IfStep, WaitForStep, WorkflowStep } from "./schemas";
-import { CONTROL_FLOW_TYPES } from "./segmenter";
+import { CONTROL_FLOW_TYPES, segmentWorkflow } from "./segmenter";
 import * as signalStore from "./signalStore";
 import { resolveTemplates, type TemplateContext } from "./template";
 import type { WorkflowStepJobData } from "./types";
@@ -228,7 +228,7 @@ async function handleIfNode(
   run: runStore.WorkflowRun,
   deps: SegmentDispatcherDeps,
 ): Promise<void> {
-  const { steps, allStepDefs, flowProducer, sessionFactory, log, broadcast } = deps;
+  const { allStepDefs, log, broadcast } = deps;
 
   // Build template context from accumulated state
   const templateCtx: TemplateContext = {
@@ -343,39 +343,8 @@ async function handleIfNode(
     return;
   }
 
-  // Build branch flow steps with isBranchStep and resumeStepIndex markers
-  const branchFlowSteps = buildFlowSteps(branchSteps, {
-    workflowRunId: runId,
-    workflowName: run.workflowName,
-    totalSteps: steps.length,
-    // Use stepIndex for all branch steps so they share the if node's position
-    globalIndexOffset: stepIndex,
-    allStepDefs,
-    fullStepOrder: run.fullStepOrder,
-    sessionFactory,
-    triggerPayload: run.triggerPayload ?? undefined,
-    accumulatedStepResults: updatedRun.stepResults,
-  });
-
-  // Mark all branch steps with isBranchStep, and the last one with resumeStepIndex
-  for (let idx = 0; idx < branchFlowSteps.length; idx++) {
-    const flowStep = branchFlowSteps[idx]!;
-    (flowStep.data as WorkflowStepJobData).isBranchStep = true;
-    if (idx === branchFlowSteps.length - 1) {
-      (flowStep.data as WorkflowStepJobData).resumeStepIndex = resumeStepIndex;
-    }
-  }
-
-  // Dispatch the branch chain
-  try {
-    const { jobIds } = await flowProducer.addChain(branchFlowSteps);
-    log.info(
-      `If node "${ifStep.slug}" in run ${runId}: dispatched ${branchSteps.length} "${chosenBranch}" branch step(s): ${jobIds.join(", ")}`,
-    );
-  } catch (err) {
-    log.error(`Failed to dispatch "${chosenBranch}" branch for if node "${ifStep.slug}" in run ${runId}:`, err);
-    failRun(runId, ifStep.slug, `Branch dispatch failed: ${err instanceof Error ? err.message : String(err)}`, deps);
-  }
+  // Dispatch branch with segmentation awareness (handles nested CF nodes)
+  await dispatchBranchSteps(runId, branchSteps as WorkflowStep[], resumeStepIndex, ifStep.slug, updatedRun, deps);
 }
 
 /**
@@ -403,7 +372,7 @@ async function handleCaseNode(
   run: runStore.WorkflowRun,
   deps: SegmentDispatcherDeps,
 ): Promise<void> {
-  const { steps, allStepDefs, flowProducer, sessionFactory, log, broadcast } = deps;
+  const { allStepDefs, log, broadcast } = deps;
 
   // Build template context from accumulated state
   const templateCtx: TemplateContext = {
@@ -513,39 +482,8 @@ async function handleCaseNode(
     return;
   }
 
-  // Build branch flow steps with isBranchStep and resumeStepIndex markers
-  const branchFlowSteps = buildFlowSteps(branchSteps, {
-    workflowRunId: runId,
-    workflowName: run.workflowName,
-    totalSteps: steps.length,
-    // Use stepIndex for all branch steps so they share the case node's position
-    globalIndexOffset: stepIndex,
-    allStepDefs,
-    fullStepOrder: run.fullStepOrder,
-    sessionFactory,
-    triggerPayload: run.triggerPayload ?? undefined,
-    accumulatedStepResults: updatedRun.stepResults,
-  });
-
-  // Mark all branch steps with isBranchStep, and the last one with resumeStepIndex
-  for (let idx = 0; idx < branchFlowSteps.length; idx++) {
-    const flowStep = branchFlowSteps[idx]!;
-    (flowStep.data as WorkflowStepJobData).isBranchStep = true;
-    if (idx === branchFlowSteps.length - 1) {
-      (flowStep.data as WorkflowStepJobData).resumeStepIndex = resumeStepIndex;
-    }
-  }
-
-  // Dispatch the branch chain
-  try {
-    const { jobIds } = await flowProducer.addChain(branchFlowSteps);
-    log.info(
-      `Case node "${caseStep.slug}" in run ${runId}: dispatched ${branchSteps.length} "${resultMatched}" branch step(s): ${jobIds.join(", ")}`,
-    );
-  } catch (err) {
-    log.error(`Failed to dispatch "${resultMatched}" branch for case node "${caseStep.slug}" in run ${runId}:`, err);
-    failRun(runId, caseStep.slug, `Branch dispatch failed: ${err instanceof Error ? err.message : String(err)}`, deps);
-  }
+  // Dispatch branch with segmentation awareness (handles nested CF nodes)
+  await dispatchBranchSteps(runId, branchSteps, resumeStepIndex, caseStep.slug, updatedRun, deps);
 }
 
 /**
@@ -682,6 +620,151 @@ function handleWaitForNode(
     if (deps.registerTimer) {
       deps.registerTimer(timer);
     }
+  }
+}
+
+/**
+ * Dispatches branch steps with segmentation awareness.
+ *
+ * Segments the branch steps at control flow boundaries. If the first
+ * branch segment is a CF node, handles it inline (recursively via the
+ * appropriate handler). Otherwise dispatches the first non-CF segment
+ * as a chain, tagging the last step with `branchContext` so the
+ * completion handler can dispatch remaining branch segments.
+ *
+ * @param runId - The workflow run ID
+ * @param branchSteps - The steps in the chosen branch (then/else/path)
+ * @param resumeStepIndex - Main-flow step index to resume at after the entire branch
+ * @param parentStepSlug - Slug of the parent CF node (for error reporting)
+ * @param run - Current run state from Run Store
+ * @param deps - Segment dispatcher dependencies
+ */
+export async function dispatchBranchSteps(
+  runId: string,
+  branchSteps: WorkflowStep[],
+  resumeStepIndex: number,
+  parentStepSlug: string,
+  run: runStore.WorkflowRun,
+  deps: SegmentDispatcherDeps,
+): Promise<void> {
+  const { allStepDefs, flowProducer, sessionFactory, log } = deps;
+
+  if (branchSteps.length === 0) {
+    // Empty branch — skip directly to resume
+    await dispatchNextSegment(runId, resumeStepIndex, deps);
+    return;
+  }
+
+  const segments = segmentWorkflow(branchSteps);
+  const firstSegment = segments[0]!;
+
+  if (firstSegment.isControlFlow) {
+    // First branch step is a CF node — handle inline
+    const cfStep = firstSegment.steps[0]!;
+    const remainingBranchSteps = branchSteps.slice(1);
+
+    if (cfStep.type === "if") {
+      // After the nested if completes its own branch, it needs to continue
+      // with the remaining branch steps. We achieve this by treating the
+      // remaining branch steps as if they were a continuation: store them
+      // in Run Store as a pending branch continuation.
+      storeBranchContinuation(runId, remainingBranchSteps, resumeStepIndex, log);
+      await handleIfNode(runId, run.currentStepIndex, cfStep as IfStep, run, deps);
+    } else if (cfStep.type === "case") {
+      storeBranchContinuation(runId, remainingBranchSteps, resumeStepIndex, log);
+      await handleCaseNode(runId, run.currentStepIndex, cfStep as CaseStep, run, deps);
+    } else if (cfStep.type === "waitFor") {
+      storeBranchContinuation(runId, remainingBranchSteps, resumeStepIndex, log);
+      handleWaitForNode(runId, run.currentStepIndex, cfStep as WaitForStep, run, deps);
+    } else {
+      log.error(`Unknown CF type "${cfStep.type}" in branch for run ${runId}`);
+      failRun(runId, parentStepSlug, `Unknown control flow type "${cfStep.type}" in branch`, deps);
+    }
+    return;
+  }
+
+  // First segment is non-CF — dispatch it as a chain
+  const firstSegmentSteps = firstSegment.steps;
+  const remainingBranchSteps = branchSteps.slice(firstSegmentSteps.length);
+
+  // Re-read run for latest accumulated results
+  let updatedRun: runStore.WorkflowRun | null;
+  try {
+    updatedRun = runStore.get(runId);
+  } catch (err) {
+    log.error(`Run Store error re-reading run ${runId}:`, err);
+    failRun(runId, parentStepSlug, `Run Store unavailable: ${err instanceof Error ? err.message : String(err)}`, deps);
+    return;
+  }
+  if (!updatedRun) {
+    log.error(`dispatchBranchSteps: run ${runId} not found in Run Store`);
+    return;
+  }
+
+  const branchFlowSteps = buildFlowSteps(firstSegmentSteps, {
+    workflowRunId: runId,
+    workflowName: run.workflowName,
+    totalSteps: deps.steps.length,
+    globalIndexOffset: run.currentStepIndex,
+    allStepDefs,
+    fullStepOrder: run.fullStepOrder,
+    sessionFactory,
+    triggerPayload: run.triggerPayload ?? undefined,
+    accumulatedStepResults: updatedRun.stepResults,
+  });
+
+  // Tag all steps as branch steps
+  for (let idx = 0; idx < branchFlowSteps.length; idx++) {
+    const flowStep = branchFlowSteps[idx]!;
+    (flowStep.data as WorkflowStepJobData).isBranchStep = true;
+
+    if (idx === branchFlowSteps.length - 1) {
+      // Last step of this branch segment
+      if (remainingBranchSteps.length > 0) {
+        // More branch steps follow (possibly CF) — carry them as branchContext
+        (flowStep.data as WorkflowStepJobData).branchContext = {
+          remainingSteps: remainingBranchSteps,
+          resumeStepIndex,
+        };
+      } else {
+        // No more branch steps — resume main flow
+        (flowStep.data as WorkflowStepJobData).resumeStepIndex = resumeStepIndex;
+      }
+    }
+  }
+
+  try {
+    const { jobIds } = await flowProducer.addChain(branchFlowSteps);
+    log.info(
+      `Branch dispatch for run ${runId}: dispatched ${firstSegmentSteps.length} step(s), ${remainingBranchSteps.length} remaining: ${jobIds.join(", ")}`,
+    );
+  } catch (err) {
+    log.error(`Failed to dispatch branch for run ${runId}:`, err);
+    failRun(runId, parentStepSlug, `Branch dispatch failed: ${err instanceof Error ? err.message : String(err)}`, deps);
+  }
+}
+
+/**
+ * Stores a branch continuation in the Run Store so that after a nested CF node
+ * completes its own branch, the completion handler can pick up the remaining
+ * branch steps.
+ *
+ * This is stored as a special step result keyed by `__branchContinuation`.
+ */
+function storeBranchContinuation(
+  runId: string,
+  remainingSteps: WorkflowStep[],
+  resumeStepIndex: number,
+  log: Logger,
+): void {
+  if (remainingSteps.length === 0) return;
+  try {
+    runStore.updateStepResult(runId, "__branchContinuation", {
+      remainingSteps,
+      resumeStepIndex,
+    });
+  } catch (err) {
+    log.error(`Failed to store branch continuation for run ${runId}:`, err);
   }
 }
 
