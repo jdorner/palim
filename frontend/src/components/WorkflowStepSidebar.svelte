@@ -105,6 +105,14 @@ let {
 
 // Element references for template autocomplete
 let promptEl = $state<HTMLTextAreaElement | null>(null);
+
+/**
+ * Extracts the editable config from a CF step (everything except slug and type).
+ */
+function cfStepConfig(step: StepDraft): Record<string, unknown> {
+  const { slug: _s, type: _t, ...rest } = step;
+  return rest as Record<string, unknown>;
+}
 </script>
 
 <div class="w-95 h-full flex flex-col">
@@ -154,21 +162,31 @@ let promptEl = $state<HTMLTextAreaElement | null>(null);
           <span class="text-xs">{validationErrors.get("steps.removeWarning")}</span>
         </div>
       {/if}
-      <label for="step-type" class="text-xs font-medium text-muted-foreground">Type</label>
-      <select
-        id="step-type"
-        class="px-2 py-1 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-        value={editDraftStep?.type ?? selectedStep.type}
-        onchange={(e) => {
-          const newType = (e.target as HTMLSelectElement).value;
-          onStepTypeChange(selectedStepIndex, newType);
-        }}
-      >
-        <option value="agent">{labelForStepType("agent")}</option>
-        {#each customStepTypes as stepType}
-          <option value={stepType.type}>{stepType.icon ?? ""} {stepType.label}</option>
-        {/each}
-      </select>
+      {@const currentType = editDraftStep?.type ?? selectedStep.type}
+      {@const isCFType = currentType === "if" || currentType === "case" || currentType === "waitFor" || currentType === "emit"}
+      {#if isCFType}
+        <!-- CF nodes: type is not changeable -->
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-medium text-muted-foreground">Type:</span>
+          <Badge variant="outline" class="w-fit">{labelForStepType(currentType)}</Badge>
+        </div>
+      {:else}
+        <label for="step-type" class="text-xs font-medium text-muted-foreground">Type</label>
+        <select
+          id="step-type"
+          class="px-2 py-1 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+          value={currentType}
+          onchange={(e) => {
+            const newType = (e.target as HTMLSelectElement).value;
+            onStepTypeChange(selectedStepIndex, newType);
+          }}
+        >
+          <option value="agent">{labelForStepType("agent")}</option>
+          {#each customStepTypes as stepType}
+            <option value={stepType.type}>{stepType.icon ?? ""} {stepType.label}</option>
+          {/each}
+        </select>
+      {/if}
     {:else}
       <div class="flex items-center gap-2">
         <span class="text-xs font-medium text-muted-foreground">Type:</span>
@@ -270,15 +288,45 @@ let promptEl = $state<HTMLTextAreaElement | null>(null);
         </div>
       </div>
     {:else if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) !== "agent"}
-      <!-- Edit mode: custom step type - schema-driven form or JSON fallback -->
+      <!-- Edit mode: control flow or custom step type -->
       {@const stepType = editDraftStep.type ?? selectedStep?.type}
-      {@const stepTypeInfo = customStepTypes.find(st => st.type === stepType)}
-      <div class="flex flex-col flex-1 min-h-0 gap-4">
-        {#if stepTypeInfo?.configSchema && !editAsJson}
-          <StepConfigForm
-            schema={stepTypeInfo.configSchema}
-            values={editDraftStep.config ?? {}}
-            onchange={(vals) => {
+      {@const isCFStep = stepType === "if" || stepType === "case" || stepType === "waitFor" || stepType === "emit"}
+      {#if isCFStep}
+        <!-- CF step: JSON editor showing all fields except slug/type -->
+        <div class="flex flex-col flex-1 min-h-0 gap-4">
+          <div class="flex flex-col gap-1.5 flex-1 min-h-0">
+            <label for="step-cf-config" class="text-xs font-medium text-muted-foreground">Configuration (JSON)</label>
+            <textarea
+              id="step-cf-config"
+              class="w-full flex-1 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              value={JSON.stringify(cfStepConfig(editDraftStep), null, 2)}
+              oninput={(e) => {
+                const raw = (e.target as HTMLTextAreaElement).value;
+                try {
+                  const parsed = JSON.parse(raw);
+                  onUpdateDraftStep(selectedStepIndex, (s) => {
+                    // Remove old CF fields, apply parsed ones
+                    for (const key of Object.keys(s)) {
+                      if (key !== "slug" && key !== "type") delete s[key];
+                    }
+                    Object.assign(s, parsed);
+                  });
+                } catch {
+                  // Invalid JSON - ignore until valid
+                }
+              }}
+            ></textarea>
+          </div>
+        </div>
+      {:else}
+        <!-- Custom step type - schema-driven form or JSON fallback -->
+        {@const stepTypeInfo = customStepTypes.find(st => st.type === stepType)}
+        <div class="flex flex-col flex-1 min-h-0 gap-4">
+          {#if stepTypeInfo?.configSchema && !editAsJson}
+            <StepConfigForm
+              schema={stepTypeInfo.configSchema}
+              values={editDraftStep.config ?? {}}
+              onchange={(vals) => {
               onUpdateDraftStep(selectedStepIndex, (s) => { s.config = vals; });
               // Live validation: re-check config against schema and update errors
               const prefix = `steps[${selectedStepIndex}].config.`;
@@ -294,12 +342,12 @@ let promptEl = $state<HTMLTextAreaElement | null>(null);
               }
               onValidationErrorsChange(newErrors);
             }}
-            steps={editDraft?.steps ?? []}
-            currentStepIndex={selectedStepIndex}
-            secretKeys={cachedSecretKeys}
-            {outputSchemas}
-            itemOptions={{ skills: availableSkills }}
-            fieldErrors={(() => {
+              steps={editDraft?.steps ?? []}
+              currentStepIndex={selectedStepIndex}
+              secretKeys={cachedSecretKeys}
+              {outputSchemas}
+              itemOptions={{ skills: availableSkills }}
+              fieldErrors={(() => {
               const prefix = `steps[${selectedStepIndex}].config.`;
               const m = new Map<string, string>();
               for (const [k, v] of validationErrors) {
@@ -307,33 +355,33 @@ let promptEl = $state<HTMLTextAreaElement | null>(null);
               }
               return m;
             })()}
-          />
-          <button
-            type="button"
-            class="text-xs text-muted-foreground underline hover:text-foreground"
-            onclick={() => { onEditAsJsonChange(true); }}
-          >
-            Edit as JSON
-          </button>
-        {:else}
-          <div class="flex flex-col gap-1.5 flex-1 min-h-0">
-            <div class="flex items-center justify-between">
-              <label for="step-config" class="text-xs font-medium text-muted-foreground">Configuration (JSON)</label>
-              {#if stepTypeInfo?.configSchema}
-                <button
-                  type="button"
-                  class="text-xs text-muted-foreground underline hover:text-foreground"
-                  onclick={() => { onEditAsJsonChange(false); }}
-                >
-                  Use form editor
-                </button>
-              {/if}
-            </div>
-            <textarea
-              id="step-config"
-              class="w-full flex-1 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-              value={JSON.stringify(editDraftStep.config ?? {}, null, 2)}
-              oninput={(e) => {
+            />
+            <button
+              type="button"
+              class="text-xs text-muted-foreground underline hover:text-foreground"
+              onclick={() => { onEditAsJsonChange(true); }}
+            >
+              Edit as JSON
+            </button>
+          {:else}
+            <div class="flex flex-col gap-1.5 flex-1 min-h-0">
+              <div class="flex items-center justify-between">
+                <label for="step-config" class="text-xs font-medium text-muted-foreground">Configuration (JSON)</label>
+                {#if stepTypeInfo?.configSchema}
+                  <button
+                    type="button"
+                    class="text-xs text-muted-foreground underline hover:text-foreground"
+                    onclick={() => { onEditAsJsonChange(false); }}
+                  >
+                    Use form editor
+                  </button>
+                {/if}
+              </div>
+              <textarea
+                id="step-config"
+                class="w-full flex-1 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                value={JSON.stringify(editDraftStep.config ?? {}, null, 2)}
+                oninput={(e) => {
                 const raw = (e.target as HTMLTextAreaElement).value;
                 try {
                   const parsed = JSON.parse(raw);
@@ -358,13 +406,16 @@ let promptEl = $state<HTMLTextAreaElement | null>(null);
                   onValidationErrorsChange(newErrors);
                 }
               }}
-            ></textarea>
-            {#if validationErrors.get(`steps[${selectedStepIndex}].config`)}
-              <span class="text-xs text-destructive">{validationErrors.get(`steps[${selectedStepIndex}].config`)}</span>
-            {/if}
-          </div>
-        {/if}
-      </div>
+              ></textarea>
+              {#if validationErrors.get(`steps[${selectedStepIndex}].config`)}
+                <span class="text-xs text-destructive"
+                  >{validationErrors.get(`steps[${selectedStepIndex}].config`)}</span
+                >
+              {/if}
+            </div>
+          {/if}
+        </div>
+      {/if}
     {:else if !editMode && selectedStep.type !== "agent"}
       <!-- Read-only: custom step type config -->
       {@const roStepType = selectedStep.type}
