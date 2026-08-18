@@ -17,7 +17,7 @@ import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { extensions } from "$lib/extensionStore";
 import type { OutputSchemas } from "$lib/templateScope";
-import { formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
+import { aggregateStepStatus, formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import {
   type StepDraft,
@@ -587,6 +587,7 @@ async function saveWorkflow() {
 let saveDisabled = $derived(saving || validationErrors.size > 0);
 
 const RUNS_PAGE_SIZE = 10;
+
 let runsPage = $state(1);
 let runsTotalPages = $derived(Math.max(1, Math.ceil((workflow?.runs.length ?? 0) / RUNS_PAGE_SIZE)));
 let paginatedRuns = $derived((workflow?.runs ?? []).slice((runsPage - 1) * RUNS_PAGE_SIZE, runsPage * RUNS_PAGE_SIZE));
@@ -1049,6 +1050,7 @@ onDestroy(() => {
           <!-- Mobile & Tablet: Card layout -->
           <div class="responsive-cards">
             {#each paginatedRuns as run (run.runId)}
+              {@const aggregated = aggregateStepStatus(run.steps)}
               <div class="rounded-md border border-border p-4 space-y-3">
                 <div class="flex items-center justify-between gap-2">
                   <a href="#/workflows/{name}/runs/{run.runId}" class="text-left">
@@ -1057,11 +1059,7 @@ onDestroy(() => {
                   <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
                 </div>
 
-                <div class="flex items-center gap-1">
-                  {#each run.steps as step}
-                    <StatusDot status={step.status} title="{step.slug}: {step.status}" />
-                  {/each}
-                </div>
+                <StatusDot status={aggregated} title={aggregated} />
 
                 <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span>Started: {formatTimestamp(run.startedAt)}</span>
@@ -1098,17 +1096,21 @@ onDestroy(() => {
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead class="min-w-[2em]"></TableHead>
                   <TableHead class="w-md">Run ID</TableHead>
                   <TableHead>Started</TableHead>
                   <TableHead>Completed</TableHead>
-                  <TableHead class="min-w-[10em]">Steps</TableHead>
-                  <TableHead class="text-left">Status</TableHead>
+                  <TableHead class="min-w-[10em]"></TableHead>
                   <TableHead class="text-center min-w-[10em]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {#each paginatedRuns as run (run.runId)}
+                  {@const aggregated = aggregateStepStatus(run.steps)}
                   <TableRow>
+                    <TableCell>
+                      <StatusDot status={aggregated} title={aggregated} />
+                    </TableCell>
                     <TableCell>
                       <a href="#/workflows/{name}/runs/{run.runId}" class="text-left">
                         <code class="text-xs font-mono font-medium">{run.runId.slice(0, 8)}</code>
@@ -1121,13 +1123,6 @@ onDestroy(() => {
                       {run.completedAt ? formatTimestamp(run.completedAt) : "\u2014"}
                     </TableCell>
                     <TableCell>
-                      <div class="flex items-center gap-1">
-                        {#each run.steps as step}
-                          <StatusDot status={step.status} title="{step.slug}: {step.status}" />
-                        {/each}
-                      </div>
-                    </TableCell>
-                    <TableCell class="text-left">
                       <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
                     </TableCell>
                     <TableCell class="text-right">

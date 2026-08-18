@@ -172,3 +172,18 @@ export function isRunCancellable(status: string): boolean {
     status === "active" || status === "running" || status === "waiting" || status === "queued" || status === "failed"
   );
 }
+
+/**
+ * Computes an aggregate status from an array of step statuses.
+ * Priority: failed > waiting-signal > active > waiting/delayed > completed
+ * @param steps - Array of step statuses
+ * @returns Aggregated status string
+ */
+export function aggregateStepStatus(steps: Array<{ status: string }>): string {
+  if (steps.some((s) => s.status === "failed")) return "failed";
+  if (steps.some((s) => s.status === "waiting-signal")) return "waiting-signal";
+  if (steps.some((s) => s.status === "active")) return "active";
+  if (steps.some((s) => s.status === "waiting" || s.status === "delayed")) return "waiting";
+  if (steps.every((s) => s.status === "completed")) return "completed";
+  return "unknown";
+}
