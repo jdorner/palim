@@ -320,6 +320,22 @@ export function createExtension(): Extension {
             jobId: result.jobIds[i],
           })),
         });
+
+        // When the first segment is a control flow node, the engine returns
+        // empty jobIds. Kick off inline evaluation via the segment dispatcher.
+        if (result.jobIds.length === 0) {
+          const allStepDefs: Record<string, unknown> = {};
+          for (const s of wf.steps) allStepDefs[s.slug] = s;
+          await dispatchNextSegment(result.workflowRunId, 0, {
+            steps: wf.steps,
+            allStepDefs,
+            flowProducer,
+            sessionFactory,
+            log: logger,
+            broadcast: (event) => ctx.messaging.broadcast(event),
+          });
+        }
+
         return result;
       });
 
@@ -420,16 +436,16 @@ export function createExtension(): Extension {
         } else {
           // Multi-segment: check if this step is the last in the current execution segment.
 
-          // Branch step handling: steps dispatched by CF handlers (if/case) carry __isBranchStep.
-          if (d.__isBranchStep && d.__resumeStepIndex === undefined) {
+          // Branch step handling: steps dispatched by CF handlers (if/case) carry isBranchStep.
+          if (d.isBranchStep && d.resumeStepIndex === undefined) {
             // Non-last branch step: chain continues via bunqueue, no segment dispatch needed.
             return;
           }
 
-          if (d.__resumeStepIndex !== undefined) {
+          if (d.resumeStepIndex !== undefined) {
             // Last branch step: dispatch next segment at the resume index (step after the CF node).
             try {
-              await dispatchNextSegment(d.workflowRunId, d.__resumeStepIndex, {
+              await dispatchNextSegment(d.workflowRunId, d.resumeStepIndex, {
                 steps: wf!.steps,
                 allStepDefs: d.allStepDefs ?? {},
                 flowProducer,
@@ -565,6 +581,21 @@ export function createExtension(): Extension {
                   jobId: result.jobIds[i],
                 })),
               });
+
+              // When the first segment is a control flow node, kick off inline evaluation.
+              if (result.jobIds.length === 0) {
+                const allStepDefs: Record<string, unknown> = {};
+                for (const s of wf.steps) allStepDefs[s.slug] = s;
+                await dispatchNextSegment(result.workflowRunId, 0, {
+                  steps: wf.steps,
+                  allStepDefs,
+                  flowProducer,
+                  sessionFactory,
+                  log: logger,
+                  broadcast: (event) => ctx.messaging.broadcast(event),
+                });
+              }
+
               logger.info(`${sourceLabel} "${slug}" triggered workflow "${wf.name}" -> run ${result.workflowRunId}`);
             } catch (err) {
               logger.error(`Failed to dispatch workflow "${wf.name}" for ${sourceLabel.toLowerCase()} "${slug}":`, err);
@@ -868,6 +899,21 @@ export function createExtension(): Extension {
             jobId: result.jobIds[i],
           })),
         });
+
+        // When the first segment is a control flow node, kick off inline evaluation.
+        if (result.jobIds.length === 0) {
+          const allStepDefs: Record<string, unknown> = {};
+          for (const s of wf.steps) allStepDefs[s.slug] = s;
+          await dispatchNextSegment(result.workflowRunId, 0, {
+            steps: wf.steps,
+            allStepDefs,
+            flowProducer,
+            sessionFactory,
+            log: logger,
+            broadcast: (event) => ctx.messaging.broadcast(event),
+          });
+        }
+
         return Response.json({ ok: true, workflowRunId: result.workflowRunId, jobIds: result.jobIds }, { status: 202 });
       });
 

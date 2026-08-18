@@ -217,7 +217,7 @@ export async function dispatchNextSegment(
  * (then/else). If the condition is false and no else branch exists, fails the run.
  *
  * Branch steps are dispatched as a chain via addChain(). The last branch step carries
- * a `__resumeStepIndex` field so the completion handler knows where to continue
+ * a `resumeStepIndex` field so the completion handler knows where to continue
  * execution after the branch finishes.
  *
  * @param runId - The workflow run ID
@@ -348,7 +348,7 @@ async function handleIfNode(
     return;
   }
 
-  // Build branch flow steps with __isBranchStep and __resumeStepIndex markers
+  // Build branch flow steps with isBranchStep and resumeStepIndex markers
   const branchFlowSteps = buildFlowSteps(branchSteps, {
     workflowRunId: runId,
     workflowName: run.workflowName,
@@ -362,12 +362,12 @@ async function handleIfNode(
     accumulatedStepResults: updatedRun.stepResults,
   });
 
-  // Mark all branch steps with __isBranchStep, and the last one with __resumeStepIndex
+  // Mark all branch steps with isBranchStep, and the last one with resumeStepIndex
   for (let idx = 0; idx < branchFlowSteps.length; idx++) {
     const flowStep = branchFlowSteps[idx]!;
-    (flowStep.data as WorkflowStepJobData).__isBranchStep = true;
+    (flowStep.data as WorkflowStepJobData).isBranchStep = true;
     if (idx === branchFlowSteps.length - 1) {
-      (flowStep.data as WorkflowStepJobData).__resumeStepIndex = resumeStepIndex;
+      (flowStep.data as WorkflowStepJobData).resumeStepIndex = resumeStepIndex;
     }
   }
 
@@ -392,7 +392,7 @@ async function handleIfNode(
  * `default` if no path key matches. Fails the run if no match and no default.
  *
  * Branch steps are dispatched as a chain via addChain(). The last branch step carries
- * a `__resumeStepIndex` field so the completion handler knows where to continue
+ * a `resumeStepIndex` field so the completion handler knows where to continue
  * execution after the branch finishes.
  *
  * @param runId - The workflow run ID
@@ -518,7 +518,7 @@ async function handleCaseNode(
     return;
   }
 
-  // Build branch flow steps with __isBranchStep and __resumeStepIndex markers
+  // Build branch flow steps with isBranchStep and resumeStepIndex markers
   const branchFlowSteps = buildFlowSteps(branchSteps, {
     workflowRunId: runId,
     workflowName: run.workflowName,
@@ -532,12 +532,12 @@ async function handleCaseNode(
     accumulatedStepResults: updatedRun.stepResults,
   });
 
-  // Mark all branch steps with __isBranchStep, and the last one with __resumeStepIndex
+  // Mark all branch steps with isBranchStep, and the last one with resumeStepIndex
   for (let idx = 0; idx < branchFlowSteps.length; idx++) {
     const flowStep = branchFlowSteps[idx]!;
-    (flowStep.data as WorkflowStepJobData).__isBranchStep = true;
+    (flowStep.data as WorkflowStepJobData).isBranchStep = true;
     if (idx === branchFlowSteps.length - 1) {
-      (flowStep.data as WorkflowStepJobData).__resumeStepIndex = resumeStepIndex;
+      (flowStep.data as WorkflowStepJobData).resumeStepIndex = resumeStepIndex;
     }
   }
 

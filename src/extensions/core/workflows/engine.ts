@@ -153,8 +153,12 @@ export async function dispatchWorkflow(
     throw new Error(`Run Store unavailable: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // Determine dispatch strategy based on segment count
-  const isSingleSegment = segments.length <= 1;
+  // Determine dispatch strategy based on segment count and content.
+  // A workflow qualifies for single-segment (direct addChain) dispatch only if
+  // it has at most one segment AND that segment contains no control flow nodes.
+  // A single CF-only segment (e.g. a workflow starting with an `if` node) must
+  // go through the multi-segment path so the segment dispatcher handles it inline.
+  const isSingleSegment = segments.length <= 1 && (segments.length === 0 || !segments[0]!.isControlFlow);
 
   if (isSingleSegment) {
     // Single-segment (no control flow nodes): dispatch all steps as one addChain() call
@@ -181,6 +185,16 @@ export async function dispatchWorkflow(
 
   // Multi-segment: dispatch only the first segment
   const firstSegment = segments[0]!;
+
+  // If the first segment is a control flow node, it cannot be dispatched as a
+  // queue job (the worker only handles "agent" and custom extension step types).
+  // Return empty jobIds so the caller can invoke the segment dispatcher at index 0.
+  if (firstSegment.isControlFlow) {
+    log.info(
+      `Dispatching workflow "${definition.name}" run ${workflowRunId} (${totalSteps} steps, ${segments.length} segments, first segment is control flow - deferring to segment dispatcher)`,
+    );
+    return { workflowRunId, jobIds: [] };
+  }
 
   // Calculate the global index offset for the first segment (always 0)
   const firstSegmentSteps = buildFlowSteps(firstSegment.steps, {

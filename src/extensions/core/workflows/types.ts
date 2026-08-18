@@ -29,9 +29,9 @@ export interface WorkflowStepJobData {
   /** Accumulated step results from previous segments (injected by segment dispatcher into first job of non-first segments). */
   accumulatedStepResults?: Record<string, unknown>;
   /** Marks this job as part of a control flow branch (then/else/path). Non-last branch steps skip segment dispatch on completion. */
-  __isBranchStep?: boolean;
+  isBranchStep?: boolean;
   /** Set on the LAST branch step only. When present, the completion handler dispatches the next segment at this index instead of using stepIndex + 1. */
-  __resumeStepIndex?: number;
+  resumeStepIndex?: number;
   /** Injected by bunqueue FlowProducer for chained jobs. */
   __flowParentId?: string;
 }

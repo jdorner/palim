@@ -450,7 +450,7 @@ describe("Segment Dispatcher", () => {
       });
     });
 
-    test("marks branch steps with __isBranchStep", async () => {
+    test("marks branch steps with isBranchStep", async () => {
       const thenStepA = agentStep("then-a");
       const thenStepB = agentStep("then-b");
       const ifNode = ifStep({
@@ -476,11 +476,11 @@ describe("Segment Dispatcher", () => {
 
       const dispatched = flow.chains[0]!;
       expect(dispatched).toHaveLength(2);
-      expect(dispatched[0]!.data.__isBranchStep).toBe(true);
-      expect(dispatched[1]!.data.__isBranchStep).toBe(true);
+      expect(dispatched[0]!.data.isBranchStep).toBe(true);
+      expect(dispatched[1]!.data.isBranchStep).toBe(true);
     });
 
-    test("sets __resumeStepIndex on last branch step only", async () => {
+    test("sets resumeStepIndex on last branch step only", async () => {
       const thenStepA = agentStep("then-a");
       const thenStepB = agentStep("then-b");
       const ifNode = ifStep({
@@ -508,10 +508,10 @@ describe("Segment Dispatcher", () => {
 
       const dispatched = flow.chains[0]!;
       expect(dispatched).toHaveLength(2);
-      // First step should NOT have __resumeStepIndex
-      expect(dispatched[0]!.data.__resumeStepIndex).toBeUndefined();
-      // Last step should have __resumeStepIndex pointing to the step after the if node
-      expect(dispatched[1]!.data.__resumeStepIndex).toBe(2);
+      // First step should NOT have resumeStepIndex
+      expect(dispatched[0]!.data.resumeStepIndex).toBeUndefined();
+      // Last step should have resumeStepIndex pointing to the step after the if node
+      expect(dispatched[1]!.data.resumeStepIndex).toBe(2);
     });
 
     test("resolves trigger payload in condition ref", async () => {
@@ -848,7 +848,7 @@ describe("Segment Dispatcher", () => {
       expect((completedEvent as { chosenBranch?: string }).chosenBranch).toBe("__default");
     });
 
-    test("marks branch steps with __isBranchStep and __resumeStepIndex", async () => {
+    test("marks branch steps with isBranchStep and resumeStepIndex", async () => {
       const branchStepA = agentStep("branch-a");
       const branchStepB = agentStep("branch-b");
       const afterStep = agentStep("after-step");
@@ -875,11 +875,11 @@ describe("Segment Dispatcher", () => {
 
       const dispatched = flow.chains[0]!;
       expect(dispatched).toHaveLength(2);
-      expect(dispatched[0]!.data.__isBranchStep).toBe(true);
-      expect(dispatched[1]!.data.__isBranchStep).toBe(true);
-      // Only last step gets __resumeStepIndex
-      expect(dispatched[0]!.data.__resumeStepIndex).toBeUndefined();
-      expect(dispatched[1]!.data.__resumeStepIndex).toBe(2);
+      expect(dispatched[0]!.data.isBranchStep).toBe(true);
+      expect(dispatched[1]!.data.isBranchStep).toBe(true);
+      // Only last step gets resumeStepIndex
+      expect(dispatched[0]!.data.resumeStepIndex).toBeUndefined();
+      expect(dispatched[1]!.data.resumeStepIndex).toBe(2);
     });
 
     test("resolves trigger payload in match expression", async () => {
