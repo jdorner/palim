@@ -12,8 +12,12 @@ import type { WebSocketMessage } from "../../../shared/types";
 export interface RunStep {
   slug: string;
   type: string;
-  status: "waiting" | "active" | "completed" | "failed";
+  status: "waiting" | "active" | "completed" | "failed" | "waiting-signal";
   jobId: string;
+  /** Signal event name (populated when status is waiting-signal). */
+  waitEvent?: string;
+  /** JSON Schema for signal payload validation (populated when status is waiting-signal). */
+  waitInputSchema?: Record<string, unknown> | null;
 }
 
 /** Workflow run detail tracked by the store. */
@@ -23,6 +27,8 @@ export interface RunDetail {
   status: string;
   trigger?: { type: string; ref?: string } | null;
   steps: RunStep[];
+  /** Branch choices made by control flow nodes (if/case). Keyed by CF step slug. */
+  chosenBranches?: Record<string, string>;
 }
 
 /** Callback signature for workflow event subscribers. */
@@ -35,6 +41,8 @@ export type WorkflowEvent = Extract<
   | { type: "workflow_step_started" }
   | { type: "workflow_step_completed" }
   | { type: "workflow_step_failed" }
+  | { type: "workflow_step_waiting" }
+  | { type: "workflow_step_resumed" }
   | { type: "workflow_completed" }
   | { type: "workflow_failed" }
   | { type: "workflow_reload" }
@@ -54,6 +62,11 @@ class WorkflowStore {
   run = $state<RunDetail | null>(null);
   /** The run ID being observed (set by the page). */
   activeRunId = $state<string | null>(null);
+  /**
+   * Tracks which branch was chosen for each control flow step (if/case).
+   * Keyed by step slug, value is the branch label (e.g. "then", "else", path key).
+   */
+  chosenBranches = $state<Record<string, string>>({});
 
   // -------------------------------------------------------------------------
   // Event subscribers (for WorkflowsPage, WorkflowDetailPage, etc.)
@@ -85,12 +98,14 @@ class WorkflowStore {
   track(runId: string, detail: RunDetail): void {
     this.activeRunId = runId;
     this.run = detail;
+    this.chosenBranches = detail.chosenBranches ?? {};
   }
 
   /** Clears the tracked run (called when the page unmounts). */
   untrack(): void {
     this.activeRunId = null;
     this.run = null;
+    this.chosenBranches = {};
   }
 
   // -------------------------------------------------------------------------
@@ -128,17 +143,85 @@ class WorkflowStore {
     switch (message.type) {
       case "workflow_step_started":
         if (message.workflowRunId === this.activeRunId) {
+          const existsStarted = this.run.steps.some((s) => s.slug === message.stepSlug);
           this.run = {
             ...this.run,
-            steps: this.run.steps.map((s) => (s.slug === message.stepSlug ? { ...s, status: "active" as const } : s)),
+            status: "running",
+            steps: existsStarted
+              ? this.run.steps.map((s) =>
+                  s.slug === message.stepSlug ? { ...s, status: "active" as const, jobId: message.jobId } : s,
+                )
+              : [
+                  ...this.run.steps,
+                  {
+                    slug: message.stepSlug,
+                    type: "",
+                    status: "active" as const,
+                    jobId: message.jobId,
+                  },
+                ],
           };
         }
         break;
 
       case "workflow_step_completed":
         if (message.workflowRunId === this.activeRunId) {
+          // Track which branch was chosen for control flow nodes
+          if (message.chosenBranch) {
+            this.chosenBranches = { ...this.chosenBranches, [message.stepSlug]: message.chosenBranch };
+          }
+          const existsCompleted = this.run.steps.some((s) => s.slug === message.stepSlug);
           this.run = {
             ...this.run,
+            steps: existsCompleted
+              ? this.run.steps.map((s) => (s.slug === message.stepSlug ? { ...s, status: "completed" as const } : s))
+              : [
+                  ...this.run.steps,
+                  {
+                    slug: message.stepSlug,
+                    type: "",
+                    status: "completed" as const,
+                    jobId: message.jobId,
+                  },
+                ],
+          };
+        }
+        break;
+
+      case "workflow_step_waiting":
+        if (message.workflowRunId === this.activeRunId) {
+          const waitSchema = message.inputSchema ?? null;
+          const exists = this.run.steps.some((s) => s.slug === message.stepSlug);
+          this.run = {
+            ...this.run,
+            status: "waiting-signal",
+            steps: exists
+              ? this.run.steps.map((s) =>
+                  s.slug === message.stepSlug
+                    ? { ...s, status: "waiting-signal" as const, waitEvent: message.event, waitInputSchema: waitSchema }
+                    : s,
+                )
+              : [
+                  ...this.run.steps,
+                  {
+                    slug: message.stepSlug,
+                    type: "waitFor",
+                    status: "waiting-signal" as const,
+                    jobId: "",
+                    waitEvent: message.event,
+                    waitInputSchema: waitSchema,
+                  },
+                ],
+          };
+        }
+        break;
+
+      case "workflow_step_resumed":
+        if (message.workflowRunId === this.activeRunId) {
+          // Signal was received — the waitFor step is now complete
+          this.run = {
+            ...this.run,
+            status: "running",
             steps: this.run.steps.map((s) =>
               s.slug === message.stepSlug ? { ...s, status: "completed" as const } : s,
             ),

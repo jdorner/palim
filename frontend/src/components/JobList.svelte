@@ -13,7 +13,7 @@ import { authFetch } from "$lib/auth";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
-import { automationStyle, formatTimestamp, isJobCancellable } from "$lib/utils";
+import { aggregateStepStatus, automationStyle, formatTimestamp, isJobCancellable } from "$lib/utils";
 import type { JobEntry } from "../../../shared/types";
 import JobLogs from "./JobLogs.svelte";
 import StatusDot from "./StatusDot.svelte";
@@ -36,7 +36,13 @@ let {
   jobs,
   onCancelJob,
   filterKey = "",
-}: { jobs: JobEntry[]; onCancelJob?: (jobId: string) => void; filterKey?: string } = $props();
+  runStatuses = {},
+}: {
+  jobs: JobEntry[];
+  onCancelJob?: (jobId: string) => void;
+  filterKey?: string;
+  runStatuses?: Record<string, string>;
+} = $props();
 
 let selectedJobId = $state<string | null>(null);
 let cancellingJobId = $state<string | null>(null);
@@ -50,14 +56,17 @@ type DisplayItem =
 
 /**
  * Computes an aggregate status for a workflow group.
- * Priority: active > failed > waiting/delayed > completed
+ * Returns the status of the last step (the next one to execute).
+ * Priority: failed > waiting-signal > active > waiting/delayed > completed
  */
-function computeAggregateStatus(workflowJobs: JobEntry[]): string {
-  if (workflowJobs.some((j) => j.status === "active")) return "active";
-  if (workflowJobs.some((j) => j.status === "failed")) return "failed";
-  if (workflowJobs.some((j) => j.status === "waiting" || j.status === "delayed")) return "waiting";
-  if (workflowJobs.every((j) => j.status === "completed")) return "completed";
-  return "unknown";
+function computeAggregateStatus(workflowJobs: JobEntry[], runId: string): string {
+  // Check run-level status first (includes waiting-signal from workflow engine)
+  const runStatus = runStatuses[runId];
+  if (runStatus === "failed") return "failed";
+  if (runStatus === "waiting-signal") return "waiting-signal";
+
+  // Fallback to overall status across all steps
+  return aggregateStepStatus(workflowJobs);
 }
 
 /**
@@ -93,7 +102,7 @@ let displayItems = $derived.by<DisplayItem[]>(() => {
       workflowRunId,
       workflowName,
       jobs: workflowJobs,
-      aggregateStatus: computeAggregateStatus(workflowJobs),
+      aggregateStatus: computeAggregateStatus(workflowJobs, workflowRunId),
     });
   }
 
@@ -348,9 +357,7 @@ function trackColumnWidths(container: HTMLElement) {
           <div class="flex items-center gap-2">
             <Badge variant="outline" class={automationStyle("workflow").border}>workflow</Badge>
             <div class="flex items-center gap-1.5">
-              {#each item.jobs as step}
-                <StatusDot status={step.status} title="{step.description}: {step.status}" />
-              {/each}
+              <StatusDot status={item.aggregateStatus} title={item.aggregateStatus} />
             </div>
           </div>
           <div class="flex items-center gap-2">
@@ -541,9 +548,7 @@ function trackColumnWidths(container: HTMLElement) {
             </TableCell>
             <TableCell>
               <div class="flex items-center gap-1">
-                {#each item.jobs as step}
-                  <StatusDot status={step.status} title="{step.description}: {step.status}" />
-                {/each}
+                <StatusDot status={item.aggregateStatus} title={item.aggregateStatus} />
               </div>
             </TableCell>
             <TableCell class="max-w-48">

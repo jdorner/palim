@@ -59,8 +59,32 @@ export class QueueMonitor {
       getCachedJob: (id) => this.jobCache.get(id),
       removeJobs: (ids) => this.removeJobs(ids),
       broadcastFullState: () => this.broadcastFullState(),
+      onBeforeJobsRemoved: (ids, getCached) => {
+        if (this.beforeJobsRemovedCallback) {
+          this.beforeJobsRemovedCallback(ids, getCached);
+        }
+      },
     });
     this.addQueues(queues);
+  }
+
+  /** Optional callback invoked before jobs are evicted from the cache during clean operations. */
+  private beforeJobsRemovedCallback:
+    | ((jobIds: string[], getCachedJob: (id: string) => JobEntry | undefined) => void)
+    | null = null;
+
+  /**
+   * Registers a callback invoked before cleaned jobs are evicted from the cache.
+   *
+   * Allows consumers (e.g. the workflow extension) to extract metadata from
+   * cached job entries before they are permanently discarded.
+   *
+   * @param callback - Function receiving job IDs and a cache lookup function
+   */
+  setOnBeforeJobsRemoved(
+    callback: (jobIds: string[], getCachedJob: (id: string) => JobEntry | undefined) => void,
+  ): void {
+    this.beforeJobsRemovedCallback = callback;
   }
 
   /**

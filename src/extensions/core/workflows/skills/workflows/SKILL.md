@@ -6,13 +6,16 @@ description: Create, modify and query multi-step workflow pipeline JSON5 definit
 
 ## Overview
 
-Workflows chain multiple agent jobs into sequential pipelines where the output of one step feeds into the next. Definitions are JSON5 files stored in `workflows/`. The system watches this directory and hot-reloads definitions on any change.
+Workflows chain multiple agent jobs into pipelines where the output of one step feeds into the next. Definitions are JSON5 files stored in `workflows/`. The system watches this directory and hot-reloads definitions on any change.
+
+Workflows support both sequential execution and control flow: conditional branching (`if`, `case`), external signal gates (`waitFor`), and cross-workflow signaling (`emit`).
 
 ## When to use
 
 - When the user wants to create a new multi-step pipeline
 - When the user wants to modify, inspect, or delete an existing workflow
 - When the user asks about chaining agent tasks, automations, or pipelines
+- When the user needs conditional logic, approval gates, or inter-workflow coordination
 
 ## ⚠️ Duplicate/Similar Workflow Guardrail
 
@@ -37,7 +40,7 @@ Workflows chain multiple agent jobs into sequential pipelines where the output o
   "steps": [
     {
       "slug": "step-name", // required, unique within workflow, kebab-case
-      "type": "agent", // "agent" or any registered step type (e.g. "http-request", "sandbox-exec")
+      "type": "agent", // "agent", "if", "case", "waitFor", "emit", or any registered step type
       // optional, tool names for agent steps
       "tools": ["exec"],
       // optional, skill names for agent steps
@@ -110,14 +113,14 @@ When you assign skills to a step, the agent receives the full system prompt with
 
 ## Template variables
 
-Use inside `prompt`, `url`, and `body` fields:
+Use inside `prompt`, `url`, `body`, and control flow `ref`/`match`/`payload` fields:
 
 - `{{trigger.payload}}` - full trigger payload (webhook body, schedule data, file watcher context)
 - `{{trigger.payload.field}}` - dot-path into the trigger payload
 - `{{trigger.payload.prompt}}` - the schedule's prompt text (schedule triggers only)
 - `{{trigger.payload.label}}` - the schedule's human-readable label (schedule triggers only)
 - `{{trigger.payload.filename}}` - the detected filename relative to the watched directory, not including the watch path itself (file watcher triggers only). You must prepend the watcher's path to build the full path relative to WORK_DIR (e.g. `inbox/{{trigger.payload.filename}}` for a watcher on `inbox`).
-S- `{{steps.<slug>.result}}` - full result of a completed step
+- `{{steps.<slug>.result}}` - full result of a completed step
 - `{{steps.<slug>.result.field}}` - dot-path into the step's result
 - `{{env.VAR_NAME}}` - environment variable value
 - `{{secret.SECRET_NAME}}` - encrypted secret (decrypted at access, ACL-checked)
@@ -193,6 +196,302 @@ Makes an outbound HTTP request. The response body becomes the step result (provi
 ```
 
 Additional options: `headers` (key-value map), `timeout` (ms, default 30000), `responseFormat` (`"json"` or `"text"`), `expectedStatus` (array of acceptable status codes).
+
+### If step (conditional branching)
+
+Evaluates a condition against a resolved template value. If true, executes the `then` branch; if false, executes the `else` branch (or fails if no `else` is provided).
+
+```json5
+{
+  "slug": "check-priority",
+  "type": "if",
+  "condition": {
+    "ref": "{{steps.extract-data.result.priority}}",
+    "eq": "high",
+  },
+  // Steps to execute when condition is true
+  "then": [
+    {
+      "slug": "urgent-notify",
+      "type": "agent",
+      "tools": ["send_telegram_message"],
+      "prompt": "Send an urgent notification: {{steps.extract-data.result}}",
+    },
+  ],
+  // Steps to execute when condition is false (optional)
+  "else": [
+    {
+      "slug": "log-low-priority",
+      "type": "agent",
+      "tools": ["write_file"],
+      "prompt": "Append to the low-priority log: {{steps.extract-data.result}}",
+    },
+  ],
+}
+```
+
+#### Condition operators
+
+The `condition` object requires a `ref` field (template expression to resolve) and exactly one operator:
+
+| Operator | Description | Example |
+|----------|-------------|---------|
+| `eq` | String equality after `String()` coercion | `"eq": "success"` |
+| `neq` | Logical negation of eq | `"neq": "error"` |
+| `gt` | Greater than (numeric if both parseable, otherwise lexicographic) | `"gt": 100` |
+| `gte` | Greater than or equal | `"gte": 0` |
+| `lt` | Less than | `"lt": 50` |
+| `lte` | Less than or equal | `"lte": 1000` |
+| `in` | Membership in array (String coercion per element) | `"in": ["draft", "review", "published"]` |
+| `contains` | Case-sensitive substring check | `"contains": "error"` |
+| `exists` | Not null, not undefined, not empty string | `"exists": true` |
+| `matches` | Regex test against String(value) | `"matches": "^\\d{4}-\\d{2}-\\d{2}$"` |
+
+For `null` or `undefined` resolved values, all operators except `exists` return false without performing the comparison.
+
+### Case step (multi-way branching)
+
+Resolves a `match` template and routes to the matching path key. If no path matches, uses `default` (or fails if no `default` is provided).
+
+```json5
+{
+  "slug": "route-by-type",
+  "type": "case",
+  // Template expression that resolves to the value to match against path keys
+  "match": "{{steps.classify.result.category}}",
+  // Each key is matched exactly (case-sensitive) against the resolved match value
+  "paths": {
+    "invoice": [
+      {
+        "slug": "process-invoice",
+        "type": "agent",
+        "tools": ["exec"],
+        "prompt": "Process the invoice: {{trigger.payload}}",
+      },
+    ],
+    "receipt": [
+      {
+        "slug": "process-receipt",
+        "type": "agent",
+        "tools": ["write_file"],
+        "prompt": "Archive the receipt: {{trigger.payload}}",
+      },
+    ],
+  },
+  // Fallback when no path matches (optional)
+  "default": [
+    {
+      "slug": "unknown-type",
+      "type": "agent",
+      "tools": [],
+      "prompt": "Unknown document type: {{steps.classify.result.category}}",
+    },
+  ],
+}
+```
+
+Path matching is exact and case-sensitive (no trimming). If the resolved value is `"invoice"`, it matches the `"invoice"` key but not `"Invoice"` or `" invoice"`.
+
+### WaitFor step (signal gate)
+
+Pauses the workflow and releases the worker slot until an external signal is delivered via the API. Use this for human approvals, external system callbacks, or inter-workflow coordination.
+
+```json5
+{
+  "slug": "await-approval",
+  "type": "waitFor",
+  // Signal event name (lowercase, dots/hyphens allowed)
+  "event": "approval.granted",
+  // Optional timeout in ms (1 second to 7 days). Run fails if exceeded.
+  "timeout": 86400000, // 24 hours
+  // Optional JSON Schema for validating the incoming signal payload
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "approver": { "type": "string" },
+      "comment": { "type": "string" },
+    },
+    "required": ["approver"],
+  },
+}
+```
+
+When the signal arrives, its payload becomes the step result. Subsequent steps can access it via `{{steps.await-approval.result}}` or `{{steps.await-approval.result.approver}}`.
+
+#### Delivering a signal
+
+Send a POST request to resume a waiting workflow:
+
+```
+POST /ext/workflows/runs/<runId>/signal/<event>
+Content-Type: application/json
+
+{ "approver": "joe", "comment": "Looks good" }
+```
+
+Response codes:
+- `200` - Signal accepted, workflow resumed
+- `404` - Run not found
+- `409` - Run not waiting for this event, or signal already delivered
+- `422` - Payload fails inputSchema validation
+
+#### Event name rules
+
+Event names must match `^[a-z][a-z0-9._-]*$` (max 128 characters). Examples: `approval.granted`, `deploy-ready`, `data.processed`.
+
+### Emit step (cross-workflow signal)
+
+Sends a named signal to all workflows currently waiting for that event. The emitting workflow continues immediately (fire-and-forget).
+
+```json5
+{
+  "slug": "notify-ready",
+  "type": "emit",
+  // Signal event name to broadcast
+  "event": "data.processed",
+  // Optional payload template (resolved before emission)
+  "payload": "{{steps.transform.result}}",
+}
+```
+
+Any workflow with a `waitFor` step listening for `"data.processed"` will be resumed with the emitted payload.
+
+## Control flow examples
+
+### Approval gate workflow
+
+```json5
+{
+  "name": "deploy-with-approval",
+  "description": "Deploy after human approval",
+  "trigger": { "type": "webhook", "ref": "deploy-request" },
+  "steps": [
+    {
+      "slug": "prepare",
+      "type": "agent",
+      "tools": ["exec"],
+      "prompt": "Prepare the deployment package from: {{trigger.payload}}",
+    },
+    {
+      "slug": "await-approval",
+      "type": "waitFor",
+      "event": "deploy.approved",
+      "timeout": 172800000, // 48 hours
+    },
+    {
+      "slug": "deploy",
+      "type": "agent",
+      "tools": ["exec"],
+      "prompt": [
+        "Deployment approved by: {{steps.await-approval.result.approver}}",
+        "Execute the deployment.",
+      ],
+    },
+  ],
+}
+```
+
+### Conditional notification workflow
+
+```json5
+{
+  "name": "smart-notify",
+  "description": "Route notifications based on severity",
+  "trigger": { "type": "webhook", "ref": "alert-hook" },
+  "steps": [
+    {
+      "slug": "classify",
+      "type": "agent",
+      "tools": [],
+      "prompt": [
+        "Classify this alert severity as 'critical', 'warning', or 'info':",
+        "{{trigger.payload}}",
+        "Respond with just the severity level.",
+      ],
+    },
+    {
+      "slug": "route-severity",
+      "type": "case",
+      "match": "{{steps.classify.result}}",
+      "paths": {
+        "critical": [
+          {
+            "slug": "notify-oncall",
+            "type": "agent",
+            "tools": ["send_telegram_message"],
+            "prompt": "CRITICAL ALERT - notify on-call: {{trigger.payload}}",
+          },
+        ],
+        "warning": [
+          {
+            "slug": "notify-team",
+            "type": "agent",
+            "tools": ["send_telegram_message"],
+            "prompt": "Warning alert for the team: {{trigger.payload}}",
+          },
+        ],
+      },
+      "default": [
+        {
+          "slug": "log-info",
+          "type": "agent",
+          "tools": ["write_file"],
+          "prompt": "Log this info alert to data/alerts.md: {{trigger.payload}}",
+        },
+      ],
+    },
+  ],
+}
+```
+
+### Inter-workflow coordination
+
+```json5
+// Workflow A: processes data and signals completion
+{
+  "name": "data-processor",
+  "trigger": { "type": "schedule", "ref": "nightly-etl" },
+  "steps": [
+    {
+      "slug": "transform",
+      "type": "agent",
+      "tools": ["exec", "read_file", "write_file"],
+      "prompt": "Run the nightly data transformation pipeline.",
+    },
+    {
+      "slug": "signal-done",
+      "type": "emit",
+      "event": "etl.complete",
+      "payload": "{{steps.transform.result}}",
+    },
+  ],
+}
+```
+
+```json5
+// Workflow B: waits for data processing to finish before generating report
+{
+  "name": "report-generator",
+  "trigger": { "type": "manual" },
+  "steps": [
+    {
+      "slug": "wait-for-data",
+      "type": "waitFor",
+      "event": "etl.complete",
+      "timeout": 7200000, // 2 hours
+    },
+    {
+      "slug": "generate-report",
+      "type": "agent",
+      "tools": ["read_file", "write_file"],
+      "prompt": [
+        "ETL result: {{steps.wait-for-data.result}}",
+        "Generate the daily report based on the processed data.",
+      ],
+    },
+  ],
+}
+```
 
 ## Trigger types
 
@@ -350,19 +649,26 @@ workflow validate "my-pipeline"
 
 ## Execution model
 
-- Steps execute sequentially: step 1 completes -> step 2 starts -> etc.
-- Each step receives the previous step's result via `{{steps.<slug>.result}}`
+- Steps within a segment execute sequentially: step 1 completes -> step 2 starts -> etc.
+- Control flow nodes (`if`, `case`, `waitFor`, `emit`) split the workflow into segments
+- Each step receives previous step results via `{{steps.<slug>.result}}`
 - If any step fails, the workflow fails and remaining steps are skipped
 - No retries - a failed step stops the chain
 - Each agent step runs in isolation with only the tools and skills you specify
+- `waitFor` releases its worker slot while waiting (does not block the queue)
+- `emit` is fire-and-forget - the emitting workflow continues immediately
+- Workflow state (results, cursor, status) is persisted in SQLite and survives restarts
 
 ## Notes
 
 - Workflow names must be unique across all JSON5 files
-- Step slugs must be unique within a workflow
+- Step slugs must be globally unique within a workflow (including nested steps in `then`/`else`/`paths`/`default` branches)
 - Disabled workflows (`enabled: false`) are skipped during loading
 - When no `tools` and no `skills` are specified, the agent runs with no tools (LLM-only reasoning)
 - When `skills` are specified, `exec` is automatically added to the tool list (even if `tools` is omitted)
 - JSON5 supports `//` and `/* */` comments — use them for documentation
 - Trailing commas are allowed in arrays and objects
-- Always ask for approval before triggeing a workflow run!
+- Control flow branches can nest arbitrarily (`if` inside `case`, `waitFor` inside `then`, etc.)
+- If an `if` condition is false and no `else` branch is defined, the workflow fails
+- If a `case` match value hits no path and no `default` is defined, the workflow fails
+- Always ask for approval before triggering a workflow run!

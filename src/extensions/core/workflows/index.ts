@@ -24,38 +24,30 @@ import { mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
+import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { setWorkflowDispatchFn } from "@src/extensions/engine/extensionContext";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
+import { handleStepCompletion } from "./completionHandler";
+import { recoverFromCrash } from "./crashRecovery";
+import { createEmitHandler } from "./emitHandler";
 import type { SessionFactory } from "./engine";
 import { dispatchWorkflow } from "./engine";
 import { loadWorkflows } from "./loader";
+import * as runStore from "./runStore";
+import { initRunStore } from "./runStore";
 import type { AgentStep, OutputSchema, WorkflowDefinition } from "./schemas";
 import { WorkflowDefinitionSchema } from "./schemas";
+import { dispatchBranchSteps, dispatchNextSegment, failRun } from "./segmentDispatcher";
+import * as signalStore from "./signalStore";
+import { initSignalStore } from "./signalStore";
+import * as signalTimers from "./signalTimers";
 import type { TemplateSecretResolver } from "./template";
 import type { TemplateWarning } from "./templateValidation";
 import { validateWorkflowTemplates } from "./templateValidation";
 import { resolveTriggerOutputSchema } from "./triggerSchemas";
-import type { WorkflowStepJobData } from "./types";
-import { createStepProcessor } from "./worker";
-
-/**
- * Derives the overall run status from the states of its individual steps.
- *
- * @param stepStatuses - Array of per-step job state strings
- * @returns `"failed"` if any step failed/unknown, `"completed"` if all steps completed,
- *          `"queued"` if all steps are still waiting, otherwise `"running"`
- */
-function buildRunStatus(stepStatuses: string[]): "failed" | "completed" | "running" | "queued" {
-  if (stepStatuses.some((s) => s === "failed" || s === "unknown")) return "failed";
-  if (stepStatuses.length > 0 && stepStatuses.every((s) => s === "completed")) return "completed";
-  if (
-    stepStatuses.length > 0 &&
-    stepStatuses.every((s) => s === "waiting" || s === "created" || s === "delayed" || s === "waiting-children")
-  )
-    return "queued";
-  return "running";
-}
+import { BRANCH_CONTINUATION_KEY, type WorkflowStepJobData } from "./types";
+import { createStepProcessor, type StepResult } from "./worker";
 
 /** Extract workflow step data from a queue job. */
 function stepData(job: {
@@ -132,7 +124,7 @@ export function validateWorkflowDependencies(
 }
 
 /** Built-in step types handled directly by the workflow engine. */
-const BUILTIN_STEP_TYPES = new Set(["agent"]);
+const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "waitFor"]);
 
 /**
  * Produces per-step warnings for dependencies that are not currently available.
@@ -237,10 +229,12 @@ export function createExtension(): Extension {
     watcher: FSWatcher | null;
     reloadTimer: ReturnType<typeof setTimeout> | null;
     workflowsDir: string;
+    recoveryCleanup: (() => void) | null;
   } = {
     watcher: null,
     reloadTimer: null,
     workflowsDir: "",
+    recoveryCleanup: null,
   };
 
   /**
@@ -270,6 +264,17 @@ export function createExtension(): Extension {
       const flowProducer = ctx.queues.getFlowProducer();
       const sessionFactory: SessionFactory = { create: (opts) => ctx.sessions.create(opts) };
 
+      // Initialize data stores with the shared database instance
+      initRunStore(ctx.db);
+      initSignalStore(ctx.db);
+
+      // Recover interrupted runs from previous process crash
+      const recovery = recoverFromCrash({
+        log: logger,
+        broadcast: (event) => ctx.messaging.broadcast(event),
+      });
+      state.recoveryCleanup = recovery.cleanup;
+
       // Load workflow definitions
       state.workflowsDir = path.join(ctx.paths.work, "workflows");
       await mkdir(state.workflowsDir, { recursive: true });
@@ -278,6 +283,21 @@ export function createExtension(): Extension {
       store.clear();
       for (const [k, v] of loaded) store.set(k, v);
       logger.info(`Loaded ${store.size} workflow definition(s)`);
+
+      // Register the emit step type handler so it's processed by the queue worker
+      ctx.stepTypes.register(
+        "emit",
+        createEmitHandler({
+          flowProducer,
+          sessionFactory,
+          log: logger,
+          broadcast: (event) => ctx.messaging.broadcast(event),
+          getWorkflowDefinition: (name) => {
+            const wf = store.get(name);
+            return wf ? { steps: wf.steps } : undefined;
+          },
+        }),
+      );
 
       // Register the dispatch function so all extension contexts can use ctx.workflows.dispatch()
       setWorkflowDispatchFn(async (name, payload) => {
@@ -299,6 +319,22 @@ export function createExtension(): Extension {
             jobId: result.jobIds[i],
           })),
         });
+
+        // When the first segment is a control flow node, the engine returns
+        // empty jobIds. Kick off inline evaluation via the segment dispatcher.
+        if (result.jobIds.length === 0) {
+          const allStepDefs: Record<string, unknown> = {};
+          for (const s of wf.steps) allStepDefs[s.slug] = s;
+          await dispatchNextSegment(result.workflowRunId, 0, {
+            steps: wf.steps,
+            allStepDefs,
+            flowProducer,
+            sessionFactory,
+            log: logger,
+            broadcast: (event) => ctx.messaging.broadcast(event),
+          });
+        }
+
         return result;
       });
 
@@ -357,18 +393,24 @@ export function createExtension(): Extension {
           jobId: d.id,
         });
       });
-      stepsQueue.onEvent("completed", ({ job }) => {
+      stepsQueue.onEvent("completed", async ({ job }) => {
         if (!job) return;
         const d = stepData(job);
-        ctx.messaging.broadcast({
-          type: "workflow_step_completed",
-          workflowRunId: d.workflowRunId,
-          stepSlug: d.stepSlug,
-          jobId: d.id,
-        });
-        if (d.stepIndex === d.totalSteps - 1) {
-          ctx.messaging.broadcast({ type: "workflow_completed", workflowRunId: d.workflowRunId });
-        }
+        const jobResult = (job as unknown as { returnvalue?: StepResult }).returnvalue;
+
+        await handleStepCompletion(
+          { id: d.id, data: d, returnvalue: jobResult },
+          {
+            flowProducer,
+            sessionFactory,
+            log: logger,
+            broadcast: (event) => ctx.messaging.broadcast(event),
+            getWorkflowDefinition: (name) => {
+              const def = store.get(name);
+              return def ? { steps: def.steps } : undefined;
+            },
+          },
+        );
       });
       stepsQueue.onEvent("failed", ({ jobId, failedReason, job }) => {
         if (!job) return;
@@ -386,6 +428,13 @@ export function createExtension(): Extension {
           failedStep: d.stepSlug,
           error: failedReason,
         });
+
+        // Persist failed status in Run Store
+        try {
+          runStore.updateStatus(d.workflowRunId, "failed", failedReason);
+        } catch {
+          // best effort
+        }
 
         // Emit domain event for cross-extension consumption (e.g. error-analyzer)
         // Only emit after the job failed permanently (not just delayed because of retry attempts)
@@ -437,6 +486,21 @@ export function createExtension(): Extension {
                   jobId: result.jobIds[i],
                 })),
               });
+
+              // When the first segment is a control flow node, kick off inline evaluation.
+              if (result.jobIds.length === 0) {
+                const allStepDefs: Record<string, unknown> = {};
+                for (const s of wf.steps) allStepDefs[s.slug] = s;
+                await dispatchNextSegment(result.workflowRunId, 0, {
+                  steps: wf.steps,
+                  allStepDefs,
+                  flowProducer,
+                  sessionFactory,
+                  log: logger,
+                  broadcast: (event) => ctx.messaging.broadcast(event),
+                });
+              }
+
               logger.info(`${sourceLabel} "${slug}" triggered workflow "${wf.name}" -> run ${result.workflowRunId}`);
             } catch (err) {
               logger.error(`Failed to dispatch workflow "${wf.name}" for ${sourceLabel.toLowerCase()} "${slug}":`, err);
@@ -524,40 +588,27 @@ export function createExtension(): Extension {
       });
 
       ctx.routes.register("GET", "/", async () => {
-        const allJobs = await stepsQueue.getAllJobs();
-
-        // Group jobs by workflow name and run ID, then derive per-run status
-        const runsByWorkflow = new Map<string, Map<string, string[]>>();
-        for (const d of allJobs.map(stepData)) {
-          if (!runsByWorkflow.has(d.workflowName)) runsByWorkflow.set(d.workflowName, new Map());
-          const runs = runsByWorkflow.get(d.workflowName)!;
-          if (!runs.has(d.workflowRunId)) runs.set(d.workflowRunId, []);
-          runs.get(d.workflowRunId)!.push(d.state);
-        }
-
         const list = await Promise.all(
           [...store.values()].map(async (w) => {
+            // Query Run Store for per-workflow run counts
+            const allRuns = runStore.getByWorkflowName(w.name);
             let activeRuns = 0;
             let completedRuns = 0;
             let failedRuns = 0;
-            const runs = runsByWorkflow.get(w.name);
-            if (runs) {
-              for (const stepStatuses of runs.values()) {
-                const status = buildRunStatus(stepStatuses);
-                switch (status) {
-                  case "completed":
-                    completedRuns++;
-                    break;
-                  case "failed":
-                    failedRuns++;
-                    break;
-                  case "running":
-                  case "queued":
-                    activeRuns++;
-                    break;
-                  default:
-                    break;
-                }
+            for (const run of allRuns) {
+              switch (run.status) {
+                case "completed":
+                  completedRuns++;
+                  break;
+                case "failed":
+                  failedRuns++;
+                  break;
+                case "running":
+                case "waiting-signal":
+                  activeRuns++;
+                  break;
+                default:
+                  break;
               }
             }
 
@@ -612,12 +663,59 @@ export function createExtension(): Extension {
             stepIndex: d.stepIndex,
             finishedOn: d.finishedOn,
           });
-          run.status = buildRunStatus(run.steps.map((s) => s.status));
         }
 
         // Sort steps within each run by their original definition order
-        for (const run of runMap.values()) {
+        // and enrich status from Run Store
+        for (const [runId, run] of runMap.entries()) {
           run.steps.sort((a, b) => a.stepIndex - b.stepIndex);
+
+          // Read authoritative status from Run Store
+          const persistedRun = runStore.get(runId);
+          run.status = persistedRun?.status ?? "running";
+
+          if (persistedRun?.status === "waiting-signal") {
+            const waitingSignals = signalStore.getAllWaiting().filter((s) => s.runId === runId);
+            const activeSignal = waitingSignals[0] ?? null;
+            if (activeSignal) {
+              const existing = run.steps.find((s) => s.slug === activeSignal.stepSlug);
+              if (existing) {
+                existing.status = "waiting-signal";
+              } else {
+                // Inject the waitFor step at its correct position
+                const stepIndex = persistedRun.fullStepOrder.indexOf(activeSignal.stepSlug);
+                run.steps.push({
+                  slug: activeSignal.stepSlug,
+                  status: "waiting-signal",
+                  jobId: runId,
+                  stepIndex: stepIndex >= 0 ? stepIndex : run.steps.length,
+                  finishedOn: undefined,
+                });
+                run.steps.sort((a, b) => a.stepIndex - b.stepIndex);
+              }
+            }
+          } else if (persistedRun) {
+            // Inject completed waitFor steps that have results but no queue job
+            const mappedSlugs = new Set(run.steps.map((s) => s.slug));
+            for (const slug of persistedRun.fullStepOrder) {
+              if (mappedSlugs.has(slug)) continue;
+              if (persistedRun.stepResults && slug in persistedRun.stepResults && !slug.startsWith("__")) {
+                const stepDef = wf?.steps.find((s: { slug: string }) => s.slug === slug);
+                if (stepDef && (stepDef.type === "waitFor" || stepDef.type === "if" || stepDef.type === "case")) {
+                  const stepIndex = persistedRun.fullStepOrder.indexOf(slug);
+                  run.steps.push({
+                    slug,
+                    status: "completed",
+                    jobId: runId,
+                    stepIndex: stepIndex >= 0 ? stepIndex : run.steps.length,
+                    finishedOn: undefined,
+                  });
+                }
+              }
+            }
+            run.steps.sort((a, b) => a.stepIndex - b.stepIndex);
+          }
+
           // Derive completedAt as the latest finishedOn among all steps (only if run is terminal)
           if (run.status === "completed" || run.status === "failed") {
             const finishedTimes = run.steps.map((s) => s.finishedOn).filter((t): t is number => t != null);
@@ -740,6 +838,21 @@ export function createExtension(): Extension {
             jobId: result.jobIds[i],
           })),
         });
+
+        // When the first segment is a control flow node, kick off inline evaluation.
+        if (result.jobIds.length === 0) {
+          const allStepDefs: Record<string, unknown> = {};
+          for (const s of wf.steps) allStepDefs[s.slug] = s;
+          await dispatchNextSegment(result.workflowRunId, 0, {
+            steps: wf.steps,
+            allStepDefs,
+            flowProducer,
+            sessionFactory,
+            log: logger,
+            broadcast: (event) => ctx.messaging.broadcast(event),
+          });
+        }
+
         return Response.json({ ok: true, workflowRunId: result.workflowRunId, jobIds: result.jobIds }, { status: 202 });
       });
 
@@ -751,17 +864,98 @@ export function createExtension(): Extension {
         const sorted = [...steps].sort((a, b) => a.stepIndex - b.stepIndex);
         const workflowName = sorted[0]!.workflowName;
         const wf = store.get(workflowName);
+
+        // Check Run Store for waiting-signal status and enrich step data
+        const run = runStore.get(runId);
+        // If run is waiting-signal, find the actual waiting signal record
+        let activeSignal: signalStore.SignalRecord | null = null;
+        if (run?.status === "waiting-signal") {
+          const allWaiting = signalStore.getAllWaiting().filter((s) => s.runId === runId);
+          activeSignal = allWaiting[0] ?? null;
+        }
+
+        const runStatus = run?.status ?? "running";
+
+        // Extract chosenBranch info from step results for CF nodes
+        const chosenBranches: Record<string, string> = {};
+        if (run?.stepResults) {
+          for (const [slug, result] of Object.entries(run.stepResults)) {
+            if (slug.startsWith("__")) continue;
+            if (result && typeof result === "object" && "chosenBranch" in result) {
+              chosenBranches[slug] = (result as { chosenBranch: string }).chosenBranch;
+            } else if (result && typeof result === "object" && "matched" in result) {
+              chosenBranches[slug] = (result as { matched: string }).matched;
+            }
+          }
+        }
+
         return Response.json({
           runId,
           workflowName,
-          status: buildRunStatus(sorted.map((s) => s.state)),
+          status: runStatus,
           trigger: wf?.trigger ?? null,
-          steps: sorted.map((d) => ({
-            slug: d.stepSlug,
-            type: d.stepDef.type,
-            status: d.state,
-            jobId: d.id,
-          })),
+          chosenBranches,
+          steps: (() => {
+            const mapped: Array<{
+              slug: string;
+              type: string;
+              status: string;
+              jobId: string;
+              waitEvent?: string;
+              waitInputSchema?: Record<string, unknown> | null;
+            }> = sorted.map((d) => ({
+              slug: d.stepSlug,
+              type: d.stepDef.type,
+              status: d.state,
+              jobId: d.id,
+            }));
+
+            // waitFor steps are handled inline (no queue job) — inject them.
+            // When actively waiting: inject with waiting-signal status.
+            // When completed/failed: inject as completed (signal was received).
+            if (activeSignal) {
+              const exists = mapped.some((s) => s.slug === activeSignal.stepSlug);
+              if (!exists) {
+                const stepDef = wf?.steps.find((s: { slug: string }) => s.slug === activeSignal.stepSlug);
+                mapped.push({
+                  slug: activeSignal.stepSlug,
+                  type: stepDef?.type ?? "waitFor",
+                  status: "waiting-signal",
+                  jobId: runId,
+                  waitEvent: activeSignal.event,
+                  waitInputSchema: activeSignal.inputSchema as Record<string, unknown> | null,
+                });
+              } else {
+                const entry = mapped.find((s) => s.slug === activeSignal.stepSlug);
+                if (entry) {
+                  entry.status = "waiting-signal";
+                  entry.waitEvent = activeSignal.event;
+                  entry.waitInputSchema = activeSignal.inputSchema as Record<string, unknown> | null;
+                }
+              }
+            } else if (run) {
+              // No active signal — inject completed inline steps from stepResults.
+              // Control flow nodes (if, case, waitFor) are handled inline without queue jobs.
+              const mappedSlugs = new Set(mapped.map((s) => s.slug));
+              for (const slug of run.fullStepOrder) {
+                if (mappedSlugs.has(slug)) continue;
+                // Check if this slug has a result in stepResults (meaning it executed)
+                if (run.stepResults && slug in run.stepResults && !slug.startsWith("__")) {
+                  const stepDef = wf?.steps.find((s: { slug: string }) => s.slug === slug);
+                  if (stepDef && (stepDef.type === "waitFor" || stepDef.type === "if" || stepDef.type === "case")) {
+                    mapped.push({
+                      slug,
+                      type: stepDef.type,
+                      status: "completed",
+                      jobId: runId,
+                    });
+                  }
+                }
+              }
+            }
+
+            return mapped;
+          })(),
         });
       });
 
@@ -793,8 +987,10 @@ export function createExtension(): Extension {
         const steps = runJobs(await stepsQueue.getAllJobs(), runId);
         if (steps.length === 0) return Response.json({ error: "Run not found" }, { status: 404 });
         const sorted = [...steps].sort((a, b) => a.stepIndex - b.stepIndex);
-        const status = buildRunStatus(sorted.map((s) => s.state));
-        if (status !== "failed") return Response.json({ error: "Only failed runs can be retried" }, { status: 409 });
+        const persistedRunState = runStore.get(runId);
+        if (persistedRunState?.status !== "failed") {
+          return Response.json({ error: "Only failed runs can be retried" }, { status: 409 });
+        }
 
         // Retry all failed steps via the DLQ mechanism (child-first order so
         // parent steps unblock once their children are re-queued).
@@ -824,6 +1020,191 @@ export function createExtension(): Extension {
         return Response.json({ ok: true, workflowRunId: runId, retriedSteps: retried }, { status: 202 });
       });
 
+      /**
+       * Signal delivery endpoint - resumes a waiting workflow run.
+       *
+       * Validates: run exists, run is waiting-signal for the specified event,
+       * payload size <= 1MB, inputSchema validation (if defined).
+       * Atomically marks signal received, stores payload, transitions run
+       * to running, dispatches next segment, and broadcasts resumed event.
+       *
+       * @returns `{ accepted: true, runId, event, runStatus: "running" }` on success (200)
+       */
+      ctx.routes.register(
+        "POST",
+        "/runs/:runId/signal/:event",
+        async (reqCtx) => {
+          const runId = (reqCtx.params as Record<string, string>).runId;
+          const event = (reqCtx.params as Record<string, string>).event;
+          if (!runId || !event) return Response.json({ error: "Missing runId or event" }, { status: 400 });
+
+          // Read raw body and enforce 1MB size limit
+          const rawBody = await reqCtx.request.text();
+          if (rawBody.length > 1_000_000) {
+            return Response.json({ error: "Payload too large" }, { status: 413 });
+          }
+
+          // Parse JSON payload
+          let payload: unknown = null;
+          if (rawBody.length > 0) {
+            try {
+              payload = JSON.parse(rawBody);
+            } catch {
+              return Response.json({ error: "Invalid JSON payload" }, { status: 400 });
+            }
+          }
+
+          // Check run exists
+          const run = runStore.get(runId);
+          if (!run) return Response.json({ error: "Run not found" }, { status: 404 });
+
+          // Check run is in waiting-signal status
+          if (run.status !== "waiting-signal") {
+            return Response.json(
+              { error: `Run is not awaiting a signal (current status: "${run.status}")` },
+              { status: 409 },
+            );
+          }
+
+          // Check a waiting signal record exists for this event
+          const signal = signalStore.getWaiting(runId, event);
+          if (!signal) {
+            return Response.json({ error: `Run is not awaiting signal "${event}"` }, { status: 409 });
+          }
+
+          // Validate payload against inputSchema if defined
+          if (signal.inputSchema) {
+            const schema = signal.inputSchema as TSchema;
+            if (!Value.Check(schema, payload)) {
+              const errors = [...Value.Errors(schema, payload)];
+              return Response.json(
+                {
+                  error: "Validation failed",
+                  details: errors.map((e) => ({ path: e.path, message: e.message })),
+                },
+                { status: 422 },
+              );
+            }
+          }
+
+          // Atomically mark signal as received
+          signalStore.markReceived(signal.id, payload);
+
+          // Cancel the timeout timer to prevent it from firing after delivery
+          signalTimers.cancel(signal.id);
+
+          // Verify the mark succeeded (race protection)
+          const stillWaiting = signalStore.getWaiting(runId, event);
+          if (stillWaiting) {
+            // The mark did not take effect (race condition or concurrent delivery)
+            return Response.json({ error: "Signal has already been delivered" }, { status: 409 });
+          }
+
+          // Store payload as the waitFor step result in Run Store
+          try {
+            runStore.updateStepResult(runId, signal.stepSlug, payload);
+          } catch (err) {
+            logger.error(`Failed to store signal payload for run ${runId}, step ${signal.stepSlug}:`, err);
+            return Response.json({ error: "Internal error" }, { status: 500 });
+          }
+
+          // Transition run status to running
+          try {
+            runStore.updateStatus(runId, "running");
+          } catch (err) {
+            logger.error(`Failed to transition run ${runId} to running:`, err);
+            return Response.json({ error: "Internal error" }, { status: 500 });
+          }
+
+          // Broadcast workflow_step_resumed
+          ctx.messaging.broadcast({
+            type: "workflow_step_resumed",
+            workflowRunId: runId,
+            stepSlug: signal.stepSlug,
+            signalEvent: event,
+          });
+
+          // Dispatch next segment asynchronously
+          const wf = store.get(run.workflowName);
+          if (wf) {
+            // Check for branch continuation (waitFor was inside a branch)
+            const branchCont = run.stepResults[BRANCH_CONTINUATION_KEY] as
+              | { remainingSteps: import("./schemas").WorkflowStep[]; resumeStepIndex: number }
+              | undefined;
+
+            if (branchCont && branchCont.remainingSteps.length > 0) {
+              // Clear the branch continuation marker
+              try {
+                runStore.updateStepResult(runId, BRANCH_CONTINUATION_KEY, null);
+              } catch {
+                // best effort
+              }
+
+              // Resume with remaining branch steps
+              const updatedRun = runStore.get(runId);
+              if (updatedRun) {
+                dispatchBranchSteps(
+                  runId,
+                  branchCont.remainingSteps,
+                  branchCont.resumeStepIndex,
+                  signal.stepSlug,
+                  updatedRun,
+                  {
+                    steps: wf.steps,
+                    allStepDefs: Object.fromEntries(wf.steps.map((s) => [s.slug, s])),
+                    flowProducer,
+                    sessionFactory,
+                    log: logger,
+                    broadcast: (evt) => ctx.messaging.broadcast(evt),
+                    getWorkflowDefinition: (name) => {
+                      const def = store.get(name);
+                      return def ? { steps: def.steps } : undefined;
+                    },
+                  },
+                ).catch((err) => {
+                  logger.error(`Failed to dispatch branch continuation after signal for run ${runId}:`, err);
+                  failRun(
+                    runId,
+                    signal.stepSlug,
+                    `Branch continuation failed: ${err instanceof Error ? err.message : String(err)}`,
+                    { log: logger, broadcast: (evt) => ctx.messaging.broadcast(evt) },
+                  );
+                });
+              }
+            } else {
+              // Normal main-flow resume
+              const nextStepIndex = run.currentStepIndex + 1;
+              dispatchNextSegment(runId, nextStepIndex, {
+                steps: wf.steps,
+                allStepDefs: Object.fromEntries(wf.steps.map((s) => [s.slug, s])),
+                flowProducer,
+                sessionFactory,
+                log: logger,
+                broadcast: (evt) => ctx.messaging.broadcast(evt),
+              }).catch((err) => {
+                logger.error(`Failed to dispatch next segment after signal delivery for run ${runId}:`, err);
+                failRun(
+                  runId,
+                  signal.stepSlug,
+                  `Segment dispatch failed after signal: ${err instanceof Error ? err.message : String(err)}`,
+                  { log: logger, broadcast: (evt) => ctx.messaging.broadcast(evt) },
+                );
+              });
+            }
+          } else {
+            // Workflow definition no longer loaded - fail the run
+            logger.error(`Workflow definition "${run.workflowName}" not found for signal delivery on run ${runId}`);
+            failRun(runId, signal.stepSlug, `Workflow definition "${run.workflowName}" not found`, {
+              log: logger,
+              broadcast: (evt) => ctx.messaging.broadcast(evt),
+            });
+          }
+
+          return Response.json({ accepted: true, runId, event, runStatus: "running" });
+        },
+        { parse: "none" },
+      );
+
       ctx.routes.register("DELETE", "/runs/:runId", async (reqCtx) => {
         const runId = (reqCtx.params as Record<string, string>).runId;
         if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
@@ -837,6 +1218,10 @@ export function createExtension(): Extension {
           const removed = await stepsQueue.cancelJob(d.id);
           if (removed) cancelled.push(d.id);
         }
+
+        // Clean up Run Store and Signal Store records
+        signalStore.deleteByRunIds([runId]);
+        runStore.deleteByIds([runId]);
 
         // Notify frontend clients about removed jobs
         for (const jobId of cancelled) {
@@ -987,6 +1372,10 @@ export function createExtension(): Extension {
     },
 
     async shutdown() {
+      if (state.recoveryCleanup) {
+        state.recoveryCleanup();
+        state.recoveryCleanup = null;
+      }
       if (state.watcher) {
         state.watcher.close();
         state.watcher = null;
@@ -1002,4 +1391,4 @@ export function createExtension(): Extension {
 
 const defaultInstance = createExtension();
 export default defaultInstance;
-export { buildRunStatus, dispatchWorkflow };
+export { dispatchWorkflow };

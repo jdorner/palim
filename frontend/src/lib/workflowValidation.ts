@@ -208,27 +208,7 @@ export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: St
   const slugs: string[] = [];
   for (let i = 0; i < draft.steps.length; i++) {
     const step = draft.steps[i];
-    const slugResult = validateSlug(step.slug);
-    if (!slugResult.valid && slugResult.error) {
-      errors.set(`steps[${i}].slug`, slugResult.error);
-    }
-    slugs.push(step.slug);
-
-    // Type-specific validation
-    if (step.type === "agent" && (!step.prompt || step.prompt.trim().length === 0)) {
-      errors.set(`steps[${i}].prompt`, "Prompt is required for agent steps");
-    }
-
-    // Custom step type config validation against the registered schema
-    if (step.type !== "agent" && stepTypeSchemas) {
-      const schemaInfo = stepTypeSchemas.find((s) => s.type === step.type);
-      if (schemaInfo?.configSchema) {
-        const configErrors = validateStepConfig(step.config ?? {}, schemaInfo.configSchema);
-        for (const [field, message] of configErrors) {
-          errors.set(`steps[${i}].config.${field}`, message);
-        }
-      }
-    }
+    validateStepRecursive(step, `steps[${i}]`, slugs, errors, stepTypeSchemas);
   }
 
   // Validate step slugs uniqueness
@@ -238,6 +218,86 @@ export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: St
   }
 
   return errors;
+}
+
+/**
+ * Recursively validates a step and its branch children.
+ * Collects slugs for uniqueness checking and populates the errors map.
+ */
+function validateStepRecursive(
+  step: StepDraft,
+  path: string,
+  slugs: string[],
+  errors: Map<string, string>,
+  stepTypeSchemas?: StepTypeSchema[],
+): void {
+  const slugResult = validateSlug(step.slug);
+  if (!slugResult.valid && slugResult.error) {
+    errors.set(`${path}.slug`, slugResult.error);
+  }
+  slugs.push(step.slug);
+
+  // Type-specific validation
+  if (step.type === "agent" && (!step.prompt || step.prompt.trim().length === 0)) {
+    errors.set(`${path}.prompt`, "Prompt is required for agent steps");
+  }
+
+  // Control flow: if
+  if (step.type === "if") {
+    if (!step.condition || !(step.condition as Record<string, unknown>).ref) {
+      errors.set(`${path}.condition`, "Condition ref is required");
+    }
+    const thenSteps = (step.then as StepDraft[] | undefined) ?? [];
+    for (let i = 0; i < thenSteps.length; i++) {
+      validateStepRecursive(thenSteps[i], `${path}.then[${i}]`, slugs, errors, stepTypeSchemas);
+    }
+    const elseSteps = (step.else as StepDraft[] | undefined) ?? [];
+    for (let i = 0; i < elseSteps.length; i++) {
+      validateStepRecursive(elseSteps[i], `${path}.else[${i}]`, slugs, errors, stepTypeSchemas);
+    }
+  }
+
+  // Control flow: case
+  if (step.type === "case") {
+    if (!step.match || (step.match as string).trim().length === 0) {
+      errors.set(`${path}.match`, "Match expression is required");
+    }
+    const paths = (step.paths as Record<string, StepDraft[]>) ?? {};
+    for (const [key, pathSteps] of Object.entries(paths)) {
+      for (let i = 0; i < pathSteps.length; i++) {
+        validateStepRecursive(pathSteps[i], `${path}.paths.${key}[${i}]`, slugs, errors, stepTypeSchemas);
+      }
+    }
+    const defaultSteps = (step.default as StepDraft[] | undefined) ?? [];
+    for (let i = 0; i < defaultSteps.length; i++) {
+      validateStepRecursive(defaultSteps[i], `${path}.default[${i}]`, slugs, errors, stepTypeSchemas);
+    }
+  }
+
+  // Control flow: waitFor
+  if (step.type === "waitFor") {
+    if (!step.event || (step.event as string).trim().length === 0) {
+      errors.set(`${path}.event`, "Event name is required");
+    }
+  }
+
+  // Control flow: emit
+  if (step.type === "emit") {
+    if (!step.event || (step.event as string).trim().length === 0) {
+      errors.set(`${path}.event`, "Event name is required");
+    }
+  }
+
+  // Custom step type config validation
+  if (!["agent", "if", "case", "waitFor", "emit"].includes(step.type) && stepTypeSchemas) {
+    const schemaInfo = stepTypeSchemas.find((s) => s.type === step.type);
+    if (schemaInfo?.configSchema) {
+      const configErrors = validateStepConfig(step.config ?? {}, schemaInfo.configSchema);
+      for (const [field, message] of configErrors) {
+        errors.set(`${path}.config.${field}`, message);
+      }
+    }
+  }
 }
 
 /**
@@ -260,6 +320,74 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
     if (step.skills && step.skills.length > 0) {
       result.skills = step.skills;
     }
+    return result;
+  }
+
+  // Control flow: if
+  if (step.type === "if") {
+    const result: Record<string, unknown> = {
+      slug: step.slug,
+      type: "if",
+      condition: step.condition,
+    };
+    const thenSteps = step.then as StepDraft[] | undefined;
+    if (thenSteps && thenSteps.length > 0) {
+      // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+      result.then = thenSteps.map(serializeStep);
+    }
+    const elseSteps = step.else as StepDraft[] | undefined;
+    if (elseSteps && elseSteps.length > 0) {
+      result.else = elseSteps.map(serializeStep);
+    }
+    return result;
+  }
+
+  // Control flow: case
+  if (step.type === "case") {
+    const result: Record<string, unknown> = {
+      slug: step.slug,
+      type: "case",
+      match: step.match,
+    };
+    const paths = step.paths as Record<string, StepDraft[]> | undefined;
+    if (paths) {
+      const serializedPaths: Record<string, unknown[]> = {};
+      for (const [key, pathSteps] of Object.entries(paths)) {
+        if (pathSteps.length > 0) {
+          serializedPaths[key] = pathSteps.map(serializeStep);
+        }
+      }
+      if (Object.keys(serializedPaths).length > 0) {
+        result.paths = serializedPaths;
+      }
+    }
+    const defaultSteps = step.default as StepDraft[] | undefined;
+    if (defaultSteps && defaultSteps.length > 0) {
+      result.default = defaultSteps.map(serializeStep);
+    }
+    return result;
+  }
+
+  // Control flow: waitFor
+  if (step.type === "waitFor") {
+    const result: Record<string, unknown> = {
+      slug: step.slug,
+      type: "waitFor",
+      event: step.event,
+    };
+    if (step.timeout) result.timeout = step.timeout;
+    if (step.inputSchema) result.inputSchema = step.inputSchema;
+    return result;
+  }
+
+  // Control flow: emit
+  if (step.type === "emit") {
+    const result: Record<string, unknown> = {
+      slug: step.slug,
+      type: "emit",
+      event: step.event,
+    };
+    if (step.payload) result.payload = step.payload;
     return result;
   }
 

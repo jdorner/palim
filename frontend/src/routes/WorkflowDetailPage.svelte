@@ -17,7 +17,7 @@ import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { extensions } from "$lib/extensionStore";
 import type { OutputSchemas } from "$lib/templateScope";
-import { formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
+import { aggregateStepStatus, formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import {
   type StepDraft,
@@ -150,25 +150,46 @@ function enterEditMode() {
     trigger: { type: workflow.trigger.type, ref: workflow.trigger.ref ?? "" },
     enabled: workflow.enabled ?? true,
     steps: workflow.steps.map((s) => {
-      const { slug, type, prompt, tools, skills } = s;
-      const isCustomType = type !== "agent";
-      if (isCustomType) {
-        // For custom step types, skills/tools/prompt are part of
-        // the step config (schema-defined), not top-level draft fields.
-        // Rebuild config from all fields except slug and type.
-        const { slug: _s, type: _t, input: _i, output: _o, ...config } = s;
+      const { slug, type } = s;
+
+      // Agent steps: extract known fields
+      if (type === "agent") {
+        const { prompt, tools, skills } = s;
         return {
           slug,
           type,
-          config: Object.keys(config).length > 0 ? config : undefined,
+          prompt,
+          tools: tools ? [...tools] : undefined,
+          skills: skills ? [...skills] : undefined,
         };
       }
+
+      // Control flow: if - preserve condition + branches
+      if (type === "if") {
+        return JSON.parse(JSON.stringify(s));
+      }
+
+      // Control flow: case - preserve match + paths + default
+      if (type === "case") {
+        return JSON.parse(JSON.stringify(s));
+      }
+
+      // Control flow: waitFor
+      if (type === "waitFor") {
+        return JSON.parse(JSON.stringify(s));
+      }
+
+      // Control flow: emit
+      if (type === "emit") {
+        return JSON.parse(JSON.stringify(s));
+      }
+
+      // Custom extension step types: rebuild config from non-standard fields
+      const { slug: _s, type: _t, input: _i, output: _o, ...config } = s;
       return {
         slug,
         type,
-        prompt,
-        tools: tools ? [...tools] : undefined,
-        skills: skills ? [...skills] : undefined,
+        config: Object.keys(config).length > 0 ? config : undefined,
       };
     }),
   };
@@ -222,24 +243,116 @@ function updateDraftStep(index: number, updater: (step: StepDraft) => void) {
   };
 }
 
-/** Add a new empty step to the draft. */
-function addStep() {
+/** Add a new step to the draft with the given type (defaults to "agent"). */
+function addStep(type: string = "agent", branchContext?: { parentNodeId: string; branch: string }) {
   if (!editDraft) return;
-  editDraft = {
-    ...editDraft,
-    steps: [...editDraft.steps, { slug: "", type: "agent", prompt: "" }],
-  };
-  // Mark the new step's slug and prompt as needing validation (empty = required)
-  const newErrors = new Map(validationErrors);
-  const newIndex = editDraft.steps.length - 1;
-  newErrors.set(`steps[${newIndex}].slug`, "Slug is required");
-  newErrors.set(`steps[${newIndex}].prompt`, "Prompt is required for agent steps");
-  validationErrors = newErrors;
 
-  // Auto-select the new step in the sidebar
-  selectedStep = editDraft.steps[newIndex] as StepDef;
-  selectedStepIndex = newIndex;
-  sidebarOpen = true;
+  const template = stepTemplate(type);
+
+  if (branchContext) {
+    // Insert into a branch of a CF step
+    const stepIndex = parseStepIndex(branchContext.parentNodeId);
+    if (stepIndex === null || stepIndex >= editDraft.steps.length) return;
+
+    editDraft = {
+      ...editDraft,
+      steps: editDraft.steps.map((s, i) => {
+        if (i !== stepIndex) return s;
+        return insertIntoBranch(s, branchContext.branch, template);
+      }),
+    };
+  } else {
+    // Append to top-level steps
+    editDraft = {
+      ...editDraft,
+      steps: [...editDraft.steps, template],
+    };
+  }
+
+  // Mark validation errors for the new step
+  const newErrors = new Map(validationErrors);
+  if (!branchContext) {
+    const newIndex = editDraft.steps.length - 1;
+    newErrors.set(`steps[${newIndex}].slug`, "Slug is required");
+    if (type === "agent") {
+      newErrors.set(`steps[${newIndex}].prompt`, "Prompt is required for agent steps");
+    }
+    // Auto-select the new step in the sidebar
+    selectedStep = editDraft.steps[newIndex] as StepDef;
+    selectedStepIndex = newIndex;
+    sidebarOpen = true;
+  }
+  validationErrors = newErrors;
+}
+
+/**
+ * Extracts the step array index from a graph node ID.
+ * "step-2" -> 2, "step-0.then-0" -> 0
+ */
+function parseStepIndex(nodeId: string): number | null {
+  const match = nodeId.match(/^step-(\d+)/);
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+/**
+ * Inserts a new step into the specified branch of a CF step.
+ * Handles "then", "else" for if steps, and path keys / "default" for case steps.
+ */
+function insertIntoBranch(step: StepDraft, branch: string, template: StepDraft): StepDraft {
+  const copy = { ...step };
+
+  if (step.type === "if") {
+    if (branch === "then") {
+      const current = (copy.then as StepDraft[] | undefined) ?? [];
+      // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+      copy.then = [...current, template];
+    } else if (branch === "else") {
+      const current = (copy.else as StepDraft[] | undefined) ?? [];
+      copy.else = [...current, template];
+    }
+  } else if (step.type === "case") {
+    if (branch === "default") {
+      const current = (copy.default as StepDraft[] | undefined) ?? [];
+      copy.default = [...current, template];
+    } else {
+      const paths = { ...((copy.paths as Record<string, StepDraft[]>) ?? {}) };
+      const current = paths[branch] ?? [];
+      paths[branch] = [...current, template];
+      copy.paths = paths;
+    }
+  }
+
+  return copy;
+}
+
+/** Returns a default step template for a given type. */
+function stepTemplate(type: string): StepDraft {
+  switch (type) {
+    case "agent":
+      return { slug: "", type: "agent", prompt: "" };
+    case "if":
+      return {
+        slug: "",
+        type: "if",
+        condition: { ref: "" },
+        // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+        then: [],
+      };
+    case "case":
+      return {
+        slug: "",
+        type: "case",
+        match: "",
+        paths: {},
+      };
+    case "waitFor":
+      return { slug: "", type: "waitFor", event: "" };
+    case "emit":
+      return { slug: "", type: "emit", event: "" };
+    default:
+      // Custom extension step type
+      return { slug: "", type };
+  }
 }
 
 /**
@@ -474,6 +587,7 @@ async function saveWorkflow() {
 let saveDisabled = $derived(saving || validationErrors.size > 0);
 
 const RUNS_PAGE_SIZE = 10;
+
 let runsPage = $state(1);
 let runsTotalPages = $derived(Math.max(1, Math.ceil((workflow?.runs.length ?? 0) / RUNS_PAGE_SIZE)));
 let paginatedRuns = $derived((workflow?.runs ?? []).slice((runsPage - 1) * RUNS_PAGE_SIZE, runsPage * RUNS_PAGE_SIZE));
@@ -878,13 +992,13 @@ onDestroy(() => {
           <div class="flex-1 min-w-0 min-h-0">
             <WorkflowGraph
               steps={(editDraft ?? workflow).steps.map((s) => ({
-                slug: s.slug,
-                type: s.type,
+                ...s,
                 status: "waiting" as const,
               }))}
               trigger={editMode && editDraft ? editDraft.trigger : workflow.trigger}
               {editMode}
               selectedStepIndex={sidebarOpen ? selectedStepIndex : -1}
+              {customStepTypes}
               onNodeClick={onStepClick}
               onAddStep={addStep}
               onEdgesChange={editMode ? handleEdgesChange : undefined}
@@ -936,6 +1050,7 @@ onDestroy(() => {
           <!-- Mobile & Tablet: Card layout -->
           <div class="responsive-cards">
             {#each paginatedRuns as run (run.runId)}
+              {@const aggregated = aggregateStepStatus(run.steps)}
               <div class="rounded-md border border-border p-4 space-y-3">
                 <div class="flex items-center justify-between gap-2">
                   <a href="#/workflows/{name}/runs/{run.runId}" class="text-left">
@@ -944,11 +1059,7 @@ onDestroy(() => {
                   <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
                 </div>
 
-                <div class="flex items-center gap-1">
-                  {#each run.steps as step}
-                    <StatusDot status={step.status} title="{step.slug}: {step.status}" />
-                  {/each}
-                </div>
+                <StatusDot status={aggregated} title={aggregated} />
 
                 <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span>Started: {formatTimestamp(run.startedAt)}</span>
@@ -988,13 +1099,14 @@ onDestroy(() => {
                   <TableHead class="w-md">Run ID</TableHead>
                   <TableHead>Started</TableHead>
                   <TableHead>Completed</TableHead>
-                  <TableHead class="min-w-[10em]">Steps</TableHead>
-                  <TableHead class="text-left">Status</TableHead>
+                  <TableHead class="min-w-[2em] text-center">Status</TableHead>
+                  <TableHead class="min-w-[10em]"></TableHead>
                   <TableHead class="text-center min-w-[10em]">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {#each paginatedRuns as run (run.runId)}
+                  {@const aggregated = aggregateStepStatus(run.steps)}
                   <TableRow>
                     <TableCell>
                       <a href="#/workflows/{name}/runs/{run.runId}" class="text-left">
@@ -1007,14 +1119,10 @@ onDestroy(() => {
                     <TableCell class="text-sm text-muted-foreground">
                       {run.completedAt ? formatTimestamp(run.completedAt) : "\u2014"}
                     </TableCell>
-                    <TableCell>
-                      <div class="flex items-center gap-1">
-                        {#each run.steps as step}
-                          <StatusDot status={step.status} title="{step.slug}: {step.status}" />
-                        {/each}
-                      </div>
+                    <TableCell class="text-center">
+                      <StatusDot status={aggregated} title={aggregated} />
                     </TableCell>
-                    <TableCell class="text-left">
+                    <TableCell>
                       <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
                     </TableCell>
                     <TableCell class="text-right">

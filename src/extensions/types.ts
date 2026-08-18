@@ -288,6 +288,9 @@ export interface StepExecutionContext {
    * @param message - The message to log
    */
   jobLog(message: string): Promise<void>;
+
+  /** The workflow run ID this step belongs to (available for run-aware handlers). */
+  readonly workflowRunId?: string;
 }
 
 /**

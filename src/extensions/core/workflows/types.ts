@@ -4,6 +4,15 @@
 
 import type { WorkflowStep } from "./schemas";
 
+/**
+ * Run Store key used to persist branch continuation state across CF boundaries.
+ *
+ * When a branch segment contains nested control flow nodes, the remaining
+ * branch steps are stored under this key so the completion handler or signal
+ * delivery endpoint can resume execution after the nested node completes.
+ */
+export const BRANCH_CONTINUATION_KEY = "__branchContinuation";
+
 /** Data payload carried by each workflow step job in the chain. */
 export interface WorkflowStepJobData {
   /** Unique identifier for this workflow run. */
@@ -26,6 +35,23 @@ export interface WorkflowStepJobData {
   triggerPayload?: unknown;
   /** Session ID for persisting conversation context for this step. */
   sessionId: string;
+  /** Accumulated step results from previous segments (injected by segment dispatcher into first job of non-first segments). */
+  accumulatedStepResults?: Record<string, unknown>;
+  /** Marks this job as part of a control flow branch (then/else/path). Non-last branch steps skip segment dispatch on completion. */
+  isBranchStep?: boolean;
+  /** Set on the LAST branch step only. When present, the completion handler dispatches the next segment at this index instead of using stepIndex + 1. */
+  resumeStepIndex?: number;
+  /**
+   * Carries remaining branch steps when a branch is segmented at CF boundaries.
+   * When the last step of a branch segment completes, the completion handler uses
+   * this context to dispatch the next branch segment or handle inline CF nodes.
+   */
+  branchContext?: {
+    /** Remaining branch steps (after the current segment). */
+    remainingSteps: import("./schemas").WorkflowStep[];
+    /** The main-flow step index to resume at after the entire branch finishes. */
+    resumeStepIndex: number;
+  };
   /** Injected by bunqueue FlowProducer for chained jobs. */
   __flowParentId?: string;
 }

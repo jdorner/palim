@@ -8,7 +8,7 @@ export interface JobEntry {
   id: string;
   description: string;
   queue: string;
-  status: "waiting" | "active" | "completed" | "failed" | "delayed" | "unknown";
+  status: "waiting" | "active" | "completed" | "failed" | "delayed" | "waiting-signal" | "unknown";
   createdAt: number;
   completedAt?: number;
   logs?: LogEntry[];

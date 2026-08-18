@@ -22,6 +22,12 @@ export interface QueueCleanerDeps {
   removeJobs: (jobIds: string[]) => void;
   /** Broadcasts a full state refresh to all clients. */
   broadcastFullState: () => void;
+  /**
+   * Optional callback invoked with removed job IDs before cache eviction.
+   * Allows consumers (e.g. workflow extension) to extract metadata from
+   * cached jobs before they are discarded.
+   */
+  onBeforeJobsRemoved?: (jobIds: string[], getCachedJob: (id: string) => JobEntry | undefined) => void;
 }
 
 /**
@@ -114,6 +120,12 @@ export class QueueCleaner {
   async cleanAllQueues(grace: number, limit: number, type?: string): Promise<string[]> {
     const results = await Promise.all(this.deps.getQueues().map((q) => q.clean(grace, limit, type)));
     const allRemoved = results.flat();
+
+    // Notify consumers before cache eviction (allows metadata extraction)
+    if (allRemoved.length > 0 && this.deps.onBeforeJobsRemoved) {
+      this.deps.onBeforeJobsRemoved(allRemoved, this.deps.getCachedJob);
+    }
+
     this.deps.removeJobs(allRemoved);
     return allRemoved;
   }

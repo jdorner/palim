@@ -1,11 +1,20 @@
 /**
- * Workflow engine - dispatches workflow executions as job chains
- * via bunqueue's {@link FlowProducer.addChain}.
+ * Workflow engine - dispatches workflow executions using segment-based dispatch.
+ *
+ * The engine segments the workflow definition at control flow boundaries,
+ * creates a Run Store record, and dispatches the first segment via
+ * {@link FlowProducer.addChain}. For single-segment workflows (no control
+ * flow nodes), this produces identical behavior to the previous implementation.
+ *
+ * Subsequent segments are dispatched by the Segment Dispatcher (triggered by
+ * the queue `completed` event handler) after the current segment finishes.
  */
 
 import type { Logger, WorkflowDispatchResult } from "@ext/types";
 import type { FlowProducer, FlowStep } from "bunqueue/client";
+import * as runStore from "./runStore";
 import type { WorkflowDefinition } from "./schemas";
+import { segmentWorkflow } from "./segmenter";
 import type { WorkflowStepJobData } from "./types";
 
 /**
@@ -20,18 +29,92 @@ export interface SessionFactory {
 export const WORKFLOW_STEPS_QUEUE = "workflows:steps";
 
 /**
- * Dispatch a workflow execution as a sequential job chain.
+ * Builds a FlowStep array from a list of workflow steps for dispatch via addChain.
  *
- * Generates a unique run ID, creates a session per agent step, builds a
- * {@link FlowStep} array from the workflow definition, and calls
- * {@link FlowProducer.addChain}.
+ * Creates sessions, assembles job data with all required fields, and returns
+ * the FlowStep array ready for dispatch.
+ *
+ * @param steps - The steps to convert into FlowStep objects
+ * @param opts - Context for building the steps (run ID, workflow name, session factory, etc.)
+ * @returns Array of FlowStep objects ready for addChain
+ */
+export function buildFlowSteps(
+  steps: WorkflowDefinition["steps"],
+  opts: {
+    workflowRunId: string;
+    workflowName: string;
+    totalSteps: number;
+    globalIndexOffset: number;
+    allStepDefs: Record<string, unknown>;
+    fullStepOrder: string[];
+    sessionFactory: SessionFactory;
+    triggerPayload?: unknown;
+    accumulatedStepResults?: Record<string, unknown>;
+  },
+): FlowStep<WorkflowStepJobData>[] {
+  return steps.map((stepDef, localIndex) => {
+    const globalIndex = opts.globalIndexOffset + localIndex;
+
+    const session = opts.sessionFactory.create({
+      source: "workflow",
+      metadata: {
+        workflowName: opts.workflowName,
+        workflowRunId: opts.workflowRunId,
+        stepSlug: stepDef.slug,
+        stepIndex: globalIndex,
+      },
+    });
+
+    const data: WorkflowStepJobData = {
+      workflowRunId: opts.workflowRunId,
+      workflowName: opts.workflowName,
+      stepSlug: stepDef.slug,
+      stepIndex: globalIndex,
+      totalSteps: opts.totalSteps,
+      stepDef,
+      allStepDefs: opts.allStepDefs,
+      stepOrder: opts.fullStepOrder,
+      sessionId: session.id,
+    };
+
+    // Inject trigger payload into the first job of the segment
+    if (localIndex === 0 && opts.triggerPayload !== undefined) {
+      data.triggerPayload = opts.triggerPayload;
+    }
+
+    // Inject accumulated step results into the first job of non-first segments
+    if (localIndex === 0 && opts.accumulatedStepResults && Object.keys(opts.accumulatedStepResults).length > 0) {
+      data.accumulatedStepResults = opts.accumulatedStepResults;
+    }
+
+    return {
+      name: stepDef.slug,
+      queueName: WORKFLOW_STEPS_QUEUE,
+      data,
+      opts: {
+        attempts: 1,
+      },
+    };
+  });
+}
+
+/**
+ * Dispatch a workflow execution using segment-based dispatch.
+ *
+ * Segments the workflow definition at control flow boundaries, creates a
+ * Run Store record, and dispatches either:
+ * - All steps in a single addChain() call for single-segment workflows
+ * - Only the first segment's steps for multi-segment workflows
+ *
+ * For single-segment workflows, this produces behavior identical to the
+ * previous implementation.
  *
  * @param flow - The shared FlowProducer instance
  * @param definition - The validated workflow definition
  * @param triggerPayload - The trigger's input data (webhook body, etc.)
  * @param log - Logger for reporting dispatch details
  * @param sessionStore - Session factory for creating per-step sessions
- * @returns The run ID and step job IDs
+ * @returns The run ID and step job IDs (only includes jobs dispatched now)
  */
 export async function dispatchWorkflow(
   flow: FlowProducer,
@@ -42,52 +125,96 @@ export async function dispatchWorkflow(
 ): Promise<WorkflowDispatchResult> {
   const workflowRunId = crypto.randomUUID();
   const totalSteps = definition.steps.length;
-  const stepOrder = definition.steps.map((s) => s.slug);
+  const fullStepOrder = definition.steps.map((s) => s.slug);
 
-  const steps: FlowStep<WorkflowStepJobData>[] = definition.steps.map((stepDef, index) => {
-    // Create a session for each step so conversation context is persisted
-    const session = sessionStore.create({
-      source: "workflow",
-      metadata: {
-        workflowName: definition.name,
-        workflowRunId,
-        stepSlug: stepDef.slug,
-        stepIndex: index,
-      },
+  // Build a lookup of all step definitions by slug for config template resolution
+  const allStepDefs: Record<string, unknown> = {};
+  for (const s of definition.steps) {
+    allStepDefs[s.slug] = s;
+  }
+
+  // Segment the workflow
+  const segments = segmentWorkflow(definition.steps);
+
+  // Create a Run Store record for all runs (requirement 1.5)
+  try {
+    runStore.create({
+      id: workflowRunId,
+      workflowName: definition.name,
+      status: "running",
+      stepResults: {},
+      triggerPayload,
+      currentStepIndex: 0,
+      fullStepOrder,
+      failureReason: null,
+    });
+  } catch (err) {
+    log.error(`Failed to create Run Store record for workflow "${definition.name}":`, err);
+    throw new Error(`Run Store unavailable: ${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // Determine dispatch strategy based on segment count and content.
+  // A workflow qualifies for single-segment (direct addChain) dispatch only if
+  // it has at most one segment AND that segment contains no control flow nodes.
+  // A single CF-only segment (e.g. a workflow starting with an `if` node) must
+  // go through the multi-segment path so the segment dispatcher handles it inline.
+  const isSingleSegment = segments.length <= 1 && (segments.length === 0 || !segments[0]!.isControlFlow);
+
+  if (isSingleSegment) {
+    // Single-segment (no control flow nodes): dispatch all steps as one addChain() call
+    // This path is functionally identical to the pre-refactor behavior
+    const steps = buildFlowSteps(definition.steps, {
+      workflowRunId,
+      workflowName: definition.name,
+      totalSteps,
+      globalIndexOffset: 0,
+      allStepDefs,
+      fullStepOrder,
+      sessionFactory: sessionStore,
+      triggerPayload: triggerPayload ?? undefined,
     });
 
-    // Build a lookup of all step definitions by slug for config template resolution
-    const allStepDefs: Record<string, unknown> = {};
-    for (const s of definition.steps) {
-      allStepDefs[s.slug] = s;
-    }
+    log.info(`Dispatching workflow "${definition.name}" run ${workflowRunId} (${totalSteps} steps, single segment)`);
 
-    return {
-      name: stepDef.slug,
-      queueName: WORKFLOW_STEPS_QUEUE,
-      data: {
-        workflowRunId,
-        workflowName: definition.name,
-        stepSlug: stepDef.slug,
-        stepIndex: index,
-        totalSteps,
-        stepDef,
-        allStepDefs,
-        stepOrder,
-        sessionId: session.id,
-        ...(index === 0 ? { triggerPayload } : {}),
-      },
-      opts: {
-        attempts: 1,
-      },
-    };
+    const { jobIds } = await flow.addChain(steps);
+
+    log.info(`Workflow "${definition.name}" run ${workflowRunId} dispatched: ${jobIds.join(", ")}`);
+
+    return { workflowRunId, jobIds };
+  }
+
+  // Multi-segment: dispatch only the first segment
+  const firstSegment = segments[0]!;
+
+  // If the first segment is a control flow node, it cannot be dispatched as a
+  // queue job (the worker only handles "agent" and custom extension step types).
+  // Return empty jobIds so the caller can invoke the segment dispatcher at index 0.
+  if (firstSegment.isControlFlow) {
+    log.info(
+      `Dispatching workflow "${definition.name}" run ${workflowRunId} (${totalSteps} steps, ${segments.length} segments, first segment is control flow - deferring to segment dispatcher)`,
+    );
+    return { workflowRunId, jobIds: [] };
+  }
+
+  // Calculate the global index offset for the first segment (always 0)
+  const firstSegmentSteps = buildFlowSteps(firstSegment.steps, {
+    workflowRunId,
+    workflowName: definition.name,
+    totalSteps,
+    globalIndexOffset: 0,
+    allStepDefs,
+    fullStepOrder,
+    sessionFactory: sessionStore,
+    triggerPayload: triggerPayload ?? undefined,
   });
 
-  log.info(`Dispatching workflow "${definition.name}" run ${workflowRunId} (${totalSteps} steps)`);
+  log.info(
+    `Dispatching workflow "${definition.name}" run ${workflowRunId} (${totalSteps} steps, ${segments.length} segments, dispatching first segment with ${firstSegment.steps.length} step(s))`,
+  );
 
-  const { jobIds } = await flow.addChain(steps);
+  const { jobIds } = await flow.addChain(firstSegmentSteps);
 
-  log.info(`Workflow "${definition.name}" run ${workflowRunId} dispatched: ${jobIds.join(", ")}`);
+  log.info(`Workflow "${definition.name}" run ${workflowRunId} first segment dispatched: ${jobIds.join(", ")}`);
 
   return { workflowRunId, jobIds };
 }

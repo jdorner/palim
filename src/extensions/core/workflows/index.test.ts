@@ -2,50 +2,14 @@
  * Tests for the workflows extension utility functions, step ordering logic, and route handlers.
  */
 
+import { Database } from "bun:sqlite";
 import { afterEach, beforeEach, describe, expect, test, xdescribe } from "bun:test";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { Extension, ExtensionContext, HttpMethod, RouteHandler } from "@ext/types";
-import { buildRunStatus, createExtension, validateWorkflowDependencies } from "./index";
+import { drizzle } from "drizzle-orm/bun-sqlite";
+import { createExtension, validateWorkflowDependencies } from "./index";
 import type { WorkflowDefinition } from "./schemas";
-
-// ---------------------------------------------------------------------------
-// buildRunStatus
-// ---------------------------------------------------------------------------
-
-describe("buildRunStatus", () => {
-  test("returns 'failed' when any step is failed", () => {
-    expect(buildRunStatus(["completed", "failed", "waiting"])).toBe("failed");
-  });
-
-  test("returns 'failed' when any step is unknown", () => {
-    expect(buildRunStatus(["completed", "unknown"])).toBe("failed");
-  });
-
-  test("returns 'completed' when all steps are completed", () => {
-    expect(buildRunStatus(["completed", "completed", "completed"])).toBe("completed");
-  });
-
-  test("returns 'queued' when all steps are waiting", () => {
-    expect(buildRunStatus(["waiting", "waiting", "waiting"])).toBe("queued");
-  });
-
-  test("returns 'queued' when all steps are in pre-active states", () => {
-    expect(buildRunStatus(["waiting", "created", "delayed", "waiting-children"])).toBe("queued");
-  });
-
-  test("returns 'running' when steps are in mixed active states", () => {
-    expect(buildRunStatus(["completed", "active", "waiting"])).toBe("running");
-  });
-
-  test("returns 'running' for empty step list", () => {
-    expect(buildRunStatus([])).toBe("running");
-  });
-
-  test("returns 'running' when one step is completed and rest are waiting", () => {
-    expect(buildRunStatus(["completed", "waiting", "waiting"])).toBe("running");
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Step ordering (regression test for the GET /:name route fix)
@@ -164,7 +128,41 @@ function createMockContext(workDir: string) {
     config: {
       get: (() => undefined) as unknown as ExtensionContext["config"]["get"],
     },
-    db: {} as unknown as ExtensionContext["db"],
+    db: (() => {
+      const sqlite = new Database(":memory:");
+      sqlite.run("PRAGMA journal_mode = WAL");
+      sqlite.run(`
+        CREATE TABLE IF NOT EXISTS \`workflow_runs\` (
+          \`id\` text PRIMARY KEY NOT NULL,
+          \`workflow_name\` text NOT NULL,
+          \`status\` text NOT NULL DEFAULT 'running',
+          \`step_results\` text NOT NULL DEFAULT '{}',
+          \`trigger_payload\` text,
+          \`current_step_index\` integer NOT NULL DEFAULT 0,
+          \`full_step_order\` text NOT NULL,
+          \`failure_reason\` text,
+          \`created_at\` integer NOT NULL,
+          \`updated_at\` integer NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS \`idx_workflow_runs_name\` ON \`workflow_runs\` (\`workflow_name\`);
+        CREATE INDEX IF NOT EXISTS \`idx_workflow_runs_status\` ON \`workflow_runs\` (\`status\`);
+        CREATE TABLE IF NOT EXISTS \`workflow_signals\` (
+          \`id\` text PRIMARY KEY NOT NULL,
+          \`run_id\` text NOT NULL,
+          \`step_slug\` text NOT NULL,
+          \`event\` text NOT NULL,
+          \`status\` text NOT NULL DEFAULT 'waiting',
+          \`input_schema\` text,
+          \`timeout_ms\` integer,
+          \`payload\` text,
+          \`created_at\` integer NOT NULL,
+          \`received_at\` integer
+        );
+        CREATE INDEX IF NOT EXISTS \`idx_workflow_signals_run_event\` ON \`workflow_signals\` (\`run_id\`, \`event\`);
+        CREATE INDEX IF NOT EXISTS \`idx_workflow_signals_status\` ON \`workflow_signals\` (\`status\`);
+      `);
+      return drizzle(sqlite);
+    })() as unknown as ExtensionContext["db"],
     isEnabled: (() => true) as unknown as ExtensionContext["isEnabled"],
     agent: {
       run: async () => ({ answer: "", state: null, timestamp: Date.now() }),
