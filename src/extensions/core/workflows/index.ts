@@ -38,7 +38,7 @@ import * as runStore from "./runStore";
 import { initRunStore } from "./runStore";
 import type { AgentStep, OutputSchema, WorkflowDefinition } from "./schemas";
 import { WorkflowDefinitionSchema } from "./schemas";
-import { dispatchNextSegment } from "./segmentDispatcher";
+import { dispatchBranchSteps, dispatchNextSegment } from "./segmentDispatcher";
 import * as signalStore from "./signalStore";
 import { initSignalStore } from "./signalStore";
 import * as signalTimers from "./signalTimers";
@@ -1166,7 +1166,6 @@ export function createExtension(): Extension {
               }
 
               // Resume with remaining branch steps
-              const { dispatchBranchSteps } = await import("./segmentDispatcher");
               const updatedRun = runStore.get(runId);
               if (updatedRun) {
                 dispatchBranchSteps(
