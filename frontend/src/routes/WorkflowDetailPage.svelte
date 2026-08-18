@@ -1096,10 +1096,10 @@ onDestroy(() => {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead class="min-w-[2em]"></TableHead>
                   <TableHead class="w-md">Run ID</TableHead>
                   <TableHead>Started</TableHead>
                   <TableHead>Completed</TableHead>
+                  <TableHead class="min-w-[2em] text-center">Status</TableHead>
                   <TableHead class="min-w-[10em]"></TableHead>
                   <TableHead class="text-center min-w-[10em]">Actions</TableHead>
                 </TableRow>
@@ -1108,9 +1108,6 @@ onDestroy(() => {
                 {#each paginatedRuns as run (run.runId)}
                   {@const aggregated = aggregateStepStatus(run.steps)}
                   <TableRow>
-                    <TableCell>
-                      <StatusDot status={aggregated} title={aggregated} />
-                    </TableCell>
                     <TableCell>
                       <a href="#/workflows/{name}/runs/{run.runId}" class="text-left">
                         <code class="text-xs font-mono font-medium">{run.runId.slice(0, 8)}</code>
@@ -1121,6 +1118,9 @@ onDestroy(() => {
                     </TableCell>
                     <TableCell class="text-sm text-muted-foreground">
                       {run.completedAt ? formatTimestamp(run.completedAt) : "\u2014"}
+                    </TableCell>
+                    <TableCell class="text-center">
+                      <StatusDot status={aggregated} title={aggregated} />
                     </TableCell>
                     <TableCell>
                       <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
