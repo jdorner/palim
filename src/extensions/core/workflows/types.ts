@@ -4,6 +4,15 @@
 
 import type { WorkflowStep } from "./schemas";
 
+/**
+ * Run Store key used to persist branch continuation state across CF boundaries.
+ *
+ * When a branch segment contains nested control flow nodes, the remaining
+ * branch steps are stored under this key so the completion handler or signal
+ * delivery endpoint can resume execution after the nested node completes.
+ */
+export const BRANCH_CONTINUATION_KEY = "__branchContinuation";
+
 /** Data payload carried by each workflow step job in the chain. */
 export interface WorkflowStepJobData {
   /** Unique identifier for this workflow run. */

@@ -23,7 +23,7 @@ import { CONTROL_FLOW_TYPES, segmentWorkflow } from "./segmenter";
 import * as signalStore from "./signalStore";
 import * as signalTimers from "./signalTimers";
 import { resolveTemplates, type TemplateContext } from "./template";
-import type { WorkflowStepJobData } from "./types";
+import { BRANCH_CONTINUATION_KEY, type WorkflowStepJobData } from "./types";
 
 /**
  * Dependencies injected into the segment dispatcher.
@@ -718,7 +718,7 @@ export async function dispatchBranchSteps(
  * completes its own branch, the completion handler can pick up the remaining
  * branch steps.
  *
- * This is stored as a special step result keyed by `__branchContinuation`.
+ * This is stored as a special step result keyed by {@link BRANCH_CONTINUATION_KEY}.
  */
 function storeBranchContinuation(
   runId: string,
@@ -728,7 +728,7 @@ function storeBranchContinuation(
 ): void {
   if (remainingSteps.length === 0) return;
   try {
-    runStore.updateStepResult(runId, "__branchContinuation", {
+    runStore.updateStepResult(runId, BRANCH_CONTINUATION_KEY, {
       remainingSteps,
       resumeStepIndex,
     });

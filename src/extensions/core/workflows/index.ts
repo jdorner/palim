@@ -46,7 +46,7 @@ import type { TemplateSecretResolver } from "./template";
 import type { TemplateWarning } from "./templateValidation";
 import { validateWorkflowTemplates } from "./templateValidation";
 import { resolveTriggerOutputSchema } from "./triggerSchemas";
-import type { WorkflowStepJobData } from "./types";
+import { BRANCH_CONTINUATION_KEY, type WorkflowStepJobData } from "./types";
 import { createStepProcessor, type StepResult } from "./worker";
 
 /**
@@ -1153,14 +1153,14 @@ export function createExtension(): Extension {
           const wf = store.get(run.workflowName);
           if (wf) {
             // Check for branch continuation (waitFor was inside a branch)
-            const branchCont = run.stepResults.__branchContinuation as
+            const branchCont = run.stepResults[BRANCH_CONTINUATION_KEY] as
               | { remainingSteps: import("./schemas").WorkflowStep[]; resumeStepIndex: number }
               | undefined;
 
             if (branchCont && branchCont.remainingSteps.length > 0) {
               // Clear the branch continuation marker
               try {
-                runStore.updateStepResult(runId, "__branchContinuation", null);
+                runStore.updateStepResult(runId, BRANCH_CONTINUATION_KEY, null);
               } catch {
                 // best effort
               }
