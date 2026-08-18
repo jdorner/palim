@@ -105,6 +105,13 @@ export async function handleStepCompletion(job: CompletedStepJob, deps: Completi
 
   // --- Multi-segment / branch handling ---
 
+  // Guard: workflow definition must be available for dispatch decisions.
+  // Can be null if the definition was deleted/hot-reloaded between dispatch and completion.
+  if (!wf) {
+    failRun(d.workflowRunId, d.stepSlug, `Workflow definition "${d.workflowName}" no longer available`, deps);
+    return;
+  }
+
   // Non-last branch step: chain continues via bunqueue, no dispatch needed.
   if (d.isBranchStep && d.resumeStepIndex === undefined && !d.branchContext) {
     return;
@@ -136,7 +143,7 @@ export async function handleStepCompletion(job: CompletedStepJob, deps: Completi
  */
 async function handleBranchContinuation(
   job: CompletedStepJob,
-  wf: { steps: WorkflowStep[] } | undefined,
+  wf: { steps: WorkflowStep[] },
   deps: CompletionHandlerDeps,
 ): Promise<void> {
   const { flowProducer, sessionFactory, log, broadcast, getWorkflowDefinition } = deps;
@@ -147,7 +154,7 @@ async function handleBranchContinuation(
     const run = runStore.get(d.workflowRunId);
     if (run) {
       await dispatchBranchSteps(d.workflowRunId, remainingSteps as WorkflowStep[], branchResumeIdx, d.stepSlug, run, {
-        steps: wf!.steps,
+        steps: wf.steps,
         allStepDefs: d.allStepDefs ?? {},
         flowProducer,
         sessionFactory,
@@ -170,7 +177,7 @@ async function handleBranchContinuation(
  */
 async function handleBranchResume(
   job: CompletedStepJob,
-  wf: { steps: WorkflowStep[] } | undefined,
+  wf: { steps: WorkflowStep[] },
   deps: CompletionHandlerDeps,
 ): Promise<void> {
   const { flowProducer, sessionFactory, log, broadcast } = deps;
@@ -178,7 +185,7 @@ async function handleBranchResume(
 
   try {
     await dispatchNextSegment(d.workflowRunId, d.resumeStepIndex!, {
-      steps: wf!.steps,
+      steps: wf.steps,
       allStepDefs: d.allStepDefs ?? {},
       flowProducer,
       sessionFactory,
@@ -197,14 +204,14 @@ async function handleBranchResume(
  */
 async function handleSegmentBoundary(
   job: CompletedStepJob,
-  wf: { steps: WorkflowStep[] } | undefined,
+  wf: { steps: WorkflowStep[] },
   deps: CompletionHandlerDeps,
 ): Promise<void> {
   const { flowProducer, sessionFactory, log, broadcast } = deps;
   const d = job.data;
 
   const nextStepIndex = d.stepIndex + 1;
-  const nextStep = wf?.steps[nextStepIndex];
+  const nextStep = wf.steps[nextStepIndex];
   const isLastInSegment = !nextStep || CONTROL_FLOW_TYPES.has(nextStep.type);
 
   if (!isLastInSegment) {
@@ -215,7 +222,7 @@ async function handleSegmentBoundary(
   // Dispatch next segment (handles completion when nextStepIndex >= steps.length)
   try {
     await dispatchNextSegment(d.workflowRunId, nextStepIndex, {
-      steps: wf!.steps,
+      steps: wf.steps,
       allStepDefs: d.allStepDefs ?? {},
       flowProducer,
       sessionFactory,
