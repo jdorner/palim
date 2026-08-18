@@ -842,8 +842,57 @@ export function createExtension(): Extension {
         }
 
         // Sort steps within each run by their original definition order
-        for (const run of runMap.values()) {
+        // and enrich waiting-signal status from runStore
+        for (const [runId, run] of runMap.entries()) {
           run.steps.sort((a, b) => a.stepIndex - b.stepIndex);
+
+          // Check if the run is in waiting-signal state and enrich the step status.
+          // waitFor steps are handled inline (no queue job), so they won't appear
+          // in the job-derived step list — inject them if missing.
+          const persistedRun = runStore.get(runId);
+          if (persistedRun?.status === "waiting-signal") {
+            run.status = "waiting-signal";
+            const waitingSignals = signalStore.getAllWaiting().filter((s) => s.runId === runId);
+            const activeSignal = waitingSignals[0] ?? null;
+            if (activeSignal) {
+              const existing = run.steps.find((s) => s.slug === activeSignal.stepSlug);
+              if (existing) {
+                existing.status = "waiting-signal";
+              } else {
+                // Inject the waitFor step at its correct position
+                const stepIndex = persistedRun.fullStepOrder.indexOf(activeSignal.stepSlug);
+                run.steps.push({
+                  slug: activeSignal.stepSlug,
+                  status: "waiting-signal",
+                  jobId: runId,
+                  stepIndex: stepIndex >= 0 ? stepIndex : run.steps.length,
+                  finishedOn: undefined,
+                });
+                run.steps.sort((a, b) => a.stepIndex - b.stepIndex);
+              }
+            }
+          } else if (persistedRun) {
+            // Inject completed waitFor steps that have results but no queue job
+            const mappedSlugs = new Set(run.steps.map((s) => s.slug));
+            for (const slug of persistedRun.fullStepOrder) {
+              if (mappedSlugs.has(slug)) continue;
+              if (persistedRun.stepResults && slug in persistedRun.stepResults && !slug.startsWith("__")) {
+                const stepDef = wf?.steps.find((s: { slug: string }) => s.slug === slug);
+                if (stepDef && stepDef.type === "waitFor") {
+                  const stepIndex = persistedRun.fullStepOrder.indexOf(slug);
+                  run.steps.push({
+                    slug,
+                    status: "completed",
+                    jobId: runId,
+                    stepIndex: stepIndex >= 0 ? stepIndex : run.steps.length,
+                    finishedOn: undefined,
+                  });
+                }
+              }
+            }
+            run.steps.sort((a, b) => a.stepIndex - b.stepIndex);
+          }
+
           // Derive completedAt as the latest finishedOn among all steps (only if run is terminal)
           if (run.status === "completed" || run.status === "failed") {
             const finishedTimes = run.steps.map((s) => s.finishedOn).filter((t): t is number => t != null);
@@ -1024,25 +1073,66 @@ export function createExtension(): Extension {
           status: runStatus,
           trigger: wf?.trigger ?? null,
           chosenBranches,
-          steps: sorted.map((d) => {
-            // Override status for the waitFor step that is currently waiting for a signal
-            if (activeSignal && d.stepSlug === activeSignal.stepSlug) {
-              return {
-                slug: d.stepSlug,
-                type: d.stepDef.type,
-                status: "waiting-signal",
-                jobId: d.id,
-                waitEvent: activeSignal.event,
-                waitInputSchema: activeSignal.inputSchema,
-              };
-            }
-            return {
+          steps: (() => {
+            const mapped: Array<{
+              slug: string;
+              type: string;
+              status: string;
+              jobId: string;
+              waitEvent?: string;
+              waitInputSchema?: Record<string, unknown> | null;
+            }> = sorted.map((d) => ({
               slug: d.stepSlug,
               type: d.stepDef.type,
               status: d.state,
               jobId: d.id,
-            };
-          }),
+            }));
+
+            // waitFor steps are handled inline (no queue job) — inject them.
+            // When actively waiting: inject with waiting-signal status.
+            // When completed/failed: inject as completed (signal was received).
+            if (activeSignal) {
+              const exists = mapped.some((s) => s.slug === activeSignal.stepSlug);
+              if (!exists) {
+                const stepDef = wf?.steps.find((s: { slug: string }) => s.slug === activeSignal.stepSlug);
+                mapped.push({
+                  slug: activeSignal.stepSlug,
+                  type: stepDef?.type ?? "waitFor",
+                  status: "waiting-signal",
+                  jobId: runId,
+                  waitEvent: activeSignal.event,
+                  waitInputSchema: activeSignal.inputSchema as Record<string, unknown> | null,
+                });
+              } else {
+                const entry = mapped.find((s) => s.slug === activeSignal.stepSlug);
+                if (entry) {
+                  entry.status = "waiting-signal";
+                  entry.waitEvent = activeSignal.event;
+                  entry.waitInputSchema = activeSignal.inputSchema as Record<string, unknown> | null;
+                }
+              }
+            } else if (run) {
+              // No active signal — inject completed waitFor steps from stepResults
+              const mappedSlugs = new Set(mapped.map((s) => s.slug));
+              for (const slug of run.fullStepOrder) {
+                if (mappedSlugs.has(slug)) continue;
+                // Check if this slug has a result in stepResults (meaning it executed)
+                if (run.stepResults && slug in run.stepResults && !slug.startsWith("__")) {
+                  const stepDef = wf?.steps.find((s: { slug: string }) => s.slug === slug);
+                  if (stepDef && stepDef.type === "waitFor") {
+                    mapped.push({
+                      slug,
+                      type: "waitFor",
+                      status: "completed",
+                      jobId: runId,
+                    });
+                  }
+                }
+              }
+            }
+
+            return mapped;
+          })(),
         });
       });
 

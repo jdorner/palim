@@ -143,9 +143,23 @@ class WorkflowStore {
     switch (message.type) {
       case "workflow_step_started":
         if (message.workflowRunId === this.activeRunId) {
+          const existsStarted = this.run.steps.some((s) => s.slug === message.stepSlug);
           this.run = {
             ...this.run,
-            steps: this.run.steps.map((s) => (s.slug === message.stepSlug ? { ...s, status: "active" as const } : s)),
+            status: "running",
+            steps: existsStarted
+              ? this.run.steps.map((s) =>
+                  s.slug === message.stepSlug ? { ...s, status: "active" as const, jobId: message.jobId } : s,
+                )
+              : [
+                  ...this.run.steps,
+                  {
+                    slug: message.stepSlug,
+                    type: "",
+                    status: "active" as const,
+                    jobId: message.jobId,
+                  },
+                ],
           };
         }
         break;
@@ -168,22 +182,40 @@ class WorkflowStore {
       case "workflow_step_waiting":
         if (message.workflowRunId === this.activeRunId) {
           const waitSchema = message.inputSchema ?? null;
+          const exists = this.run.steps.some((s) => s.slug === message.stepSlug);
           this.run = {
             ...this.run,
-            steps: this.run.steps.map((s) =>
-              s.slug === message.stepSlug
-                ? { ...s, status: "waiting-signal" as const, waitEvent: message.event, waitInputSchema: waitSchema }
-                : s,
-            ),
+            status: "waiting-signal",
+            steps: exists
+              ? this.run.steps.map((s) =>
+                  s.slug === message.stepSlug
+                    ? { ...s, status: "waiting-signal" as const, waitEvent: message.event, waitInputSchema: waitSchema }
+                    : s,
+                )
+              : [
+                  ...this.run.steps,
+                  {
+                    slug: message.stepSlug,
+                    type: "waitFor",
+                    status: "waiting-signal" as const,
+                    jobId: "",
+                    waitEvent: message.event,
+                    waitInputSchema: waitSchema,
+                  },
+                ],
           };
         }
         break;
 
       case "workflow_step_resumed":
         if (message.workflowRunId === this.activeRunId) {
+          // Signal was received — the waitFor step is now complete
           this.run = {
             ...this.run,
-            steps: this.run.steps.map((s) => (s.slug === message.stepSlug ? { ...s, status: "active" as const } : s)),
+            status: "running",
+            steps: this.run.steps.map((s) =>
+              s.slug === message.stepSlug ? { ...s, status: "completed" as const } : s,
+            ),
           };
         }
         break;
