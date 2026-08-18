@@ -21,7 +21,7 @@ export interface Segment {
 }
 
 /** Control flow step type identifiers. */
-export const CONTROL_FLOW_TYPES = new Set(["if", "case", "waitFor", "emit"]);
+export const CONTROL_FLOW_TYPES = new Set(["if", "case", "waitFor"]);
 
 /**
  * Splits a flat step list into segments at control flow boundaries.

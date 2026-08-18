@@ -29,6 +29,7 @@ import { Value } from "@sinclair/typebox/value";
 import { setWorkflowDispatchFn } from "@src/extensions/engine/extensionContext";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import { recoverFromCrash } from "./crashRecovery";
+import { createEmitHandler } from "./emitHandler";
 import type { SessionFactory } from "./engine";
 import { dispatchWorkflow } from "./engine";
 import { loadWorkflows } from "./loader";
@@ -140,7 +141,7 @@ export function validateWorkflowDependencies(
 }
 
 /** Built-in step types handled directly by the workflow engine. */
-const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "waitFor", "emit"]);
+const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "waitFor"]);
 
 /**
  * Produces per-step warnings for dependencies that are not currently available.
@@ -299,6 +300,21 @@ export function createExtension(): Extension {
       store.clear();
       for (const [k, v] of loaded) store.set(k, v);
       logger.info(`Loaded ${store.size} workflow definition(s)`);
+
+      // Register the emit step type handler so it's processed by the queue worker
+      ctx.stepTypes.register(
+        "emit",
+        createEmitHandler({
+          flowProducer,
+          sessionFactory,
+          log: logger,
+          broadcast: (event) => ctx.messaging.broadcast(event),
+          getWorkflowDefinition: (name) => {
+            const wf = store.get(name);
+            return wf ? { steps: wf.steps } : undefined;
+          },
+        }),
+      );
 
       // Register the dispatch function so all extension contexts can use ctx.workflows.dispatch()
       setWorkflowDispatchFn(async (name, payload) => {

@@ -365,6 +365,7 @@ export function createStepProcessor(deps: StepWorkerDeps) {
           log: deps.log,
           workDir: deps.ctx.paths.work,
           jobLog: (message: string) => job.log(message),
+          workflowRunId: job.data.workflowRunId,
         };
 
         value = await handler.execute(stepDef as unknown as Record<string, unknown>, stepExecCtx);

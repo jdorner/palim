@@ -92,18 +92,32 @@ describe("segmentWorkflow", () => {
         { slug: "branch-a", type: "if" },
         { slug: "branch-b", type: "case" },
         { slug: "wait", type: "waitFor" },
-        { slug: "signal", type: "emit" },
       ];
 
       const segments = segmentWorkflow(steps);
 
-      expect(segments).toHaveLength(4);
-      for (let i = 0; i < 4; i++) {
+      expect(segments).toHaveLength(3);
+      for (let i = 0; i < 3; i++) {
         expect(segments[i]!.index).toBe(i);
         expect(segments[i]!.steps).toHaveLength(1);
         expect(segments[i]!.steps[0]).toBe(steps[i]);
         expect(segments[i]!.isControlFlow).toBe(true);
       }
+    });
+
+    test("emit is treated as a regular (non-CF) step type", () => {
+      const steps: WorkflowStep[] = [
+        { slug: "branch-a", type: "if" },
+        { slug: "signal", type: "emit", event: "test" },
+      ];
+
+      const segments = segmentWorkflow(steps);
+
+      expect(segments).toHaveLength(2);
+      expect(segments[0]!.isControlFlow).toBe(true);
+      expect(segments[0]!.steps[0]!.slug).toBe("branch-a");
+      expect(segments[1]!.isControlFlow).toBe(false);
+      expect(segments[1]!.steps[0]!.slug).toBe("signal");
     });
 
     test("assigns sequential index values to segments", () => {
