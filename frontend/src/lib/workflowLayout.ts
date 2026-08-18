@@ -359,7 +359,6 @@ function toSvelteEdge(edge: GraphEdge): Edge {
 
   if (edge.label) {
     svelteEdge.label = edge.label;
-    svelteEdge.animated = true;
   }
 
   if (edge.sourceHandle) {
