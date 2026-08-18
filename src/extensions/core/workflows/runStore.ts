@@ -252,3 +252,19 @@ export function getByWorkflowName(name: string): WorkflowRun[] {
   const rows = db.select().from(workflowRuns).where(eq(workflowRuns.workflowName, name)).all();
   return rows.map(rowToRun);
 }
+
+/**
+ * Deletes workflow run records by their IDs.
+ *
+ * Used to keep the Run Store in sync when completed/failed jobs are
+ * cleaned from the queue. No-op for empty arrays or nonexistent IDs.
+ *
+ * @param ids - Array of run IDs to delete
+ */
+export function deleteByIds(ids: string[]): void {
+  if (ids.length === 0) return;
+
+  for (const id of ids) {
+    db.delete(workflowRuns).where(eq(workflowRuns.id, id)).run();
+  }
+}

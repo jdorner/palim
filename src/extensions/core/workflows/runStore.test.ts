@@ -12,6 +12,7 @@ import { drizzle } from "drizzle-orm/bun-sqlite";
 import fc from "fast-check";
 import {
   create,
+  deleteByIds,
   get,
   getByStatus,
   getByWorkflowName,
@@ -427,6 +428,69 @@ describe("Run Store", () => {
         }),
         { numRuns: 100 },
       );
+    });
+  });
+
+  describe("deleteByIds", () => {
+    test("deletes a single run by ID", () => {
+      createMinimalRun({ id: "del-1" });
+      createMinimalRun({ id: "del-2" });
+
+      deleteByIds(["del-1"]);
+
+      expect(get("del-1")).toBeNull();
+      expect(get("del-2")).not.toBeNull();
+    });
+
+    test("deletes multiple runs by ID", () => {
+      createMinimalRun({ id: "del-a" });
+      createMinimalRun({ id: "del-b" });
+      createMinimalRun({ id: "del-c" });
+
+      deleteByIds(["del-a", "del-c"]);
+
+      expect(get("del-a")).toBeNull();
+      expect(get("del-b")).not.toBeNull();
+      expect(get("del-c")).toBeNull();
+    });
+
+    test("does nothing for empty ID array", () => {
+      createMinimalRun({ id: "keep-1" });
+
+      deleteByIds([]);
+
+      expect(get("keep-1")).not.toBeNull();
+    });
+
+    test("does nothing for nonexistent IDs", () => {
+      createMinimalRun({ id: "keep-2" });
+
+      deleteByIds(["nonexistent-1", "nonexistent-2"]);
+
+      expect(get("keep-2")).not.toBeNull();
+    });
+
+    test("removed runs no longer appear in getByWorkflowName", () => {
+      createMinimalRun({ id: "wf-run-1", workflowName: "my-wf", status: "completed" });
+      createMinimalRun({ id: "wf-run-2", workflowName: "my-wf", status: "failed" });
+      createMinimalRun({ id: "wf-run-3", workflowName: "my-wf", status: "running" });
+
+      deleteByIds(["wf-run-1", "wf-run-2"]);
+
+      const remaining = getByWorkflowName("my-wf");
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]!.id).toBe("wf-run-3");
+    });
+
+    test("removed runs no longer appear in getByStatus", () => {
+      createMinimalRun({ id: "status-1", status: "completed" });
+      createMinimalRun({ id: "status-2", status: "completed" });
+
+      deleteByIds(["status-1"]);
+
+      const completed = getByStatus("completed");
+      expect(completed).toHaveLength(1);
+      expect(completed[0]!.id).toBe("status-2");
     });
   });
 });

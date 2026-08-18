@@ -49,24 +49,6 @@ import { resolveTriggerOutputSchema } from "./triggerSchemas";
 import { BRANCH_CONTINUATION_KEY, type WorkflowStepJobData } from "./types";
 import { createStepProcessor, type StepResult } from "./worker";
 
-/**
- * Derives the overall run status from the states of its individual steps.
- *
- * @param stepStatuses - Array of per-step job state strings
- * @returns `"failed"` if any step failed/unknown, `"completed"` if all steps completed,
- *          `"queued"` if all steps are still waiting, otherwise `"running"`
- */
-function buildRunStatus(stepStatuses: string[]): "failed" | "completed" | "running" | "queued" {
-  if (stepStatuses.some((s) => s === "failed" || s === "unknown")) return "failed";
-  if (stepStatuses.length > 0 && stepStatuses.every((s) => s === "completed")) return "completed";
-  if (
-    stepStatuses.length > 0 &&
-    stepStatuses.every((s) => s === "waiting" || s === "created" || s === "delayed" || s === "waiting-children")
-  )
-    return "queued";
-  return "running";
-}
-
 /** Extract workflow step data from a queue job. */
 function stepData(job: {
   id: string;
@@ -447,6 +429,13 @@ export function createExtension(): Extension {
           error: failedReason,
         });
 
+        // Persist failed status in Run Store
+        try {
+          runStore.updateStatus(d.workflowRunId, "failed", failedReason);
+        } catch {
+          // best effort
+        }
+
         // Emit domain event for cross-extension consumption (e.g. error-analyzer)
         // Only emit after the job failed permanently (not just delayed because of retry attempts)
         if (d.state === "failed") {
@@ -599,40 +588,27 @@ export function createExtension(): Extension {
       });
 
       ctx.routes.register("GET", "/", async () => {
-        const allJobs = await stepsQueue.getAllJobs();
-
-        // Group jobs by workflow name and run ID, then derive per-run status
-        const runsByWorkflow = new Map<string, Map<string, string[]>>();
-        for (const d of allJobs.map(stepData)) {
-          if (!runsByWorkflow.has(d.workflowName)) runsByWorkflow.set(d.workflowName, new Map());
-          const runs = runsByWorkflow.get(d.workflowName)!;
-          if (!runs.has(d.workflowRunId)) runs.set(d.workflowRunId, []);
-          runs.get(d.workflowRunId)!.push(d.state);
-        }
-
         const list = await Promise.all(
           [...store.values()].map(async (w) => {
+            // Query Run Store for per-workflow run counts
+            const allRuns = runStore.getByWorkflowName(w.name);
             let activeRuns = 0;
             let completedRuns = 0;
             let failedRuns = 0;
-            const runs = runsByWorkflow.get(w.name);
-            if (runs) {
-              for (const stepStatuses of runs.values()) {
-                const status = buildRunStatus(stepStatuses);
-                switch (status) {
-                  case "completed":
-                    completedRuns++;
-                    break;
-                  case "failed":
-                    failedRuns++;
-                    break;
-                  case "running":
-                  case "queued":
-                    activeRuns++;
-                    break;
-                  default:
-                    break;
-                }
+            for (const run of allRuns) {
+              switch (run.status) {
+                case "completed":
+                  completedRuns++;
+                  break;
+                case "failed":
+                  failedRuns++;
+                  break;
+                case "running":
+                case "waiting-signal":
+                  activeRuns++;
+                  break;
+                default:
+                  break;
               }
             }
 
@@ -687,20 +663,18 @@ export function createExtension(): Extension {
             stepIndex: d.stepIndex,
             finishedOn: d.finishedOn,
           });
-          run.status = buildRunStatus(run.steps.map((s) => s.status));
         }
 
         // Sort steps within each run by their original definition order
-        // and enrich waiting-signal status from runStore
+        // and enrich status from Run Store
         for (const [runId, run] of runMap.entries()) {
           run.steps.sort((a, b) => a.stepIndex - b.stepIndex);
 
-          // Check if the run is in waiting-signal state and enrich the step status.
-          // waitFor steps are handled inline (no queue job), so they won't appear
-          // in the job-derived step list — inject them if missing.
+          // Read authoritative status from Run Store
           const persistedRun = runStore.get(runId);
+          run.status = persistedRun?.status ?? "running";
+
           if (persistedRun?.status === "waiting-signal") {
-            run.status = "waiting-signal";
             const waitingSignals = signalStore.getAllWaiting().filter((s) => s.runId === runId);
             const activeSignal = waitingSignals[0] ?? null;
             if (activeSignal) {
@@ -900,8 +874,7 @@ export function createExtension(): Extension {
           activeSignal = allWaiting[0] ?? null;
         }
 
-        const runStatus =
-          run?.status === "waiting-signal" ? "waiting-signal" : buildRunStatus(sorted.map((s) => s.state));
+        const runStatus = run?.status ?? "running";
 
         // Extract chosenBranch info from step results for CF nodes
         const chosenBranches: Record<string, string> = {};
@@ -1014,8 +987,10 @@ export function createExtension(): Extension {
         const steps = runJobs(await stepsQueue.getAllJobs(), runId);
         if (steps.length === 0) return Response.json({ error: "Run not found" }, { status: 404 });
         const sorted = [...steps].sort((a, b) => a.stepIndex - b.stepIndex);
-        const status = buildRunStatus(sorted.map((s) => s.state));
-        if (status !== "failed") return Response.json({ error: "Only failed runs can be retried" }, { status: 409 });
+        const persistedRunState = runStore.get(runId);
+        if (persistedRunState?.status !== "failed") {
+          return Response.json({ error: "Only failed runs can be retried" }, { status: 409 });
+        }
 
         // Retry all failed steps via the DLQ mechanism (child-first order so
         // parent steps unblock once their children are re-queued).
@@ -1244,6 +1219,9 @@ export function createExtension(): Extension {
           if (removed) cancelled.push(d.id);
         }
 
+        // Clean up Run Store record (single source of truth)
+        runStore.deleteByIds([runId]);
+
         // Notify frontend clients about removed jobs
         for (const jobId of cancelled) {
           ctx.messaging.broadcast({ type: "job_removed", jobId });
@@ -1412,4 +1390,4 @@ export function createExtension(): Extension {
 
 const defaultInstance = createExtension();
 export default defaultInstance;
-export { buildRunStatus, dispatchWorkflow };
+export { dispatchWorkflow };

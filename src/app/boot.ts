@@ -31,6 +31,7 @@ import type {
   RunAgentOptions,
 } from "@src/extensions";
 import { ExtensionRegistry } from "@src/extensions";
+import { deleteByIds as deleteRunsByIds } from "@src/extensions/core/workflows/runStore";
 import type { EventBus } from "@src/extensions/engine/eventBus";
 import { ExtensionWatcher } from "@src/extensions/engine/extensionWatcher";
 import { ExternalDependencyResolver } from "@src/extensions/engine/externalDependencyResolver";
@@ -373,6 +374,21 @@ export class AppBootstrap {
     // Initialize extensions (deps passed directly - no lazy resolution needed)
     // ---------------------------------------------------------------------------
     await this.registry.initializeAll(this.registryInitDeps);
+
+    // Wire workflow Run Store cleanup when jobs are cleaned from the queue monitor.
+    // Extracts workflowRunId from cached job entries before eviction.
+    this.monitor.setOnBeforeJobsRemoved((jobIds, getCachedJob) => {
+      const runIds = new Set<string>();
+      for (const jobId of jobIds) {
+        const cached = getCachedJob(jobId);
+        if (cached?.workflowRunId) {
+          runIds.add(cached.workflowRunId);
+        }
+      }
+      if (runIds.size > 0) {
+        deleteRunsByIds([...runIds]);
+      }
+    });
 
     // ---------------------------------------------------------------------------
     // Start external extension directory watcher (hot-load/unload)

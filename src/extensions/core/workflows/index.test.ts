@@ -8,46 +8,8 @@ import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import type { Extension, ExtensionContext, HttpMethod, RouteHandler } from "@ext/types";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { buildRunStatus, createExtension, validateWorkflowDependencies } from "./index";
+import { createExtension, validateWorkflowDependencies } from "./index";
 import type { WorkflowDefinition } from "./schemas";
-
-// ---------------------------------------------------------------------------
-// buildRunStatus
-// ---------------------------------------------------------------------------
-
-describe("buildRunStatus", () => {
-  test("returns 'failed' when any step is failed", () => {
-    expect(buildRunStatus(["completed", "failed", "waiting"])).toBe("failed");
-  });
-
-  test("returns 'failed' when any step is unknown", () => {
-    expect(buildRunStatus(["completed", "unknown"])).toBe("failed");
-  });
-
-  test("returns 'completed' when all steps are completed", () => {
-    expect(buildRunStatus(["completed", "completed", "completed"])).toBe("completed");
-  });
-
-  test("returns 'queued' when all steps are waiting", () => {
-    expect(buildRunStatus(["waiting", "waiting", "waiting"])).toBe("queued");
-  });
-
-  test("returns 'queued' when all steps are in pre-active states", () => {
-    expect(buildRunStatus(["waiting", "created", "delayed", "waiting-children"])).toBe("queued");
-  });
-
-  test("returns 'running' when steps are in mixed active states", () => {
-    expect(buildRunStatus(["completed", "active", "waiting"])).toBe("running");
-  });
-
-  test("returns 'running' for empty step list", () => {
-    expect(buildRunStatus([])).toBe("running");
-  });
-
-  test("returns 'running' when one step is completed and rest are waiting", () => {
-    expect(buildRunStatus(["completed", "waiting", "waiting"])).toBe("running");
-  });
-});
 
 // ---------------------------------------------------------------------------
 // Step ordering (regression test for the GET /:name route fix)
