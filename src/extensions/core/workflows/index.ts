@@ -1219,7 +1219,8 @@ export function createExtension(): Extension {
           if (removed) cancelled.push(d.id);
         }
 
-        // Clean up Run Store record (single source of truth)
+        // Clean up Run Store and Signal Store records
+        signalStore.deleteByRunIds([runId]);
         runStore.deleteByIds([runId]);
 
         // Notify frontend clients about removed jobs

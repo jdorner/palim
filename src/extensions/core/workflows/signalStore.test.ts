@@ -10,7 +10,15 @@
 import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, test } from "bun:test";
 import { drizzle } from "drizzle-orm/bun-sqlite";
-import { create, getAllWaiting, getWaiting, initSignalStore, markReceived, markTimedOut } from "./signalStore";
+import {
+  create,
+  deleteByRunIds,
+  getAllWaiting,
+  getWaiting,
+  initSignalStore,
+  markReceived,
+  markTimedOut,
+} from "./signalStore";
 
 // ---------------------------------------------------------------------------
 // Test setup
@@ -416,6 +424,53 @@ describe("Signal Store", () => {
 
       expect(getWaiting("run-1", "shared-event")).toBeNull();
       expect(getWaiting("run-2", "shared-event")).not.toBeNull();
+    });
+  });
+
+  describe("deleteByRunIds", () => {
+    test("deletes all signals for a given run ID", () => {
+      createMinimalSignal({ runId: "run-del-1", event: "evt-a" });
+      createMinimalSignal({ runId: "run-del-1", event: "evt-b" });
+      createMinimalSignal({ runId: "run-del-2", event: "evt-a" });
+
+      deleteByRunIds(["run-del-1"]);
+
+      expect(getWaiting("run-del-1", "evt-a")).toBeNull();
+      expect(getWaiting("run-del-1", "evt-b")).toBeNull();
+      expect(getWaiting("run-del-2", "evt-a")).not.toBeNull();
+    });
+
+    test("deletes signals across multiple run IDs", () => {
+      createMinimalSignal({ runId: "run-m1", event: "evt" });
+      createMinimalSignal({ runId: "run-m2", event: "evt" });
+      createMinimalSignal({ runId: "run-m3", event: "evt" });
+
+      deleteByRunIds(["run-m1", "run-m3"]);
+
+      expect(getWaiting("run-m1", "evt")).toBeNull();
+      expect(getWaiting("run-m2", "evt")).not.toBeNull();
+      expect(getWaiting("run-m3", "evt")).toBeNull();
+    });
+
+    test("does nothing for empty array", () => {
+      createMinimalSignal({ runId: "run-keep", event: "evt" });
+
+      deleteByRunIds([]);
+
+      expect(getWaiting("run-keep", "evt")).not.toBeNull();
+    });
+
+    test("deletes signals regardless of status", () => {
+      const signal = createMinimalSignal({ runId: "run-mixed", event: "evt" });
+      markReceived(signal.id, { data: true });
+
+      // Create another still waiting
+      createMinimalSignal({ runId: "run-mixed", event: "evt-2" });
+
+      deleteByRunIds(["run-mixed"]);
+
+      // Both should be gone (received and waiting)
+      expect(getAllWaiting().filter((s) => s.runId === "run-mixed")).toHaveLength(0);
     });
   });
 });

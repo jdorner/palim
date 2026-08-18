@@ -32,6 +32,7 @@ import type {
 } from "@src/extensions";
 import { ExtensionRegistry } from "@src/extensions";
 import { deleteByIds as deleteRunsByIds } from "@src/extensions/core/workflows/runStore";
+import { deleteByRunIds as deleteSignalsByRunIds } from "@src/extensions/core/workflows/signalStore";
 import type { EventBus } from "@src/extensions/engine/eventBus";
 import { ExtensionWatcher } from "@src/extensions/engine/extensionWatcher";
 import { ExternalDependencyResolver } from "@src/extensions/engine/externalDependencyResolver";
@@ -386,7 +387,9 @@ export class AppBootstrap {
         }
       }
       if (runIds.size > 0) {
-        deleteRunsByIds([...runIds]);
+        const ids = [...runIds];
+        deleteSignalsByRunIds(ids);
+        deleteRunsByIds(ids);
       }
     });
 

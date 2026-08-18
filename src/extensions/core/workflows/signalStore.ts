@@ -255,3 +255,19 @@ export function markTimedOut(id: string): void {
     .where(and(eq(workflowSignals.id, id), eq(workflowSignals.status, "waiting")))
     .run();
 }
+
+/**
+ * Deletes all signal records belonging to the given run IDs.
+ *
+ * Used to clean up signal history when workflow runs are removed
+ * (e.g. when jobs are cleaned via the queue clean endpoint).
+ *
+ * @param runIds - Array of workflow run IDs whose signals should be deleted
+ */
+export function deleteByRunIds(runIds: string[]): void {
+  if (runIds.length === 0) return;
+
+  for (const runId of runIds) {
+    db.delete(workflowSignals).where(eq(workflowSignals.runId, runId)).run();
+  }
+}
