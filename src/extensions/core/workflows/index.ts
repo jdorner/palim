@@ -28,6 +28,7 @@ import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { setWorkflowDispatchFn } from "@src/extensions/engine/extensionContext";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
+import { handleStepCompletion } from "./completionHandler";
 import { recoverFromCrash } from "./crashRecovery";
 import { createEmitHandler } from "./emitHandler";
 import type { SessionFactory } from "./engine";
@@ -38,7 +39,6 @@ import { initRunStore } from "./runStore";
 import type { AgentStep, OutputSchema, WorkflowDefinition } from "./schemas";
 import { WorkflowDefinitionSchema } from "./schemas";
 import { dispatchNextSegment } from "./segmentDispatcher";
-import { CONTROL_FLOW_TYPES, segmentWorkflow } from "./segmenter";
 import * as signalStore from "./signalStore";
 import { initSignalStore } from "./signalStore";
 import * as signalTimers from "./signalTimers";
@@ -414,173 +414,21 @@ export function createExtension(): Extension {
       stepsQueue.onEvent("completed", async ({ job }) => {
         if (!job) return;
         const d = stepData(job);
-
-        // Always broadcast workflow_step_completed
-        ctx.messaging.broadcast({
-          type: "workflow_step_completed",
-          workflowRunId: d.workflowRunId,
-          stepSlug: d.stepSlug,
-          jobId: d.id,
-        });
-
-        // Persist step result to Run Store for all runs.
-        // The completed event carries `returnvalue` at runtime (from bunqueue's CompletedEvent)
-        // even though it's not exposed in ManagedQueue's TypeScript types.
         const jobResult = (job as unknown as { returnvalue?: StepResult }).returnvalue;
-        if (jobResult) {
-          try {
-            runStore.updateStepResult(d.workflowRunId, d.stepSlug, jobResult.value);
-          } catch (err) {
-            logger.error(`Failed to persist step result for run ${d.workflowRunId}, step ${d.stepSlug}:`, err);
-          }
-        }
 
-        // Determine if this is a multi-segment workflow
-        const wf = store.get(d.workflowName);
-        const isMultiSegment = wf ? segmentWorkflow(wf.steps).length > 1 : false;
-
-        if (!isMultiSegment && !d.isBranchStep) {
-          // Single-segment without branch steps: preserve existing behavior
-          if (d.stepIndex === d.totalSteps - 1) {
-            // Mark run as completed in Run Store (best effort)
-            try {
-              runStore.updateStatus(d.workflowRunId, "completed");
-            } catch {
-              // best effort
-            }
-            ctx.messaging.broadcast({ type: "workflow_completed", workflowRunId: d.workflowRunId });
-          }
-        } else {
-          // Multi-segment: check if this step is the last in the current execution segment.
-
-          // Branch step handling: steps dispatched by CF handlers (if/case) carry isBranchStep.
-          if (d.isBranchStep && d.resumeStepIndex === undefined && !d.branchContext) {
-            // Non-last branch step: chain continues via bunqueue, no segment dispatch needed.
-            return;
-          }
-
-          if (d.branchContext) {
-            // Last step of a branch segment with remaining branch steps (possibly CF).
-            // Dispatch the remaining branch steps using the segmentation-aware helper.
-            const { remainingSteps, resumeStepIndex: branchResumeIdx } = d.branchContext;
-            try {
-              const run = runStore.get(d.workflowRunId);
-              if (run) {
-                const { dispatchBranchSteps } = await import("./segmentDispatcher");
-                await dispatchBranchSteps(
-                  d.workflowRunId,
-                  remainingSteps as import("./schemas").WorkflowStep[],
-                  branchResumeIdx,
-                  d.stepSlug,
-                  run,
-                  {
-                    steps: wf!.steps,
-                    allStepDefs: d.allStepDefs ?? {},
-                    flowProducer,
-                    sessionFactory,
-                    log: logger,
-                    broadcast: (event) => ctx.messaging.broadcast(event),
-                    getWorkflowDefinition: (name) => {
-                      const def = store.get(name);
-                      return def ? { steps: def.steps } : undefined;
-                    },
-                  },
-                );
-              } else {
-                logger.error(`Run ${d.workflowRunId} not found for branch continuation`);
-              }
-            } catch (err) {
-              logger.error(`Failed to dispatch branch continuation for run ${d.workflowRunId}:`, err);
-              try {
-                runStore.updateStatus(
-                  d.workflowRunId,
-                  "failed",
-                  `Branch continuation failed: ${err instanceof Error ? err.message : String(err)}`,
-                );
-              } catch {
-                // best effort
-              }
-              ctx.messaging.broadcast({
-                type: "workflow_failed",
-                workflowRunId: d.workflowRunId,
-                failedStep: d.stepSlug,
-                error: `Branch continuation failed: ${err instanceof Error ? err.message : String(err)}`,
-              });
-            }
-            return;
-          }
-
-          if (d.resumeStepIndex !== undefined) {
-            // Last branch step: dispatch next segment at the resume index (step after the CF node).
-            try {
-              await dispatchNextSegment(d.workflowRunId, d.resumeStepIndex, {
-                steps: wf!.steps,
-                allStepDefs: d.allStepDefs ?? {},
-                flowProducer,
-                sessionFactory,
-                log: logger,
-                broadcast: (event) => ctx.messaging.broadcast(event),
-              });
-            } catch (err) {
-              logger.error(`Failed to dispatch next segment after branch for run ${d.workflowRunId}:`, err);
-              try {
-                runStore.updateStatus(
-                  d.workflowRunId,
-                  "failed",
-                  `Segment dispatch failed: ${err instanceof Error ? err.message : String(err)}`,
-                );
-              } catch {
-                // best effort
-              }
-              ctx.messaging.broadcast({
-                type: "workflow_failed",
-                workflowRunId: d.workflowRunId,
-                failedStep: d.stepSlug,
-                error: `Segment dispatch failed: ${err instanceof Error ? err.message : String(err)}`,
-              });
-            }
-            return;
-          }
-
-          // The next step being a CF node (or beyond the workflow) means the segment boundary is reached.
-          const nextStepIndex = d.stepIndex + 1;
-          const nextStep = wf!.steps[nextStepIndex];
-          const isLastInSegment = !nextStep || CONTROL_FLOW_TYPES.has(nextStep.type);
-
-          if (isLastInSegment) {
-            // Dispatch next segment (segment dispatcher handles completion when nextStepIndex >= steps.length)
-            try {
-              await dispatchNextSegment(d.workflowRunId, nextStepIndex, {
-                steps: wf!.steps,
-                allStepDefs: d.allStepDefs ?? {},
-                flowProducer,
-                sessionFactory,
-                log: logger,
-                broadcast: (event) => ctx.messaging.broadcast(event),
-              });
-            } catch (err) {
-              logger.error(`Failed to dispatch next segment for run ${d.workflowRunId}:`, err);
-              // Best-effort: mark run as failed
-              try {
-                runStore.updateStatus(
-                  d.workflowRunId,
-                  "failed",
-                  `Segment dispatch failed: ${err instanceof Error ? err.message : String(err)}`,
-                );
-              } catch {
-                // best effort
-              }
-              ctx.messaging.broadcast({
-                type: "workflow_failed",
-                workflowRunId: d.workflowRunId,
-                failedStep: d.stepSlug,
-                error: `Segment dispatch failed: ${err instanceof Error ? err.message : String(err)}`,
-              });
-            }
-          }
-          // If NOT last in segment, do nothing extra -- the next step in the chain
-          // is already queued by FlowProducer.addChain() and will process naturally.
-        }
+        await handleStepCompletion(
+          { id: d.id, data: d, returnvalue: jobResult },
+          {
+            flowProducer,
+            sessionFactory,
+            log: logger,
+            broadcast: (event) => ctx.messaging.broadcast(event),
+            getWorkflowDefinition: (name) => {
+              const def = store.get(name);
+              return def ? { steps: def.steps } : undefined;
+            },
+          },
+        );
       });
       stepsQueue.onEvent("failed", ({ jobId, failedReason, job }) => {
         if (!job) return;
