@@ -20,6 +20,7 @@ import * as runStore from "./runStore";
 import type { WorkflowStep } from "./schemas";
 import { dispatchNextSegment } from "./segmentDispatcher";
 import * as signalStore from "./signalStore";
+import * as signalTimers from "./signalTimers";
 
 /** Dependencies injected into the emit handler factory at creation time. */
 export interface EmitHandlerDeps {
@@ -130,6 +131,9 @@ export function createEmitHandler(deps: EmitHandlerDeps): StepTypeHandler {
         try {
           // Mark signal as received with the resolved payload
           signalStore.markReceived(signal.id, resolvedPayload);
+
+          // Cancel the timeout timer to prevent it from firing after delivery
+          signalTimers.cancel(signal.id);
 
           // Store payload as the waitFor step's result in Run Store
           runStore.updateStepResult(signal.runId, signal.stepSlug, resolvedPayload);

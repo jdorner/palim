@@ -11,7 +11,7 @@
  * @module
  */
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { workflowRuns } from "./runSchema";
 
@@ -172,31 +172,23 @@ export function get(runId: string): WorkflowRun | null {
 }
 
 /**
- * Updates a single step result using last-write-wins semantics.
+ * Updates a single step result atomically using SQLite's json_set().
  *
- * Reads the current step results, sets/overwrites the key for
- * the given slug, re-serializes, and writes back.
+ * Performs a single UPDATE statement that merges the new key/value
+ * into the existing JSON without a separate SELECT, preventing
+ * race conditions when concurrent segments write different keys.
  *
  * @param runId - The run identifier
  * @param stepSlug - The step slug to write the result for
  * @param result - The result value to store
  */
 export function updateStepResult(runId: string, stepSlug: string, result: unknown): void {
-  const row = db.select().from(workflowRuns).where(eq(workflowRuns.id, runId)).get();
-  if (!row) return;
-
-  let stepResults: Record<string, unknown>;
-  try {
-    stepResults = JSON.parse(row.stepResults) as Record<string, unknown>;
-  } catch {
-    stepResults = {};
-  }
-
-  stepResults[stepSlug] = result;
+  const jsonPath = `$.${stepSlug}`;
+  const jsonValue = JSON.stringify(result);
 
   db.update(workflowRuns)
     .set({
-      stepResults: JSON.stringify(stepResults),
+      stepResults: sql`json_set(${workflowRuns.stepResults}, ${jsonPath}, json(${jsonValue}))`,
       updatedAt: Date.now(),
     })
     .where(eq(workflowRuns.id, runId))

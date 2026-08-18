@@ -16,6 +16,7 @@ import type { Logger } from "@ext/types";
 import type { WorkflowWebSocketEvent } from "@shared/workflows";
 import * as runStore from "./runStore";
 import * as signalStore from "./signalStore";
+import * as signalTimers from "./signalTimers";
 
 /**
  * Dependencies injected into the crash recovery function.
@@ -53,7 +54,6 @@ export interface CrashRecoveryResult {
  */
 export function recoverFromCrash(deps: CrashRecoveryDeps): CrashRecoveryResult {
   const { log, broadcast } = deps;
-  const timers: ReturnType<typeof setTimeout>[] = [];
   let failedRuns = 0;
   let rearmedSignals = 0;
   let expiredSignals = 0;
@@ -80,7 +80,7 @@ export function recoverFromCrash(deps: CrashRecoveryDeps): CrashRecoveryResult {
   // --- Phase 2: Re-arm signal timeouts for "waiting-signal" runs ---
   const waitingRuns = runStore.getByStatus("waiting-signal");
   if (waitingRuns.length === 0) {
-    return { failedRuns, rearmedSignals, expiredSignals, cleanup: () => clearTimers(timers) };
+    return { failedRuns, rearmedSignals, expiredSignals, cleanup: () => signalTimers.cleanup() };
   }
 
   // Build a set of waiting run IDs for quick lookup
@@ -116,24 +116,8 @@ export function recoverFromCrash(deps: CrashRecoveryDeps): CrashRecoveryResult {
         error: reason,
       });
     } else {
-      // Re-arm the timeout timer for the remaining duration
-      const timer = setTimeout(() => {
-        signalStore.markTimedOut(signal.id);
-
-        const reason = `Signal "${signal.event}" timed out while waiting`;
-        runStore.updateStatus(signal.runId, "failed", reason);
-
-        broadcast({
-          type: "workflow_failed",
-          workflowRunId: signal.runId,
-          failedStep: signal.stepSlug,
-          error: reason,
-        });
-
-        log.info(`Signal timeout fired for run ${signal.runId}, event "${signal.event}"`);
-      }, remaining);
-
-      timers.push(timer);
+      // Re-arm the timeout timer via the centralized signal timer registry
+      signalTimers.arm(signal.id, signal.runId, signal.stepSlug, signal.event, remaining, { log, broadcast });
       rearmedSignals++;
     }
   }
@@ -142,17 +126,5 @@ export function recoverFromCrash(deps: CrashRecoveryDeps): CrashRecoveryResult {
     log.info(`Crash recovery: re-armed ${rearmedSignals} signal timeout(s), expired ${expiredSignals} signal(s)`);
   }
 
-  return { failedRuns, rearmedSignals, expiredSignals, cleanup: () => clearTimers(timers) };
-}
-
-/**
- * Clears all armed timeout timers.
- *
- * @param timers - Array of timer references to clear
- */
-function clearTimers(timers: ReturnType<typeof setTimeout>[]): void {
-  for (const timer of timers) {
-    clearTimeout(timer);
-  }
-  timers.length = 0;
+  return { failedRuns, rearmedSignals, expiredSignals, cleanup: () => signalTimers.cleanup() };
 }

@@ -41,6 +41,7 @@ import { dispatchNextSegment } from "./segmentDispatcher";
 import { CONTROL_FLOW_TYPES, segmentWorkflow } from "./segmenter";
 import * as signalStore from "./signalStore";
 import { initSignalStore } from "./signalStore";
+import * as signalTimers from "./signalTimers";
 import type { TemplateSecretResolver } from "./template";
 import type { TemplateWarning } from "./templateValidation";
 import { validateWorkflowTemplates } from "./templateValidation";
@@ -1214,7 +1215,7 @@ export function createExtension(): Extension {
           const event = (reqCtx.params as Record<string, string>).event;
           if (!runId || !event) return Response.json({ error: "Missing runId or event" }, { status: 400 });
 
-          // Read raw body and enforce 1MB size limit (Requirement 5.8)
+          // Read raw body and enforce 1MB size limit
           const rawBody = await reqCtx.request.text();
           if (rawBody.length > 1_000_000) {
             return Response.json({ error: "Payload too large" }, { status: 413 });
@@ -1230,11 +1231,11 @@ export function createExtension(): Extension {
             }
           }
 
-          // Check run exists (Requirement 6.3)
+          // Check run exists
           const run = runStore.get(runId);
           if (!run) return Response.json({ error: "Run not found" }, { status: 404 });
 
-          // Check run is in waiting-signal status (Requirement 6.4)
+          // Check run is in waiting-signal status
           if (run.status !== "waiting-signal") {
             return Response.json(
               { error: `Run is not awaiting a signal (current status: "${run.status}")` },
@@ -1242,13 +1243,13 @@ export function createExtension(): Extension {
             );
           }
 
-          // Check a waiting signal record exists for this event (Requirement 5.5, 6.4)
+          // Check a waiting signal record exists for this event
           const signal = signalStore.getWaiting(runId, event);
           if (!signal) {
             return Response.json({ error: `Run is not awaiting signal "${event}"` }, { status: 409 });
           }
 
-          // Validate payload against inputSchema if defined (Requirement 5.4, 6.5)
+          // Validate payload against inputSchema if defined
           if (signal.inputSchema) {
             const schema = signal.inputSchema as TSchema;
             if (!Value.Check(schema, payload)) {
@@ -1263,8 +1264,11 @@ export function createExtension(): Extension {
             }
           }
 
-          // Atomically mark signal as received (Requirement 5.2, 6.2)
+          // Atomically mark signal as received
           signalStore.markReceived(signal.id, payload);
+
+          // Cancel the timeout timer to prevent it from firing after delivery
+          signalTimers.cancel(signal.id);
 
           // Verify the mark succeeded (race protection)
           const stillWaiting = signalStore.getWaiting(runId, event);
@@ -1273,7 +1277,7 @@ export function createExtension(): Extension {
             return Response.json({ error: "Signal has already been delivered" }, { status: 409 });
           }
 
-          // Store payload as the waitFor step result in Run Store (Requirement 2.6, 6.7)
+          // Store payload as the waitFor step result in Run Store
           try {
             runStore.updateStepResult(runId, signal.stepSlug, payload);
           } catch (err) {
@@ -1281,7 +1285,7 @@ export function createExtension(): Extension {
             return Response.json({ error: "Internal error" }, { status: 500 });
           }
 
-          // Transition run status to running (Requirement 2.6)
+          // Transition run status to running
           try {
             runStore.updateStatus(runId, "running");
           } catch (err) {
@@ -1289,7 +1293,7 @@ export function createExtension(): Extension {
             return Response.json({ error: "Internal error" }, { status: 500 });
           }
 
-          // Broadcast workflow_step_resumed (Requirement 10.2)
+          // Broadcast workflow_step_resumed
           ctx.messaging.broadcast({
             type: "workflow_step_resumed",
             workflowRunId: runId,
@@ -1297,7 +1301,7 @@ export function createExtension(): Extension {
             signalEvent: event,
           });
 
-          // Dispatch next segment asynchronously (Requirement 6.7)
+          // Dispatch next segment asynchronously
           const wf = store.get(run.workflowName);
           if (wf) {
             // Check for branch continuation (waitFor was inside a branch)

@@ -21,6 +21,7 @@ import * as runStore from "./runStore";
 import type { CaseStep, IfStep, WaitForStep, WorkflowStep } from "./schemas";
 import { CONTROL_FLOW_TYPES, segmentWorkflow } from "./segmenter";
 import * as signalStore from "./signalStore";
+import * as signalTimers from "./signalTimers";
 import { resolveTemplates, type TemplateContext } from "./template";
 import type { WorkflowStepJobData } from "./types";
 
@@ -43,8 +44,6 @@ export interface SegmentDispatcherDeps {
   log: Logger;
   /** Broadcasts a WebSocket event to connected clients. */
   broadcast: (event: WorkflowWebSocketEvent) => void;
-  /** Registers a timeout timer for cleanup on shutdown (optional, used by waitFor). */
-  registerTimer?: (timer: ReturnType<typeof setTimeout>) => void;
   /** Retrieves a workflow definition by name (for emit cross-workflow dispatch). */
   getWorkflowDefinition?: (name: string) => { steps: WorkflowStep[] } | undefined;
 }
@@ -243,7 +242,7 @@ async function handleIfNode(
     const { resolved, warnings } = await resolveTemplates(ifStep.condition.ref, templateCtx);
     // If the template could not be resolved (warnings about unresolvable path,
     // or the resolved string still contains unresolved template expressions),
-    // treat the value as undefined (requirement 3.6)
+    // treat the value as undefined
     const hasUnresolvableWarning = warnings.some((w) => w.includes("Unresolvable") || w.includes("Unknown step slug"));
     if (hasUnresolvableWarning || resolved.includes("{{")) {
       resolvedValue = undefined;
@@ -281,7 +280,7 @@ async function handleIfNode(
   const branchSteps = conditionResult ? ifStep.then : ifStep.else;
 
   if (!branchSteps || branchSteps.length === 0) {
-    // Condition is false and no else branch defined (requirement 3.3)
+    // Condition is false and no else branch defined
     failRun(
       runId,
       ifStep.slug,
@@ -310,7 +309,7 @@ async function handleIfNode(
     return;
   }
 
-  // Broadcast workflow_step_completed with chosenBranch (requirement 10.3)
+  // Broadcast workflow_step_completed with chosenBranch
   // The if node itself doesn't have a jobId since it's evaluated inline, use run ID as identifier
   broadcast({
     type: "workflow_step_completed",
@@ -400,7 +399,7 @@ async function handleCaseNode(
     return;
   }
 
-  // Perform exact, case-sensitive comparison against path keys (Requirement 4.5)
+  // Perform exact, case-sensitive comparison against path keys
   let matchedKey: string | null = null;
   for (const key of Object.keys(caseStep.paths)) {
     if (resolvedMatch === key) {
@@ -420,7 +419,7 @@ async function handleCaseNode(
     branchSteps = caseStep.default;
     resultMatched = "__default";
   } else {
-    // No match and no default (Requirement 4.3)
+    // No match and no default
     const availableKeys = Object.keys(caseStep.paths).join(", ");
     failRun(
       runId,
@@ -431,7 +430,7 @@ async function handleCaseNode(
     return;
   }
 
-  // Store the case node result in Run Store (Requirement 4.6)
+  // Store the case node result in Run Store
   const caseResult = { matched: resultMatched };
   try {
     runStore.updateStepResult(runId, caseStep.slug, caseResult);
@@ -450,7 +449,7 @@ async function handleCaseNode(
     return;
   }
 
-  // Broadcast workflow_step_completed with chosenBranch (Requirement 10.3)
+  // Broadcast workflow_step_completed with chosenBranch
   broadcast({
     type: "workflow_step_completed",
     workflowRunId: runId,
@@ -525,7 +524,7 @@ function handleWaitForNode(
     return;
   }
 
-  // Broadcast workflow_step_started (Requirement 10.5)
+  // Broadcast workflow_step_started
   try {
     broadcast({
       type: "workflow_step_started",
@@ -534,11 +533,11 @@ function handleWaitForNode(
       jobId: runId,
     });
   } catch (err) {
-    // Per Requirement 10.5: if workflow_step_started fails, proceed with waiting state
+    // If workflow_step_started fails, proceed with waiting state
     log.error(`Failed to broadcast workflow_step_started for waitFor node "${waitForStep.slug}" in run ${runId}:`, err);
   }
 
-  // Transition run status to waiting-signal (Requirement 5.1)
+  // Transition run status to waiting-signal
   try {
     runStore.updateStatus(runId, "waiting-signal");
   } catch (err) {
@@ -552,7 +551,7 @@ function handleWaitForNode(
     return;
   }
 
-  // Create signal record in Signal Store (Requirement 5.1)
+  // Create signal record in Signal Store
   let signalRecord: signalStore.SignalRecord;
   try {
     signalRecord = signalStore.create({
@@ -573,7 +572,7 @@ function handleWaitForNode(
     return;
   }
 
-  // Broadcast workflow_step_waiting (Requirement 10.1)
+  // Broadcast workflow_step_waiting
   broadcast({
     type: "workflow_step_waiting",
     workflowRunId: runId,
@@ -586,40 +585,12 @@ function handleWaitForNode(
     `WaitFor node "${waitForStep.slug}" in run ${runId}: waiting for signal "${waitForStep.event}"${waitForStep.timeout ? ` (timeout: ${waitForStep.timeout}ms)` : ""}`,
   );
 
-  // Arm timeout timer if configured (Requirement 5.3)
+  // Arm timeout timer if configured
   if (waitForStep.timeout != null && waitForStep.timeout > 0) {
-    const timer = setTimeout(() => {
-      // Mark signal as timed out
-      signalStore.markTimedOut(signalRecord.id);
-
-      // Fail the run
-      const reason = `Signal "${waitForStep.event}" timed out while waiting`;
-      runStore.updateStatus(runId, "failed", reason);
-
-      // Broadcast workflow_step_failed (Requirement 10.6)
-      broadcast({
-        type: "workflow_step_failed",
-        workflowRunId: runId,
-        stepSlug: waitForStep.slug,
-        jobId: runId,
-        error: reason,
-      });
-
-      // Broadcast workflow_failed
-      broadcast({
-        type: "workflow_failed",
-        workflowRunId: runId,
-        failedStep: waitForStep.slug,
-        error: reason,
-      });
-
-      log.info(`Signal timeout fired for run ${runId}, event "${waitForStep.event}"`);
-    }, waitForStep.timeout);
-
-    // Register timer for cleanup on shutdown
-    if (deps.registerTimer) {
-      deps.registerTimer(timer);
-    }
+    signalTimers.arm(signalRecord.id, runId, waitForStep.slug, waitForStep.event, waitForStep.timeout, {
+      log,
+      broadcast,
+    });
   }
 }
 

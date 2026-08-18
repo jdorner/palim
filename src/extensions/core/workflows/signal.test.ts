@@ -1,9 +1,7 @@
 /**
  * Tests for the `waitFor` handler and signal delivery logic.
  *
- * Uses in-memory SQLite for isolation. Validates Requirements 5.1-5.8, 6.1-6.7:
- * signal record creation, run status transitions, timeout handling, payload
- * validation, and delivery race protection.
+ * Uses in-memory SQLite for isolation.
  */
 
 import { Database } from "bun:sqlite";
@@ -18,6 +16,7 @@ import * as runStore from "./runStore";
 import type { WaitForStep, WorkflowStep } from "./schemas";
 import { dispatchNextSegment, type SegmentDispatcherDeps } from "./segmentDispatcher";
 import * as signalStore from "./signalStore";
+import * as signalTimers from "./signalTimers";
 import type { WorkflowStepJobData } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -165,7 +164,6 @@ function buildDeps(opts: {
   flowProducer: ReturnType<typeof createFakeFlowProducer>;
   broadcast: ReturnType<typeof createFakeBroadcast>;
   sessionFactory?: SessionFactory;
-  registerTimer?: (timer: ReturnType<typeof setTimeout>) => void;
 }): SegmentDispatcherDeps {
   const allStepDefs: Record<string, unknown> = {};
   for (const s of opts.steps) {
@@ -178,7 +176,6 @@ function buildDeps(opts: {
     sessionFactory: opts.sessionFactory ?? createFakeSessionFactory(),
     log: createFakeLogger() as SegmentDispatcherDeps["log"],
     broadcast: opts.broadcast.fn,
-    registerTimer: opts.registerTimer,
   };
 }
 
@@ -189,6 +186,7 @@ function buildDeps(opts: {
 describe("WaitFor Handler", () => {
   beforeEach(() => {
     createTestDb();
+    signalTimers.cleanup();
   });
 
   test("creates signal record in Signal Store with correct event name", async () => {
@@ -281,19 +279,17 @@ describe("WaitFor Handler", () => {
 
     const flow = createFakeFlowProducer();
     const broadcast = createFakeBroadcast();
-    const timers: ReturnType<typeof setTimeout>[] = [];
     const deps = buildDeps({
       steps,
       flowProducer: flow,
       broadcast,
-      registerTimer: (t) => timers.push(t),
     });
 
     await dispatchNextSegment(runId, 1, deps);
 
-    expect(timers).toHaveLength(1);
+    expect(signalTimers.activeCount()).toBe(1);
     // Clean up timer
-    clearTimeout(timers[0]);
+    signalTimers.cleanup();
   });
 
   test("does NOT arm timeout when timeout is absent", async () => {
@@ -304,17 +300,15 @@ describe("WaitFor Handler", () => {
 
     const flow = createFakeFlowProducer();
     const broadcast = createFakeBroadcast();
-    const timers: ReturnType<typeof setTimeout>[] = [];
     const deps = buildDeps({
       steps,
       flowProducer: flow,
       broadcast,
-      registerTimer: (t) => timers.push(t),
     });
 
     await dispatchNextSegment(runId, 1, deps);
 
-    expect(timers).toHaveLength(0);
+    expect(signalTimers.activeCount()).toBe(0);
   });
 
   test("stores inputSchema in signal record when specified", async () => {
@@ -347,12 +341,10 @@ describe("WaitFor Handler", () => {
 
     const flow = createFakeFlowProducer();
     const broadcast = createFakeBroadcast();
-    const timers: ReturnType<typeof setTimeout>[] = [];
     const deps = buildDeps({
       steps,
       flowProducer: flow,
       broadcast,
-      registerTimer: (t) => timers.push(t),
     });
 
     await dispatchNextSegment(runId, 1, deps);
@@ -362,7 +354,7 @@ describe("WaitFor Handler", () => {
     expect(signal!.timeoutMs).toBe(30000);
 
     // Clean up timer
-    clearTimeout(timers[0]);
+    signalTimers.cleanup();
   });
 
   test("updates execution cursor to the waitFor step index", async () => {
@@ -598,6 +590,7 @@ describe("Signal Delivery Logic", () => {
 describe("WaitFor Timeout", () => {
   beforeEach(() => {
     createTestDb();
+    signalTimers.cleanup();
   });
 
   test("timeout fires: signal marked timed_out, run failed, events broadcast", async () => {
@@ -609,18 +602,16 @@ describe("WaitFor Timeout", () => {
 
     const flow = createFakeFlowProducer();
     const broadcast = createFakeBroadcast();
-    const timers: ReturnType<typeof setTimeout>[] = [];
     const deps = buildDeps({
       steps,
       flowProducer: flow,
       broadcast,
-      registerTimer: (t) => timers.push(t),
     });
 
     await dispatchNextSegment(runId, 1, deps);
 
     // Timer should be registered
-    expect(timers).toHaveLength(1);
+    expect(signalTimers.activeCount()).toBe(1);
 
     // Wait for the timeout to fire
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -643,9 +634,12 @@ describe("WaitFor Timeout", () => {
     const failedEvent = broadcast.events.find((e) => e.type === "workflow_failed");
     expect(failedEvent).not.toBeUndefined();
     expect((failedEvent as { failedStep: string }).failedStep).toBe("wait-approval");
+
+    // Timer should be cleaned up after firing
+    expect(signalTimers.activeCount()).toBe(0);
   });
 
-  test("registered timer passed to registerTimer callback", async () => {
+  test("timer is tracked in signal timer registry", async () => {
     const wfStep = waitForStep({ slug: "wait-approval", event: "approval.granted", timeout: 60000 });
     const steps: WorkflowStep[] = [agentStep("prev-step"), wfStep];
 
@@ -653,22 +647,19 @@ describe("WaitFor Timeout", () => {
 
     const flow = createFakeFlowProducer();
     const broadcast = createFakeBroadcast();
-    const timers: ReturnType<typeof setTimeout>[] = [];
     const deps = buildDeps({
       steps,
       flowProducer: flow,
       broadcast,
-      registerTimer: (t) => timers.push(t),
     });
 
     await dispatchNextSegment(runId, 1, deps);
 
-    expect(timers).toHaveLength(1);
-    // The timer should be a valid timeout handle
-    expect(timers[0]).toBeDefined();
+    expect(signalTimers.activeCount()).toBe(1);
 
     // Clean up
-    clearTimeout(timers[0]);
+    signalTimers.cleanup();
+    expect(signalTimers.activeCount()).toBe(0);
   });
 
   test("timeout does not fire if signal is delivered before expiry", async () => {
@@ -679,34 +670,33 @@ describe("WaitFor Timeout", () => {
 
     const flow = createFakeFlowProducer();
     const broadcast = createFakeBroadcast();
-    const timers: ReturnType<typeof setTimeout>[] = [];
     const deps = buildDeps({
       steps,
       flowProducer: flow,
       broadcast,
-      registerTimer: (t) => timers.push(t),
     });
 
     await dispatchNextSegment(runId, 1, deps);
 
-    // Simulate signal delivery before timeout
+    // Simulate signal delivery before timeout (includes timer cancellation)
     const signal = signalStore.getWaiting(runId, "approval.granted");
     signalStore.markReceived(signal!.id, { approved: true });
+    signalTimers.cancel(signal!.id);
     runStore.updateStepResult(runId, "wait-approval", { approved: true });
     runStore.updateStatus(runId, "running");
 
-    // Wait for the timeout to fire
+    // Wait for what would have been the timeout
     await new Promise((resolve) => setTimeout(resolve, 250));
 
-    // The timeout timer fires but markTimedOut is a no-op because
-    // the signal is already in "received" status (atomic UPDATE WHERE status='waiting')
-    // For this test, we verify the signal store correctly handled the atomic claim.
-    // Note: In production, the timer is cleared upon signal delivery to prevent
-    // the timeout callback from running at all.
-    const signalAfter = signalStore.getWaiting(runId, "approval.granted");
-    expect(signalAfter).toBeNull(); // Signal was already received, not waiting
+    // Timer was cancelled, so it should not have fired
+    expect(signalTimers.activeCount()).toBe(0);
 
-    // Clean up
-    clearTimeout(timers[0]);
+    // The run should still be running (not failed by timeout)
+    const run = runStore.get(runId);
+    expect(run!.status).toBe("running");
+
+    // No workflow_failed event should have been broadcast after the signal delivery events
+    const failedEvents = broadcast.events.filter((e) => e.type === "workflow_failed");
+    expect(failedEvents).toHaveLength(0);
   });
 });
