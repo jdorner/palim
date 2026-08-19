@@ -6,7 +6,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "check": "svelte-check --tsconfig ./tsconfig.json --tsgo"
+    "check": "svelte-check --tsconfig ./tsconfig.json"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.1.1",
@@ -14,7 +14,7 @@
     "bits-ui": "^2.18.1",
     "clsx": "^2.1.1",
     "dompurify": "^3.4.13",
-    "marked": "^18.0.9",
+    "marked": "^18.0.10",
     "phosphor-svelte": "^3.1.0",
     "sv-router": "^0.18.1",
     "tailwind-merge": "^3.6.0",

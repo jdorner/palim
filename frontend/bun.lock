@@ -10,7 +10,7 @@
         "bits-ui": "^2.18.1",
         "clsx": "^2.1.1",
         "dompurify": "^3.4.13",
-        "marked": "^18.0.9",
+        "marked": "^18.0.10",
         "phosphor-svelte": "^3.1.0",
         "sv-router": "^0.18.1",
         "tailwind-merge": "^3.6.0",
@@ -301,7 +301,7 @@
 
     "magic-string": ["magic-string@1.1.1", "", { "dependencies": { "@jridgewell/sourcemap-codec": "^1.5.5" } }, "sha512-qFemKPzc3ttrYVaMmnSkGtGc5nE6Ncl4bj7c9IE6C9OUIRXjf6PzJ+UZ1xhVIjYc7dolHq3qKzpAJPZUbvNj+A=="],
 
-    "marked": ["marked@18.0.9", "", { "bin": { "marked": "bin/marked.js" } }, "sha512-/Sa4qiiHZxf0/FQdBBowr9q4r10krCwMvpK48FUBdXdUXScDxiQGR9zCPrFgRVR5LU3iySOiIjy09ZQvADir1w=="],
+    "marked": ["marked@18.0.10", "", { "bin": { "marked": "bin/marked.js" } }, "sha512-FJeH4bRpYoXiggcgriCGItKCSv3xkngJc4QCZ/rkQCogU3VYaLxYJoZl8Nw/b4+x7iij/pd+09mZ6A1dXzpL0A=="],
 
     "mri": ["mri@1.2.0", "", {}, "sha512-tzzskb3bG8LvYGFF/mDTpq3jpI6Q9wc3LEmBaghu+DdCssd1FakN7Bc0hVNmEyGq1bq3RgfkCb3cmQLpNPOroA=="],
 
