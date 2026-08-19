@@ -98,19 +98,18 @@ For writing your own extensions, see [docs/writing-extensions.md](docs/writing-e
 | `AUTH_TOKEN` | Bearer token for API/WS auth (empty = disabled) | - |
 | `DATA_DIR` | Directory for databases and generated content | `<AGENT_WORK_DIR>/.palim/` |
 | `EXTENSIONS_DIR` | Custom extensions directory | `src/extensions` |
+| `SECRETS_MASTER_KEY` | Derivation key for SecretVault encryption | - |
 
 ### Secrets
 
 Palim reads secrets (API keys, tokens) from environment variables. Set them in your `.env` file and you're done.
 
-For runtime secrets used by extensions and workflows, Palim provides a SQLite-backed encrypted vault (AES-256-GCM) with per-key ACL and audit logging. Extensions access secrets via `ctx.secrets.get(key)` / `ctx.secrets.set(key, value)`, and workflows use `{{secret.KEY_NAME}}` template syntax.
-
-For production deployments with encrypted environment files, Palim optionally supports [dotenvx](https://dotenvx.com) - this activates automatically when a `.env.keys` file is present. See [docs/secrets.md](docs/secrets.md) for the full secrets architecture and [docs/api-security-model.md](docs/api-security-model.md) for the API authentication model.
+For runtime secrets used by extensions and workflows, Palim provides a SQLite-backed encrypted vault (AES-256-GCM) with per-row ACL and audit logging. Extensions access secrets via `ctx.secrets.get(key)` / `ctx.secrets.set(key, value)`, and workflows use `{{secret.KEY_NAME}}` template syntax. The vault requires `SECRETS_MASTER_KEY` (or derivation from `.env.keys`) for encryption. For production deployments with encrypted environment files, Palim optionally supports [dotenvx](https://dotenvx.com) - this activates automatically when a `.env.keys` file is present. See [docs/secrets.md](docs/secrets.md) for the full secrets architecture and [docs/api-security-model.md](docs/api-security-model.md) for the API authentication model.
 
 ## Current State
 
 - **Local LLMs** - Tested with models in the 20B-35B parameter range (Qwen 3.6, Gemma 4, gpt-oss). Smaller models (like Qwen 3.6 4B) work but may struggle with complex multi-turn tasks. Enabling thinking mode is recommended for most models.
-- **Extensions** - Functional but the API is still evolving. An SDK package for third-party extensions is pending.
+- **Extensions** - Functional with a stable SDK (`src/extensions/sdk.ts`). The API surface is still evolving.
 - **Workflows** - Visual editing in the web UI is WIP.
 
 ## Development
