@@ -1,29 +1,8 @@
-import { Database } from "bun:sqlite";
 import { describe, expect, test } from "bun:test";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import * as schema from "@src/db/schema";
 import { SecretVault } from "@src/secrets/vault";
-import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
+import { createTestDb } from "@src/test/db";
 import { Elysia } from "elysia";
 import { globalSecretRoutes } from "./globalSecrets";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const migrationsFolder = resolve(__dirname, "../../../drizzle");
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function createTestDb() {
-  const sqlite = new Database(":memory:");
-  sqlite.run("PRAGMA journal_mode = WAL");
-  const db = drizzle(sqlite, { schema });
-  migrate(db, { migrationsFolder });
-  return db as unknown as BunSQLiteDatabase;
-}
 
 async function createApp() {
   const db = createTestDb();

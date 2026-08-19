@@ -5,26 +5,10 @@
  * fresh for each test to ensure isolation.
  */
 
-import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, test } from "bun:test";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import * as schema from "@src/db/schema";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
+import { createTestDb } from "@src/test/db";
 import { SessionStore } from "./sessionStore";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const migrationsFolder = resolve(__dirname, "../../drizzle");
-
-function createTestDb() {
-  const sqlite = new Database(":memory:");
-  sqlite.run("PRAGMA journal_mode = WAL");
-  const db = drizzle(sqlite, { schema });
-  migrate(db, { migrationsFolder });
-  return db;
-}
 
 function makeTextMessage(role: string, text: string): AgentMessage {
   return {

@@ -52,12 +52,12 @@ export const secretAuditLog = sqliteTable(
  * Manages audit log persistence for secret access events.
  */
 export class SecretAuditLogger {
-  private db: BunSQLiteDatabase;
+  private db: BunSQLiteDatabase<any>;
 
   /**
    * @param db - The shared Drizzle database instance
    */
-  constructor(db: BunSQLiteDatabase) {
+  constructor(db: BunSQLiteDatabase<any>) {
     this.db = db;
   }
 

@@ -4,13 +4,12 @@
  * Uses in-memory SQLite for isolation.
  */
 
-import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { WorkflowWebSocketEvent } from "@shared/workflows";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import { createWorkflowTestDb } from "@src/test/db";
 import type { FlowProducer, FlowStep } from "bunqueue/client";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 import type { SessionFactory } from "./engine";
 import * as runStore from "./runStore";
 import type { WaitForStep, WorkflowStep } from "./schemas";
@@ -18,55 +17,6 @@ import { dispatchNextSegment, type SegmentDispatcherDeps } from "./segmentDispat
 import * as signalStore from "./signalStore";
 import * as signalTimers from "./signalTimers";
 import type { WorkflowStepJobData } from "./types";
-
-// ---------------------------------------------------------------------------
-// Test setup
-// ---------------------------------------------------------------------------
-
-const RUN_MIGRATION_SQL = `
-CREATE TABLE \`workflow_runs\` (
-  \`id\` text PRIMARY KEY NOT NULL,
-  \`workflow_name\` text NOT NULL,
-  \`status\` text NOT NULL DEFAULT 'running',
-  \`step_results\` text NOT NULL DEFAULT '{}',
-  \`trigger_payload\` text,
-  \`current_step_index\` integer NOT NULL DEFAULT 0,
-  \`full_step_order\` text NOT NULL,
-  \`failure_reason\` text,
-  \`created_at\` integer NOT NULL,
-  \`updated_at\` integer NOT NULL
-);
-CREATE INDEX \`idx_workflow_runs_name\` ON \`workflow_runs\` (\`workflow_name\`);
-CREATE INDEX \`idx_workflow_runs_status\` ON \`workflow_runs\` (\`status\`);
-`;
-
-const SIGNAL_MIGRATION_SQL = `
-CREATE TABLE \`workflow_signals\` (
-  \`id\` text PRIMARY KEY NOT NULL,
-  \`run_id\` text NOT NULL,
-  \`step_slug\` text NOT NULL,
-  \`event\` text NOT NULL,
-  \`status\` text NOT NULL DEFAULT 'waiting',
-  \`input_schema\` text,
-  \`timeout_ms\` integer,
-  \`payload\` text,
-  \`created_at\` integer NOT NULL,
-  \`received_at\` integer
-);
-CREATE INDEX \`idx_workflow_signals_run_event\` ON \`workflow_signals\` (\`run_id\`, \`event\`);
-CREATE INDEX \`idx_workflow_signals_status\` ON \`workflow_signals\` (\`status\`);
-`;
-
-function createTestDb() {
-  const sqlite = new Database(":memory:");
-  sqlite.run("PRAGMA journal_mode = WAL");
-  sqlite.run(RUN_MIGRATION_SQL);
-  sqlite.run(SIGNAL_MIGRATION_SQL);
-  const db = drizzle(sqlite);
-  runStore.initRunStore(db);
-  signalStore.initSignalStore(db);
-  return db;
-}
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -185,7 +135,7 @@ function buildDeps(opts: {
 
 describe("WaitFor Handler", () => {
   beforeEach(() => {
-    createTestDb();
+    createWorkflowTestDb();
     signalTimers.cleanup();
   });
 
@@ -380,7 +330,7 @@ describe("WaitFor Handler", () => {
 
 describe("Signal Delivery Logic", () => {
   beforeEach(() => {
-    createTestDb();
+    createWorkflowTestDb();
   });
 
   test("valid delivery: marks signal received, stores payload as step result, transitions run to running", () => {
@@ -589,7 +539,7 @@ describe("Signal Delivery Logic", () => {
 
 describe("WaitFor Timeout", () => {
   beforeEach(() => {
-    createTestDb();
+    createWorkflowTestDb();
     signalTimers.cleanup();
   });
 
