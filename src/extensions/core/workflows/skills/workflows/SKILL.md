@@ -119,7 +119,7 @@ Use inside `prompt`, `url`, `body`, and control flow `ref`/`match`/`payload` fie
 - `{{trigger.payload.field}}` - dot-path into the trigger payload
 - `{{trigger.payload.prompt}}` - the schedule's prompt text (schedule triggers only)
 - `{{trigger.payload.label}}` - the schedule's human-readable label (schedule triggers only)
-- `{{trigger.payload.filename}}` - the detected filename relative to the watched directory, not including the watch path itself (file watcher triggers only). You must prepend the watcher's path to build the full path relative to WORK_DIR (e.g. `inbox/{{trigger.payload.filename}}` for a watcher on `inbox`).
+- `{{trigger.payload.filename}}` - the detected file path relative to WORK_DIR (file watcher triggers only). For example, if the watcher monitors `inbox` and a file `example.txt` is created, this resolves to `inbox/example.txt`.
 - `{{steps.<slug>.result}}` - full result of a completed step
 - `{{steps.<slug>.result.field}}` - dot-path into the step's result
 - `{{env.VAR_NAME}}` - environment variable value
@@ -592,7 +592,7 @@ Triggered when a matching file watcher detects a new file. The file watcher exte
 "trigger": { "type": "filewatcher", "ref": "inbox-ocr" }
 ```
 
-The file metadata is available as `{{trigger.payload.filename}}` (relative to the watched directory, not WORK_DIR — prepend the watcher's path yourself, e.g. `inbox/{{trigger.payload.filename}}`) and `{{trigger.payload.hash}}`.
+The file metadata is available as `{{trigger.payload.filename}}` (path relative to WORK_DIR, e.g. `inbox/example.txt` for a watcher on `inbox`) and `{{trigger.payload.hash}}`.
 
 ## Command reference
 
