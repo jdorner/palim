@@ -282,6 +282,44 @@ async function indexFile(
   }
 }
 
+/**
+ * Initializes the embedding manager if semantic search is enabled.
+ *
+ * @param ctx - Extension context providing logger, database, and config access
+ * @param maxEmbeddingChars - Maximum characters per chunk for embedding
+ * @returns The embedding manager instance, or null if disabled
+ */
+async function createEmbeddingManager(
+  ctx: ExtensionContext,
+  maxEmbeddingChars: number,
+): Promise<EmbeddingManager | null> {
+  // biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
+  const { API_BASE_URL } = await import("@src/config");
+  // biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
+  const { getModelForIntent } = await import("@src/models");
+
+  const embeddingService = new EmbeddingService(
+    ctx.log,
+    API_BASE_URL,
+    async () => {
+      const resolved = await getModelForIntent("embedding");
+      return resolved.modelId;
+    },
+    maxEmbeddingChars,
+  );
+
+  const dimension = await embeddingService.initialize();
+
+  if (dimension) {
+    const cache = new EmbeddingCache(ctx.db, ctx.log);
+    const embeddingManager = new EmbeddingManager(embeddingService, cache, ctx.log);
+    ctx.log.info(`[wiki] Semantic search enabled: dimension=${dimension}`);
+    return embeddingManager;
+  }
+
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Extension factory
 // ---------------------------------------------------------------------------
@@ -352,41 +390,25 @@ export function createExtension(): Extension {
       logger = ctx.log;
       logger.info("Wiki extension initializing - scanning markdown files...");
 
-      let wikiSubdir = ctx.config.get<string>("WIKI_PATH", "data/wiki");
+      let wikiSubdir = ctx.config.get<string>("WIKI_PATH", manifest.settingsSchema.properties.wikiPath.default);
       wikiDir = path.join(ctx.paths.work, wikiSubdir);
 
-      const enableSemantic = ctx.config.get<boolean>("ENABLE_SEMANTIC_SEARCH", true);
-      const maxEmbeddingChars = ctx.config.get<number>("MAX_EMBEDDING_CHARS", 2048);
+      const enableSemantic = ctx.config.get<boolean>(
+        "ENABLE_SEMANTIC_SEARCH",
+        manifest.settingsSchema.properties.enableSemanticSearch.default,
+      );
+      const maxEmbeddingChars = ctx.config.get<number>(
+        "MAX_EMBEDDING_CHARS",
+        manifest.settingsSchema.properties.maxEmbeddingChars.default,
+      );
 
       // Initialize embedding infrastructure if semantic search is enabled
-      let dimension: number | null = null;
       if (enableSemantic) {
-        // biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
-        const { API_BASE_URL } = await import("@src/config");
-        // biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
-        const { getModelForIntent } = await import("@src/models");
-
-        const embeddingService = new EmbeddingService(
-          logger,
-          API_BASE_URL,
-          async () => {
-            const resolved = await getModelForIntent("embedding");
-            return resolved.modelId;
-          },
-          maxEmbeddingChars,
-        );
-
-        dimension = await embeddingService.initialize();
-
-        if (dimension) {
-          const db = ctx.db;
-          const cache = new EmbeddingCache(db, logger);
-          embeddingManager = new EmbeddingManager(embeddingService, cache, logger);
-          logger.info(`[wiki] Semantic search enabled: dimension=${dimension}`);
-        }
+        embeddingManager = await createEmbeddingManager(ctx, maxEmbeddingChars);
       }
 
       // Build the fulltext index (always synchronous/blocking)
+      const dimension = embeddingManager?.getDimension();
       wikiIndex = await buildWikiIndex(wikiDir, wikiSubdir, ctx.log, dimension);
       logger.info("Wiki search index built.");
 
@@ -401,37 +423,39 @@ export function createExtension(): Extension {
        */
       function runBackgroundEmbedding(): void {
         if (!embeddingManager || !wikiIndex) return;
-        const bgManager = embeddingManager;
-        const bgWikiDir = wikiDir;
-        const bgSubdir = wikiSubdir;
 
-        bgManager.setVectorReady(false);
+        // Snapshot the manager reference so the async body stays safe even if
+        // embeddingManager is set to null by a concurrent settings change.
+        const mgr = embeddingManager;
+        mgr.setVectorReady(false);
 
         (async () => {
           try {
             // Force model re-resolution so cache lookups use the current model
-            await bgManager.refreshModel();
+            await mgr.refreshModel();
 
-            // Re-probe dimension - if the model changed, the vector size may differ
-            const newDimension = await bgManager.reprobeDimension();
-            if (newDimension && newDimension !== dimension) {
-              dimension = newDimension;
-              // Rebuild the Orama index with the new vector dimension
-              wikiIndex = await buildWikiIndex(bgWikiDir, bgSubdir, logger, newDimension);
+            // Only reprobe dimension if the model actually changed since last index build
+            if (mgr.hasModelChanged()) {
+              const prevDimension = mgr.getDimension();
+              const newDimension = await mgr.reprobeDimension();
+              if (newDimension && newDimension !== prevDimension) {
+                // Rebuild the Orama index with the new vector dimension
+                wikiIndex = await buildWikiIndex(wikiDir, wikiSubdir, logger, newDimension);
+              }
             }
 
             // Use the (possibly rebuilt) index for insertions
             const bgIndex = wikiIndex!;
-            const files = await listMarkdownFiles(bgWikiDir);
+            const files = await listMarkdownFiles(wikiDir);
             let totalEmbedded = 0;
 
             for (const relativePath of files) {
-              const filePath = path.join(bgWikiDir, relativePath);
-              const storedPath = path.join(bgSubdir, relativePath);
+              const filePath = path.join(wikiDir, relativePath);
+              const storedPath = path.join(wikiSubdir, relativePath);
               try {
                 const raw = await Bun.file(filePath).text();
                 const chunks = chunkMarkdown(storedPath, raw);
-                const embedded = await bgManager.embedChunks(chunks);
+                const embedded = await mgr.embedChunks(chunks);
 
                 // Remove existing text-only documents for this file
                 removeFileChunks(bgIndex, storedPath);
@@ -452,7 +476,7 @@ export function createExtension(): Extension {
               }
             }
 
-            bgManager.setVectorReady(true);
+            mgr.setVectorReady(true);
             logger.info(`[wiki] Background embedding complete: ${totalEmbedded} chunks embedded`);
           } catch (err: unknown) {
             logger.warn("[wiki] Background embedding pass failed:", (err as Error).message);
@@ -527,24 +551,41 @@ export function createExtension(): Extension {
       await watcher.start();
 
       ctx.events.on("settings:changed", async (_event) => {
-        wikiSubdir = ctx.config.get<string>("WIKI_PATH", "data/wiki");
+        wikiSubdir = ctx.config.get<string>("WIKI_PATH", manifest.settingsSchema.properties.wikiPath.default);
         const newWikiDir = path.join(ctx.paths.work, wikiSubdir);
-        const newEnableSemantic = ctx.config.get<boolean>("ENABLE_SEMANTIC_SEARCH", true);
+        const newEnableSemantic = ctx.config.get<boolean>(
+          "ENABLE_SEMANTIC_SEARCH",
+          manifest.settingsSchema.properties.enableSemanticSearch.default,
+        );
+        let rebuildIndex = false;
 
         // If semantic search was toggled off, disable the embedding manager
         if (!newEnableSemantic && embeddingManager) {
           embeddingManager.setVectorReady(false);
           embeddingManager = null;
-          dimension = null;
           wikiIndex = await buildWikiIndex(wikiDir, wikiSubdir, ctx.log, null);
           logger.info("[wiki] Semantic search disabled - rebuilt fulltext-only index");
           return;
         }
 
+        if (newEnableSemantic && !embeddingManager) {
+          embeddingManager = await createEmbeddingManager(ctx, maxEmbeddingChars);
+          rebuildIndex = true;
+        }
+
         if (wikiDir !== newWikiDir) {
           wikiDir = newWikiDir;
-          wikiIndex = await buildWikiIndex(wikiDir, wikiSubdir, ctx.log, dimension);
+          rebuildIndex = true;
           logger.info(`[wiki] Index rebuilt for new wiki directory: ${wikiDir}`);
+        }
+
+        if (rebuildIndex) {
+          const newDimension = embeddingManager?.getDimension() ?? null;
+          wikiIndex = await buildWikiIndex(wikiDir, wikiSubdir, ctx.log, newDimension);
+          logger.info("[wiki] Index fully rebuilt due to configuration change");
+          if (embeddingManager) {
+            runBackgroundEmbedding();
+          }
         }
       });
 
@@ -565,7 +606,11 @@ export function createExtension(): Extension {
           getIndex: () => wikiIndex,
           getWikiDir: () => wikiDir,
           getEmbeddingManager: () => embeddingManager,
-          getSimilarityThreshold: () => ctx.config.get<number>("SIMILARITY_THRESHOLD", 0.7),
+          getSimilarityThreshold: () =>
+            ctx.config.get<number>(
+              "SIMILARITY_THRESHOLD",
+              manifest.settingsSchema.properties.similarityThreshold.default,
+            ),
           triggerReindex: () => runBackgroundEmbedding(),
         },
         logger,
