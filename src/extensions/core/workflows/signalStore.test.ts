@@ -7,9 +7,8 @@
  * **Validates: Requirements 5.1, 5.2, 5.7**
  */
 
-import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, test } from "bun:test";
-import { drizzle } from "drizzle-orm/bun-sqlite";
+import { createWorkflowTestDb } from "@src/test/db";
 import {
   create,
   deleteByRunIds,
@@ -19,36 +18,6 @@ import {
   markReceived,
   markTimedOut,
 } from "./signalStore";
-
-// ---------------------------------------------------------------------------
-// Test setup
-// ---------------------------------------------------------------------------
-
-const MIGRATION_SQL = `
-CREATE TABLE \`workflow_signals\` (
-  \`id\` text PRIMARY KEY NOT NULL,
-  \`run_id\` text NOT NULL,
-  \`step_slug\` text NOT NULL,
-  \`event\` text NOT NULL,
-  \`status\` text NOT NULL DEFAULT 'waiting',
-  \`input_schema\` text,
-  \`timeout_ms\` integer,
-  \`payload\` text,
-  \`created_at\` integer NOT NULL,
-  \`received_at\` integer
-);
-CREATE INDEX \`idx_workflow_signals_run_event\` ON \`workflow_signals\` (\`run_id\`, \`event\`);
-CREATE INDEX \`idx_workflow_signals_status\` ON \`workflow_signals\` (\`status\`);
-`;
-
-function createTestDb() {
-  const sqlite = new Database(":memory:");
-  sqlite.run("PRAGMA journal_mode = WAL");
-  sqlite.run(MIGRATION_SQL);
-  const db = drizzle(sqlite);
-  initSignalStore(db);
-  return db;
-}
 
 /** Helper: creates a minimal signal record for testing. */
 function createMinimalSignal(overrides: Partial<Parameters<typeof create>[0]> = {}) {
@@ -67,7 +36,7 @@ function createMinimalSignal(overrides: Partial<Parameters<typeof create>[0]> = 
 
 describe("Signal Store", () => {
   beforeEach(() => {
-    createTestDb();
+    createWorkflowTestDb();
   });
 
   describe("create", () => {

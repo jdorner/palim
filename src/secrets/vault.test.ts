@@ -223,27 +223,10 @@ describe("EncryptionService (property-based)", () => {
   });
 });
 
-import { Database } from "bun:sqlite";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import * as schema from "@src/db/schema";
+import { createTestDb } from "@src/test/db";
 import { and, eq } from "drizzle-orm";
-import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
 import { SecretVault } from "./vault";
 import { secretsVault } from "./vaultSchema";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const migrationsFolder = resolve(__dirname, "../../drizzle");
-
-function createTestDb(): BunSQLiteDatabase {
-  const sqlite = new Database(":memory:");
-  sqlite.run("PRAGMA journal_mode = WAL");
-  const db = drizzle(sqlite, { schema });
-  migrate(db, { migrationsFolder });
-  return db as unknown as BunSQLiteDatabase;
-}
 
 /**
  * Property-based tests for SecretVault ACL enforcement.

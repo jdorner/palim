@@ -108,7 +108,7 @@ export class EncryptionService {
  */
 export interface SecretVaultConfig {
   /** The shared Drizzle database instance. */
-  database: BunSQLiteDatabase;
+  database: BunSQLiteDatabase<any>;
   /** 32-byte AES master key (decoded from env or derived from .env.keys). */
   masterKey: Buffer;
 }
@@ -156,9 +156,9 @@ export interface SecretStatus {
 export class SecretVault {
   private encryption: EncryptionService;
   private audit: SecretAuditLogger;
-  private db: BunSQLiteDatabase;
+  private db: BunSQLiteDatabase<any>;
 
-  private constructor(encryption: EncryptionService, audit: SecretAuditLogger, db: BunSQLiteDatabase) {
+  private constructor(encryption: EncryptionService, audit: SecretAuditLogger, db: BunSQLiteDatabase<any>) {
     this.encryption = encryption;
     this.audit = audit;
     this.db = db;

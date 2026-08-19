@@ -9,44 +9,13 @@
  * - buildFlowSteps produces correct FlowStep data structures
  */
 
-import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, test } from "bun:test";
+import { createWorkflowTestDb } from "@src/test/db";
 import type { FlowProducer, FlowStep } from "bunqueue/client";
-import { drizzle } from "drizzle-orm/bun-sqlite";
 import { buildFlowSteps, dispatchWorkflow, type SessionFactory } from "./engine";
 import * as runStore from "./runStore";
 import type { WorkflowDefinition } from "./schemas";
 import type { WorkflowStepJobData } from "./types";
-
-// ---------------------------------------------------------------------------
-// Test setup
-// ---------------------------------------------------------------------------
-
-const MIGRATION_SQL = `
-CREATE TABLE \`workflow_runs\` (
-  \`id\` text PRIMARY KEY NOT NULL,
-  \`workflow_name\` text NOT NULL,
-  \`status\` text NOT NULL DEFAULT 'running',
-  \`step_results\` text NOT NULL DEFAULT '{}',
-  \`trigger_payload\` text,
-  \`current_step_index\` integer NOT NULL DEFAULT 0,
-  \`full_step_order\` text NOT NULL,
-  \`failure_reason\` text,
-  \`created_at\` integer NOT NULL,
-  \`updated_at\` integer NOT NULL
-);
-CREATE INDEX \`idx_workflow_runs_name\` ON \`workflow_runs\` (\`workflow_name\`);
-CREATE INDEX \`idx_workflow_runs_status\` ON \`workflow_runs\` (\`status\`);
-`;
-
-function createTestDb() {
-  const sqlite = new Database(":memory:");
-  sqlite.run("PRAGMA journal_mode = WAL");
-  sqlite.run(MIGRATION_SQL);
-  const db = drizzle(sqlite);
-  runStore.initRunStore(db);
-  return db;
-}
 
 // ---------------------------------------------------------------------------
 // Fakes
@@ -84,7 +53,7 @@ function createFakeLogger() {
 
 describe("dispatchWorkflow", () => {
   beforeEach(() => {
-    createTestDb();
+    createWorkflowTestDb();
   });
 
   test("dispatches all steps as a single chain for sequential-only workflows", async () => {
@@ -409,52 +378,12 @@ describe("segment dispatcher branch dispatch with bunqueue validation", () => {
   let dispatchNextSegment: typeof import("./segmentDispatcher").dispatchNextSegment;
   let signalStore: typeof import("./signalStore");
 
-  const SIGNAL_MIGRATION_SQL = `
-CREATE TABLE \`workflow_signals\` (
-  \`id\` text PRIMARY KEY NOT NULL,
-  \`run_id\` text NOT NULL,
-  \`step_slug\` text NOT NULL,
-  \`event\` text NOT NULL,
-  \`status\` text NOT NULL DEFAULT 'waiting',
-  \`input_schema\` text,
-  \`timeout_ms\` integer,
-  \`payload\` text,
-  \`created_at\` integer NOT NULL,
-  \`received_at\` integer
-);
-CREATE INDEX \`idx_workflow_signals_run_event\` ON \`workflow_signals\` (\`run_id\`, \`event\`);
-CREATE INDEX \`idx_workflow_signals_status\` ON \`workflow_signals\` (\`status\`);
-`;
-
-  const MIGRATION_SQL_FULL = `
-CREATE TABLE \`workflow_runs\` (
-  \`id\` text PRIMARY KEY NOT NULL,
-  \`workflow_name\` text NOT NULL,
-  \`status\` text NOT NULL DEFAULT 'running',
-  \`step_results\` text NOT NULL DEFAULT '{}',
-  \`trigger_payload\` text,
-  \`current_step_index\` integer NOT NULL DEFAULT 0,
-  \`full_step_order\` text NOT NULL,
-  \`failure_reason\` text,
-  \`created_at\` integer NOT NULL,
-  \`updated_at\` integer NOT NULL
-);
-CREATE INDEX \`idx_workflow_runs_name\` ON \`workflow_runs\` (\`workflow_name\`);
-CREATE INDEX \`idx_workflow_runs_status\` ON \`workflow_runs\` (\`status\`);
-${SIGNAL_MIGRATION_SQL}
-`;
-
   beforeEach(async () => {
     const mod = await import("./segmentDispatcher");
     dispatchNextSegment = mod.dispatchNextSegment;
     signalStore = await import("./signalStore");
 
-    const sqlite = new Database(":memory:");
-    sqlite.run("PRAGMA journal_mode = WAL");
-    sqlite.run(MIGRATION_SQL_FULL);
-    const db = drizzle(sqlite);
-    runStore.initRunStore(db);
-    signalStore.initSignalStore(db);
+    createWorkflowTestDb();
   });
 
   test("if-node branch dispatch succeeds with bunqueue reserved key validation", async () => {

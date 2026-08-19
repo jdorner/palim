@@ -6,9 +6,8 @@
  * property for step results.
  */
 
-import { Database } from "bun:sqlite";
 import { beforeEach, describe, expect, test } from "bun:test";
-import { drizzle } from "drizzle-orm/bun-sqlite";
+import { createWorkflowTestDb } from "@src/test/db";
 import fc from "fast-check";
 import {
   create,
@@ -21,36 +20,6 @@ import {
   updateStepIndex,
   updateStepResult,
 } from "./runStore";
-
-// ---------------------------------------------------------------------------
-// Test setup
-// ---------------------------------------------------------------------------
-
-const MIGRATION_SQL = `
-CREATE TABLE \`workflow_runs\` (
-  \`id\` text PRIMARY KEY NOT NULL,
-  \`workflow_name\` text NOT NULL,
-  \`status\` text NOT NULL DEFAULT 'running',
-  \`step_results\` text NOT NULL DEFAULT '{}',
-  \`trigger_payload\` text,
-  \`current_step_index\` integer NOT NULL DEFAULT 0,
-  \`full_step_order\` text NOT NULL,
-  \`failure_reason\` text,
-  \`created_at\` integer NOT NULL,
-  \`updated_at\` integer NOT NULL
-);
-CREATE INDEX \`idx_workflow_runs_name\` ON \`workflow_runs\` (\`workflow_name\`);
-CREATE INDEX \`idx_workflow_runs_status\` ON \`workflow_runs\` (\`status\`);
-`;
-
-function createTestDb() {
-  const sqlite = new Database(":memory:");
-  sqlite.run("PRAGMA journal_mode = WAL");
-  sqlite.run(MIGRATION_SQL);
-  const db = drizzle(sqlite);
-  initRunStore(db);
-  return db;
-}
 
 /** Helper: creates a minimal run record for testing. */
 function createMinimalRun(overrides: Partial<Parameters<typeof create>[0]> = {}) {
@@ -72,7 +41,7 @@ function createMinimalRun(overrides: Partial<Parameters<typeof create>[0]> = {})
 
 describe("Run Store", () => {
   beforeEach(() => {
-    createTestDb();
+    createWorkflowTestDb();
   });
 
   describe("create", () => {
@@ -401,7 +370,7 @@ describe("Run Store", () => {
       fc.assert(
         fc.property(slugArb, fc.array(resultValueArb, { minLength: 2, maxLength: 10 }), (slug, values) => {
           // Fresh DB for each property iteration
-          createTestDb();
+          createWorkflowTestDb();
 
           create({
             id: `prop-run-${slug}`,

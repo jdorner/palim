@@ -9,27 +9,11 @@
  * unique sourceIds per test to avoid conflicts.
  */
 
-import { Database } from "bun:sqlite";
 import { beforeAll, describe, expect, test } from "bun:test";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import * as schema from "@src/db/schema";
 import { getSessionStore, type SessionStore } from "@src/session";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { migrate } from "drizzle-orm/bun-sqlite/migrator";
+import { createTestDb } from "@src/test/db";
 import { sessionRoutes } from "./sessions";
-
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const migrationsFolder = resolve(__dirname, "../../../drizzle");
-
-function createTestDb() {
-  const sqlite = new Database(":memory:");
-  sqlite.run("PRAGMA journal_mode = WAL");
-  const db = drizzle(sqlite, { schema });
-  migrate(db, { migrationsFolder });
-  return db;
-}
 
 function userMsg(text: string): AgentMessage {
   return { role: "user", content: [{ type: "text", text }], timestamp: Date.now() } as unknown as AgentMessage;
