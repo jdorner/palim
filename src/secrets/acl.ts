@@ -24,8 +24,8 @@ export function matchesPattern(consumer: string, pattern: string): boolean {
   if (pattern === consumer) return true;
 
   // Wildcard suffix: "workflow:*" matches "workflow:anything"
-  if (pattern.endsWith(":*")) {
-    const prefix = pattern.slice(0, -1); // "workflow:"
+  const prefix = pattern.slice(0, -1); // "workflow:"
+  if (pattern.endsWith(":*") && consumer.length > prefix.length) {
     return consumer.startsWith(prefix);
   }
 
