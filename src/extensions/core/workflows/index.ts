@@ -37,7 +37,7 @@ import { loadWorkflows } from "./loader";
 import * as runStore from "./runStore";
 import { initRunStore } from "./runStore";
 import type { AgentStep, OutputSchema, WorkflowDefinition } from "./schemas";
-import { WorkflowDefinitionSchema } from "./schemas";
+import { validateTerminalStepSuccessors, WorkflowDefinitionSchema } from "./schemas";
 import { dispatchBranchSteps, dispatchNextSegment, failRun } from "./segmentDispatcher";
 import * as signalStore from "./signalStore";
 import { initSignalStore } from "./signalStore";
@@ -183,6 +183,44 @@ function getDependencyWarnings(definition: WorkflowDefinition, ctx: ExtensionCon
           });
         }
       }
+    }
+  }
+
+  // Check for unreachable steps after terminal step types.
+  // Collect all unique custom step types from the entire definition tree.
+  const terminalTypes = new Set<string>();
+  const collectTerminalTypes = (steps: WorkflowDefinition["steps"]): void => {
+    for (const step of steps) {
+      if (!BUILTIN_STEP_TYPES.has(step.type) && !terminalTypes.has(step.type)) {
+        const handler = ctx.stepTypes.get(step.type);
+        if (handler?.terminal) terminalTypes.add(step.type);
+      }
+      if (step.type === "if") {
+        const ifStep = step as { then: WorkflowDefinition["steps"]; else?: WorkflowDefinition["steps"] };
+        collectTerminalTypes(ifStep.then);
+        if (ifStep.else) collectTerminalTypes(ifStep.else);
+      } else if (step.type === "case") {
+        const caseStep = step as {
+          paths: Record<string, WorkflowDefinition["steps"]>;
+          default?: WorkflowDefinition["steps"];
+        };
+        for (const pathSteps of Object.values(caseStep.paths)) {
+          collectTerminalTypes(pathSteps);
+        }
+        if (caseStep.default) collectTerminalTypes(caseStep.default);
+      }
+    }
+  };
+  collectTerminalTypes(definition.steps);
+
+  if (terminalTypes.size > 0) {
+    const terminalWarnings = validateTerminalStepSuccessors(definition.steps, terminalTypes);
+    for (const tw of terminalWarnings) {
+      warnings.push({
+        stepSlug: tw.terminalSlug,
+        field: "type",
+        message: `Terminal step "${tw.terminalSlug}" has unreachable successors: ${tw.unreachableSlugs.join(", ")}`,
+      });
     }
   }
 

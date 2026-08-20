@@ -40,7 +40,7 @@ interface Props {
   editMode?: boolean;
   selectedStepIndex?: number;
   fitViewTrigger?: number;
-  customStepTypes?: Array<{ type: string; label: string; icon?: string }>;
+  customStepTypes?: Array<{ type: string; label: string; icon?: string; terminal?: boolean }>;
   /**
    * Optional slug-based status map for runtime status overlay.
    * When provided, node status is resolved by slug lookup instead of by array index.
@@ -76,9 +76,14 @@ const nodeTypes = { step: WorkflowStepNode, controlFlow: ControlFlowNode, waitFo
 /** Compute the full graph layout from current steps. */
 function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
   const flatGraph = flattenWorkflow(steps as StepData[]);
+
+  // Derive the set of terminal step types from extension metadata
+  const terminalTypes = new Set(customStepTypes.filter((st) => st.terminal).map((st) => st.type));
+
   const layout = computeLayout(flatGraph, {
     trigger,
     includeAddNode: editMode && steps.length > 0,
+    terminalTypes,
   });
 
   // Merge runtime status and selection state into node data
@@ -103,8 +108,10 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
     }
 
     // Find the corresponding step for status overlay.
-    // If a statusMap is provided (run page), resolve status by node slug.
+    // If a statusMap is provided (run page), resolve status by slug lookup.
     // Otherwise fall back to index-based lookup (detail/edit page).
+    const isTerminal = terminalTypes.has(node.data.type as string);
+
     if (statusMap) {
       const slug = node.data.slug as string;
       const status = statusMap[slug] ?? "waiting";
@@ -114,6 +121,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
           ...node.data,
           status,
           selected: false,
+          terminal: isTerminal,
         },
       };
     }
@@ -131,6 +139,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
         ...node.data,
         status: step?.status ?? node.data.status ?? "waiting",
         selected: isSelected,
+        terminal: isTerminal,
       },
     };
   });

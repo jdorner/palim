@@ -524,6 +524,7 @@ export class ExtensionRegistry {
             label: st.handler.label,
             icon: st.handler.icon,
             extensionName: st.extensionName,
+            terminal: st.handler.terminal ?? false,
             configSchema: st.handler.schema
               ? enrichSchemaWithDynamicItems(JSON.parse(JSON.stringify(st.handler.schema)))
               : undefined,

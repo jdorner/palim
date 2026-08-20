@@ -351,3 +351,66 @@ export function validateGlobalSlugUniqueness(steps: WorkflowStep[]): string[] {
   collectSlugs(steps, seen, duplicates);
   return [...duplicates];
 }
+
+/**
+ * Warning produced when a terminal step has unreachable successors.
+ */
+export interface TerminalSuccessorWarning {
+  /** Slug of the terminal step that should not have successors. */
+  terminalSlug: string;
+  /** Slugs of the unreachable successor steps. */
+  unreachableSlugs: string[];
+}
+
+/**
+ * Validates that no terminal step type has successor steps in the same scope.
+ * Recursively checks all branches (then, else, paths, default).
+ *
+ * @param steps - The workflow's top-level step array
+ * @param terminalTypes - Set of step type identifiers that are terminal (e.g. "fail")
+ * @returns Array of warnings for terminal steps with unreachable successors
+ */
+export function validateTerminalStepSuccessors(
+  steps: WorkflowStep[],
+  terminalTypes: Set<string>,
+): TerminalSuccessorWarning[] {
+  const warnings: TerminalSuccessorWarning[] = [];
+  checkStepsArray(steps, terminalTypes, warnings);
+  return warnings;
+}
+
+/**
+ * Recursively checks a step array for terminal steps with successors.
+ */
+function checkStepsArray(
+  steps: WorkflowStep[],
+  terminalTypes: Set<string>,
+  warnings: TerminalSuccessorWarning[],
+): void {
+  for (let i = 0; i < steps.length; i++) {
+    const step = steps[i]!;
+
+    // If this step is terminal and has successors in the same scope, warn
+    if (terminalTypes.has(step.type) && i < steps.length - 1) {
+      const unreachable = steps.slice(i + 1).map((s) => s.slug);
+      warnings.push({ terminalSlug: step.slug, unreachableSlugs: unreachable });
+    }
+
+    // Recurse into control flow branches
+    if (step.type === "if") {
+      const ifStep = step as IfStep;
+      checkStepsArray(ifStep.then, terminalTypes, warnings);
+      if (ifStep.else) {
+        checkStepsArray(ifStep.else, terminalTypes, warnings);
+      }
+    } else if (step.type === "case") {
+      const caseStep = step as CaseStep;
+      for (const pathSteps of Object.values(caseStep.paths)) {
+        checkStepsArray(pathSteps, terminalTypes, warnings);
+      }
+      if (caseStep.default) {
+        checkStepsArray(caseStep.default, terminalTypes, warnings);
+      }
+    }
+  }
+}

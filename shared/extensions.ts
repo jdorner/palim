@@ -41,6 +41,11 @@ export interface StepTypeInfo {
   icon?: string;
   /** Name of the extension that registered this step type. */
   extensionName: string;
+  /**
+   * When true, this step type is a terminal node (e.g. fail) that never
+   * produces a successor in the workflow graph.
+   */
+  terminal?: boolean;
   /** JSON Schema describing the step's configuration fields (derived from the handler's TypeBox schema). */
   configSchema?: Record<string, unknown>;
 }

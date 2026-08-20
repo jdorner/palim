@@ -779,3 +779,142 @@ describe("schemas", () => {
     });
   });
 });
+
+// ---------------------------------------------------------------------------
+// validateTerminalStepSuccessors
+// ---------------------------------------------------------------------------
+
+import { validateTerminalStepSuccessors } from "./schemas";
+
+describe("validateTerminalStepSuccessors", () => {
+  const terminalTypes = new Set(["fail"]);
+
+  test("returns empty array when no terminal steps present", () => {
+    const steps: WorkflowStep[] = [
+      { slug: "a", type: "agent", prompt: "p" },
+      { slug: "b", type: "agent", prompt: "p" },
+    ];
+    expect(validateTerminalStepSuccessors(steps, terminalTypes)).toEqual([]);
+  });
+
+  test("returns empty array when terminal step is last in scope", () => {
+    const steps: WorkflowStep[] = [
+      { slug: "a", type: "agent", prompt: "p" },
+      { slug: "abort", type: "fail" },
+    ];
+    expect(validateTerminalStepSuccessors(steps, terminalTypes)).toEqual([]);
+  });
+
+  test("returns empty array for empty steps", () => {
+    expect(validateTerminalStepSuccessors([], terminalTypes)).toEqual([]);
+  });
+
+  test("detects successor after terminal step at top level", () => {
+    const steps: WorkflowStep[] = [
+      { slug: "abort", type: "fail" },
+      { slug: "unreachable", type: "agent", prompt: "p" },
+    ];
+    const result = validateTerminalStepSuccessors(steps, terminalTypes);
+    expect(result).toEqual([{ terminalSlug: "abort", unreachableSlugs: ["unreachable"] }]);
+  });
+
+  test("detects multiple successors after terminal step", () => {
+    const steps: WorkflowStep[] = [
+      { slug: "a", type: "agent", prompt: "p" },
+      { slug: "abort", type: "fail" },
+      { slug: "b", type: "agent", prompt: "p" },
+      { slug: "c", type: "agent", prompt: "p" },
+    ];
+    const result = validateTerminalStepSuccessors(steps, terminalTypes);
+    expect(result).toEqual([{ terminalSlug: "abort", unreachableSlugs: ["b", "c"] }]);
+  });
+
+  test("detects terminal successor inside if-then branch", () => {
+    const steps: WorkflowStep[] = [
+      {
+        slug: "check",
+        type: "if",
+        condition: { ref: "{{steps.a.result}}", eq: "yes" },
+        // biome-ignore lint/suspicious/noThenProperty: this is a workflow if-step definition, not a thenable
+        then: [
+          { slug: "abort", type: "fail" },
+          { slug: "unreachable", type: "agent", prompt: "p" },
+        ],
+      } as unknown as WorkflowStep,
+    ];
+    const result = validateTerminalStepSuccessors(steps, terminalTypes);
+    expect(result).toEqual([{ terminalSlug: "abort", unreachableSlugs: ["unreachable"] }]);
+  });
+
+  test("detects terminal successor inside if-else branch", () => {
+    const steps: WorkflowStep[] = [
+      {
+        slug: "check",
+        type: "if",
+        condition: { ref: "{{steps.a.result}}", eq: "yes" },
+        // biome-ignore lint/suspicious/noThenProperty: this is a workflow if-step definition, not a thenable
+        then: [{ slug: "ok", type: "agent", prompt: "p" }],
+        else: [
+          { slug: "abort", type: "fail" },
+          { slug: "dead", type: "agent", prompt: "p" },
+        ],
+      } as unknown as WorkflowStep,
+    ];
+    const result = validateTerminalStepSuccessors(steps, terminalTypes);
+    expect(result).toEqual([{ terminalSlug: "abort", unreachableSlugs: ["dead"] }]);
+  });
+
+  test("detects terminal successor inside case path", () => {
+    const steps: WorkflowStep[] = [
+      {
+        slug: "route",
+        type: "case",
+        match: "{{steps.a.result}}",
+        paths: {
+          good: [{ slug: "handle", type: "agent", prompt: "p" }],
+          bad: [
+            { slug: "abort", type: "fail" },
+            { slug: "never", type: "agent", prompt: "p" },
+          ],
+        },
+      } as unknown as WorkflowStep,
+    ];
+    const result = validateTerminalStepSuccessors(steps, terminalTypes);
+    expect(result).toEqual([{ terminalSlug: "abort", unreachableSlugs: ["never"] }]);
+  });
+
+  test("detects terminal successor inside case default branch", () => {
+    const steps: WorkflowStep[] = [
+      {
+        slug: "route",
+        type: "case",
+        match: "{{steps.a.result}}",
+        paths: {
+          known: [{ slug: "handle", type: "agent", prompt: "p" }],
+        },
+        default: [
+          { slug: "abort", type: "fail" },
+          { slug: "dead", type: "agent", prompt: "p" },
+        ],
+      } as unknown as WorkflowStep,
+    ];
+    const result = validateTerminalStepSuccessors(steps, terminalTypes);
+    expect(result).toEqual([{ terminalSlug: "abort", unreachableSlugs: ["dead"] }]);
+  });
+
+  test("does not warn for non-terminal types even with same position", () => {
+    const steps: WorkflowStep[] = [
+      { slug: "middle", type: "http-request" },
+      { slug: "after", type: "agent", prompt: "p" },
+    ];
+    expect(validateTerminalStepSuccessors(steps, terminalTypes)).toEqual([]);
+  });
+
+  test("returns empty when terminalTypes set is empty", () => {
+    const steps: WorkflowStep[] = [
+      { slug: "abort", type: "fail" },
+      { slug: "after", type: "agent", prompt: "p" },
+    ];
+    expect(validateTerminalStepSuccessors(steps, new Set())).toEqual([]);
+  });
+});

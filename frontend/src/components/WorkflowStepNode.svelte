@@ -9,6 +9,7 @@ interface Props {
     status?: "waiting" | "active" | "completed" | "failed" | "waiting-signal" | "skipped";
     triggerType?: string;
     selected?: boolean;
+    terminal?: boolean;
   };
 }
 
@@ -30,6 +31,7 @@ let colorClass = $derived(
 );
 let typeLabel = $derived(labelForStepType(data.type, data.triggerType));
 let isTrigger = $derived(data.type === "trigger");
+let isTerminal = $derived(data.terminal === true);
 </script>
 
 <div class="px-4 py-3 rounded-lg border-2 shadow-sm w-45 text-center {colorClass}" class:border-dashed={isTrigger}>
@@ -38,5 +40,7 @@ let isTrigger = $derived(data.type === "trigger");
   {/if}
   <div class="text-xs font-medium text-foreground">{data.slug}</div>
   <div class="text-[10px] text-muted-foreground mt-0.5">{typeLabel}</div>
-  <Handle type="source" position={Position.Right} />
+  {#if !isTerminal}
+    <Handle type="source" position={Position.Right} />
+  {/if}
 </div>
