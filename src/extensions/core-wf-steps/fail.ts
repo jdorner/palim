@@ -37,6 +37,7 @@ export function createFailHandler(): StepTypeHandler {
     schema: FailStepConfigSchema,
     label: "Fail",
     icon: "\uD83D\uDCA3",
+    terminal: true,
 
     async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<never> {
       const { slug: _slug, type: _type, outputSchema: _os, ...configFields } = stepDef;

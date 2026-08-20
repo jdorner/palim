@@ -329,6 +329,13 @@ export interface StepTypeHandler {
   icon?: string;
 
   /**
+   * When true, indicates this step type is a terminal node that never produces
+   * a successor. The workflow graph will not render an outgoing edge or an
+   * "add step" button after terminal steps.
+   */
+  terminal?: boolean;
+
+  /**
    * Optional TypeBox schema describing the expected shape of input data from
    * the preceding step. Used by the workflow engine to validate the preceding
    * step's output BEFORE the transition occurs, enabling agent self-repair.

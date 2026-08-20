@@ -51,6 +51,8 @@ export interface LayoutOptions {
   trigger?: TriggerInfo;
   /** Include an add-step node at the end (edit mode). */
   includeAddNode?: boolean;
+  /** Set of step type identifiers that are terminal (no outgoing edge or add-step after them). */
+  terminalTypes?: Set<string>;
 }
 
 /** Metadata about a branch addStep node for the caller to wire callbacks. */
@@ -108,7 +110,8 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   const rootNodes = graph.nodes.filter((n) => n.parent === null);
   const lastRoot = rootNodes[rootNodes.length - 1];
   const lastRootIsCF = lastRoot && (lastRoot.data.type === "if" || lastRoot.data.type === "case");
-  const showRootAddStep = options.includeAddNode && graph.nodes.length > 0 && !lastRootIsCF;
+  const lastRootIsTerminal = lastRoot && options.terminalTypes?.has(lastRoot.data.type);
+  const showRootAddStep = options.includeAddNode && graph.nodes.length > 0 && !lastRootIsCF && !lastRootIsTerminal;
 
   if (showRootAddStep) {
     g.setNode("__addStep__", { width: ADD_NODE_WIDTH, height: ADD_NODE_HEIGHT });
@@ -118,7 +121,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   const branchAddSteps: BranchAddStepInfo[] = [];
 
   if (options.includeAddNode) {
-    const branchInfos = discoverBranches(graph);
+    const branchInfos = discoverBranches(graph, options.terminalTypes);
     for (const info of branchInfos) {
       const addNodeId = `__addStep:${info.parentNodeId}:${info.branch}__`;
       branchAddSteps.push({ nodeId: addNodeId, parentNodeId: info.parentNodeId, branch: info.branch });
@@ -408,7 +411,7 @@ interface BranchDiscovery {
  * A branch exists when a CF node has outgoing branch edges, or
  * when a CF node type implies branches (e.g. if always has then/else).
  */
-function discoverBranches(graph: FlatGraph): BranchDiscovery[] {
+function discoverBranches(graph: FlatGraph, terminalTypes?: Set<string>): BranchDiscovery[] {
   const branches: BranchDiscovery[] = [];
 
   for (const node of graph.nodes) {
@@ -418,6 +421,8 @@ function discoverBranches(graph: FlatGraph): BranchDiscovery[] {
         const lastNode = branchNodes.length > 0 ? branchNodes[branchNodes.length - 1] : null;
         // Skip if last node in branch is a CF node (its own branches will have addStep buttons)
         if (lastNode && (lastNode.data.type === "if" || lastNode.data.type === "case")) continue;
+        // Skip if last node in branch is a terminal step type
+        if (lastNode && terminalTypes?.has(lastNode.data.type)) continue;
         branches.push({
           parentNodeId: node.id,
           branch,
@@ -432,6 +437,7 @@ function discoverBranches(graph: FlatGraph): BranchDiscovery[] {
         const branchNodes = graph.nodes.filter((n) => n.parent?.nodeId === node.id && n.parent?.branch === pathKey);
         const lastNode = branchNodes.length > 0 ? branchNodes[branchNodes.length - 1] : null;
         if (lastNode && (lastNode.data.type === "if" || lastNode.data.type === "case")) continue;
+        if (lastNode && terminalTypes?.has(lastNode.data.type)) continue;
         branches.push({
           parentNodeId: node.id,
           branch: pathKey,
@@ -442,11 +448,16 @@ function discoverBranches(graph: FlatGraph): BranchDiscovery[] {
       const defaultNodes = graph.nodes.filter((n) => n.parent?.nodeId === node.id && n.parent?.branch === "default");
       const lastDefault = defaultNodes.length > 0 ? defaultNodes[defaultNodes.length - 1] : null;
       if (!lastDefault || !(lastDefault.data.type === "if" || lastDefault.data.type === "case")) {
-        branches.push({
-          parentNodeId: node.id,
-          branch: "default",
-          lastNodeId: lastDefault?.id ?? null,
-        });
+        // Skip if last node in default branch is a terminal step type
+        if (lastDefault && terminalTypes?.has(lastDefault.data.type)) {
+          // no addStep for this branch
+        } else {
+          branches.push({
+            parentNodeId: node.id,
+            branch: "default",
+            lastNodeId: lastDefault?.id ?? null,
+          });
+        }
       }
     }
   }
