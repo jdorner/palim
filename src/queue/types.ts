@@ -151,6 +151,8 @@ export interface JobInfo<T = unknown> {
   timestamp: number;
   /** Completion timestamp (ms), if finished. */
   finishedOn?: number;
+  /** The job's return value (present only for completed jobs). */
+  returnvalue?: unknown;
 }
 
 // ---------------------------------------------------------------------------

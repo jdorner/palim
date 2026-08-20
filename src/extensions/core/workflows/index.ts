@@ -396,7 +396,7 @@ export function createExtension(): Extension {
       stepsQueue.onEvent("completed", async ({ job }) => {
         if (!job) return;
         const d = stepData(job);
-        const jobResult = (job as unknown as { returnvalue?: StepResult }).returnvalue;
+        const jobResult = job.returnvalue as StepResult | undefined;
 
         await handleStepCompletion(
           { id: d.id, data: d, returnvalue: jobResult },

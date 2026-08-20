@@ -128,6 +128,7 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
       timestamp: job.timestamp,
       finishedOn: job.finishedOn,
       queueName: job.queueName,
+      returnvalue: (job as unknown as { returnvalue?: unknown }).returnvalue,
     };
   }
 
