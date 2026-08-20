@@ -40,7 +40,7 @@ Workflows support both sequential execution and control flow: conditional branch
   "steps": [
     {
       "slug": "step-name", // required, unique within workflow, kebab-case
-      "type": "agent", // "agent", "if", "case", "waitFor", "emit", or any registered step type
+      "type": "agent", // "agent", "if", "case", "waitFor", "emit", "fail", or any registered step type
       // optional, tool names for agent steps
       "tools": ["exec"],
       // optional, skill names for agent steps
@@ -196,6 +196,20 @@ Makes an outbound HTTP request. The response body becomes the step result (provi
 ```
 
 Additional options: `headers` (key-value map), `timeout` (ms, default 30000), `responseFormat` (`"json"` or `"text"`), `expectedStatus` (array of acceptable status codes).
+
+### Fail step
+
+Immediately aborts the workflow run with a configurable error message (provided by the `core-wf-steps` extension). Use this in control-flow branches where hitting a particular path means the workflow cannot continue (e.g. an unexpected `case` default branch).
+
+```json5
+{
+  "slug": "abort-unexpected",
+  "type": "fail",
+  "message": "Unexpected category: {{steps.classify.result}}",
+}
+```
+
+The `message` field is optional (defaults to "Workflow aborted by fail step") and supports `{{template}}` expressions. When executed, the step logs the message, throws an error, and the workflow run is marked as failed.
 
 ### If step (conditional branching)
 
@@ -671,4 +685,5 @@ workflow validate "my-pipeline"
 - Control flow branches can nest arbitrarily (`if` inside `case`, `waitFor` inside `then`, etc.)
 - If an `if` condition is false and no `else` branch is defined, the workflow fails
 - If a `case` match value hits no path and no `default` is defined, the workflow fails
+- Use a `fail` step in a `default` or `else` branch to explicitly abort with a meaningful error message
 - Always ask for approval before triggering a workflow run!

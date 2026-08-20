@@ -5,12 +5,15 @@
  * Currently registered step types:
  * - `http-request` - Makes outbound HTTP requests with configurable method,
  *   headers, body, timeout, and response format handling.
+ * - `fail` - Immediately aborts the workflow run with a configurable error
+ *   message. Useful in control-flow branches to signal unexpected states.
  *
  * This extension is marked `core: true` and cannot be disabled since these
  * step types are fundamental workflow building blocks.
  */
 
 import type { Extension, ExtensionContext, ExtensionManifest } from "@ext/types";
+import { createFailHandler } from "./fail";
 import { createHttpRequestHandler } from "./http-request";
 
 const manifest = {
@@ -25,9 +28,8 @@ const extension: Extension = {
   manifest,
 
   async initialize(ctx: ExtensionContext) {
-    const handler = createHttpRequestHandler();
-    ctx.stepTypes.register("http-request", handler);
-    ctx.log.info("Registered 'http-request' workflow step type");
+    ctx.stepTypes.register("http-request", createHttpRequestHandler());
+    ctx.stepTypes.register("fail", createFailHandler());
   },
 
   async shutdown() {
