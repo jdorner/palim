@@ -299,7 +299,203 @@ export function normalizePrompt(prompt: string | string[]): string {
 }
 
 // ---------------------------------------------------------------------------
-// Global Slug Uniqueness Validator
+// DAG Workflow Schemas (steps map + edges array)
+// ---------------------------------------------------------------------------
+
+/** Slug pattern for DAG step map keys (same constraints as before). */
+export const DagSlugPattern = "^[a-z][a-z0-9-]*$";
+
+/**
+ * An agent step definition for DAG format (no slug field — slug is the map key).
+ */
+export const DagAgentStepSchema = Type.Object(
+  {
+    type: Type.Literal("agent"),
+    prompt: PromptSchema,
+    tools: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    skills: Type.Optional(Type.Array(Type.String({ minLength: 1 }))),
+    outputSchema: Type.Optional(OutputSchemaSchema),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * An `if` step definition for DAG format.
+ *
+ * Contains only the condition — branches are expressed through edges
+ * with `branch: "then"` / `branch: "else"` properties.
+ */
+export const DagIfStepSchema = Type.Object(
+  {
+    type: Type.Literal("if"),
+    condition: ConditionSchema,
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * A `case` step definition for DAG format.
+ *
+ * Contains the match expression and path keys — branch steps are separate
+ * top-level nodes connected via edges with `branch: "<key>"` properties.
+ */
+export const DagCaseStepSchema = Type.Object(
+  {
+    type: Type.Literal("case"),
+    match: Type.String({ minLength: 1 }),
+    paths: Type.Array(Type.String({ minLength: 1 }), { minItems: 1 }),
+    default: Type.Optional(Type.String({ minLength: 1 })),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * A `waitFor` step definition for DAG format (no slug field).
+ */
+export const DagWaitForStepSchema = Type.Object(
+  {
+    type: Type.Literal("waitFor"),
+    event: Type.String({ minLength: 1, maxLength: 128, pattern: EventNamePattern }),
+    timeout: Type.Optional(Type.Integer({ minimum: 1000, maximum: 604800000 })),
+    inputSchema: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * An `emit` step definition for DAG format (no slug field).
+ */
+export const DagEmitStepSchema = Type.Object(
+  {
+    type: Type.Literal("emit"),
+    event: Type.String({ minLength: 1, maxLength: 128, pattern: EventNamePattern }),
+    payload: Type.Optional(Type.String()),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * A generic step for custom (extension-registered) step types in DAG format.
+ *
+ * Requires `type`; allows any additional properties since the extension's
+ * own schema handles detailed validation.
+ */
+export const DagGenericStepSchema = Type.Intersect([
+  Type.Object({
+    type: Type.String({ minLength: 1 }),
+  }),
+  Type.Record(Type.String(), Type.Unknown()),
+]);
+
+/**
+ * Union of all DAG step definition types.
+ *
+ * Each step in the DAG `steps` map must match one of these schemas.
+ */
+export const DagStepDefSchema = Type.Union([
+  DagAgentStepSchema,
+  DagIfStepSchema,
+  DagCaseStepSchema,
+  DagWaitForStepSchema,
+  DagEmitStepSchema,
+  DagGenericStepSchema,
+]);
+
+/** TypeScript type for a DAG step definition (without slug — slug is the map key). */
+export type DagStepDef = Static<typeof DagStepDefSchema>;
+
+/** TypeScript type for a DAG `if` step. */
+export interface DagIfStep {
+  type: "if";
+  condition: ConditionDef;
+}
+
+/** TypeScript type for a DAG `case` step. */
+export interface DagCaseStep {
+  type: "case";
+  match: string;
+  paths: string[];
+  default?: string;
+}
+
+/** TypeScript type for a DAG `waitFor` step. */
+export interface DagWaitForStep {
+  type: "waitFor";
+  event: string;
+  timeout?: number;
+  inputSchema?: Record<string, unknown>;
+}
+
+/** TypeScript type for a DAG `emit` step. */
+export interface DagEmitStep {
+  type: "emit";
+  event: string;
+  payload?: string;
+}
+
+/** TypeScript type for a DAG agent step. */
+export interface DagAgentStep {
+  type: "agent";
+  prompt: string | string[];
+  tools?: string[];
+  skills?: string[];
+  outputSchema?: OutputSchema;
+}
+
+/** TypeScript type for a DAG generic step. */
+export interface DagGenericStep {
+  type: string;
+  [key: string]: unknown;
+}
+
+/** Union of all typed DAG step definitions. */
+export type DagStep = DagAgentStep | DagIfStep | DagCaseStep | DagWaitForStep | DagEmitStep | DagGenericStep;
+
+/**
+ * Edge definition in a DAG workflow.
+ *
+ * `from` and `to` reference step slugs (keys in the steps map).
+ * `branch` is required and only valid on edges from CF nodes (if/case).
+ */
+export const EdgeSchema = Type.Object(
+  {
+    from: Type.String({ minLength: 1 }),
+    to: Type.String({ minLength: 1 }),
+    branch: Type.Optional(Type.String({ minLength: 1 })),
+  },
+  { additionalProperties: false },
+);
+
+/** TypeScript type for an edge. */
+export type Edge = Static<typeof EdgeSchema>;
+
+/**
+ * Root DAG workflow definition schema.
+ *
+ * Steps are a map keyed by slug. Edges define the execution graph.
+ * Structural and semantic validation (cycles, connectivity, CF rules)
+ * is performed separately by {@link validateDag}.
+ */
+export const DagWorkflowDefinitionSchema = Type.Object(
+  {
+    name: Type.String({ minLength: 1, pattern: "^[a-z][a-z0-9-]*$" }),
+    description: Type.Optional(Type.String()),
+    trigger: TriggerSchema,
+    enabled: Type.Optional(Type.Boolean()),
+    steps: Type.Record(Type.String({ pattern: DagSlugPattern }), DagStepDefSchema, { minProperties: 1 }),
+    edges: Type.Array(EdgeSchema),
+  },
+  { additionalProperties: false },
+);
+
+/** TypeScript type for a validated DAG workflow definition. */
+export type DagWorkflowDefinition = Static<typeof DagWorkflowDefinitionSchema>;
+
+/** Control flow step types in DAG format. */
+export const DAG_CF_TYPES = new Set(["if", "case"]);
+
+// ---------------------------------------------------------------------------
+// Global Slug Uniqueness Validator (legacy sequential format)
 // ---------------------------------------------------------------------------
 
 /**
