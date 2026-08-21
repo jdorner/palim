@@ -123,6 +123,12 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   if (options.includeAddNode) {
     const branchInfos = discoverBranches(graph, options.terminalTypes);
     for (const info of branchInfos) {
+      // Skip if the last node in this branch is terminal (no outgoing edge possible)
+      if (info.lastNodeId) {
+        const lastNode = graph.nodes.find((n) => n.id === info.lastNodeId);
+        if (lastNode && options.terminalTypes?.has(lastNode.data.type)) continue;
+      }
+
       const addNodeId = `__addStep:${info.parentNodeId}:${info.branch}__`;
       branchAddSteps.push({ nodeId: addNodeId, parentNodeId: info.parentNodeId, branch: info.branch });
       g.setNode(addNodeId, { width: ADD_NODE_WIDTH, height: ADD_NODE_HEIGHT });
@@ -305,19 +311,26 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
     }
   }
 
-  // Workflow edges
+  // Workflow edges (skip edges originating from terminal nodes — they have no source handle)
   for (const edge of graph.edges) {
+    if (options.terminalTypes) {
+      const sourceNode = graph.nodes.find((n) => n.id === edge.source);
+      if (sourceNode && options.terminalTypes.has(sourceNode.data.type)) continue;
+    }
     svelteEdges.push(toSvelteEdge(edge));
   }
 
   // Root add-step edge (dashed)
   if (showRootAddStep && lastRoot) {
-    svelteEdges.push({
-      id: `${lastRoot.id}->__addStep__`,
-      source: lastRoot.id,
-      target: "__addStep__",
-      style: "stroke-dasharray: 5 5;",
-    });
+    // Skip edge if the last root node is terminal (no outgoing handle)
+    if (!options.terminalTypes?.has(lastRoot.data.type)) {
+      svelteEdges.push({
+        id: `${lastRoot.id}->__addStep__`,
+        source: lastRoot.id,
+        target: "__addStep__",
+        style: "stroke-dasharray: 5 5;",
+      });
+    }
   }
 
   // Branch add-step edges (dashed)
@@ -326,6 +339,9 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
       (n) => n.parent?.nodeId === info.parentNodeId && n.parent?.branch === info.branch,
     );
     const lastInBranch = branchNodes[branchNodes.length - 1];
+
+    // Skip edge if the source node is a terminal step type (no outgoing handle)
+    if (lastInBranch && options.terminalTypes?.has(lastInBranch.data.type)) continue;
 
     svelteEdges.push({
       id: `${lastInBranch?.id ?? info.parentNodeId}->${info.nodeId}`,

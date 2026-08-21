@@ -225,16 +225,15 @@ let prevNodeCount = $state(0);
 
 // Seed editable state when entering edit mode or when the graph structure changes.
 $effect(() => {
-  // Compute the flat node count to detect both top-level and branch step additions
-  const flatGraph = flattenWorkflow(steps as StepData[]);
-  const currentNodeCount = flatGraph.nodes.length;
+  // Compute full layout to detect structural changes including addStep node presence
+  const layout = computeGraphLayout();
+  const currentNodeCount = layout.nodes.length;
 
   const enteringEditMode = editMode && !prevEditMode;
   const structureChanged = editMode && currentNodeCount !== prevNodeCount;
 
   if (enteringEditMode || structureChanged) {
     // Recompute layout but preserve existing positions for user-dragged nodes
-    const layout = computeGraphLayout();
     const existingPositions = new Map(untrack(() => editableNodes).map((n) => [n.id, n.position]));
 
     editableNodes = layout.nodes.map((node) => {
@@ -246,7 +245,6 @@ $effect(() => {
     editableEdges = [...layout.edges];
   } else if (editMode) {
     // Data-only update: sync slug/type/status/selected without touching positions
-    const layout = computeGraphLayout();
     const layoutDataMap = new Map(layout.nodes.map((n) => [n.id, n.data]));
 
     editableNodes = untrack(() => editableNodes).map((node) => {
