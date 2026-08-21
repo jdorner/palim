@@ -141,6 +141,83 @@ async function fetchSecretKeys(): Promise<void> {
   }
 }
 
+/**
+ * Converts a raw workflow step (as loaded from backend) into a StepDraft.
+ * For custom extension step types, extracts non-standard fields into a nested
+ * `config` object so frontend validation can check them properly.
+ * For control-flow steps, recursively transforms nested branch steps.
+ */
+function toStepDraft(s: StepDef | Record<string, unknown>): StepDraft {
+  const raw = s as Record<string, unknown>;
+  const slug = raw.slug as string;
+  const type = raw.type as string;
+
+  // Agent steps: extract known fields
+  if (type === "agent") {
+    const { prompt, tools, skills } = raw as { prompt?: string; tools?: string[]; skills?: string[] };
+    return {
+      slug,
+      type,
+      prompt,
+      tools: tools ? [...tools] : undefined,
+      skills: skills ? [...skills] : undefined,
+    };
+  }
+
+  // Control flow: if - preserve condition + recursively transform branches
+  if (type === "if") {
+    const thenSteps = (raw.then as Record<string, unknown>[] | undefined) ?? [];
+    const elseSteps = (raw.else as Record<string, unknown>[] | undefined) ?? [];
+    const result: StepDraft = {
+      slug,
+      type,
+      condition: JSON.parse(JSON.stringify(raw.condition ?? {})),
+    };
+    if (thenSteps.length > 0) {
+      // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+      result.then = thenSteps.map(toStepDraft);
+    }
+    if (elseSteps.length > 0) {
+      result.else = elseSteps.map(toStepDraft);
+    }
+    return result;
+  }
+
+  // Control flow: case - preserve match + recursively transform paths and default
+  if (type === "case") {
+    const paths = (raw.paths ?? {}) as Record<string, Record<string, unknown>[]>;
+    const defaultSteps = (raw.default as Record<string, unknown>[] | undefined) ?? [];
+    const result: StepDraft = {
+      slug,
+      type,
+      match: raw.match as string,
+      paths: Object.fromEntries(Object.entries(paths).map(([key, steps]) => [key, steps.map(toStepDraft)])),
+    };
+    if (defaultSteps.length > 0) {
+      result.default = defaultSteps.map(toStepDraft);
+    }
+    return result;
+  }
+
+  // Control flow: waitFor
+  if (type === "waitFor") {
+    return { slug, type, event: raw.event as string };
+  }
+
+  // Control flow: emit
+  if (type === "emit") {
+    return { slug, type, event: raw.event as string };
+  }
+
+  // Custom extension step types: rebuild config from non-standard fields
+  const { slug: _s, type: _t, input: _i, output: _o, ...config } = raw;
+  return {
+    slug,
+    type,
+    config: Object.keys(config).length > 0 ? (config as Record<string, unknown>) : undefined,
+  };
+}
+
 /** Enter edit mode with a deep copy of the current workflow data. */
 function enterEditMode() {
   if (!workflow) return;
@@ -149,49 +226,7 @@ function enterEditMode() {
     description: workflow.description ?? "",
     trigger: { type: workflow.trigger.type, ref: workflow.trigger.ref ?? "" },
     enabled: workflow.enabled ?? true,
-    steps: workflow.steps.map((s) => {
-      const { slug, type } = s;
-
-      // Agent steps: extract known fields
-      if (type === "agent") {
-        const { prompt, tools, skills } = s;
-        return {
-          slug,
-          type,
-          prompt,
-          tools: tools ? [...tools] : undefined,
-          skills: skills ? [...skills] : undefined,
-        };
-      }
-
-      // Control flow: if - preserve condition + branches
-      if (type === "if") {
-        return JSON.parse(JSON.stringify(s));
-      }
-
-      // Control flow: case - preserve match + paths + default
-      if (type === "case") {
-        return JSON.parse(JSON.stringify(s));
-      }
-
-      // Control flow: waitFor
-      if (type === "waitFor") {
-        return JSON.parse(JSON.stringify(s));
-      }
-
-      // Control flow: emit
-      if (type === "emit") {
-        return JSON.parse(JSON.stringify(s));
-      }
-
-      // Custom extension step types: rebuild config from non-standard fields
-      const { slug: _s, type: _t, input: _i, output: _o, ...config } = s;
-      return {
-        slug,
-        type,
-        config: Object.keys(config).length > 0 ? config : undefined,
-      };
-    }),
+    steps: workflow.steps.map(toStepDraft),
   };
   saveError = null;
   validationErrors = new Map();
