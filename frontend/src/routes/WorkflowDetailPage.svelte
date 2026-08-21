@@ -258,6 +258,8 @@ function cancelEdit() {
 
 /** Get the draft step corresponding to the currently selected step. */
 let selectedStepIndex = $state(-1);
+/** Whether the trigger node is currently selected (sidebar shows trigger config). */
+let triggerSelected = $state(false);
 
 let editDraftStep = $derived.by(() => {
   if (!editMode || !editDraft || !selectedStep) return null;
@@ -710,13 +712,27 @@ function onStepClick(step: { slug: string; type: string }, index: number) {
   const def = editDraft ? editDraft.steps[stepIndex] : workflow?.steps[stepIndex];
   if (!def) return;
 
-  if (selectedStepIndex === stepIndex && sidebarOpen) {
+  if (selectedStepIndex === stepIndex && sidebarOpen && !triggerSelected) {
     closeSidebar();
     return;
   }
 
+  triggerSelected = false;
   selectedStep = def as StepDef;
   selectedStepIndex = stepIndex;
+  sidebarOpen = true;
+  viewAsJson = false;
+}
+
+function onTriggerClick() {
+  if (triggerSelected && sidebarOpen) {
+    closeSidebar();
+    return;
+  }
+
+  triggerSelected = true;
+  selectedStep = null;
+  selectedStepIndex = -1;
   sidebarOpen = true;
   viewAsJson = false;
 }
@@ -726,6 +742,7 @@ function closeSidebar() {
   setTimeout(() => {
     if (!sidebarOpen) {
       selectedStep = null;
+      triggerSelected = false;
     }
   }, 200);
 }
@@ -915,10 +932,7 @@ onDestroy(() => {
     {/if}
 
     {#if editMode && editDraft}
-      <div
-        class="mb-4 shrink-0 grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border border-border rounded-md bg-muted/30"
-        transition:slide={{ duration: 100 }}
-      >
+      <div class="mb-4 shrink-0 p-4 border border-border rounded-md bg-muted/30" transition:slide={{ duration: 100 }}>
         <div class="flex flex-col gap-1">
           <label for="edit-description" class="text-xs font-medium text-muted-foreground">Description</label>
           <input
@@ -934,74 +948,6 @@ onDestroy(() => {
             <span class="text-xs text-destructive">{validationErrors.get("description")}</span>
           {/if}
         </div>
-
-        <div class="flex flex-col gap-1"></div>
-
-        <div class="flex flex-col gap-1">
-          <label for="edit-trigger-type" class="text-xs font-medium text-muted-foreground">Trigger Type</label>
-          <select
-            id="edit-trigger-type"
-            class="px-2 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-            value={editDraft.trigger.type}
-            onchange={(e) => {
-              const newType = (e.target as HTMLSelectElement).value;
-              const oldType = editDraft!.trigger.type;
-              editDraft = {
-                ...editDraft!,
-                trigger: {
-                  ...editDraft!.trigger,
-                  type: newType,
-                  ref: newType === "manual" || newType !== oldType ? "" : editDraft!.trigger.ref,
-                },
-              };
-            }}
-          >
-            <option value="webhook">webhook</option>
-            <option value="schedule">schedule</option>
-            <option value="manual">manual</option>
-            <option value="filewatcher">filewatcher</option>
-          </select>
-          {#if validationErrors.get("trigger.type")}
-            <span class="text-xs text-destructive">{validationErrors.get("trigger.type")}</span>
-          {/if}
-        </div>
-
-        {#if editDraft.trigger.type !== "manual"}
-          {@const refOptions = availableTriggerRefs[editDraft.trigger.type] ?? []}
-          <div class="flex flex-col gap-1">
-            <label for="edit-trigger-ref" class="text-xs font-medium text-muted-foreground">Trigger Ref</label>
-            <select
-              id="edit-trigger-ref"
-              class="px-2 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-              value={editDraft.trigger.ref}
-              disabled={metaLoading}
-              onchange={(e) => {
-                editDraft = { ...editDraft!, trigger: { ...editDraft!.trigger, ref: (e.target as HTMLSelectElement).value } };
-                const newErrors = new Map(validationErrors);
-                if ((e.target as HTMLSelectElement).value) {
-                  newErrors.delete("trigger.ref");
-                }
-                validationErrors = newErrors;
-              }}
-            >
-              <option value="">-- Select a ref --</option>
-              {#each refOptions as ref}
-                <option value={ref}>{ref}</option>
-              {/each}
-              {#if editDraft.trigger.ref && !refOptions.includes(editDraft.trigger.ref)}
-                <option value={editDraft.trigger.ref}>{editDraft.trigger.ref} (not found)</option>
-              {/if}
-            </select>
-            {#if metaLoading}
-              <span class="text-xs text-muted-foreground">Loading available refs...</span>
-            {:else if refOptions.length === 0}
-              <span class="text-xs text-muted-foreground">No refs available for this trigger type</span>
-            {/if}
-            {#if validationErrors.get("trigger.ref")}
-              <span class="text-xs text-destructive">{validationErrors.get("trigger.ref")}</span>
-            {/if}
-          </div>
-        {/if}
       </div>
     {/if}
 
@@ -1032,9 +978,11 @@ onDestroy(() => {
               }))}
               trigger={editMode && editDraft ? editDraft.trigger : workflow.trigger}
               {editMode}
-              selectedStepIndex={sidebarOpen ? selectedStepIndex : -1}
+              selectedStepIndex={sidebarOpen && !triggerSelected ? selectedStepIndex : -1}
+              triggerSelected={sidebarOpen && triggerSelected}
               {customStepTypes}
               onNodeClick={onStepClick}
+              {onTriggerClick}
               onAddStep={addStep}
               onEdgesChange={editMode ? handleEdgesChange : undefined}
               {fitViewTrigger}
@@ -1073,6 +1021,103 @@ onDestroy(() => {
                 onEditAsJsonChange={(v) => { editAsJson = v; }}
                 onViewAsJsonChange={(v) => { viewAsJson = v; }}
               />
+            {:else if triggerSelected}
+              <div class="w-95 h-full flex flex-col">
+                <div class="px-4 pb-2 pt-2 flex flex-col gap-2">
+                  <div class="flex items-center gap-2">
+                    <button
+                      type="button"
+                      class="shrink-0 p-0 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+                      onclick={closeSidebar}
+                      aria-label="Close trigger detail sidebar"
+                    >
+                      &#x2715;
+                    </button>
+                    <span class="text-sm font-medium truncate">Trigger</span>
+                  </div>
+                </div>
+
+                <div class="flex-1 overflow-y-auto min-h-0 p-4 flex flex-col gap-4">
+                  {#if editMode && editDraft}
+                    <div class="flex flex-col gap-1">
+                      <label for="sidebar-trigger-type" class="text-xs font-medium text-muted-foreground">Type</label>
+                      <select
+                        id="sidebar-trigger-type"
+                        class="px-2 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                        value={editDraft.trigger.type}
+                        onchange={(e) => {
+                          const newType = (e.target as HTMLSelectElement).value;
+                          const oldType = editDraft!.trigger.type;
+                          editDraft = {
+                            ...editDraft!,
+                            trigger: {
+                              ...editDraft!.trigger,
+                              type: newType,
+                              ref: newType === "manual" || newType !== oldType ? "" : editDraft!.trigger.ref,
+                            },
+                          };
+                        }}
+                      >
+                        <option value="webhook">webhook</option>
+                        <option value="schedule">schedule</option>
+                        <option value="manual">manual</option>
+                        <option value="filewatcher">filewatcher</option>
+                      </select>
+                      {#if validationErrors.get("trigger.type")}
+                        <span class="text-xs text-destructive">{validationErrors.get("trigger.type")}</span>
+                      {/if}
+                    </div>
+
+                    {#if editDraft.trigger.type !== "manual"}
+                      {@const refOptions = availableTriggerRefs[editDraft.trigger.type] ?? []}
+                      <div class="flex flex-col gap-1">
+                        <label for="sidebar-trigger-ref" class="text-xs font-medium text-muted-foreground">Ref</label>
+                        <select
+                          id="sidebar-trigger-ref"
+                          class="px-2 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                          value={editDraft.trigger.ref}
+                          disabled={metaLoading}
+                          onchange={(e) => {
+                            editDraft = { ...editDraft!, trigger: { ...editDraft!.trigger, ref: (e.target as HTMLSelectElement).value } };
+                            const newErrors = new Map(validationErrors);
+                            if ((e.target as HTMLSelectElement).value) {
+                              newErrors.delete("trigger.ref");
+                            }
+                            validationErrors = newErrors;
+                          }}
+                        >
+                          <option value="">-- Select a ref --</option>
+                          {#each refOptions as ref}
+                            <option value={ref}>{ref}</option>
+                          {/each}
+                          {#if editDraft.trigger.ref && !refOptions.includes(editDraft.trigger.ref)}
+                            <option value={editDraft.trigger.ref}>{editDraft.trigger.ref} (not found)</option>
+                          {/if}
+                        </select>
+                        {#if metaLoading}
+                          <span class="text-xs text-muted-foreground">Loading available refs...</span>
+                        {:else if refOptions.length === 0}
+                          <span class="text-xs text-muted-foreground">No refs available for this trigger type</span>
+                        {/if}
+                        {#if validationErrors.get("trigger.ref")}
+                          <span class="text-xs text-destructive">{validationErrors.get("trigger.ref")}</span>
+                        {/if}
+                      </div>
+                    {/if}
+                  {:else}
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-muted-foreground">Type:</span>
+                      <Badge variant="outline">{workflow.trigger.type}</Badge>
+                    </div>
+                    {#if workflow.trigger.ref}
+                      <div class="flex items-center gap-2">
+                        <span class="text-xs font-medium text-muted-foreground">Ref:</span>
+                        <Badge variant="outline">{workflow.trigger.ref}</Badge>
+                      </div>
+                    {/if}
+                  {/if}
+                </div>
+              </div>
             {/if}
           </div>
         </div>
