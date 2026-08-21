@@ -39,6 +39,8 @@ interface Props {
   trigger?: TriggerInfo;
   editMode?: boolean;
   selectedStepIndex?: number;
+  /** Whether the trigger node is currently selected (shows orange highlight). */
+  triggerSelected?: boolean;
   fitViewTrigger?: number;
   customStepTypes?: Array<{ type: string; label: string; icon?: string; terminal?: boolean }>;
   /**
@@ -48,6 +50,8 @@ interface Props {
    */
   statusMap?: Record<string, StepStatus>;
   onNodeClick?: (step: StepInfo, index: number) => void;
+  /** Fired when the trigger node is clicked. */
+  onTriggerClick?: () => void;
   onAddStep?: (type?: string, branchContext?: { parentNodeId: string; branch: string }) => void;
   onEdgesChange?: (edges: Edge[]) => void;
 }
@@ -57,10 +61,12 @@ let {
   trigger,
   editMode,
   selectedStepIndex = -1,
+  triggerSelected = false,
   fitViewTrigger = 0,
   customStepTypes = [],
   statusMap,
   onNodeClick,
+  onTriggerClick,
   onAddStep,
   onEdgesChange,
 }: Props = $props();
@@ -88,7 +94,9 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
 
   // Merge runtime status and selection state into node data
   const nodesWithStatus = layout.nodes.map((node) => {
-    if (node.id === "__trigger__") return node;
+    if (node.id === "__trigger__") {
+      return { ...node, data: { ...node.data, selected: triggerSelected } };
+    }
 
     // Inject addStep node callbacks and custom types (root + branch)
     if (node.id === "__addStep__" || node.id.startsWith("__addStep:")) {
@@ -147,7 +155,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
   // Animate edges to active nodes
   const edgesWithAnimation = layout.edges.map((edge) => {
     const targetNode = nodesWithStatus.find((n) => n.id === edge.target);
-    const isActive = targetNode?.data?.status === "active";
+    const isActive = (targetNode?.data as Record<string, unknown> | undefined)?.status === "active";
     return { ...edge, animated: isActive || edge.animated };
   });
 
@@ -328,6 +336,12 @@ function handleReconnect(newEdge: Edge) {
 function handleNodeClick(ev: { event: MouseEvent | TouchEvent; node: Node }) {
   // AddStepNode handles its own clicks via the popover menu
   if (ev.node.id === "__addStep__" || ev.node.id.startsWith("__addStep:")) return;
+
+  // Trigger node click
+  if (ev.node.id === "__trigger__") {
+    onTriggerClick?.();
+    return;
+  }
 
   // When statusMap is provided (run page), resolve by slug for all nodes
   if (statusMap && onNodeClick) {
