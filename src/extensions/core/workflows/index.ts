@@ -71,6 +71,26 @@ function runJobs(
   return allJobs.map(stepData).filter((d) => d.workflowRunId === runId);
 }
 
+/**
+ * Builds a map from step slug to its real queue job ID for a run.
+ *
+ * The run ID is not a job ID, so per-step log retrieval (GET
+ * /api/jobs/:jobId/logs) needs the actual job ID that executed each step. Steps
+ * that never produced a job (control-flow nodes, dead branches) are absent from
+ * the map. When a slug has multiple jobs (e.g. retries), the last one wins so
+ * the freshest job's logs are surfaced.
+ *
+ * @param jobs - Queue jobs already filtered to a single run (see {@link runJobs}).
+ * @returns A map of step slug to job ID.
+ */
+export function buildStepJobIdMap(jobs: { stepSlug: string; id: string }[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const job of jobs) {
+    map.set(job.stepSlug, job.id);
+  }
+  return map;
+}
+
 /** Built-in step types handled directly by the workflow engine. */
 const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "waitFor"]);
 
@@ -654,6 +674,12 @@ export function createExtension(): Extension {
           }
         }
 
+        // Map each step slug to the real queue job ID so the UI can fetch that
+        // step's logs (via GET /api/jobs/:jobId/logs). The run ID is NOT a job
+        // ID; steps that never produced a job (e.g. dead branches, control-flow
+        // nodes) simply have no entry and get an empty jobId below.
+        const stepJobIds = buildStepJobIdMap(runJobs(await stepsQueue.getAllJobs(), runId));
+
         const steps = Object.entries(run.stepStatuses).map(([slug, status]) => {
           const stepDef = wf?.steps[slug];
           const entry: {
@@ -667,7 +693,7 @@ export function createExtension(): Extension {
             slug,
             type: stepDef?.type ?? "unknown",
             status: activeSignal?.stepSlug === slug ? "waiting-signal" : status,
-            jobId: runId,
+            jobId: stepJobIds.get(slug) ?? "",
           };
           if (activeSignal?.stepSlug === slug) {
             entry.waitEvent = activeSignal.event;

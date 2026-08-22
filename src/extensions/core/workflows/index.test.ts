@@ -4,7 +4,7 @@
 
 import { describe, expect, test } from "bun:test";
 import type { ExtensionContext } from "@ext/types";
-import { validateWorkflowDependencies } from "./index";
+import { buildStepJobIdMap, validateWorkflowDependencies } from "./index";
 import type { DagWorkflowDefinition } from "./schemas";
 
 // ---------------------------------------------------------------------------
@@ -155,5 +155,47 @@ describe("validateWorkflowDependencies", () => {
     const result = validateWorkflowDependencies(wf, mockCtx([], []));
     expect(result.missingTools).toEqual(["a_tool", "z_tool"]);
     expect(result.missingSkills).toEqual(["a_skill", "z_skill"]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// buildStepJobIdMap
+// ---------------------------------------------------------------------------
+
+describe("buildStepJobIdMap", () => {
+  test("maps each step slug to its real job ID", () => {
+    const map = buildStepJobIdMap([
+      { stepSlug: "fetch", id: "job-1" },
+      { stepSlug: "process", id: "job-2" },
+    ]);
+    expect(map.get("fetch")).toBe("job-1");
+    expect(map.get("process")).toBe("job-2");
+  });
+
+  test("does not map the run ID onto steps (regression: logs 404)", () => {
+    // Steps must resolve to their own job ID, never the run ID. Previously the
+    // run detail endpoint stamped every step's jobId with the run ID, so the
+    // UI requested /api/jobs/<runId>/logs and got a 404.
+    const map = buildStepJobIdMap([{ stepSlug: "fetch", id: "job-1" }]);
+    expect(map.get("fetch")).toBe("job-1");
+    expect(map.get("fetch")).not.toBe("run-123");
+  });
+
+  test("omits steps that produced no job (control-flow, dead branches)", () => {
+    const map = buildStepJobIdMap([{ stepSlug: "fetch", id: "job-1" }]);
+    expect(map.has("decide")).toBe(false);
+    expect(map.get("decide")).toBeUndefined();
+  });
+
+  test("returns an empty map when there are no jobs", () => {
+    expect(buildStepJobIdMap([]).size).toBe(0);
+  });
+
+  test("keeps the last job ID when a slug has multiple jobs (retries)", () => {
+    const map = buildStepJobIdMap([
+      { stepSlug: "fetch", id: "job-old" },
+      { stepSlug: "fetch", id: "job-new" },
+    ]);
+    expect(map.get("fetch")).toBe("job-new");
   });
 });
