@@ -21,11 +21,33 @@ import { workflowRuns } from "./runSchema";
 /** Run status values for a DAG workflow execution. */
 export type DagRunStatus = "running" | "waiting-signal" | "completed" | "failed";
 
+/**
+ * Whether a run status represents an active (non-terminal) execution.
+ *
+ * Both `running` and `waiting-signal` are active: the run is still in progress,
+ * it just may be paused on a `waitFor` node. Only `completed` and `failed` are
+ * terminal. Coordinator control-flow guards use this to decide whether to keep
+ * advancing the graph, so a run paused on one branch does not freeze other
+ * branches that are still executing.
+ *
+ * @param status - The run status to test
+ * @returns true when the run is still in progress (running or waiting-signal)
+ */
+export function isActiveRunStatus(status: DagRunStatus): boolean {
+  return status === "running" || status === "waiting-signal";
+}
+
 /** State of a single edge in the DAG during execution. */
 export type EdgeState = "pending" | "satisfied" | "dead";
 
-/** Status of a single step in the DAG during execution. */
-export type StepStatus = "pending" | "running" | "completed" | "failed" | "dead";
+/**
+ * Status of a single step in the DAG during execution.
+ *
+ * `waiting-signal` marks a `waitFor` node that has registered its signal and is
+ * paused pending delivery (or timeout). It is a non-terminal, non-running state:
+ * the step is neither actively executing a job nor finished.
+ */
+export type StepStatus = "pending" | "running" | "waiting-signal" | "completed" | "failed" | "dead";
 
 /**
  * A DAG workflow run record.

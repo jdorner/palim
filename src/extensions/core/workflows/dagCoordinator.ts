@@ -127,8 +127,10 @@ export async function handleDagStepCompletion(
     return;
   }
 
-  // Skip if run is no longer running (already failed/completed)
-  if (run.status !== "running") {
+  // Skip if run is no longer active (already failed/completed). A run paused on
+  // a waitFor node (waiting-signal) is still active and must keep processing
+  // completions from its other branches.
+  if (!dagRunStore.isActiveRunStatus(run.status)) {
     log.warn(`DAG coordinator: run ${runId} is "${run.status}", ignoring completion of step "${stepSlug}"`);
     return;
   }
@@ -420,7 +422,7 @@ async function checkSuccessors(
       await propagateDead(runId, slug, definition, topology, deps);
       // Re-read run state after propagation
       const freshRun = dagRunStore.get(runId);
-      if (freshRun?.status !== "running") return;
+      if (!freshRun || !dagRunStore.isActiveRunStatus(freshRun.status)) return;
       // Update local run reference for subsequent iterations
       Object.assign(run, freshRun);
       continue;
@@ -436,7 +438,7 @@ async function checkSuccessors(
       await evaluateCfNode(runId, slug, freshRun, definition, topology, deps);
       // Re-read after CF evaluation
       const postCfRun = dagRunStore.get(runId);
-      if (postCfRun?.status !== "running") return;
+      if (!postCfRun || !dagRunStore.isActiveRunStatus(postCfRun.status)) return;
       Object.assign(run, postCfRun);
     } else if (stepDef.type === "waitFor") {
       // WaitFor node: register a signal and pause this branch (no queue job)
@@ -535,7 +537,7 @@ async function propagateDead(
   // Recursively check successors
   if (outEdges.length > 0) {
     const updatedRun = dagRunStore.get(runId)!;
-    if (updatedRun.status !== "running") return;
+    if (!dagRunStore.isActiveRunStatus(updatedRun.status)) return;
 
     for (const edge of outEdges) {
       const successorSlug = edge.to;
@@ -566,7 +568,7 @@ async function propagateDead(
         // This successor just became ready (dead edges from this step + satisfied from others)
         const stepDef = definition.steps[successorSlug]!;
         const freshRun = dagRunStore.get(runId)!;
-        if (freshRun.status !== "running") return;
+        if (!dagRunStore.isActiveRunStatus(freshRun.status)) return;
 
         if (DAG_CF_TYPES.has(stepDef.type)) {
           dagRunStore.updateStepStatus(runId, successorSlug, "running");
@@ -593,7 +595,7 @@ async function checkRunCompletion(runId: string, topology: DagGraphTopology, dep
   const { log, broadcast } = deps;
 
   const run = dagRunStore.get(runId);
-  if (run?.status !== "running") return;
+  if (!run || !dagRunStore.isActiveRunStatus(run.status)) return;
 
   let allTerminalsDone = true;
   let hasCompleted = false;
@@ -636,7 +638,7 @@ export async function evaluateInlineRoot(runId: string, slug: string, deps: DagC
   const { log, getWorkflowDefinition } = deps;
 
   const run = dagRunStore.get(runId);
-  if (run?.status !== "running") return;
+  if (!run || !dagRunStore.isActiveRunStatus(run.status)) return;
 
   const definition = getWorkflowDefinition(run.workflowName);
   if (!definition) {
@@ -679,9 +681,9 @@ export async function evaluateInlineRoot(runId: string, slug: string, deps: DagC
 function registerWaitForNode(runId: string, slug: string, stepDef: DagWaitForStep, deps: DagCoordinatorDeps): void {
   const { log, broadcast } = deps;
 
-  dagRunStore.updateStepStatus(runId, slug, "running");
-
-  // Create a signal record so the delivery endpoint can find this waiting step
+  // Create a signal record so the delivery endpoint can find this waiting step.
+  // Do this before flipping any status so a store failure leaves the run intact
+  // for failRun to mark failed.
   let signalRecord: signalStore.SignalRecord;
   try {
     signalRecord = signalStore.create({
@@ -696,6 +698,14 @@ function registerWaitForNode(runId: string, slug: string, stepDef: DagWaitForSte
     failRun(runId, slug, `Signal Store unavailable: ${err instanceof Error ? err.message : String(err)}`, deps);
     return;
   }
+
+  // Mark the step and the run as paused on a signal. Both are non-terminal:
+  // resumeWaitForNode reverts them (step -> completed, run -> running) and the
+  // timeout path fails the run. The run status is what the signal-delivery
+  // endpoint checks to accept an incoming signal, and the coordinator's guards
+  // treat waiting-signal as active so other branches keep running.
+  dagRunStore.updateStepStatus(runId, slug, "waiting-signal");
+  dagRunStore.updateStatus(runId, "waiting-signal");
 
   broadcast({
     type: "workflow_step_waiting",
@@ -745,6 +755,14 @@ export async function resumeWaitForNode(
     return;
   }
 
+  // Do not resume a run that has already terminated (e.g. another branch failed
+  // it, or a timeout fired). Reviving it to running would clobber the terminal
+  // status and dispatch successors of an already-dead run.
+  if (!dagRunStore.isActiveRunStatus(run.status)) {
+    log.warn(`DAG coordinator: run ${runId} is "${run.status}", ignoring waitFor resume for step "${stepSlug}"`);
+    return;
+  }
+
   const definition = getWorkflowDefinition(run.workflowName);
   if (!definition) {
     failRun(runId, stepSlug, `Workflow definition "${run.workflowName}" no longer available`, deps);
@@ -756,7 +774,13 @@ export async function resumeWaitForNode(
   // Persist payload as the waitFor step result and mark completed
   dagRunStore.updateStepResult(runId, stepSlug, payload);
   dagRunStore.updateStepStatus(runId, stepSlug, "completed");
-  dagRunStore.updateStatus(runId, "running");
+
+  // Revert the run to running only when no other waitFor node is still paused.
+  // With multiple concurrent waits, the run stays waiting-signal until the last
+  // signal is delivered, keeping the run status and the signal-delivery guard
+  // consistent with the remaining pending signals.
+  const otherSignalsPending = signalStore.getAllWaiting().some((s) => s.runId === runId && s.stepSlug !== stepSlug);
+  dagRunStore.updateStatus(runId, otherSignalsPending ? "waiting-signal" : "running");
 
   // Satisfy outgoing edges
   const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
@@ -822,11 +846,13 @@ export async function handleDagStepFailure(
     }
   }
 
-  // Mark remaining pending/running steps as dead
+  // Mark remaining non-terminal steps as dead. This includes waitFor nodes
+  // paused on a signal (waiting-signal): when the run fails, a paused branch is
+  // no longer reachable and must be swept like pending/running steps.
   const run = dagRunStore.get(runId);
   if (run) {
     for (const [slug, status] of Object.entries(run.stepStatuses)) {
-      if (status === "pending" || status === "running") {
+      if (status === "pending" || status === "running" || status === "waiting-signal") {
         dagRunStore.updateStepStatus(runId, slug, "dead");
         broadcast({ type: "workflow_step_dead", workflowRunId: runId, stepSlug: slug });
       }

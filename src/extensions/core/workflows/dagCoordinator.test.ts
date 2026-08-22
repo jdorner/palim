@@ -7,11 +7,17 @@
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
-import { createTestDb } from "@src/test/db";
-import { type DagCoordinatorDeps, handleDagStepCompletion, handleDagStepFailure } from "./dagCoordinator";
+import { createWorkflowTestDb } from "@src/test/db";
+import {
+  type DagCoordinatorDeps,
+  handleDagStepCompletion,
+  handleDagStepFailure,
+  resumeWaitForNode,
+} from "./dagCoordinator";
 import * as dagRunStore from "./dagRunStore";
-import { edgeId, initDagRunStore } from "./dagRunStore";
+import { edgeId } from "./dagRunStore";
 import type { DagWorkflowDefinition } from "./schemas";
+import * as signalStore from "./signalStore";
 
 /** Track dispatched jobs and broadcasts. */
 function createTestDeps(definition: DagWorkflowDefinition): DagCoordinatorDeps & {
@@ -75,8 +81,7 @@ function initRun(def: DagWorkflowDefinition, triggerPayload?: unknown) {
 }
 
 beforeEach(() => {
-  const db = createTestDb();
-  initDagRunStore(db);
+  createWorkflowTestDb();
 });
 
 describe("handleDagStepCompletion", () => {
@@ -333,5 +338,168 @@ describe("handleDagStepFailure", () => {
     expect(failEvent).not.toBeUndefined();
     expect(failEvent.failedStep).toBe("a");
     expect(failEvent.error).toBe("timeout");
+  });
+
+  test("fail-fast sweeps a waiting-signal step to dead", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "fail-with-wait-wf",
+      trigger: { type: "manual" },
+      steps: {
+        a: { type: "agent", prompt: "x" },
+        wait: { type: "waitFor", event: "go" },
+        b: { type: "agent", prompt: "y" },
+      },
+      edges: [
+        { from: "a", to: "b" },
+        { from: "a", to: "wait" },
+      ],
+    };
+
+    const run = initRun(def);
+    dagRunStore.updateStepStatus(run.id, "a", "running");
+    // Simulate the wait node already paused on a signal.
+    dagRunStore.updateStepStatus(run.id, "wait", "waiting-signal");
+    const deps = createTestDeps(def);
+
+    await handleDagStepFailure(run.id, "b", "b failed", deps);
+
+    const finalRun = dagRunStore.get(run.id)!;
+    expect(finalRun.status).toBe("failed");
+    // The paused waitFor step must be swept to dead, not left waiting-signal.
+    expect(finalRun.stepStatuses.wait).toBe("dead");
+  });
+});
+
+describe("waitFor nodes", () => {
+  test("registers a successor waitFor node as waiting-signal (step + run)", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "wait-register-wf",
+      trigger: { type: "manual" },
+      steps: {
+        a: { type: "agent", prompt: "start" },
+        wait: { type: "waitFor", event: "approval.granted" },
+        b: { type: "agent", prompt: "after wait" },
+      },
+      edges: [
+        { from: "a", to: "wait" },
+        { from: "wait", to: "b" },
+      ],
+    };
+
+    const run = initRun(def);
+    dagRunStore.updateStepStatus(run.id, "a", "running");
+    const deps = createTestDeps(def);
+
+    await handleDagStepCompletion(run.id, "a", "done", "job-a", deps);
+
+    const afterRun = dagRunStore.get(run.id)!;
+    // Both the step and the run are now persisted as waiting-signal.
+    expect(afterRun.stepStatuses.wait).toBe("waiting-signal");
+    expect(afterRun.status).toBe("waiting-signal");
+    // A signal record was created for the wait node.
+    const waiting = signalStore.getAllWaiting().filter((s) => s.runId === run.id);
+    expect(waiting.length).toBe(1);
+    expect(waiting[0]!.stepSlug).toBe("wait");
+    // The successor is NOT dispatched while paused.
+    expect(deps.dispatched).not.toContain("b");
+    // A waiting event was broadcast.
+    expect(deps.broadcasts.some((e: any) => e.type === "workflow_step_waiting")).toBe(true);
+  });
+
+  test("a parallel branch keeps running while another branch waits", async () => {
+    // a fans out to a waitFor node and to an execution branch b -> c.
+    // The wait pausing must not freeze the b/c branch.
+    const def: DagWorkflowDefinition = {
+      name: "wait-parallel-wf",
+      trigger: { type: "manual" },
+      steps: {
+        a: { type: "agent", prompt: "start" },
+        wait: { type: "waitFor", event: "go" },
+        b: { type: "agent", prompt: "parallel work" },
+        c: { type: "agent", prompt: "after b" },
+      },
+      edges: [
+        { from: "a", to: "wait" },
+        { from: "a", to: "b" },
+        { from: "b", to: "c" },
+      ],
+    };
+
+    const run = initRun(def);
+    dagRunStore.updateStepStatus(run.id, "a", "running");
+    const deps = createTestDeps(def);
+
+    // a completes → wait registers (run becomes waiting-signal) AND b dispatches.
+    await handleDagStepCompletion(run.id, "a", "done", "job-a", deps);
+    expect(dagRunStore.get(run.id)!.status).toBe("waiting-signal");
+    expect(deps.dispatched).toContain("b");
+
+    // b completes while the run is still waiting-signal — c must still dispatch.
+    await handleDagStepCompletion(run.id, "b", "b-done", "job-b", deps);
+    expect(deps.dispatched).toContain("c");
+  });
+
+  test("resumeWaitForNode completes the wait step and reverts the run to running", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "wait-resume-wf",
+      trigger: { type: "manual" },
+      steps: {
+        a: { type: "agent", prompt: "start" },
+        wait: { type: "waitFor", event: "go" },
+        b: { type: "agent", prompt: "after wait" },
+      },
+      edges: [
+        { from: "a", to: "wait" },
+        { from: "wait", to: "b" },
+      ],
+    };
+
+    const run = initRun(def);
+    dagRunStore.updateStepStatus(run.id, "a", "running");
+    const deps = createTestDeps(def);
+
+    await handleDagStepCompletion(run.id, "a", "done", "job-a", deps);
+    expect(dagRunStore.get(run.id)!.status).toBe("waiting-signal");
+
+    // Deliver the signal.
+    await resumeWaitForNode(run.id, "wait", { approved: true }, deps);
+
+    const afterResume = dagRunStore.get(run.id)!;
+    expect(afterResume.stepStatuses.wait).toBe("completed");
+    expect(afterResume.status).toBe("running");
+    expect(afterResume.stepResults.wait).toEqual({ approved: true });
+    // The successor is dispatched after resume.
+    expect(deps.dispatched).toContain("b");
+  });
+
+  test("resumeWaitForNode is ignored when the run has already failed", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "wait-resume-terminal-wf",
+      trigger: { type: "manual" },
+      steps: {
+        a: { type: "agent", prompt: "start" },
+        wait: { type: "waitFor", event: "go" },
+        b: { type: "agent", prompt: "after wait" },
+      },
+      edges: [
+        { from: "a", to: "wait" },
+        { from: "wait", to: "b" },
+      ],
+    };
+
+    const run = initRun(def);
+    dagRunStore.updateStepStatus(run.id, "a", "running");
+    const deps = createTestDeps(def);
+
+    await handleDagStepCompletion(run.id, "a", "done", "job-a", deps);
+    // Force the run terminal (as if another branch failed it).
+    dagRunStore.updateStatus(run.id, "failed", "unrelated failure");
+
+    await resumeWaitForNode(run.id, "wait", { approved: true }, deps);
+
+    const afterResume = dagRunStore.get(run.id)!;
+    // Resume must not revive a failed run or dispatch the successor.
+    expect(afterResume.status).toBe("failed");
+    expect(deps.dispatched).not.toContain("b");
   });
 });

@@ -14,6 +14,7 @@ import {
   get,
   getReadySteps,
   initDagRunStore,
+  isActiveRunStatus,
   updateEdgeState,
   updateEdgeStates,
   updateStatus,
@@ -123,6 +124,13 @@ describe("dagRunStore", () => {
       updateStepStatus(run.id, "a", "dead");
       const retrieved = get(run.id)!;
       expect(retrieved.stepStatuses.a).toBe("dead");
+    });
+
+    test("round-trips a waiting-signal step status", () => {
+      const run = makeRun({ stepStatuses: { a: "running" } });
+      updateStepStatus(run.id, "a", "waiting-signal");
+      const retrieved = get(run.id)!;
+      expect(retrieved.stepStatuses.a).toBe("waiting-signal");
     });
   });
 
@@ -268,6 +276,24 @@ describe("dagRunStore", () => {
 
     test("creates ID with branch", () => {
       expect(edgeId("decide", "path-a", "then")).toBe("decide:path-a:then");
+    });
+  });
+
+  describe("isActiveRunStatus", () => {
+    test("running is active", () => {
+      expect(isActiveRunStatus("running")).toBe(true);
+    });
+
+    test("waiting-signal is active", () => {
+      expect(isActiveRunStatus("waiting-signal")).toBe(true);
+    });
+
+    test("completed is not active", () => {
+      expect(isActiveRunStatus("completed")).toBe(false);
+    });
+
+    test("failed is not active", () => {
+      expect(isActiveRunStatus("failed")).toBe(false);
     });
   });
 });

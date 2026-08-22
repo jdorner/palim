@@ -765,6 +765,36 @@ function handleWorkflowEvent(msg: WorkflowEvent) {
     };
   }
 
+  if (msg.type === "workflow_step_waiting") {
+    workflow = {
+      ...workflow,
+      runs: workflow.runs.map((r) =>
+        r.runId === msg.workflowRunId
+          ? {
+              ...r,
+              status: "waiting-signal",
+              steps: r.steps.map((s) => (s.slug === msg.stepSlug ? { ...s, status: "waiting-signal" } : s)),
+            }
+          : r,
+      ),
+    };
+  }
+
+  if (msg.type === "workflow_step_resumed") {
+    workflow = {
+      ...workflow,
+      runs: workflow.runs.map((r) =>
+        r.runId === msg.workflowRunId
+          ? {
+              ...r,
+              status: "running",
+              steps: r.steps.map((s) => (s.slug === msg.stepSlug ? { ...s, status: "completed" } : s)),
+            }
+          : r,
+      ),
+    };
+  }
+
   if (msg.type === "workflow_step_failed") {
     workflow = {
       ...workflow,

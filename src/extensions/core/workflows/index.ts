@@ -594,6 +594,9 @@ export function createExtension(): Extension {
         if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
 
         // Build run summaries from the DAG Run Store (authoritative for DAG runs).
+        // Run and step statuses are persisted directly, including "waiting-signal"
+        // for a run/step paused on a waitFor node, so no display derivation is
+        // needed here.
         const allRuns = dagRunStore.getByWorkflowName(name!);
         const runs = allRuns
           .map((run) => ({
@@ -657,11 +660,12 @@ export function createExtension(): Extension {
 
         const wf = store.get(run.workflowName);
 
-        // Active signal (waiting-signal status) for waitFor steps
-        let activeSignal: signalStore.SignalRecord | null = null;
-        if (run.status === "waiting-signal") {
-          const allWaiting = signalStore.getAllWaiting().filter((s) => s.runId === runId);
-          activeSignal = allWaiting[0] ?? null;
+        // Waiting signal records keyed by step slug, used to enrich paused
+        // waitFor steps with their event name and input schema. A run may have
+        // more than one step paused concurrently.
+        const waitingSignalsByStep = new Map<string, signalStore.SignalRecord>();
+        for (const signal of signalStore.getAllWaiting()) {
+          if (signal.runId === runId) waitingSignalsByStep.set(signal.stepSlug, signal);
         }
 
         // Extract chosenBranch info from step results for CF nodes
@@ -692,12 +696,13 @@ export function createExtension(): Extension {
           } = {
             slug,
             type: stepDef?.type ?? "unknown",
-            status: activeSignal?.stepSlug === slug ? "waiting-signal" : status,
+            status,
             jobId: stepJobIds.get(slug) ?? "",
           };
-          if (activeSignal?.stepSlug === slug) {
-            entry.waitEvent = activeSignal.event;
-            entry.waitInputSchema = activeSignal.inputSchema as Record<string, unknown> | null;
+          const signal = waitingSignalsByStep.get(slug);
+          if (signal) {
+            entry.waitEvent = signal.event;
+            entry.waitInputSchema = signal.inputSchema as Record<string, unknown> | null;
           }
           return entry;
         });
