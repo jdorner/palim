@@ -69,7 +69,7 @@ Palim ships with 12 built-in extensions (7 optional, 5 core):
 | `filewatcher` | Core | Configurable directory watchers that emit events on file changes |
 | `scheduler` | Core | Cron and interval-based job scheduling with persistence |
 | `webhooks` | Core | Authenticated HTTP endpoints for receiving external service events |
-| `workflows` | Core | Multi-step job pipelines defined in JSON5 |
+| `workflows` | Core | DAG job pipelines defined in JSON5 (parallel steps, joins, control flow) |
 | `core-wf-steps` | Core | Built-in workflow step types (HTTP Request) |
 | `converter` | Optional | Converts files (PDFs, images) to markdown via vision LLM |
 | `error-analyzer` | Optional | Automatic failure analysis and error reporting for jobs and workflows |
@@ -110,7 +110,7 @@ For runtime secrets used by extensions and workflows, Palim provides a SQLite-ba
 
 - **Local LLMs** - Tested with models in the 20B-35B parameter range (Qwen 3.6, Gemma 4, gpt-oss). Smaller models (like Qwen 3.6 4B) work but may struggle with complex multi-turn tasks. Enabling thinking mode is recommended for most models.
 - **Extensions** - Functional with a stable SDK (`src/extensions/sdk.ts`). The API surface is still evolving.
-- **Workflows** - Visual editing in the web UI is WIP.
+- **Workflows** - DAG-based engine with parallel fan-out, join barriers, and control flow. Visual DAG editing in the web UI is functional but still being refined.
 
 ## Development
 

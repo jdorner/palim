@@ -1,6 +1,6 @@
 # Core Workflow Steps (Core)
 
-The Core Workflow Steps extension provides built-in, non-LLM step types for workflow pipelines. These are deterministic steps that execute I/O operations without involving the agent.
+The Core Workflow Steps extension provides built-in, non-LLM step types for workflow pipelines. These are deterministic steps (I/O operations and control flow) that run without involving the agent.
 
 This is a core extension and cannot be disabled.
 
@@ -8,11 +8,10 @@ This is a core extension and cannot be disabled.
 
 ### http-request
 
-Makes an outbound HTTP request. The response becomes the step result.
+Makes an outbound HTTP request. The response becomes the step result. In a workflow's `steps` map, the slug is the map key (shown here as `notify-api`):
 
 ```json5
-{
-  "slug": "notify-api",
+"notify-api": {
   "type": "http-request",
   "url": "https://api.example.com/notify",
   "method": "POST",
@@ -56,3 +55,27 @@ The step result is an object with:
 ```
 
 Access in downstream steps: `{{steps.<slug>.result.status}}`, `{{steps.<slug>.result.body}}`, or `{{steps.<slug>.result.body.field}}` for JSON responses.
+
+### fail
+
+Immediately aborts the workflow run with a configurable error message. This is a **terminal** step type: it has no successors and always fails the run (fail-fast). Use it on a control-flow branch where reaching that path means the workflow cannot continue — for example the `default` branch of a `case` node that should never be taken.
+
+```json5
+"abort-unexpected": {
+  "type": "fail",
+  "message": "Unexpected category: {{steps.classify.result}}"
+}
+```
+
+#### Configuration
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `message` | string | No | `Workflow aborted by fail step` | Message included in the failure. Supports `{{template}}` expressions. |
+
+#### Behavior
+
+- Template expressions (`{{...}}`) in `message` are resolved before the step throws.
+- The resolved message is written to the job log, then thrown as an error.
+- The error triggers the engine's fail-fast handling: the run is marked `failed`, in-flight jobs are cancelled, and remaining pending steps are marked dead.
+- Being terminal, a `fail` step should not have outgoing edges. In the DAG editor and graph it is rendered with a distinct terminal marker.

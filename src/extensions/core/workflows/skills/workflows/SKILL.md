@@ -6,18 +6,23 @@ description: Create, modify and query multi-step workflow pipeline JSON5 definit
 
 ## Overview
 
-Workflows chain multiple agent jobs into pipelines where the output of one step feeds into the next. Definitions are JSON5 files stored in `workflows/`. The system watches this directory and hot-reloads definitions on any change.
+Workflows chain multiple agent jobs into a directed acyclic graph (DAG) where the output of one step feeds into the next. Definitions are JSON5 files stored in `workflows/`. The system watches this directory and hot-reloads definitions on any change.
 
-Workflows support both sequential execution and control flow: conditional branching (`if`, `case`), external signal gates (`waitFor`), and cross-workflow signaling (`emit`).
+A workflow is a set of named `steps` plus an `edges` array that wires them together. This graph model supports:
+
+- **Sequential chains** - edge from one step to the next
+- **Parallel fan-out** - a step with multiple outgoing edges dispatches all successors at once
+- **Join / convergence** - a step with multiple incoming edges waits until all predecessors resolve before running
+- **Control flow** - conditional branching (`if`, `case`), external signal gates (`waitFor`), and cross-workflow signaling (`emit`)
 
 ## When to use
 
 - When the user wants to create a new multi-step pipeline
 - When the user wants to modify, inspect, or delete an existing workflow
 - When the user asks about chaining agent tasks, automations, or pipelines
-- When the user needs conditional logic, approval gates, or inter-workflow coordination
+- When the user needs parallel execution, joins, conditional logic, approval gates, or inter-workflow coordination
 
-## ⚠️ Duplicate/Similar Workflow Guardrail
+## Duplicate/Similar Workflow Guardrail
 
 **CRITICAL: Before creating a new workflow, you MUST check if a similar workflow already exists. If a user requests a new workflow (e.g., a new schedule or a new webhook trigger) that is highly similar to an existing one (e.g., same purpose, same target like Telegram, similar frequency), you MUST list the existing workflow(s) to the user and ask for clarification on whether they want to modify the existing one or create a new one.**
 
@@ -36,11 +41,11 @@ Workflows support both sequential execution and control flow: conditional branch
   },
   // optional, defaults to true
   "enabled": true,
-  // required, at least one step
-  "steps": [
-    {
-      "slug": "step-name", // required, unique within workflow, kebab-case
-      "type": "agent", // "agent", "if", "case", "waitFor", "emit", "fail", or any registered step type
+  // required: a MAP keyed by slug (at least one step). The slug is the key,
+  // it does NOT appear as a field inside the step object.
+  "steps": {
+    "step-name": {
+      "type": "agent", // "agent", "if", "case", "waitFor", "emit", or any registered step type
       // optional, tool names for agent steps
       "tools": ["exec"],
       // optional, skill names for agent steps
@@ -51,16 +56,53 @@ Workflows support both sequential execution and control flow: conditional branch
         "Line two of the prompt.",
       ],
     },
-    {
-      "slug": "call-api",
+    "call-api": {
       "type": "http-request", // outbound HTTP request (registered by core-wf-steps extension)
       "url": "https://example.com", // required
       "method": "POST", // optional, defaults to POST
       "body": "{\"key\": \"value\"}", // optional
     },
+  },
+  // required: the execution graph. Each edge connects two step slugs.
+  "edges": [
+    { "from": "step-name", "to": "call-api" },
   ],
 }
 ```
+
+## Steps map and edges
+
+The `steps` field is a map (object) keyed by slug. Each value is the step definition **without** a `slug` field — the map key is the slug.
+
+The `edges` array defines the execution graph. Each edge is an object:
+
+- `from` (required) - source step slug (must exist in `steps`)
+- `to` (required) - target step slug (must exist in `steps`)
+- `branch` (optional) - required only on edges leaving a control-flow node (`if`/`case`); forbidden on edges from any other step type
+
+### Graph rules (validated at load time)
+
+- The graph must be acyclic (no cycles).
+- Every `from`/`to` must reference an existing step.
+- There must be at least one **root** step (no incoming edges). Roots are dispatched when the run starts.
+- Every step must be reachable from a root (no orphan steps).
+- A non-CF step's outgoing edges must NOT have a `branch` property.
+- A CF node (`if`/`case`) must have ONLY branch-labeled outgoing edges. For `if`, valid branches are `"then"` and `"else"`. For `case`, branches must match the declared `paths` keys.
+
+### Fan-out and join
+
+A non-CF step may have multiple outgoing edges — all of its successors are dispatched in parallel:
+
+```json5
+"edges": [
+  { "from": "extract", "to": "validate" },
+  { "from": "extract", "to": "enrich" },   // validate + enrich run concurrently
+  { "from": "validate", "to": "combine" },
+  { "from": "enrich", "to": "combine" },    // combine waits for BOTH (join barrier)
+]
+```
+
+A step with multiple incoming edges is a join: it is dispatched only once all its incoming edges are resolved (either `satisfied` because the predecessor completed, or `dead` because a CF branch was not taken), with at least one `satisfied`.
 
 ## Prompt format
 
@@ -100,7 +142,7 @@ Each agent step runs its own isolated agent instance. You can specify both tools
 
 ### Available skills
 
-Any skill in can be referenced by name: `webhooks`, `workflows`, `wiki`, etc.
+Any skill can be referenced by name: `webhooks`, `workflows`, `wiki`, etc.
 
 When you assign skills to a step, the agent receives the full system prompt with skill context (same as the main agent) and can use `skill read <name>` to load detailed instructions.
 
@@ -120,10 +162,12 @@ Use inside `prompt`, `url`, `body`, and control flow `ref`/`match`/`payload` fie
 - `{{trigger.payload.prompt}}` - the schedule's prompt text (schedule triggers only)
 - `{{trigger.payload.label}}` - the schedule's human-readable label (schedule triggers only)
 - `{{trigger.payload.filename}}` - the detected file path relative to WORK_DIR (file watcher triggers only). For example, if the watcher monitors `inbox` and a file `example.txt` is created, this resolves to `inbox/example.txt`.
-- `{{steps.<slug>.result}}` - full result of a completed step
+- `{{steps.<slug>.result}}` - full result of any completed step
 - `{{steps.<slug>.result.field}}` - dot-path into the step's result
 - `{{env.VAR_NAME}}` - environment variable value
 - `{{secret.SECRET_NAME}}` - encrypted secret (decrypted at access, ACL-checked)
+
+A step can reference the result of ANY completed step, not just its direct predecessor. Results are read from the run store, so `{{steps.<slug>.result}}` resolves for any ancestor in the graph.
 
 ### Accessing secrets
 
@@ -131,9 +175,8 @@ Use `{{secret.<KEY>}}` to inject encrypted credentials into prompts without hard
 
 ```json5
 {
-  "steps": [
-    {
-      "slug": "fetch-commits",
+  "steps": {
+    "fetch-commits": {
       "type": "agent",
       "tools": ["exec"],
       "prompt": [
@@ -141,7 +184,8 @@ Use `{{secret.<KEY>}}` to inject encrypted credentials into prompts without hard
         "web fetch -H \"Authorization: Bearer {{secret.GITEA_API_TOKEN}}\" \"https://git.example.com/api/v1/repos/user/repo/commits?limit=10\"",
       ],
     },
-  ],
+  },
+  "edges": [],
 }
 ```
 
@@ -154,8 +198,7 @@ The workflow's consumer identity (`workflow:<name>`) must be listed in the secre
 Runs an LLM prompt. The agent's text response becomes the step result.
 
 ```json5
-{
-  "slug": "extract-data",
+"extract-data": {
   "type": "agent",
   "tools": ["exec", "read_file"],
   "prompt": [
@@ -169,8 +212,7 @@ Runs an LLM prompt. The agent's text response becomes the step result.
 Agent step with skills — the agent gets the full skill context and can read skill instructions at runtime:
 
 ```json5
-{
-  "slug": "update-tasks",
+"update-tasks": {
   "type": "agent",
   "tools": ["exec", "write_file"],
   "skills": ["task-list", "memory-management"],
@@ -186,8 +228,7 @@ Agent step with skills — the agent gets the full skill context and can read sk
 Makes an outbound HTTP request. The response body becomes the step result (provided by the `core-wf-steps` extension).
 
 ```json5
-{
-  "slug": "notify-slack",
+"notify-slack": {
   "type": "http-request",
   "url": "{{env.SLACK_WEBHOOK_URL}}",
   "method": "POST",
@@ -199,50 +240,57 @@ Additional options: `headers` (key-value map), `timeout` (ms, default 30000), `r
 
 ### Fail step
 
-Immediately aborts the workflow run with a configurable error message (provided by the `core-wf-steps` extension). Use this in control-flow branches where hitting a particular path means the workflow cannot continue (e.g. an unexpected `case` default branch).
+Immediately aborts the workflow run with a configurable error message (provided by the `core-wf-steps` extension). Use this on a branch where reaching that path means the workflow cannot continue (e.g. an unexpected `case` branch).
 
 ```json5
-{
-  "slug": "abort-unexpected",
+"abort-unexpected": {
   "type": "fail",
   "message": "Unexpected category: {{steps.classify.result}}",
 }
 ```
 
-The `message` field is optional (defaults to "Workflow aborted by fail step") and supports `{{template}}` expressions. When executed, the step logs the message, throws an error, and the workflow run is marked as failed.
+The `message` field is optional (defaults to "Workflow aborted by fail step") and supports `{{template}}` expressions. When executed, the step logs the message, throws an error, and the entire run is marked failed (fail-fast).
 
 ### If step (conditional branching)
 
-Evaluates a condition against a resolved template value. If true, executes the `then` branch; if false, executes the `else` branch (or fails if no `else` is provided).
+Evaluates a condition against a resolved template value. It is NOT dispatched as a job — the engine evaluates it inline when its incoming edges are satisfied. The `then` and `else` branches are expressed as **edges**, not nested arrays.
 
 ```json5
 {
-  "slug": "check-priority",
-  "type": "if",
-  "condition": {
-    "ref": "{{steps.extract-data.result.priority}}",
-    "eq": "high",
-  },
-  // Steps to execute when condition is true
-  "then": [
-    {
-      "slug": "urgent-notify",
+  "steps": {
+    "extract-data": {
+      "type": "agent",
+      "tools": ["exec"],
+      "prompt": "Extract priority from: {{trigger.payload}}",
+    },
+    "check-priority": {
+      "type": "if",
+      "condition": {
+        "ref": "{{steps.extract-data.result.priority}}",
+        "eq": "high",
+      },
+    },
+    "urgent-notify": {
       "type": "agent",
       "tools": ["send_telegram_message"],
       "prompt": "Send an urgent notification: {{steps.extract-data.result}}",
     },
-  ],
-  // Steps to execute when condition is false (optional)
-  "else": [
-    {
-      "slug": "log-low-priority",
+    "log-low-priority": {
       "type": "agent",
       "tools": ["write_file"],
       "prompt": "Append to the low-priority log: {{steps.extract-data.result}}",
     },
+  },
+  "edges": [
+    { "from": "extract-data", "to": "check-priority" },
+    // Branch edges MUST carry a "branch" property on if/case nodes
+    { "from": "check-priority", "to": "urgent-notify", "branch": "then" },
+    { "from": "check-priority", "to": "log-low-priority", "branch": "else" },
   ],
 }
 ```
+
+If the chosen branch is `then`, the `then` edges become `satisfied` and the `else` edges become `dead` (and vice versa). Dead edges propagate downstream so any step reachable only through a dead branch is skipped.
 
 #### Condition operators
 
@@ -265,54 +313,49 @@ For `null` or `undefined` resolved values, all operators except `exists` return 
 
 ### Case step (multi-way branching)
 
-Resolves a `match` template and routes to the matching path key. If no path matches, uses `default` (or fails if no `default` is provided).
+Resolves a `match` template and routes to the matching branch. The `paths` field is an **array of branch key strings** (not nested step arrays). Branch steps are separate top-level steps connected via edges whose `branch` matches a path key. An optional `default` names the fallback branch key.
 
 ```json5
 {
-  "slug": "route-by-type",
-  "type": "case",
-  // Template expression that resolves to the value to match against path keys
-  "match": "{{steps.classify.result.category}}",
-  // Each key is matched exactly (case-sensitive) against the resolved match value
-  "paths": {
-    "invoice": [
-      {
-        "slug": "process-invoice",
-        "type": "agent",
-        "tools": ["exec"],
-        "prompt": "Process the invoice: {{trigger.payload}}",
-      },
-    ],
-    "receipt": [
-      {
-        "slug": "process-receipt",
-        "type": "agent",
-        "tools": ["write_file"],
-        "prompt": "Archive the receipt: {{trigger.payload}}",
-      },
-    ],
-  },
-  // Fallback when no path matches (optional)
-  "default": [
-    {
-      "slug": "unknown-type",
+  "steps": {
+    "classify": {
       "type": "agent",
       "tools": [],
-      "prompt": "Unknown document type: {{steps.classify.result.category}}",
+      "prompt": "Classify the document as 'invoice', 'receipt', or 'other': {{trigger.payload}}",
     },
+    "route-by-type": {
+      "type": "case",
+      "match": "{{steps.classify.result}}",
+      "paths": ["invoice", "receipt"],
+      "default": "receipt",
+    },
+    "process-invoice": {
+      "type": "agent",
+      "tools": ["exec"],
+      "prompt": "Process the invoice: {{trigger.payload}}",
+    },
+    "process-receipt": {
+      "type": "agent",
+      "tools": ["write_file"],
+      "prompt": "Archive the receipt: {{trigger.payload}}",
+    },
+  },
+  "edges": [
+    { "from": "classify", "to": "route-by-type" },
+    { "from": "route-by-type", "to": "process-invoice", "branch": "invoice" },
+    { "from": "route-by-type", "to": "process-receipt", "branch": "receipt" },
   ],
 }
 ```
 
-Path matching is exact and case-sensitive (no trimming). If the resolved value is `"invoice"`, it matches the `"invoice"` key but not `"Invoice"` or `" invoice"`.
+Path matching is exact and case-sensitive (no trimming). If the resolved value matches no path and no `default` is set, the run fails.
 
 ### WaitFor step (signal gate)
 
-Pauses the workflow and releases the worker slot until an external signal is delivered via the API. Use this for human approvals, external system callbacks, or inter-workflow coordination.
+Pauses its own branch and releases the worker slot until an external signal is delivered via the API. In the DAG model, `waitFor` is a regular node: it blocks only its own successors — independent branches keep running.
 
 ```json5
-{
-  "slug": "await-approval",
+"await-approval": {
   "type": "waitFor",
   // Signal event name (lowercase, dots/hyphens allowed)
   "event": "approval.granted",
@@ -330,7 +373,7 @@ Pauses the workflow and releases the worker slot until an external signal is del
 }
 ```
 
-When the signal arrives, its payload becomes the step result. Subsequent steps can access it via `{{steps.await-approval.result}}` or `{{steps.await-approval.result.approver}}`.
+When the signal arrives, its payload becomes the step result. Successor steps access it via `{{steps.await-approval.result}}` or `{{steps.await-approval.result.approver}}`.
 
 #### Delivering a signal
 
@@ -355,11 +398,10 @@ Event names must match `^[a-z][a-z0-9._-]*$` (max 128 characters). Examples: `ap
 
 ### Emit step (cross-workflow signal)
 
-Sends a named signal to all workflows currently waiting for that event. The emitting workflow continues immediately (fire-and-forget).
+Sends a named signal to all workflows currently waiting for that event. The emitting branch continues immediately (fire-and-forget).
 
 ```json5
-{
-  "slug": "notify-ready",
+"notify-ready": {
   "type": "emit",
   // Signal event name to broadcast
   "event": "data.processed",
@@ -370,7 +412,49 @@ Sends a named signal to all workflows currently waiting for that event. The emit
 
 Any workflow with a `waitFor` step listening for `"data.processed"` will be resumed with the emitted payload.
 
-## Control flow examples
+## Full examples
+
+### Parallel fan-out and join
+
+```json5
+{
+  "name": "enrich-and-combine",
+  "description": "Validate and enrich in parallel, then combine",
+  "trigger": { "type": "webhook", "ref": "ingest-hook" },
+  "steps": {
+    "extract": {
+      "type": "agent",
+      "tools": ["exec"],
+      "prompt": "Extract the record from: {{trigger.payload}}",
+    },
+    "validate": {
+      "type": "agent",
+      "tools": [],
+      "prompt": "Validate the record: {{steps.extract.result}}",
+    },
+    "enrich": {
+      "type": "agent",
+      "tools": ["exec"],
+      "prompt": "Enrich the record with external data: {{steps.extract.result}}",
+    },
+    "combine": {
+      "type": "agent",
+      "tools": ["write_file"],
+      "prompt": [
+        "Validation: {{steps.validate.result}}",
+        "Enrichment: {{steps.enrich.result}}",
+        "Merge and save the final record.",
+      ],
+    },
+  },
+  "edges": [
+    { "from": "extract", "to": "validate" },
+    { "from": "extract", "to": "enrich" },
+    { "from": "validate", "to": "combine" },
+    { "from": "enrich", "to": "combine" },
+  ],
+}
+```
 
 ### Approval gate workflow
 
@@ -379,21 +463,18 @@ Any workflow with a `waitFor` step listening for `"data.processed"` will be resu
   "name": "deploy-with-approval",
   "description": "Deploy after human approval",
   "trigger": { "type": "webhook", "ref": "deploy-request" },
-  "steps": [
-    {
-      "slug": "prepare",
+  "steps": {
+    "prepare": {
       "type": "agent",
       "tools": ["exec"],
       "prompt": "Prepare the deployment package from: {{trigger.payload}}",
     },
-    {
-      "slug": "await-approval",
+    "await-approval": {
       "type": "waitFor",
       "event": "deploy.approved",
       "timeout": 172800000, // 48 hours
     },
-    {
-      "slug": "deploy",
+    "deploy": {
       "type": "agent",
       "tools": ["exec"],
       "prompt": [
@@ -401,6 +482,10 @@ Any workflow with a `waitFor` step listening for `"data.processed"` will be resu
         "Execute the deployment.",
       ],
     },
+  },
+  "edges": [
+    { "from": "prepare", "to": "await-approval" },
+    { "from": "await-approval", "to": "deploy" },
   ],
 }
 ```
@@ -412,9 +497,8 @@ Any workflow with a `waitFor` step listening for `"data.processed"` will be resu
   "name": "smart-notify",
   "description": "Route notifications based on severity",
   "trigger": { "type": "webhook", "ref": "alert-hook" },
-  "steps": [
-    {
-      "slug": "classify",
+  "steps": {
+    "classify": {
       "type": "agent",
       "tools": [],
       "prompt": [
@@ -423,37 +507,33 @@ Any workflow with a `waitFor` step listening for `"data.processed"` will be resu
         "Respond with just the severity level.",
       ],
     },
-    {
-      "slug": "route-severity",
+    "route-severity": {
       "type": "case",
       "match": "{{steps.classify.result}}",
-      "paths": {
-        "critical": [
-          {
-            "slug": "notify-oncall",
-            "type": "agent",
-            "tools": ["send_telegram_message"],
-            "prompt": "CRITICAL ALERT - notify on-call: {{trigger.payload}}",
-          },
-        ],
-        "warning": [
-          {
-            "slug": "notify-team",
-            "type": "agent",
-            "tools": ["send_telegram_message"],
-            "prompt": "Warning alert for the team: {{trigger.payload}}",
-          },
-        ],
-      },
-      "default": [
-        {
-          "slug": "log-info",
-          "type": "agent",
-          "tools": ["write_file"],
-          "prompt": "Log this info alert to data/alerts.md: {{trigger.payload}}",
-        },
-      ],
+      "paths": ["critical", "warning"],
+      "default": "info",
     },
+    "notify-oncall": {
+      "type": "agent",
+      "tools": ["send_telegram_message"],
+      "prompt": "CRITICAL ALERT - notify on-call: {{trigger.payload}}",
+    },
+    "notify-team": {
+      "type": "agent",
+      "tools": ["send_telegram_message"],
+      "prompt": "Warning alert for the team: {{trigger.payload}}",
+    },
+    "log-info": {
+      "type": "agent",
+      "tools": ["write_file"],
+      "prompt": "Log this info alert to data/alerts.md: {{trigger.payload}}",
+    },
+  },
+  "edges": [
+    { "from": "classify", "to": "route-severity" },
+    { "from": "route-severity", "to": "notify-oncall", "branch": "critical" },
+    { "from": "route-severity", "to": "notify-team", "branch": "warning" },
+    { "from": "route-severity", "to": "log-info", "branch": "info" },
   ],
 }
 ```
@@ -465,19 +545,20 @@ Any workflow with a `waitFor` step listening for `"data.processed"` will be resu
 {
   "name": "data-processor",
   "trigger": { "type": "schedule", "ref": "nightly-etl" },
-  "steps": [
-    {
-      "slug": "transform",
+  "steps": {
+    "transform": {
       "type": "agent",
       "tools": ["exec", "read_file", "write_file"],
       "prompt": "Run the nightly data transformation pipeline.",
     },
-    {
-      "slug": "signal-done",
+    "signal-done": {
       "type": "emit",
       "event": "etl.complete",
       "payload": "{{steps.transform.result}}",
     },
+  },
+  "edges": [
+    { "from": "transform", "to": "signal-done" },
   ],
 }
 ```
@@ -487,15 +568,13 @@ Any workflow with a `waitFor` step listening for `"data.processed"` will be resu
 {
   "name": "report-generator",
   "trigger": { "type": "manual" },
-  "steps": [
-    {
-      "slug": "wait-for-data",
+  "steps": {
+    "wait-for-data": {
       "type": "waitFor",
       "event": "etl.complete",
       "timeout": 7200000, // 2 hours
     },
-    {
-      "slug": "generate-report",
+    "generate-report": {
       "type": "agent",
       "tools": ["read_file", "write_file"],
       "prompt": [
@@ -503,6 +582,9 @@ Any workflow with a `waitFor` step listening for `"data.processed"` will be resu
         "Generate the daily report based on the processed data.",
       ],
     },
+  },
+  "edges": [
+    { "from": "wait-for-data", "to": "generate-report" },
   ],
 }
 ```
@@ -538,9 +620,8 @@ workflow write "deploy-pipeline" '{
   "name": "deploy-pipeline",
   "description": "Process deployment notifications",
   "trigger": { "type": "webhook", "ref": "deploy-trigger" },
-  "steps": [
-    {
-      "slug": "process-deploy",
+  "steps": {
+    "process-deploy": {
       "type": "agent",
       "tools": [],
       "prompt": [
@@ -549,7 +630,8 @@ workflow write "deploy-pipeline" '{
         "Summarize what was deployed.",
       ],
     },
-  ],
+  },
+  "edges": [],
 }'
 ```
 
@@ -576,15 +658,13 @@ workflow write "daily-motd" '{
   "name": "daily-motd",
   "description": "Generate and send a daily MOTD",
   "trigger": { "type": "schedule", "ref": "daily-motd-schedule" },
-  "steps": [
-    {
-      "slug": "create-motd",
+  "steps": {
+    "create-motd": {
       "type": "agent",
       "tools": [],
       "prompt": "Create a creative, engaging Message of the Day for a developer community. Keep it short and inspiring.",
     },
-    {
-      "slug": "send-to-telegram",
+    "send-to-telegram": {
       "type": "agent",
       "tools": ["send_telegram_message"],
       "prompt": [
@@ -592,6 +672,9 @@ workflow write "daily-motd" '{
         "{{steps.create-motd.result}}",
       ],
     },
+  },
+  "edges": [
+    { "from": "create-motd", "to": "send-to-telegram" },
   ],
 }'
 ```
@@ -634,19 +717,20 @@ workflow write "my-pipeline" '{
   "name": "my-pipeline",
   "description": "A simple two-step pipeline",
   "trigger": { "type": "manual" },
-  "steps": [
-    {
-      "slug": "step-one",
+  "steps": {
+    "step-one": {
       "type": "agent",
       "tools": [],
       "prompt": "Generate a haiku about coding.",
     },
-    {
-      "slug": "step-two",
+    "step-two": {
       "type": "agent",
       "tools": [],
       "prompt": ["Translate this haiku to French:", "{{steps.step-one.result}}"],
     },
+  },
+  "edges": [
+    { "from": "step-one", "to": "step-two" },
   ],
 }'
 ```
@@ -663,27 +747,41 @@ workflow validate "my-pipeline"
 
 ## Execution model
 
-- Steps within a segment execute sequentially: step 1 completes -> step 2 starts -> etc.
-- Control flow nodes (`if`, `case`, `waitFor`, `emit`) split the workflow into segments
-- Each step receives previous step results via `{{steps.<slug>.result}}`
-- If any step fails, the workflow fails and remaining steps are skipped
-- No retries - a failed step stops the chain
-- Each agent step runs in isolation with only the tools and skills you specify
-- `waitFor` releases its worker slot while waiting (does not block the queue)
-- `emit` is fire-and-forget - the emitting workflow continues immediately
-- Workflow state (results, cursor, status) is persisted in SQLite and survives restarts
+- The engine dispatches all root steps (no incoming edges) in parallel when the run starts.
+- A step is dispatched only when all its incoming edges are resolved (`satisfied` or `dead`) with at least one `satisfied` (join barrier).
+- A non-CF step with multiple outgoing edges fans out — all successors are dispatched.
+- Independent branches execute concurrently on the queue.
+- Control flow nodes (`if`, `case`) are evaluated inline (not queued) and mark their branch edges `satisfied`/`dead`.
+- Dead edges propagate: a step reachable only through dead edges is skipped (marked `dead`), and its outgoing edges become dead too.
+- Each step receives previous step results via `{{steps.<slug>.result}}`, resolved from the run store (any ancestor, not just the direct predecessor).
+- Fail-fast: if any step fails, the run fails, in-flight jobs are cancelled, and remaining pending steps are marked dead.
+- `waitFor` releases its worker slot while waiting (blocks only its own successors, not the whole run).
+- `emit` is fire-and-forget - the emitting branch continues immediately.
+- The run is marked completed when all terminal steps (no outgoing edges) are completed or dead, with at least one completed.
+- Workflow state (results, edge states, step statuses, run status) is persisted in SQLite and survives restarts.
+
+## Migrating legacy workflows
+
+Older workflows used a sequential `steps` array with inline `then`/`else`/`paths` branches. A CLI tool converts them to the DAG format in place:
+
+```sh
+bun run migrate-workflows            # convert .work/workflows/*.json5
+bun run migrate-workflows <dir>      # convert a specific directory
+```
+
+The tool skips files already in DAG format (steps object + edges array), converts sequential steps into chained edges, flattens `if`/`case` branches into top-level steps with branch edges, and reports a summary. It does not create backups (use version control for rollback).
 
 ## Notes
 
 - Workflow names must be unique across all JSON5 files
-- Step slugs must be globally unique within a workflow (including nested steps in `then`/`else`/`paths`/`default` branches)
+- Step slugs are the keys of the `steps` map and must match `^[a-z][a-z0-9-]*$`
+- The graph must be acyclic, fully connected (every step reachable from a root), and have at least one root
 - Disabled workflows (`enabled: false`) are skipped during loading
 - When no `tools` and no `skills` are specified, the agent runs with no tools (LLM-only reasoning)
 - When `skills` are specified, `exec` is automatically added to the tool list (even if `tools` is omitted)
 - JSON5 supports `//` and `/* */` comments — use them for documentation
 - Trailing commas are allowed in arrays and objects
-- Control flow branches can nest arbitrarily (`if` inside `case`, `waitFor` inside `then`, etc.)
-- If an `if` condition is false and no `else` branch is defined, the workflow fails
-- If a `case` match value hits no path and no `default` is defined, the workflow fails
-- Use a `fail` step in a `default` or `else` branch to explicitly abort with a meaningful error message
+- Only edges from `if`/`case` nodes may carry a `branch` property; all other edges must omit it
+- If an `if`/`case` branch has no matching edge and no path is taken, the corresponding branch is simply skipped (dead)
+- Use a `fail` step on a branch to explicitly abort with a meaningful error message
 - Always ask for approval before triggering a workflow run!
