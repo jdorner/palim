@@ -196,6 +196,30 @@ describe("computeLayout", () => {
         expect(sorted[i + 1]! - sorted[i]!).toBeGreaterThanOrEqual(56);
       }
     });
+
+    test("the join node's addStep is anchored next to the join, not flung away", () => {
+      // Regression: recentering the join node onto its feeders happened AFTER
+      // dagre placed the addStep, leaving the "+" button detached far from the
+      // node its dashed edge originates from.
+      const layout = computeLayout(buildJoinGraph(), { includeAddNode: true });
+      const joinEdge = layout.edges.find((e) => e.source === "join" && e.target.startsWith("__addStep:"))!;
+      expect(joinEdge).not.toBeUndefined();
+
+      const join = layout.nodes.find((n) => n.id === "join")!;
+      const addStep = layout.nodes.find((n) => n.id === joinEdge.target)!;
+
+      // Nodes are positioned by their top-left corner, offset from the dagre
+      // center by half the node's height. The add-step's center Y (position.y +
+      // 32/2) must equal the join's center Y (position.y + 56/2) so the
+      // connecting edge stays horizontal.
+      const joinCenter = join.position.y + 56 / 2;
+      const addStepCenter = addStep.position.y + 32 / 2;
+      expect(Math.abs(addStepCenter - joinCenter)).toBeLessThan(1);
+      // Positioned to the right of the join, roughly one node-width + rank gap
+      // away (attached), not flung across the canvas.
+      expect(addStep.position.x).toBeGreaterThan(join.position.x);
+      expect(addStep.position.x - join.position.x).toBeLessThan(260);
+    });
   });
 
   describe("sequential edges", () => {

@@ -259,8 +259,43 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
     joinPos.y = feederYs.reduce((sum, y) => sum + y, 0) / feederYs.length;
   }
 
+  // Post-process: re-anchor every add-step node next to its resolved source
+  // node. The branch-separation and join-centering passes above move step nodes
+  // AFTER dagre positioned the add-step nodes, so an add-step whose source was
+  // shifted (e.g. a join node recentered on its feeders) is left dangling far
+  // from the node its dashed edge originates from. Pinning each add-step to the
+  // right edge of its source, vertically aligned, keeps the "+" button attached.
+  const reanchorAddStep = (addStepId: string, sourceId: string): void => {
+    const addPos = g.node(addStepId);
+    const srcPos = g.node(sourceId);
+    if (!addPos || !srcPos) return;
+    const srcIsCF = graph.nodes.find((n) => n.id === sourceId)?.data.type;
+    const srcWidth = srcIsCF === "if" || srcIsCF === "case" ? CF_NODE_WIDTH : NODE_WIDTH;
+    // Place the add-step one rank-gap to the right of the source, centered on it.
+    addPos.x = srcPos.x + srcWidth / 2 + LAYOUT_OPTIONS.ranksep! / 2 + ADD_NODE_WIDTH / 2;
+    addPos.y = srcPos.y;
+  };
+
+  if (showRootAddStep && lastRoot) {
+    reanchorAddStep("__addStep__", lastRoot.id);
+  }
+  for (const info of branchAddSteps) {
+    // The add-step's real source is the branch tail, or the CF node for an
+    // empty branch (mirrors the edge-building logic below).
+    const branchChain = branchChainNodeIds(graph, info.parentNodeId, info.branch);
+    const sourceId = branchChain[branchChain.length - 1] ?? info.parentNodeId;
+    reanchorAddStep(info.nodeId, sourceId);
+  }
+
   // Extract positioned nodes
   const svelteNodes: Node[] = [];
+
+  // SvelteFlow positions nodes by their top-left corner (this version does not
+  // honor a per-node `origin`). Dagre gives each node a center point, so we
+  // convert center -> top-left by subtracting half the node's height. Using the
+  // correct per-node half-height is what keeps handle Ys aligned: the tall step
+  // node and the small 32px add-step button must each be offset by their OWN
+  // half-height so both handles land on the same center line (pos.y).
 
   // Trigger node
   if (options.trigger) {
@@ -298,7 +333,6 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
     });
   }
 
-  // Root add-step node
   // Root add-step node
   if (showRootAddStep) {
     const pos = g.node("__addStep__");
