@@ -187,6 +187,7 @@ describe("buildDagStepJob", () => {
     expect(job.data!.triggerPayload).toEqual({ key: "value" });
     expect(job.data!.sessionId).toContain("session-");
     expect(job.queueName).toBe("workflows:steps");
+    expect(job.name).toBe("fetch");
   });
 });
 

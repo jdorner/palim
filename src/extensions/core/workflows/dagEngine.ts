@@ -83,7 +83,7 @@ export function buildDagStepJob(
   };
 
   return {
-    name: DAG_WORKFLOW_STEPS_QUEUE,
+    name: slug,
     queueName: DAG_WORKFLOW_STEPS_QUEUE,
     data,
     opts: { attempts: 1 },
