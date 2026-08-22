@@ -196,14 +196,29 @@ let nodes = $state<Node[]>([]);
 let edges = $state<Edge[]>([]);
 
 let prevEditMode = $state(false);
-let prevNodeCount = $state(0);
+let prevNodeIds = $state<string>("");
+
+/**
+ * Builds a stable structural fingerprint from the computed layout: the sorted
+ * set of node IDs PLUS the sorted set of edges (source, target, handle). Node
+ * IDs alone are insufficient because connecting a branch tail to a shared join
+ * node re-anchors an existing add-step node (same ID, new position and source
+ * edge) without changing the node-ID set. Folding edges into the fingerprint
+ * makes that re-anchoring register as a structural change so the effect takes
+ * the full-reseed path and drops the stale add-step position.
+ */
+function layoutFingerprint(layout: { nodes: Node[]; edges: Edge[] }): string {
+  const nodeIds = layout.nodes.map((n) => n.id).sort();
+  const edgeKeys = layout.edges.map((e) => `${e.source}>${e.target}>${e.sourceHandle ?? ""}`).sort();
+  return `${nodeIds.join(" ")}||${edgeKeys.join(" ")}`;
+}
 
 $effect(() => {
   const layout = derivedLayout;
-  const currentNodeCount = layout.nodes.length;
+  const currentNodeIds = layoutFingerprint(layout);
 
   const enteringEditMode = editMode && !prevEditMode;
-  const structureChanged = editMode && currentNodeCount !== prevNodeCount;
+  const structureChanged = editMode && currentNodeIds !== prevNodeIds;
 
   if (editMode && !enteringEditMode && !structureChanged) {
     // Edit mode, stable structure: data-only update that preserves the
@@ -232,7 +247,7 @@ $effect(() => {
 
   prevEditMode = !!editMode;
   if (editMode) {
-    prevNodeCount = currentNodeCount;
+    prevNodeIds = currentNodeIds;
   }
 });
 
@@ -261,8 +276,21 @@ function handleConnect(connection: Connection) {
   if (!source || !target) return;
 
   const branch = branchFromHandle(source, sourceHandle);
-  const newEdge: Edge = {
-    id: branch ? `${source}->${target}:${branch}` : `${source}->${target}`,
+  const edgeId = branch ? `${source}->${target}:${branch}` : `${source}->${target}`;
+
+  // SvelteFlow inserts the new edge into the bound `edges` store BEFORE invoking
+  // this handler, so the connection is already present (typically with an
+  // auto-generated id and no label/metadata). We must therefore NOT bail out on
+  // "already exists" -- that would skip the onEdgesChange notification and the
+  // connection would never round-trip into the persisted workflow definition
+  // (leaving the source node's add-step button visible). Instead, normalize the
+  // matching edge in place (stable id + branch label) and always notify.
+  const matchIndex = edges.findIndex(
+    (e) => e.source === source && e.target === target && (e.sourceHandle ?? null) === (sourceHandle ?? null),
+  );
+
+  const normalized: Edge = {
+    id: edgeId,
     source,
     target,
     ...(sourceHandle ? { sourceHandle } : {}),
@@ -270,13 +298,21 @@ function handleConnect(connection: Connection) {
     animated: false,
   };
 
-  // Avoid duplicate edges (same source+target+handle)
-  const exists = edges.some(
-    (e) => e.source === source && e.target === target && (e.sourceHandle ?? null) === (sourceHandle ?? null),
-  );
-  if (exists) return;
+  if (matchIndex >= 0) {
+    // SvelteFlow already added it (or a duplicate exists): replace in place so
+    // the edge carries our stable id and branch metadata, then dedupe any extra
+    // copies sharing the same source/target/handle.
+    edges = edges
+      .map((e, i) => (i === matchIndex ? normalized : e))
+      .filter(
+        (e, i) =>
+          i === matchIndex ||
+          !(e.source === source && e.target === target && (e.sourceHandle ?? null) === (sourceHandle ?? null)),
+      );
+  } else {
+    edges = [...edges, normalized];
+  }
 
-  edges = [...edges, newEdge];
   onEdgesChange?.(edges);
 }
 
