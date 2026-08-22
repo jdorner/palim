@@ -7,12 +7,13 @@ import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { formatTimestamp, isRunCancellable, renderMarkdown, statusVariant } from "$lib/utils";
+import { buildStatusMap, type GraphStepStatus } from "$lib/workflowRunStatus";
 import { type RunStep, workflowStore } from "$lib/workflowRunStore.svelte";
 import SignalDeliveryForm from "../components/SignalDeliveryForm.svelte";
 import WorkflowGraph from "../components/WorkflowGraph.svelte";
 import { navigate, route } from "../router";
 
-type StepStatus = "waiting" | "active" | "completed" | "failed" | "waiting-signal" | "skipped";
+type StepStatus = GraphStepStatus;
 
 let loading = $state(true);
 let error = $state<string | null>(null);
@@ -43,25 +44,11 @@ const run = $derived(workflowStore.run);
  */
 const statusMap = $derived.by((): Record<string, StepStatus> => {
   if (!run) return {};
-  const map: Record<string, StepStatus> = {};
-
-  // Map executed steps by slug. The DAG backend reports per-slug status,
-  // including "dead" for steps on non-taken branches, which we render as "skipped".
-  for (const step of run.steps) {
-    const status = step.status as string;
-    map[step.slug] = (status === "dead" ? "skipped" : status) as StepStatus;
-  }
-
-  // Any definition step not present in the run's status map:
-  // skipped if the run finished, otherwise not yet reached (waiting).
-  for (const step of definitionSteps) {
-    const slug = step.slug as string;
-    if (map[slug] === undefined && (run.status === "completed" || run.status === "failed")) {
-      map[slug] = "skipped";
-    }
-  }
-
-  return map;
+  return buildStatusMap(
+    run.steps.map((s) => ({ slug: s.slug, status: s.status as string })),
+    run.status,
+    definitionSteps.map((s) => s.slug as string),
+  );
 });
 
 async function fetchRun() {

@@ -12,6 +12,7 @@ import "@xyflow/svelte/dist/style.css";
 import { onMount, untrack } from "svelte";
 import { buildDagGraph, type DagEdge, type StepData } from "$lib/workflowGraph";
 import { computeLayout } from "$lib/workflowLayout";
+import { type GraphStepStatus, isEdgeAnimated } from "$lib/workflowRunStatus";
 import AddStepNode from "./AddStepNode.svelte";
 import ControlFlowNode from "./ControlFlowNode.svelte";
 import FitViewOnInit from "./FitViewOnInit.svelte";
@@ -153,12 +154,15 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
     };
   });
 
-  // Animate edges to active nodes
-  const edgesWithAnimation = layout.edges.map((edge) => {
-    const targetNode = nodesWithStatus.find((n) => n.id === edge.target);
-    const isActive = (targetNode?.data as Record<string, unknown> | undefined)?.status === "active";
-    return { ...edge, animated: isActive || edge.animated };
-  });
+  // Animate edges whose target node is active (incl. the trigger -> first-step edge)
+  const statusNodes = nodesWithStatus.map((n) => ({
+    id: n.id,
+    status: (n.data as Record<string, unknown> | undefined)?.status as GraphStepStatus | undefined,
+  }));
+  const edgesWithAnimation = layout.edges.map((edge) => ({
+    ...edge,
+    animated: isEdgeAnimated({ target: edge.target, animated: edge.animated }, statusNodes),
+  }));
 
   return { nodes: nodesWithStatus, edges: edgesWithAnimation };
 }

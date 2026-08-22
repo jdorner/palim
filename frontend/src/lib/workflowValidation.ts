@@ -382,7 +382,9 @@ export function serializeWorkflowDraft(draft: WorkflowDraft): Record<string, unk
     steps[step.slug] = serializeStep(step);
   }
 
-  const edges = (draft.edges ?? []).map((e) => (e.branch !== undefined ? { from: e.from, to: e.to, branch: e.branch } : { from: e.from, to: e.to }));
+  const edges = (draft.edges ?? []).map((e) =>
+    e.branch !== undefined ? { from: e.from, to: e.to, branch: e.branch } : { from: e.from, to: e.to },
+  );
 
   const result: Record<string, unknown> = {
     name: draft.name,

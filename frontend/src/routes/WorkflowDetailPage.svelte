@@ -380,7 +380,9 @@ function handleEdgesChange(edges: Edge[]) {
     if (!stepSlugs.has(edge.source) || !stepSlugs.has(edge.target)) continue;
 
     const branch = branchFromHandle(edge.source, edge.sourceHandle);
-    draftEdges.push(branch !== undefined ? { from: edge.source, to: edge.target, branch } : { from: edge.source, to: edge.target });
+    draftEdges.push(
+      branch !== undefined ? { from: edge.source, to: edge.target, branch } : { from: edge.source, to: edge.target },
+    );
   }
 
   editDraft = { ...editDraft, edges: draftEdges };
