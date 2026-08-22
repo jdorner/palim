@@ -255,6 +255,45 @@ describe("workflowValidation", () => {
       const errors = validateWorkflowDraft(draft);
       expect(errors.has("edges[0].to")).toBe(true);
     });
+
+    test("catches an orphaned step with no incoming or outgoing edges", () => {
+      const draft: WorkflowDraft = {
+        ...validDraft,
+        steps: [
+          { slug: "a", type: "agent", prompt: "x" },
+          { slug: "b", type: "agent", prompt: "y" },
+          { slug: "orphan", type: "agent", prompt: "z" },
+        ],
+        edges: [{ from: "a", to: "b" }],
+      };
+      const errors = validateWorkflowDraft(draft);
+      expect(errors.has("steps[2].slug")).toBe(true);
+      expect(errors.get("steps[2].slug")).toContain("not connected");
+    });
+
+    test("does not flag a connected step (incoming edge only)", () => {
+      const draft: WorkflowDraft = {
+        ...validDraft,
+        steps: [
+          { slug: "a", type: "agent", prompt: "x" },
+          { slug: "b", type: "agent", prompt: "y" },
+        ],
+        edges: [{ from: "a", to: "b" }],
+      };
+      const errors = validateWorkflowDraft(draft);
+      expect(errors.has("steps[0].slug")).toBe(false);
+      expect(errors.has("steps[1].slug")).toBe(false);
+    });
+
+    test("does not flag orphan check for a single-step workflow with no edges", () => {
+      const draft: WorkflowDraft = {
+        ...validDraft,
+        steps: [{ slug: "only", type: "agent", prompt: "x" }],
+        edges: [],
+      };
+      const errors = validateWorkflowDraft(draft);
+      expect(errors.has("steps[0].slug")).toBe(false);
+    });
   });
 
   describe("Property 4: Slug validation correctness", () => {

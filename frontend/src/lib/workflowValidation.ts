@@ -239,6 +239,22 @@ export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: St
     }
   }
 
+  // Flag orphaned steps (no incoming or outgoing edges) when the graph has more
+  // than one step. A single-step workflow legitimately has no edges.
+  if (draft.steps.length > 1) {
+    const connected = new Set<string>();
+    for (const edge of edges) {
+      connected.add(edge.from);
+      connected.add(edge.to);
+    }
+    for (let i = 0; i < draft.steps.length; i++) {
+      const step = draft.steps[i]!;
+      if (!connected.has(step.slug)) {
+        errors.set(`steps[${i}].slug`, `Step "${step.slug}" is not connected to any other step`);
+      }
+    }
+  }
+
   return errors;
 }
 

@@ -3,6 +3,7 @@
  *
  * Performs structural and semantic validation on a DAG workflow definition:
  * - Edge reference integrity (from/to exist in steps)
+ * - Orphaned step detection (no incoming or outgoing edges in a multi-step graph)
  * - Cycle detection (topological sort)
  * - Root node existence (at least one step with no incoming edges)
  * - Connected graph (all steps reachable from a root)
@@ -23,6 +24,7 @@ export interface DagValidationError {
     | "cycle_detected"
     | "no_root_nodes"
     | "unreachable_steps"
+    | "orphaned_step"
     | "cf_edge_missing_branch"
     | "non_cf_edge_has_branch"
     | "invalid_if_branch"
@@ -70,14 +72,33 @@ export function validateDag(definition: DagWorkflowDefinition): DagValidationErr
   // If there are reference errors, skip further validation (graph is malformed)
   if (errors.length > 0) return errors;
 
-  // 2. Cycle detection via topological sort (Kahn's algorithm)
+  // 2. Orphaned step detection: in a multi-step workflow every step must
+  // participate in at least one edge. A lone orphan technically qualifies as a
+  // root node (no incoming edges), so it survives the reachability check below;
+  // this explicit pass is what catches it.
+  const touched = new Set<string>();
+  for (const edge of edges) {
+    touched.add(edge.from);
+    touched.add(edge.to);
+  }
+  for (const slug of slugs) {
+    if (!touched.has(slug)) {
+      errors.push({
+        code: "orphaned_step",
+        message: `Step "${slug}" is not connected to any other step (no incoming or outgoing edges)`,
+      });
+    }
+  }
+  if (errors.length > 0) return errors;
+
+  // 3. Cycle detection via topological sort (Kahn's algorithm)
   const cycleErrors = detectCycles(slugs, edges);
   errors.push(...cycleErrors);
 
   // If there are cycles, skip connectivity check (would be misleading)
   if (cycleErrors.length > 0) return errors;
 
-  // 3. Root node existence
+  // 4. Root node existence
   const incomingEdges = new Map<string, Edge[]>();
   for (const slug of slugs) {
     incomingEdges.set(slug, []);
@@ -96,7 +117,7 @@ export function validateDag(definition: DagWorkflowDefinition): DagValidationErr
     return errors;
   }
 
-  // 4. Connected graph (all steps reachable from a root)
+  // 5. Connected graph (all steps reachable from a root)
   const reachable = new Set<string>();
   const outgoing = new Map<string, string[]>();
   for (const slug of slugs) {

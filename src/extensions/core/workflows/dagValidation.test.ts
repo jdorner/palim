@@ -201,29 +201,45 @@ describe("validateDag", () => {
     expect(errors).toEqual([]);
   });
 
-  test("detects truly unreachable step (has incoming edge only from reachable set but not from root)", () => {
-    // Create a case where a step has incoming edges but not from any root path
-    // Actually with proper cycle detection this is hard to construct without a cycle.
-    // The realistic case is: step with incoming edges from a cycle component only.
-    // Since cycles are caught first, unreachable detection kicks in for disconnected non-root nodes.
+  test("detects a lone orphaned step with no incoming or outgoing edges", () => {
+    // A step with no edges technically qualifies as a root (no incoming edges),
+    // so the reachability check treats it as reachable-from-itself and would not
+    // flag it. The dedicated orphan check catches it instead.
     const def = makeDag({
       steps: {
         a: { type: "agent", prompt: "root" },
         b: { type: "agent", prompt: "connected" },
         c: { type: "agent", prompt: "isolated" },
       },
+      edges: [{ from: "a", to: "b" }],
+    });
+    const errors = validateDag(def);
+    expect(errors.length).toBe(1);
+    expect(errors[0]!.code).toBe("orphaned_step");
+    expect(errors[0]!.message).toContain("c");
+  });
+
+  test("does not flag a single-step workflow with no edges as orphaned", () => {
+    const def = makeDag({
+      steps: { a: { type: "agent", prompt: "only" } },
+      edges: [],
+    });
+    const errors = validateDag(def);
+    expect(errors).toEqual([]);
+  });
+
+  test("does not flag steps that participate in at least one edge", () => {
+    const def = makeDag({
+      steps: {
+        a: { type: "agent", prompt: "root" },
+        b: { type: "agent", prompt: "middle" },
+        c: { type: "agent", prompt: "leaf" },
+      },
       edges: [
         { from: "a", to: "b" },
-        // c has no incoming or outgoing edges — but it must exist in edges for schema to pass.
-        // Actually: edges minimum is 1 and we have a->b. c has no edge connection.
-        // But c has no incoming edges, so it's also a root.
-        // This means c IS reachable (from itself as root). Let's test differently.
+        { from: "b", to: "c" },
       ],
     });
-    // c is a root (no incoming). It's reachable from "a root" (itself). So no error.
-    // We need a step that's NOT a root (has incoming) but is not reachable from any root.
-    // That implies a cycle. So unreachable_steps really only fires for malformed graphs
-    // that pass cycle detection but have isolated non-root components (unlikely).
     const errors = validateDag(def);
     expect(errors).toEqual([]);
   });
