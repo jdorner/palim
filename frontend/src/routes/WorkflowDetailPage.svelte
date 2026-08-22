@@ -349,6 +349,11 @@ function addStep(
   }
   validationErrors = newErrors;
 
+  // Growing the graph with a new node is an intentional structural
+  // change, so re-fit the view to bring the new step into frame. (Edge draws
+  // do NOT bump this, so connecting nodes no longer re-fits the canvas.)
+  fitViewTrigger++;
+
   // Auto-select the new step in the sidebar
   selectedStep = editDraft.steps[newIndex] as StepDef;
   selectedStepIndex = newIndex;
