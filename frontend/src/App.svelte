@@ -88,6 +88,7 @@ function handleMessage(message: WebSocketMessage) {
     case "workflow_started":
     case "workflow_step_started":
     case "workflow_step_completed":
+    case "workflow_step_dead":
     case "workflow_step_failed":
     case "workflow_step_waiting":
     case "workflow_step_resumed":

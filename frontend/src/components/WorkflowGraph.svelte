@@ -168,7 +168,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
   }));
   const edgesWithAnimation = layout.edges.map((edge) => ({
     ...edge,
-    animated: isEdgeAnimated({ target: edge.target, animated: edge.animated }, statusNodes),
+    animated: isEdgeAnimated({ source: edge.source, target: edge.target, animated: edge.animated }, statusNodes),
   }));
 
   return { nodes: nodesWithStatus, edges: edgesWithAnimation };
@@ -179,47 +179,55 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
 // ---------------------------------------------------------------------------
 
 let derivedLayout = $derived(computeGraphLayout());
-let derivedNodes = $derived<Node[]>(derivedLayout.nodes);
-let derivedEdges = $derived<Edge[]>(derivedLayout.edges);
 
 // ---------------------------------------------------------------------------
-// Edit mode: mutable state seeded from layout
+// SvelteFlow state
+//
+// SvelteFlow manages its own internal nodes/edges store seeded from these
+// bound arrays. It does NOT repaint when only nested `data` (status/animated)
+// values change behind a new array identity, so we cannot hand it a plain
+// $derived. Instead we own `nodes`/`edges` as $state and sync the derived
+// layout into them via an $effect (view mode) while preserving user-dragged
+// positions in edit mode. Reassigning the arrays here is what makes live
+// status/animation updates (e.g. WebSocket-driven run progress) repaint.
 // ---------------------------------------------------------------------------
 
-let editableNodes = $state<Node[]>([]);
-let editableEdges = $state<Edge[]>([]);
+let nodes = $state<Node[]>([]);
+let edges = $state<Edge[]>([]);
 
 let prevEditMode = $state(false);
 let prevNodeCount = $state(0);
 
-// Seed editable state when entering edit mode or when the graph structure changes.
 $effect(() => {
-  // Compute full layout to detect structural changes including addStep node presence
-  const layout = computeGraphLayout();
+  const layout = derivedLayout;
   const currentNodeCount = layout.nodes.length;
 
   const enteringEditMode = editMode && !prevEditMode;
   const structureChanged = editMode && currentNodeCount !== prevNodeCount;
 
-  if (enteringEditMode || structureChanged) {
-    // Recompute layout but preserve existing positions for user-dragged nodes
-    const existingPositions = new Map(untrack(() => editableNodes).map((n) => [n.id, n.position]));
-
-    editableNodes = layout.nodes.map((node) => {
+  if (editMode && !enteringEditMode && !structureChanged) {
+    // Edit mode, stable structure: data-only update that preserves the
+    // positions of user-dragged nodes.
+    const layoutDataMap = new Map(layout.nodes.map((n) => [n.id, n.data]));
+    nodes = untrack(() => nodes).map((node) => {
+      const newData = layoutDataMap.get(node.id);
+      return newData ? { ...node, data: newData } : node;
+    });
+  } else if (editMode) {
+    // Entering edit mode or structure changed: reseed, preserving positions.
+    const existingPositions = new Map(untrack(() => nodes).map((n) => [n.id, n.position]));
+    nodes = layout.nodes.map((node) => {
       // Always use fresh positions for addStep nodes (they move as branches grow)
       if (node.id.startsWith("__addStep")) return node;
       const existing = existingPositions.get(node.id);
       return existing ? { ...node, position: existing } : node;
     });
-    editableEdges = [...layout.edges];
-  } else if (editMode) {
-    // Data-only update: sync slug/type/status/selected without touching positions
-    const layoutDataMap = new Map(layout.nodes.map((n) => [n.id, n.data]));
-
-    editableNodes = untrack(() => editableNodes).map((node) => {
-      const newData = layoutDataMap.get(node.id);
-      return newData ? { ...node, data: newData } : node;
-    });
+    edges = [...layout.edges];
+  } else {
+    // View mode (e.g. run page): always take the freshly computed layout so
+    // live status and edge-animation changes repaint.
+    nodes = layout.nodes;
+    edges = layout.edges;
   }
 
   prevEditMode = !!editMode;
@@ -228,10 +236,6 @@ $effect(() => {
   }
 });
 
-// The state passed to SvelteFlow
-let nodes = $derived<Node[]>(editMode ? editableNodes : derivedNodes);
-let edges = $derived<Edge[]>(editMode ? editableEdges : derivedEdges);
-
 // ---------------------------------------------------------------------------
 // Node drag
 // ---------------------------------------------------------------------------
@@ -239,7 +243,7 @@ let edges = $derived<Edge[]>(editMode ? editableEdges : derivedEdges);
 function handleNodeDragStop(ev: { event: MouseEvent | TouchEvent; targetNode: Node | null; nodes: Node[] }) {
   const { targetNode } = ev;
   if (!targetNode) return;
-  editableNodes = editableNodes.map((n) => (n.id === targetNode.id ? { ...n, position: targetNode.position } : n));
+  nodes = nodes.map((n) => (n.id === targetNode.id ? { ...n, position: targetNode.position } : n));
 }
 
 // ---------------------------------------------------------------------------
@@ -267,13 +271,13 @@ function handleConnect(connection: Connection) {
   };
 
   // Avoid duplicate edges (same source+target+handle)
-  const exists = editableEdges.some(
+  const exists = edges.some(
     (e) => e.source === source && e.target === target && (e.sourceHandle ?? null) === (sourceHandle ?? null),
   );
   if (exists) return;
 
-  editableEdges = [...editableEdges, newEdge];
-  onEdgesChange?.(editableEdges);
+  edges = [...edges, newEdge];
+  onEdgesChange?.(edges);
 }
 
 /**
@@ -296,8 +300,8 @@ function handleDelete({ edges: deletedEdges }: { nodes: Node[]; edges: Edge[] })
   if (deletedEdges.length === 0) return;
 
   const deletedIds = new Set(deletedEdges.map((e) => e.id));
-  editableEdges = editableEdges.filter((e) => !deletedIds.has(e.id));
-  onEdgesChange?.(editableEdges);
+  edges = edges.filter((e) => !deletedIds.has(e.id));
+  onEdgesChange?.(edges);
 }
 
 function handleBeforeReconnect(newEdge: Edge, _oldEdge: Edge): Edge | null {
@@ -307,8 +311,8 @@ function handleBeforeReconnect(newEdge: Edge, _oldEdge: Edge): Edge | null {
 }
 
 function handleReconnect(newEdge: Edge) {
-  editableEdges = editableEdges.map((e) => (e.id === newEdge.id ? newEdge : e));
-  onEdgesChange?.(editableEdges);
+  edges = edges.map((e) => (e.id === newEdge.id ? newEdge : e));
+  onEdgesChange?.(edges);
 }
 
 // ---------------------------------------------------------------------------
@@ -352,8 +356,8 @@ onMount(() => {
 
 <div class="w-full h-full border rounded-lg overflow-hidden bg-background">
   <SvelteFlow
-    {nodes}
-    {edges}
+    bind:nodes
+    bind:edges
     {nodeTypes}
     {colorMode}
     nodesDraggable={editMode}

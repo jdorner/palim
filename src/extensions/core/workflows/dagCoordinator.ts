@@ -520,11 +520,12 @@ async function propagateDead(
   topology: DagGraphTopology,
   deps: DagCoordinatorDeps,
 ): Promise<void> {
-  const { log } = deps;
+  const { log, broadcast } = deps;
 
   // Mark step as dead
   dagRunStore.updateStepStatus(runId, slug, "dead");
-  log.info(`DAG coordinator: step "${slug}" in run ${runId} is dead (all incoming edges dead)`);
+  broadcast({ type: "workflow_step_dead", workflowRunId: runId, stepSlug: slug });
+  log.debug(`DAG coordinator: step "${slug}" in run ${runId} is dead (all incoming edges dead)`);
 
   // Mark all outgoing edges as dead
   const outEdges = topology.outgoingEdges.get(slug) ?? [];
@@ -834,6 +835,7 @@ export async function handleDagStepFailure(
     for (const [slug, status] of Object.entries(run.stepStatuses)) {
       if (status === "pending" || status === "running") {
         dagRunStore.updateStepStatus(runId, slug, "dead");
+        broadcast({ type: "workflow_step_dead", workflowRunId: runId, stepSlug: slug });
       }
     }
   }

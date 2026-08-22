@@ -48,6 +48,8 @@ const statusMap = $derived.by((): Record<string, StepStatus> => {
     run.steps.map((s) => ({ slug: s.slug, status: s.status as string })),
     run.status,
     definitionSteps.map((s) => s.slug as string),
+    definitionEdges,
+    workflowStore.chosenBranches,
   );
 });
 

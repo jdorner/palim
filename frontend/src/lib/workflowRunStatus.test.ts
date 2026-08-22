@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   type AnimatableEdge,
   buildStatusMap,
+  computeDeadSteps,
+  type DefinitionEdge,
   isEdgeAnimated,
   normalizeStepStatus,
   type StatusNode,
@@ -105,27 +107,125 @@ describe("isEdgeAnimated", () => {
 
   describe("active target", () => {
     test("animates the trigger edge when the first step is active", () => {
-      const triggerEdge: AnimatableEdge = { target: "create-motd" };
+      const triggerEdge: AnimatableEdge = { source: "__trigger__", target: "create-motd" };
       expect(isEdgeAnimated(triggerEdge, nodes)).toBe(true);
     });
   });
 
   describe("inactive target", () => {
     test("does not animate an edge whose target is waiting", () => {
-      const edge: AnimatableEdge = { target: "send" };
+      const edge: AnimatableEdge = { source: "create-motd", target: "send" };
       expect(isEdgeAnimated(edge, nodes)).toBe(false);
     });
 
     test("does not animate when the target node is missing", () => {
-      const edge: AnimatableEdge = { target: "nonexistent" };
+      const edge: AnimatableEdge = { source: "create-motd", target: "nonexistent" };
       expect(isEdgeAnimated(edge, nodes)).toBe(false);
     });
   });
 
   describe("pre-flagged edges", () => {
     test("preserves an already-animated edge even when the target is not active", () => {
-      const dashedAddStepEdge: AnimatableEdge = { target: "send", animated: true };
+      const dashedAddStepEdge: AnimatableEdge = { source: "create-motd", target: "send", animated: true };
       expect(isEdgeAnimated(dashedAddStepEdge, nodes)).toBe(true);
     });
+  });
+
+  describe("join node fed by one live and several skipped branches", () => {
+    // Only the edge from the branch that actually ran should animate, even
+    // though the join target is active and every branch points at it.
+    const joinNodes: StatusNode[] = [
+      { id: "sort", status: "completed" },
+      { id: "taken", status: "completed" },
+      { id: "skipped-a", status: "skipped" },
+      { id: "skipped-b", status: "skipped" },
+      { id: "join", status: "active" },
+    ];
+
+    test("animates the edge from the live (completed) branch", () => {
+      expect(isEdgeAnimated({ source: "taken", target: "join" }, joinNodes)).toBe(true);
+    });
+
+    test("does not animate edges from skipped branches", () => {
+      expect(isEdgeAnimated({ source: "skipped-a", target: "join" }, joinNodes)).toBe(false);
+      expect(isEdgeAnimated({ source: "skipped-b", target: "join" }, joinNodes)).toBe(false);
+    });
+  });
+});
+
+describe("computeDeadSteps", () => {
+  const edges: DefinitionEdge[] = [
+    { from: "sort", to: "a", branch: "x" },
+    { from: "sort", to: "b", branch: "y" },
+    { from: "sort", to: "c", branch: "z" },
+    { from: "a", to: "join" },
+    { from: "b", to: "join" },
+    { from: "c", to: "join" },
+  ];
+
+  test("returns empty when no branch has been chosen yet", () => {
+    expect(computeDeadSteps(edges, {}).size).toBe(0);
+  });
+
+  test("marks non-chosen branch targets dead once a branch is chosen", () => {
+    const dead = computeDeadSteps(edges, { sort: "y" });
+    expect(dead.has("a")).toBe(true);
+    expect(dead.has("c")).toBe(true);
+    expect(dead.has("b")).toBe(false);
+  });
+
+  test("does not mark a join node dead while one live branch still reaches it", () => {
+    const dead = computeDeadSteps(edges, { sort: "y" });
+    expect(dead.has("join")).toBe(false);
+  });
+
+  test("propagates deadness through a dead branch's own chain", () => {
+    const chain: DefinitionEdge[] = [
+      { from: "sort", to: "a", branch: "x" },
+      { from: "sort", to: "b", branch: "y" },
+      { from: "a", to: "a2" },
+      { from: "a2", to: "a3" },
+    ];
+    const dead = computeDeadSteps(chain, { sort: "y" });
+    expect(dead.has("a")).toBe(true);
+    expect(dead.has("a2")).toBe(true);
+    expect(dead.has("a3")).toBe(true);
+  });
+});
+
+describe("buildStatusMap with dead-branch derivation", () => {
+  const edges: DefinitionEdge[] = [
+    { from: "sort", to: "taken", branch: "y" },
+    { from: "sort", to: "skipped-a", branch: "x" },
+    { from: "sort", to: "skipped-b", branch: "z" },
+    { from: "taken", to: "join" },
+    { from: "skipped-a", to: "join" },
+    { from: "skipped-b", to: "join" },
+  ];
+  const slugs = ["sort", "taken", "skipped-a", "skipped-b", "join"];
+
+  test("marks not-taken branches skipped live during a running run", () => {
+    const map = buildStatusMap(
+      [
+        { slug: "sort", status: "completed" },
+        { slug: "taken", status: "completed" },
+        { slug: "join", status: "running" },
+      ],
+      "running",
+      slugs,
+      edges,
+      { sort: "y" },
+    );
+    expect(map["skipped-a"]).toBe("skipped");
+    expect(map["skipped-b"]).toBe("skipped");
+    expect(map.taken).toBe("completed");
+    expect(map.join).toBe("active");
+  });
+
+  test("does not skip branches before the case node has decided", () => {
+    const map = buildStatusMap([{ slug: "sort", status: "active" }], "running", slugs, edges, {});
+    expect(map["skipped-a"]).toBeUndefined();
+    expect(map["skipped-b"]).toBeUndefined();
+    expect(map.taken).toBeUndefined();
   });
 });
