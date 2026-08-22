@@ -18,7 +18,7 @@ import type { FlowProducer } from "bunqueue/client";
 import { evaluateCondition } from "./condition";
 import { buildDagStepJob, buildIncomingEdgeMap, buildOutgoingEdgeMap, type SessionFactory } from "./dagEngine";
 import * as dagRunStore from "./dagRunStore";
-import { type DagWorkflowRun, type EdgeState, edgeId, getReadySteps, type StepStatus } from "./dagRunStore";
+import { type DagWorkflowRun, edgeId } from "./dagRunStore";
 import { computeTerminalSteps } from "./dagValidation";
 import type {
   ConditionDef,
@@ -182,7 +182,7 @@ async function evaluateCfNode(
   topology: DagGraphTopology,
   deps: DagCoordinatorDeps,
 ): Promise<void> {
-  const { log, broadcast } = deps;
+  const { log } = deps;
   const stepDef = definition.steps[stepSlug]!;
 
   if (stepDef.type === "if") {
@@ -397,13 +397,11 @@ async function checkSuccessors(
 
     // Check edge states for this successor
     let allResolved = true;
-    let hasSatisfied = false;
     let allDead = true;
 
     for (const eid of incomingEdgeIds) {
       const state = run.edgeStates[eid];
       if (state === "satisfied") {
-        hasSatisfied = true;
         allDead = false;
       } else if (state === "dead") {
         // resolved but not satisfied
@@ -422,7 +420,7 @@ async function checkSuccessors(
       await propagateDead(runId, slug, definition, topology, deps);
       // Re-read run state after propagation
       const freshRun = dagRunStore.get(runId);
-      if (!freshRun || freshRun.status !== "running") return;
+      if (freshRun?.status !== "running") return;
       // Update local run reference for subsequent iterations
       Object.assign(run, freshRun);
       continue;
@@ -438,7 +436,7 @@ async function checkSuccessors(
       await evaluateCfNode(runId, slug, freshRun, definition, topology, deps);
       // Re-read after CF evaluation
       const postCfRun = dagRunStore.get(runId);
-      if (!postCfRun || postCfRun.status !== "running") return;
+      if (postCfRun?.status !== "running") return;
       Object.assign(run, postCfRun);
     } else if (stepDef.type === "waitFor") {
       // WaitFor node: register a signal and pause this branch (no queue job)
@@ -455,7 +453,7 @@ async function checkSuccessors(
   }
 
   // After processing all successors, check for run completion
-  await checkRunCompletion(runId, definition, topology, deps);
+  await checkRunCompletion(runId, topology, deps);
 }
 
 /**
@@ -591,16 +589,11 @@ async function propagateDead(
  * A run is complete when all terminal steps (no outgoing edges) are in a
  * terminal state (completed or dead), with at least one completed.
  */
-async function checkRunCompletion(
-  runId: string,
-  definition: DagWorkflowDefinition,
-  topology: DagGraphTopology,
-  deps: DagCoordinatorDeps,
-): Promise<void> {
+async function checkRunCompletion(runId: string, topology: DagGraphTopology, deps: DagCoordinatorDeps): Promise<void> {
   const { log, broadcast } = deps;
 
   const run = dagRunStore.get(runId);
-  if (!run || run.status !== "running") return;
+  if (run?.status !== "running") return;
 
   let allTerminalsDone = true;
   let hasCompleted = false;
@@ -643,7 +636,7 @@ export async function evaluateInlineRoot(runId: string, slug: string, deps: DagC
   const { log, getWorkflowDefinition } = deps;
 
   const run = dagRunStore.get(runId);
-  if (!run || run.status !== "running") return;
+  if (run?.status !== "running") return;
 
   const definition = getWorkflowDefinition(run.workflowName);
   if (!definition) {

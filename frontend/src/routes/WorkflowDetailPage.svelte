@@ -681,7 +681,7 @@ async function cancelRun(runId: string) {
   }
 }
 
-function onStepClick(step: { slug: string; type: string }, index: number) {
+function onStepClick(_step: { slug: string; type: string }, index: number) {
   const stepIndex = index;
   const def = editDraft ? editDraft.steps[stepIndex] : workflow?.steps[stepIndex];
   if (!def) return;

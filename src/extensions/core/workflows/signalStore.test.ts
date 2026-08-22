@@ -9,15 +9,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createWorkflowTestDb } from "@src/test/db";
-import {
-  create,
-  deleteByRunIds,
-  getAllWaiting,
-  getWaiting,
-  initSignalStore,
-  markReceived,
-  markTimedOut,
-} from "./signalStore";
+import { create, deleteByRunIds, getAllWaiting, getWaiting, markReceived, markTimedOut } from "./signalStore";
 
 /** Helper: creates a minimal signal record for testing. */
 function createMinimalSignal(overrides: Partial<Parameters<typeof create>[0]> = {}) {

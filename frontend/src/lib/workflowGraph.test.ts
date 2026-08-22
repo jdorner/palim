@@ -21,7 +21,7 @@ describe("buildDagGraph", () => {
     expect(graph.edges[0]!.label).toBeUndefined();
   });
 
-  test("if-node branch edges use `${node}-${branch}` handle IDs", () => {
+  test("if-node branch edges use `{node}-{branch}` handle IDs", () => {
     const steps = {
       decide: { type: "if", condition: { ref: "{{steps.x.result}}", eq: "yes" } },
       yes: { type: "agent", prompt: "y" },
@@ -41,7 +41,7 @@ describe("buildDagGraph", () => {
     expect(elseEdge.sourceHandle).toBe("decide-else");
   });
 
-  test("case-node path edges use `${node}-path-${branch}` handle IDs", () => {
+  test("case-node path edges use `{node}-path-{branch}` handle IDs", () => {
     const steps = {
       route: { type: "case", match: "{{steps.x.result}}", paths: ["low", "high"], default: "low" },
       lo: { type: "agent", prompt: "l" },
