@@ -305,11 +305,21 @@ function nextStepSlug(): string {
 /**
  * Add a new step to the draft with the given type (defaults to "agent").
  *
- * When `branchContext` is provided, the new step is connected to the parent
- * CF node via a labeled edge (the DAG equivalent of inserting into a branch).
- * Otherwise the step is added as an unconnected node the user can wire up.
+ * When `branchContext` is provided, the new step is wired into a control-flow
+ * branch:
+ * - Empty branch (`lastNodeId` null): connect the CF node to the new step via
+ *   the labeled branch edge (`parentNodeId -> newStep [branch]`).
+ * - Populated branch (`lastNodeId` set): append the new step sequentially after
+ *   the branch's tail node (`lastNodeId -> newStep`). Using the labeled branch
+ *   edge here would give the branch two outgoing edges and corrupt the graph.
+ *
+ * Without `branchContext`, the step is added as an unconnected node the user
+ * can wire up manually.
  */
-function addStep(type: string = "agent", branchContext?: { parentNodeId: string; branch: string }) {
+function addStep(
+  type: string = "agent",
+  branchContext?: { parentNodeId: string; branch: string; lastNodeId: string | null },
+) {
   if (!editDraft) return;
 
   const template = stepTemplate(type);
@@ -317,8 +327,13 @@ function addStep(type: string = "agent", branchContext?: { parentNodeId: string;
 
   const newEdges = [...editDraft.edges];
   if (branchContext) {
-    // Connect the parent CF node to the new step via a labeled branch edge.
-    newEdges.push({ from: branchContext.parentNodeId, to: template.slug, branch: branchContext.branch });
+    if (branchContext.lastNodeId) {
+      // Populated branch: append after the branch tail (plain sequential edge).
+      newEdges.push({ from: branchContext.lastNodeId, to: template.slug });
+    } else {
+      // Empty branch: connect the CF node to the new step via a labeled edge.
+      newEdges.push({ from: branchContext.parentNodeId, to: template.slug, branch: branchContext.branch });
+    }
   }
 
   editDraft = {

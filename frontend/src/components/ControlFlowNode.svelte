@@ -51,9 +51,12 @@ let branches = $derived(data.branches ?? []);
   <Handle type="target" position={Position.Left} style="left: 0px; top: 50%;" />
 
   {#if branches.length > 0}
-    <!-- Source handles: right side, stacked vertically per branch -->
+    <!-- Source handles: right side, stacked vertically per branch.
+         Spacing scales down as branch count grows so many-branch case nodes
+         stay compact, but stays wide enough that edges leave from distinct
+         points and do not overlap near the source. -->
     {#each branches as branch, i}
-      {@const spacing = 16}
+      {@const spacing = branches.length > 4 ? 24 : 16}
       {@const totalHeight = (branches.length - 1) * spacing}
       {@const yOffset = branches.length === 1 ? 0 : i * spacing - totalHeight / 2}
       <Handle

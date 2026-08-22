@@ -56,7 +56,10 @@ interface Props {
   onNodeClick?: (step: StepInfo, index: number) => void;
   /** Fired when the trigger node is clicked. */
   onTriggerClick?: () => void;
-  onAddStep?: (type?: string, branchContext?: { parentNodeId: string; branch: string }) => void;
+  onAddStep?: (
+    type?: string,
+    branchContext?: { parentNodeId: string; branch: string; lastNodeId: string | null },
+  ) => void;
   onEdgesChange?: (edges: Edge[]) => void;
 }
 
@@ -112,7 +115,11 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
     if (node.id === "__addStep__" || node.id.startsWith("__addStep:")) {
       const branchContext =
         node.data.parentNodeId && node.data.branch
-          ? { parentNodeId: node.data.parentNodeId as string, branch: node.data.branch as string }
+          ? {
+              parentNodeId: node.data.parentNodeId as string,
+              branch: node.data.branch as string,
+              lastNodeId: (node.data.lastNodeId as string | null | undefined) ?? null,
+            }
           : undefined;
 
       return {
