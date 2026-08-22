@@ -9,16 +9,26 @@ export interface ValidationResult {
   error?: string;
 }
 
-/** Draft workflow being edited or created. */
+/** An edge in a DAG workflow draft. */
+export interface EdgeDraft {
+  from: string;
+  to: string;
+  branch?: string;
+}
+
+/** Draft workflow being edited or created (DAG model). */
 export interface WorkflowDraft {
   name: string;
   description: string;
   trigger: { type: string; ref: string };
   enabled: boolean;
+  /** Steps as a flat array with slug (converted to a map on serialize). */
   steps: StepDraft[];
+  /** DAG edges connecting steps by slug. */
+  edges: EdgeDraft[];
 }
 
-/** Draft step within a workflow. */
+/** Draft step within a workflow (DAG node; branches are edges, not nested arrays). */
 export interface StepDraft {
   [key: string]: unknown;
   slug: string;
@@ -207,8 +217,7 @@ export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: St
   // Validate each step slug and type-specific required fields
   const slugs: string[] = [];
   for (let i = 0; i < draft.steps.length; i++) {
-    const step = draft.steps[i];
-    validateStepRecursive(step, `steps[${i}]`, slugs, errors, stepTypeSchemas);
+    validateStepFields(draft.steps[i], `steps[${i}]`, slugs, errors, stepTypeSchemas);
   }
 
   // Validate step slugs uniqueness
@@ -217,14 +226,27 @@ export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: St
     errors.set("steps.slugs", uniqueResult.error);
   }
 
+  // Validate edges reference existing steps
+  const slugSet = new Set(draft.steps.map((s) => s.slug));
+  const edges = draft.edges ?? [];
+  for (let i = 0; i < edges.length; i++) {
+    const edge = edges[i]!;
+    if (!slugSet.has(edge.from)) {
+      errors.set(`edges[${i}].from`, `Edge references unknown step "${edge.from}"`);
+    }
+    if (!slugSet.has(edge.to)) {
+      errors.set(`edges[${i}].to`, `Edge references unknown step "${edge.to}"`);
+    }
+  }
+
   return errors;
 }
 
 /**
- * Recursively validates a step and its branch children.
- * Collects slugs for uniqueness checking and populates the errors map.
+ * Validates a single step's fields (slug, type-specific requirements, custom config).
+ * DAG steps have no nested branches — branches are expressed as edges.
  */
-function validateStepRecursive(
+function validateStepFields(
   step: StepDraft,
   path: string,
   slugs: string[],
@@ -237,55 +259,28 @@ function validateStepRecursive(
   }
   slugs.push(step.slug);
 
-  // Type-specific validation
   if (step.type === "agent" && (!step.prompt || step.prompt.trim().length === 0)) {
     errors.set(`${path}.prompt`, "Prompt is required for agent steps");
   }
 
-  // Control flow: if
   if (step.type === "if") {
     if (!step.condition || !(step.condition as Record<string, unknown>).ref) {
       errors.set(`${path}.condition`, "Condition ref is required");
     }
-    const thenSteps = (step.then as StepDraft[] | undefined) ?? [];
-    for (let i = 0; i < thenSteps.length; i++) {
-      validateStepRecursive(thenSteps[i], `${path}.then[${i}]`, slugs, errors, stepTypeSchemas);
-    }
-    const elseSteps = (step.else as StepDraft[] | undefined) ?? [];
-    for (let i = 0; i < elseSteps.length; i++) {
-      validateStepRecursive(elseSteps[i], `${path}.else[${i}]`, slugs, errors, stepTypeSchemas);
-    }
   }
 
-  // Control flow: case
   if (step.type === "case") {
     if (!step.match || (step.match as string).trim().length === 0) {
       errors.set(`${path}.match`, "Match expression is required");
     }
-    const paths = (step.paths as Record<string, StepDraft[]>) ?? {};
-    for (const [key, pathSteps] of Object.entries(paths)) {
-      for (let i = 0; i < pathSteps.length; i++) {
-        validateStepRecursive(pathSteps[i], `${path}.paths.${key}[${i}]`, slugs, errors, stepTypeSchemas);
-      }
-    }
-    const defaultSteps = (step.default as StepDraft[] | undefined) ?? [];
-    for (let i = 0; i < defaultSteps.length; i++) {
-      validateStepRecursive(defaultSteps[i], `${path}.default[${i}]`, slugs, errors, stepTypeSchemas);
-    }
   }
 
-  // Control flow: waitFor
-  if (step.type === "waitFor") {
-    if (!step.event || (step.event as string).trim().length === 0) {
-      errors.set(`${path}.event`, "Event name is required");
-    }
+  if (step.type === "waitFor" && (!step.event || (step.event as string).trim().length === 0)) {
+    errors.set(`${path}.event`, "Event name is required");
   }
 
-  // Control flow: emit
-  if (step.type === "emit") {
-    if (!step.event || (step.event as string).trim().length === 0) {
-      errors.set(`${path}.event`, "Event name is required");
-    }
+  if (step.type === "emit" && (!step.event || (step.event as string).trim().length === 0)) {
+    errors.set(`${path}.event`, "Event name is required");
   }
 
   // Custom step type config validation
@@ -310,7 +305,6 @@ function validateStepRecursive(
 export function serializeStep(step: StepDraft): Record<string, unknown> {
   if (step.type === "agent") {
     const result: Record<string, unknown> = {
-      slug: step.slug,
       type: "agent",
       prompt: step.prompt,
     };
@@ -323,47 +317,25 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
     return result;
   }
 
-  // Control flow: if
+  // Control flow: if (branches are edges, not nested arrays)
   if (step.type === "if") {
-    const result: Record<string, unknown> = {
-      slug: step.slug,
+    return {
       type: "if",
       condition: step.condition,
     };
-    const thenSteps = step.then as StepDraft[] | undefined;
-    if (thenSteps && thenSteps.length > 0) {
-      // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
-      result.then = thenSteps.map(serializeStep);
-    }
-    const elseSteps = step.else as StepDraft[] | undefined;
-    if (elseSteps && elseSteps.length > 0) {
-      result.else = elseSteps.map(serializeStep);
-    }
-    return result;
   }
 
-  // Control flow: case
+  // Control flow: case (paths is a string array of branch keys; branches are edges)
   if (step.type === "case") {
     const result: Record<string, unknown> = {
-      slug: step.slug,
       type: "case",
       match: step.match,
     };
-    const paths = step.paths as Record<string, StepDraft[]> | undefined;
-    if (paths) {
-      const serializedPaths: Record<string, unknown[]> = {};
-      for (const [key, pathSteps] of Object.entries(paths)) {
-        if (pathSteps.length > 0) {
-          serializedPaths[key] = pathSteps.map(serializeStep);
-        }
-      }
-      if (Object.keys(serializedPaths).length > 0) {
-        result.paths = serializedPaths;
-      }
+    if (Array.isArray(step.paths)) {
+      result.paths = step.paths;
     }
-    const defaultSteps = step.default as StepDraft[] | undefined;
-    if (defaultSteps && defaultSteps.length > 0) {
-      result.default = defaultSteps.map(serializeStep);
+    if (typeof step.default === "string" && step.default.length > 0) {
+      result.default = step.default;
     }
     return result;
   }
@@ -371,7 +343,6 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
   // Control flow: waitFor
   if (step.type === "waitFor") {
     const result: Record<string, unknown> = {
-      slug: step.slug,
       type: "waitFor",
       event: step.event,
     };
@@ -383,7 +354,6 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
   // Control flow: emit
   if (step.type === "emit") {
     const result: Record<string, unknown> = {
-      slug: step.slug,
       type: "emit",
       event: step.event,
     };
@@ -391,22 +361,29 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
     return result;
   }
 
-  // Custom (extension-registered) step type: merge slug + type + config
+  // Custom (extension-registered) step type: merge type + config (no slug)
   return {
-    slug: step.slug,
     type: step.type,
     ...(step.config ?? {}),
   };
 }
 
 /**
- * Serializes a complete WorkflowDraft into a clean object suitable for sending
- * to the backend API. Strips empty optional fields and ensures each step only
- * includes fields valid for its type.
+ * Serializes a complete WorkflowDraft into a DAG object suitable for the
+ * backend API: `steps` as a map keyed by slug (slug stripped from each value)
+ * plus a top-level `edges` array.
+ *
  * @param draft - The workflow draft to serialize
- * @returns A plain object matching the backend's WorkflowDefinitionSchema
+ * @returns A plain object matching the backend's DagWorkflowDefinitionSchema
  */
 export function serializeWorkflowDraft(draft: WorkflowDraft): Record<string, unknown> {
+  const steps: Record<string, unknown> = {};
+  for (const step of draft.steps) {
+    steps[step.slug] = serializeStep(step);
+  }
+
+  const edges = (draft.edges ?? []).map((e) => (e.branch !== undefined ? { from: e.from, to: e.to, branch: e.branch } : { from: e.from, to: e.to }));
+
   const result: Record<string, unknown> = {
     name: draft.name,
     trigger: {
@@ -414,7 +391,8 @@ export function serializeWorkflowDraft(draft: WorkflowDraft): Record<string, unk
       ...(draft.trigger.ref && draft.trigger.type !== "manual" ? { ref: draft.trigger.ref } : {}),
     },
     enabled: draft.enabled,
-    steps: draft.steps.map(serializeStep),
+    steps,
+    edges,
   };
   if (draft.description) {
     result.description = draft.description;

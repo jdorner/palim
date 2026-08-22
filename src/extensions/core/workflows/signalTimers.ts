@@ -15,7 +15,7 @@
 
 import type { Logger } from "@ext/types";
 import type { WorkflowWebSocketEvent } from "@shared/workflows";
-import * as runStore from "./runStore";
+import * as runStore from "./dagRunStore";
 import * as signalStore from "./signalStore";
 
 /** Dependencies for arming a signal timeout. */

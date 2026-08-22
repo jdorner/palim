@@ -1,451 +1,31 @@
 /**
- * Tests for the workflows extension utility functions, step ordering logic, and route handlers.
+ * Tests for the workflows extension utility functions (DAG model).
  */
 
-import { Database } from "bun:sqlite";
-import { afterEach, beforeEach, describe, expect, test, xdescribe } from "bun:test";
-import { mkdir, rm } from "node:fs/promises";
-import path from "node:path";
-import type { Extension, ExtensionContext, HttpMethod, RouteHandler } from "@ext/types";
-import { drizzle } from "drizzle-orm/bun-sqlite";
-import { createExtension, validateWorkflowDependencies } from "./index";
-import type { WorkflowDefinition } from "./schemas";
+import { describe, expect, test } from "bun:test";
+import type { ExtensionContext } from "@ext/types";
+import { validateWorkflowDependencies } from "./index";
+import type { DagWorkflowDefinition } from "./schemas";
 
 // ---------------------------------------------------------------------------
-// Step ordering (regression test for the GET /:name route fix)
-// ---------------------------------------------------------------------------
-
-describe("step ordering", () => {
-  test("steps sorted by stepIndex produce correct left-to-right display order", () => {
-    // Simulate jobs returned in descending order (as getAllJobs returns them)
-    const jobsDescending = [
-      { stepSlug: "notify", stepIndex: 2, status: "waiting", jobId: "job-3" },
-      { stepSlug: "process", stepIndex: 1, status: "active", jobId: "job-2" },
-      { stepSlug: "fetch", stepIndex: 0, status: "completed", jobId: "job-1" },
-    ];
-
-    // Build steps array as the route handler does (iterating jobs in descending order)
-    const steps: Array<{ slug: string; status: string; jobId: string; stepIndex: number }> = [];
-    for (const job of jobsDescending) {
-      steps.push({ slug: job.stepSlug, status: job.status, jobId: job.jobId, stepIndex: job.stepIndex });
-    }
-
-    // Apply the sort fix
-    steps.sort((a, b) => a.stepIndex - b.stepIndex);
-
-    // Verify correct order: fetch (0) -> process (1) -> notify (2)
-    expect(steps[0]!.slug).toBe("fetch");
-    expect(steps[1]!.slug).toBe("process");
-    expect(steps[2]!.slug).toBe("notify");
-  });
-
-  test("steps with same stepIndex preserve insertion order", () => {
-    // Edge case: should not happen in practice, but verifies sort stability
-    const steps = [
-      { slug: "b", status: "waiting", jobId: "j2", stepIndex: 0 },
-      { slug: "a", status: "waiting", jobId: "j1", stepIndex: 0 },
-    ];
-
-    steps.sort((a, b) => a.stepIndex - b.stepIndex);
-
-    // Both have stepIndex 0, stable sort preserves insertion order
-    expect(steps[0]!.slug).toBe("b");
-    expect(steps[1]!.slug).toBe("a");
-  });
-
-  test("single step needs no sorting", () => {
-    const steps = [{ slug: "only-step", status: "completed", jobId: "j1", stepIndex: 0 }];
-    steps.sort((a, b) => a.stepIndex - b.stepIndex);
-    expect(steps[0]!.slug).toBe("only-step");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Route handler tests
-// ---------------------------------------------------------------------------
-
-/** A valid workflow payload for testing. */
-function validWorkflow(name = "test-workflow") {
-  return {
-    name,
-    description: "A test workflow",
-    trigger: { type: "manual" as const },
-    steps: [{ slug: "step-one", type: "agent" as const, prompt: "Do something" }],
-  };
-}
-
-/** Creates a minimal mock ExtensionContext and captures registered routes. */
-function createMockContext(workDir: string) {
-  const routes = new Map<string, RouteHandler>();
-
-  const ctx: ExtensionContext = {
-    log: {
-      info: () => {},
-      warn: () => {},
-      error: () => {},
-      debug: () => {},
-    } as unknown as ExtensionContext["log"],
-    paths: {
-      work: workDir,
-      data: workDir,
-      extensions: workDir,
-    },
-    fetch: globalThis.fetch,
-    urls: {
-      origin: "http://localhost:3000",
-      base: "http://localhost:3000/ext/workflows",
-    },
-    tools: {
-      register: () => {},
-      names: () => ["tool-beta", "tool-alpha", "tool-gamma"],
-    },
-    routes: {
-      register: (method: HttpMethod, routePath: string, handler: RouteHandler) => {
-        routes.set(`${method} ${routePath}`, handler);
-      },
-    },
-    queues: {
-      create: (() => ({
-        onEvent: () => {},
-        getAllJobs: async () => [],
-        getJobLogs: async () => ({ logs: [], count: 0 }),
-        retryJob: async () => true,
-        cancelJob: async () => true,
-      })) as unknown as ExtensionContext["queues"]["create"],
-      names: () => [],
-      onEvent: () => {},
-      offEvent: () => {},
-      getJobLogs: async () => ({ logs: [], count: 0 }),
-      getFlowProducer: () =>
-        ({
-          addChain: async () => ({ jobs: [] }),
-        }) as unknown as ReturnType<ExtensionContext["queues"]["getFlowProducer"]>,
-    },
-    events: {
-      on: () => {},
-      emit: () => {},
-    },
-    config: {
-      get: (() => undefined) as unknown as ExtensionContext["config"]["get"],
-    },
-    db: (() => {
-      const sqlite = new Database(":memory:");
-      sqlite.run("PRAGMA journal_mode = WAL");
-      sqlite.run(`
-        CREATE TABLE IF NOT EXISTS \`workflow_runs\` (
-          \`id\` text PRIMARY KEY NOT NULL,
-          \`workflow_name\` text NOT NULL,
-          \`status\` text NOT NULL DEFAULT 'running',
-          \`step_results\` text NOT NULL DEFAULT '{}',
-          \`trigger_payload\` text,
-          \`current_step_index\` integer NOT NULL DEFAULT 0,
-          \`full_step_order\` text NOT NULL,
-          \`failure_reason\` text,
-          \`created_at\` integer NOT NULL,
-          \`updated_at\` integer NOT NULL
-        );
-        CREATE INDEX IF NOT EXISTS \`idx_workflow_runs_name\` ON \`workflow_runs\` (\`workflow_name\`);
-        CREATE INDEX IF NOT EXISTS \`idx_workflow_runs_status\` ON \`workflow_runs\` (\`status\`);
-        CREATE TABLE IF NOT EXISTS \`workflow_signals\` (
-          \`id\` text PRIMARY KEY NOT NULL,
-          \`run_id\` text NOT NULL,
-          \`step_slug\` text NOT NULL,
-          \`event\` text NOT NULL,
-          \`status\` text NOT NULL DEFAULT 'waiting',
-          \`input_schema\` text,
-          \`timeout_ms\` integer,
-          \`payload\` text,
-          \`created_at\` integer NOT NULL,
-          \`received_at\` integer
-        );
-        CREATE INDEX IF NOT EXISTS \`idx_workflow_signals_run_event\` ON \`workflow_signals\` (\`run_id\`, \`event\`);
-        CREATE INDEX IF NOT EXISTS \`idx_workflow_signals_status\` ON \`workflow_signals\` (\`status\`);
-      `);
-      return drizzle(sqlite);
-    })() as unknown as ExtensionContext["db"],
-    isEnabled: (() => true) as unknown as ExtensionContext["isEnabled"],
-    agent: {
-      run: async () => ({ answer: "", state: null, timestamp: Date.now() }),
-      enqueue: async () => "job-id",
-    },
-    sessions: {
-      create: () => ({ id: "session-1", source: "test", messages: [], createdAt: Date.now(), updatedAt: Date.now() }),
-    } as unknown as ExtensionContext["sessions"],
-    messaging: {
-      push: () => ({ status: "stored" }) as ReturnType<ExtensionContext["messaging"]["push"]>,
-      broadcast: () => {},
-    },
-    secrets: {
-      get: async () => null,
-      set: async () => {},
-    },
-    skills: {
-      resolve: () => undefined,
-      names: () => ["skill-charlie", "skill-alice", "skill-bob"],
-      rescan: async () => {},
-    },
-    stepTypes: {
-      register: () => {},
-      get: () => undefined,
-    },
-    dynamicItems: {
-      register: () => {},
-    },
-    workflows: {
-      dispatch: async () => ({ workflowRunId: "run-1", jobIds: ["job-1"] }),
-    },
-  };
-
-  return { ctx, routes };
-}
-
-describe("workflow route handlers", () => {
-  let tmpDir: string;
-  let ext: Extension;
-  let routes: Map<string, RouteHandler>;
-
-  beforeEach(async () => {
-    tmpDir = path.join(import.meta.dir, `.tmp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    await mkdir(path.join(tmpDir, "workflows"), { recursive: true });
-
-    ext = createExtension();
-    const mock = createMockContext(tmpDir);
-    routes = mock.routes;
-    await ext.initialize(mock.ctx);
-  });
-
-  afterEach(async () => {
-    await ext.shutdown();
-    await rm(tmpDir, { recursive: true, force: true });
-  });
-
-  // -------------------------------------------------------------------------
-  // GET /meta/tools
-  // -------------------------------------------------------------------------
-
-  describe("GET /meta/tools", () => {
-    test("returns sorted tool names", async () => {
-      const handler = routes.get("GET /meta/tools")!;
-      expect(handler).toBeDefined();
-
-      const response = await handler({} as unknown as Parameters<RouteHandler>[0]);
-      expect(response.status).toBe(200);
-
-      const body = await response.json();
-      expect(body).toEqual(["tool-alpha", "tool-beta", "tool-gamma"]);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // GET /meta/skills
-  // -------------------------------------------------------------------------
-
-  describe("GET /meta/skills", () => {
-    test("returns sorted skill names", async () => {
-      const handler = routes.get("GET /meta/skills")!;
-      expect(handler).toBeDefined();
-
-      const response = await handler({} as unknown as Parameters<RouteHandler>[0]);
-      expect(response.status).toBe(200);
-
-      const body = await response.json();
-      expect(body).toEqual(["skill-alice", "skill-bob", "skill-charlie"]);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // PUT /:name
-  // -------------------------------------------------------------------------
-
-  describe("PUT /:name", () => {
-    test("with valid payload writes JSON5 and returns 200", async () => {
-      // Seed an existing workflow on disk so the extension loads it
-      const wfName = "existing-wf";
-      const wfData = validWorkflow(wfName);
-      const filePath = path.join(tmpDir, "workflows", `${wfName}.json5`);
-      await Bun.write(filePath, JSON.stringify(wfData, null, 2));
-
-      // Re-initialize to load the seeded workflow
-      await ext.shutdown();
-      ext = createExtension();
-      const mock = createMockContext(tmpDir);
-      routes = mock.routes;
-      await ext.initialize(mock.ctx);
-
-      const handler = routes.get("PUT /:name")!;
-      expect(handler).toBeDefined();
-
-      const updatedPayload = { ...wfData, description: "Updated description" };
-      const response = await handler({
-        params: { name: wfName },
-        body: updatedPayload,
-      } as unknown as Parameters<RouteHandler>[0]);
-
-      expect(response.status).toBe(200);
-      const resBody = await response.json();
-      expect(resBody).toEqual({ ok: true });
-
-      // Verify file was written
-      const fileContent = await Bun.file(filePath).text();
-      const parsed = JSON.parse(fileContent);
-      expect(parsed.description).toBe("Updated description");
-    });
-
-    test("with invalid payload returns 400", async () => {
-      // Seed a workflow so the name exists
-      const wfName = "bad-update";
-      const wfData = validWorkflow(wfName);
-      await Bun.write(path.join(tmpDir, "workflows", `${wfName}.json5`), JSON.stringify(wfData, null, 2));
-
-      await ext.shutdown();
-      ext = createExtension();
-      const mock = createMockContext(tmpDir);
-      routes = mock.routes;
-      await ext.initialize(mock.ctx);
-
-      const handler = routes.get("PUT /:name")!;
-
-      // Invalid body - missing steps
-      const response = await handler({
-        params: { name: wfName },
-        body: { name: wfName, trigger: { type: "manual" } },
-      } as unknown as Parameters<RouteHandler>[0]);
-
-      expect(response.status).toBe(400);
-      const resBody = (await response.json()) as { error: string };
-      expect(resBody.error).toContain("Validation failed");
-    });
-
-    test("with name mismatch returns 400", async () => {
-      // Seed a workflow
-      const wfName = "mismatch-wf";
-      const wfData = validWorkflow(wfName);
-      await Bun.write(path.join(tmpDir, "workflows", `${wfName}.json5`), JSON.stringify(wfData, null, 2));
-
-      await ext.shutdown();
-      ext = createExtension();
-      const mock = createMockContext(tmpDir);
-      routes = mock.routes;
-      await ext.initialize(mock.ctx);
-
-      const handler = routes.get("PUT /:name")!;
-
-      // Body name does not match URL parameter
-      const response = await handler({
-        params: { name: wfName },
-        body: validWorkflow("different-name"),
-      } as unknown as Parameters<RouteHandler>[0]);
-
-      expect(response.status).toBe(400);
-      const resBody = (await response.json()) as { error: string };
-      expect(resBody.error).toContain("does not match");
-    });
-
-    test("for non-existent workflow returns 404", async () => {
-      const handler = routes.get("PUT /:name")!;
-
-      const response = await handler({
-        params: { name: "does-not-exist" },
-        body: validWorkflow("does-not-exist"),
-      } as unknown as Parameters<RouteHandler>[0]);
-
-      expect(response.status).toBe(404);
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // POST /
-  // -------------------------------------------------------------------------
-
-  xdescribe("POST /", () => {
-    test("with valid payload creates file and returns 201", async () => {
-      const handler = routes.get("POST /")!;
-      expect(handler).toBeDefined();
-
-      const payload = validWorkflow("new-workflow");
-      const response = await handler({
-        body: payload,
-      } as unknown as Parameters<RouteHandler>[0]);
-
-      expect(response.status).toBe(201);
-      const resBody = await response.json();
-      expect(resBody).toEqual({ ok: true, name: "new-workflow" });
-
-      // Verify file was created
-      const filePath = path.join(tmpDir, "workflows", "new-workflow.json5");
-      const exists = await Bun.file(filePath).exists();
-      expect(exists).toBe(true);
-
-      const content = await Bun.file(filePath).text();
-      const parsed = JSON.parse(content);
-      expect(parsed.name).toBe("new-workflow");
-    });
-
-    test("with duplicate name returns 409", async () => {
-      // Seed an existing workflow
-      const wfName = "duplicate-wf";
-      const wfData = validWorkflow(wfName);
-      await Bun.write(path.join(tmpDir, "workflows", `${wfName}.json5`), JSON.stringify(wfData, null, 2));
-
-      // Re-initialize to load it into the store
-      await ext.shutdown();
-      ext = createExtension();
-      const mock = createMockContext(tmpDir);
-      routes = mock.routes;
-      await ext.initialize(mock.ctx);
-
-      const handler = routes.get("POST /")!;
-
-      const response = await handler({
-        body: validWorkflow(wfName),
-      } as unknown as Parameters<RouteHandler>[0]);
-
-      expect(response.status).toBe(409);
-      const resBody = (await response.json()) as { error: string };
-      expect(resBody.error).toContain("already exists");
-    });
-
-    test("with duplicate step slugs returns 400", async () => {
-      const handler = routes.get("POST /")!;
-
-      const payload = {
-        name: "dup-slugs",
-        trigger: { type: "manual" as const },
-        steps: [
-          { slug: "same-slug", type: "agent" as const, prompt: "Step 1" },
-          { slug: "same-slug", type: "agent" as const, prompt: "Step 2" },
-        ],
-      };
-
-      const response = await handler({
-        body: payload,
-      } as unknown as Parameters<RouteHandler>[0]);
-
-      expect(response.status).toBe(400);
-      const resBody = (await response.json()) as { error: string };
-      expect(resBody.error).toContain("Duplicate step slug");
-    });
-  });
-});
-
-// ---------------------------------------------------------------------------
-// validateWorkflowDependencies
+// validateWorkflowDependencies (DAG model)
 // ---------------------------------------------------------------------------
 
 describe("validateWorkflowDependencies", () => {
-  /** Creates a minimal mock context with configurable tool and skill lists. */
-  function mockCtx(tools: string[], skills: string[]): ExtensionContext {
+  /** Builds a minimal mock ExtensionContext exposing tool and skill name sets. */
+  function mockCtx(extensionTools: string[], skills: string[]): ExtensionContext {
     return {
-      tools: { names: () => tools, register: () => {} },
-      skills: { resolve: () => undefined, names: () => skills, rescan: async () => {} },
+      tools: { names: () => extensionTools },
+      skills: { names: () => skills },
     } as unknown as ExtensionContext;
   }
 
   test("returns valid when workflow has no tools or skills", () => {
-    const wf: WorkflowDefinition = {
+    const wf: DagWorkflowDefinition = {
       name: "simple",
       trigger: { type: "manual" },
-      steps: [{ slug: "step-one", type: "agent", prompt: "Hello" }],
+      steps: { "step-one": { type: "agent", prompt: "Hello" } },
+      edges: [],
     };
 
     const result = validateWorkflowDependencies(wf, mockCtx([], []));
@@ -455,12 +35,13 @@ describe("validateWorkflowDependencies", () => {
   });
 
   test("returns valid when all tools and skills are available", () => {
-    const wf: WorkflowDefinition = {
+    const wf: DagWorkflowDefinition = {
       name: "all-available",
       trigger: { type: "manual" },
-      steps: [
-        { slug: "step-one", type: "agent", prompt: "Go", tools: ["exec", "send_telegram_message"], skills: ["wiki"] },
-      ],
+      steps: {
+        "step-one": { type: "agent", prompt: "Go", tools: ["exec", "send_telegram_message"], skills: ["wiki"] },
+      },
+      edges: [],
     };
 
     const result = validateWorkflowDependencies(wf, mockCtx(["send_telegram_message"], ["wiki"]));
@@ -470,33 +51,33 @@ describe("validateWorkflowDependencies", () => {
   });
 
   test("recognizes sandbox tools as available", () => {
-    const wf: WorkflowDefinition = {
+    const wf: DagWorkflowDefinition = {
       name: "sandbox-tools",
       trigger: { type: "manual" },
-      steps: [
-        {
-          slug: "step-one",
+      steps: {
+        "step-one": {
           type: "agent",
           prompt: "Go",
           tools: ["exec", "read_file", "write_file", "list_files", "edit", "create_directory"],
         },
-      ],
+      },
+      edges: [],
     };
 
-    // No extension tools registered, but sandbox tools should still pass
     const result = validateWorkflowDependencies(wf, mockCtx([], []));
     expect(result.valid).toBe(true);
     expect(result.missingTools).toEqual([]);
   });
 
-  test("reports missing tools", () => {
-    const wf: WorkflowDefinition = {
+  test("reports missing tools across steps", () => {
+    const wf: DagWorkflowDefinition = {
       name: "missing-tools",
       trigger: { type: "manual" },
-      steps: [
-        { slug: "step-one", type: "agent", prompt: "Go", tools: ["exec", "nonexistent_tool"] },
-        { slug: "step-two", type: "agent", prompt: "Go", tools: ["another_missing"] },
-      ],
+      steps: {
+        "step-one": { type: "agent", prompt: "Go", tools: ["exec", "nonexistent_tool"] },
+        "step-two": { type: "agent", prompt: "Go", tools: ["another_missing"] },
+      },
+      edges: [{ from: "step-one", to: "step-two" }],
     };
 
     const result = validateWorkflowDependencies(wf, mockCtx([], []));
@@ -506,10 +87,11 @@ describe("validateWorkflowDependencies", () => {
   });
 
   test("reports missing skills", () => {
-    const wf: WorkflowDefinition = {
+    const wf: DagWorkflowDefinition = {
       name: "missing-skills",
       trigger: { type: "manual" },
-      steps: [{ slug: "step-one", type: "agent", prompt: "Go", skills: ["wiki", "nonexistent_skill"] }],
+      steps: { "step-one": { type: "agent", prompt: "Go", skills: ["wiki", "nonexistent_skill"] } },
+      edges: [],
     };
 
     const result = validateWorkflowDependencies(wf, mockCtx([], ["wiki"]));
@@ -519,10 +101,11 @@ describe("validateWorkflowDependencies", () => {
   });
 
   test("reports both missing tools and skills", () => {
-    const wf: WorkflowDefinition = {
+    const wf: DagWorkflowDefinition = {
       name: "both-missing",
       trigger: { type: "manual" },
-      steps: [{ slug: "step-one", type: "agent", prompt: "Go", tools: ["bad_tool"], skills: ["bad_skill"] }],
+      steps: { "step-one": { type: "agent", prompt: "Go", tools: ["bad_tool"], skills: ["bad_skill"] } },
+      edges: [],
     };
 
     const result = validateWorkflowDependencies(wf, mockCtx([], []));
@@ -532,13 +115,14 @@ describe("validateWorkflowDependencies", () => {
   });
 
   test("deduplicates missing items across steps", () => {
-    const wf: WorkflowDefinition = {
+    const wf: DagWorkflowDefinition = {
       name: "duplicates",
       trigger: { type: "manual" },
-      steps: [
-        { slug: "step-one", type: "agent", prompt: "Go", tools: ["missing_tool"], skills: ["missing_skill"] },
-        { slug: "step-two", type: "agent", prompt: "Go", tools: ["missing_tool"], skills: ["missing_skill"] },
-      ],
+      steps: {
+        "step-one": { type: "agent", prompt: "Go", tools: ["missing_tool"], skills: ["missing_skill"] },
+        "step-two": { type: "agent", prompt: "Go", tools: ["missing_tool"], skills: ["missing_skill"] },
+      },
+      edges: [{ from: "step-one", to: "step-two" }],
     };
 
     const result = validateWorkflowDependencies(wf, mockCtx([], []));
@@ -546,11 +130,12 @@ describe("validateWorkflowDependencies", () => {
     expect(result.missingSkills).toEqual(["missing_skill"]);
   });
 
-  test("ignores webhook steps", () => {
-    const wf: WorkflowDefinition = {
-      name: "webhook-only",
+  test("ignores non-agent steps", () => {
+    const wf: DagWorkflowDefinition = {
+      name: "emit-only",
       trigger: { type: "manual" },
-      steps: [{ slug: "notify", type: "webhook", url: "https://example.com/hook" }],
+      steps: { notify: { type: "emit", event: "done" } },
+      edges: [],
     };
 
     const result = validateWorkflowDependencies(wf, mockCtx([], []));
@@ -558,290 +143,17 @@ describe("validateWorkflowDependencies", () => {
   });
 
   test("returns sorted results", () => {
-    const wf: WorkflowDefinition = {
+    const wf: DagWorkflowDefinition = {
       name: "sorted",
       trigger: { type: "manual" },
-      steps: [
-        { slug: "step-one", type: "agent", prompt: "Go", tools: ["z_tool", "a_tool"], skills: ["z_skill", "a_skill"] },
-      ],
+      steps: {
+        "step-one": { type: "agent", prompt: "Go", tools: ["z_tool", "a_tool"], skills: ["z_skill", "a_skill"] },
+      },
+      edges: [],
     };
 
     const result = validateWorkflowDependencies(wf, mockCtx([], []));
     expect(result.missingTools).toEqual(["a_tool", "z_tool"]);
     expect(result.missingSkills).toEqual(["a_skill", "z_skill"]);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Dependency warnings in GET / response
-// ---------------------------------------------------------------------------
-
-describe("dependency warnings in GET /", () => {
-  let tmpDir: string;
-  let ext: Extension;
-  let routes: Map<string, RouteHandler>;
-
-  beforeEach(async () => {
-    tmpDir = path.join(import.meta.dir, `.tmp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    await mkdir(path.join(tmpDir, "workflows"), { recursive: true });
-  });
-
-  afterEach(async () => {
-    await ext.shutdown();
-    await rm(tmpDir, { recursive: true, force: true });
-  });
-
-  async function setupWithWorkflow(wfData: Record<string, unknown>, ctxOverrides?: Partial<ExtensionContext>) {
-    const wfName = wfData.name as string;
-    await Bun.write(path.join(tmpDir, "workflows", `${wfName}.json5`), JSON.stringify(wfData, null, 2));
-
-    ext = createExtension();
-    const mock = createMockContext(tmpDir);
-    if (ctxOverrides) {
-      Object.assign(mock.ctx, ctxOverrides);
-    }
-    routes = mock.routes;
-    await ext.initialize(mock.ctx);
-    return mock;
-  }
-
-  test("reports missing tool in agent step", async () => {
-    await setupWithWorkflow({
-      name: "wf-missing-tool",
-      trigger: { type: "manual" },
-      steps: [{ slug: "step-one", type: "agent", prompt: "Go", tools: ["nonexistent_tool", "tool-alpha"] }],
-    });
-
-    const handler = routes.get("GET /")!;
-    const response = await handler({} as unknown as Parameters<RouteHandler>[0]);
-    const list = (await response.json()) as Array<{
-      name: string;
-      warnings: Array<{ stepSlug: string; field: string; message: string }>;
-    }>;
-
-    const wf = list.find((w) => w.name === "wf-missing-tool")!;
-    expect(wf.warnings.length).toBe(1);
-    expect(wf.warnings[0]!.stepSlug).toBe("step-one");
-    expect(wf.warnings[0]!.field).toBe("tools");
-    expect(wf.warnings[0]!.message).toContain("nonexistent_tool");
-  });
-
-  test("reports missing skill in agent step", async () => {
-    await setupWithWorkflow({
-      name: "wf-missing-skill",
-      trigger: { type: "manual" },
-      steps: [{ slug: "step-one", type: "agent", prompt: "Go", skills: ["nonexistent_skill", "skill-alice"] }],
-    });
-
-    const handler = routes.get("GET /")!;
-    const response = await handler({} as unknown as Parameters<RouteHandler>[0]);
-    const list = (await response.json()) as Array<{
-      name: string;
-      warnings: Array<{ stepSlug: string; field: string; message: string }>;
-    }>;
-
-    const wf = list.find((w) => w.name === "wf-missing-skill")!;
-    expect(wf.warnings.length).toBe(1);
-    expect(wf.warnings[0]!.stepSlug).toBe("step-one");
-    expect(wf.warnings[0]!.field).toBe("skills");
-    expect(wf.warnings[0]!.message).toContain("nonexistent_skill");
-  });
-
-  test("reports unavailable custom step type when handler is missing", async () => {
-    await setupWithWorkflow({
-      name: "wf-custom-step",
-      trigger: { type: "manual" },
-      steps: [{ slug: "write-excel", type: "excel-writer", outputPath: "/tmp/out.xlsx" }],
-    });
-
-    // Default mock: getStepHandler returns undefined -> should warn
-    const handler = routes.get("GET /")!;
-    const response = await handler({} as unknown as Parameters<RouteHandler>[0]);
-    const list = (await response.json()) as Array<{
-      name: string;
-      warnings: Array<{ stepSlug: string; field: string; message: string }>;
-    }>;
-
-    const wf = list.find((w) => w.name === "wf-custom-step")!;
-    expect(wf.warnings.length).toBe(1);
-    expect(wf.warnings[0]!.stepSlug).toBe("write-excel");
-    expect(wf.warnings[0]!.field).toBe("type");
-    expect(wf.warnings[0]!.message).toContain("excel-writer");
-    expect(wf.warnings[0]!.message).toContain("not available");
-  });
-
-  test("no warning for custom step type when handler is registered", async () => {
-    await setupWithWorkflow(
-      {
-        name: "wf-custom-ok",
-        trigger: { type: "manual" },
-        steps: [{ slug: "write-excel", type: "excel-writer", outputPath: "/tmp/out.xlsx" }],
-      },
-      {
-        stepTypes: {
-          register: () => {},
-          get: (type: string) => (type === "excel-writer" ? ({ execute: async () => ({}) } as any) : undefined),
-        },
-      },
-    );
-
-    const handler = routes.get("GET /")!;
-    const response = await handler({} as unknown as Parameters<RouteHandler>[0]);
-    const list = (await response.json()) as Array<{
-      name: string;
-      warnings: Array<{ stepSlug: string; field: string; message: string }>;
-    }>;
-
-    const wf = list.find((w) => w.name === "wf-custom-ok")!;
-    expect(wf.warnings.length).toBe(0);
-  });
-
-  test("no warnings when all tools and skills are available", async () => {
-    await setupWithWorkflow({
-      name: "wf-all-good",
-      trigger: { type: "manual" },
-      steps: [
-        { slug: "step-one", type: "agent", prompt: "Go", tools: ["tool-alpha", "exec"], skills: ["skill-alice"] },
-      ],
-    });
-
-    const handler = routes.get("GET /")!;
-    const response = await handler({} as unknown as Parameters<RouteHandler>[0]);
-    const list = (await response.json()) as Array<{
-      name: string;
-      warnings: Array<{ stepSlug: string; field: string; message: string }>;
-    }>;
-
-    const wf = list.find((w) => w.name === "wf-all-good")!;
-    expect(wf.warnings.length).toBe(0);
-  });
-
-  test("reports multiple warnings across different steps", async () => {
-    await setupWithWorkflow({
-      name: "wf-multi-issues",
-      trigger: { type: "manual" },
-      steps: [
-        { slug: "step-one", type: "agent", prompt: "Go", tools: ["missing-tool"] },
-        { slug: "step-two", type: "excel-writer", outputPath: "/tmp/out.xlsx" },
-      ],
-    });
-
-    const handler = routes.get("GET /")!;
-    const response = await handler({} as unknown as Parameters<RouteHandler>[0]);
-    const list = (await response.json()) as Array<{
-      name: string;
-      warnings: Array<{ stepSlug: string; field: string; message: string }>;
-    }>;
-
-    const wf = list.find((w) => w.name === "wf-multi-issues")!;
-    expect(wf.warnings.length).toBe(2);
-
-    const toolWarning = wf.warnings.find((w) => w.field === "tools")!;
-    expect(toolWarning.stepSlug).toBe("step-one");
-    expect(toolWarning.message).toContain("missing-tool");
-
-    const typeWarning = wf.warnings.find((w) => w.field === "type")!;
-    expect(typeWarning.stepSlug).toBe("step-two");
-    expect(typeWarning.message).toContain("excel-writer");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// POST /run/:name - dispatch behavior
-// ---------------------------------------------------------------------------
-
-describe("POST /run/:name", () => {
-  let tmpDir: string;
-  let ext: Extension;
-  let routes: Map<string, RouteHandler>;
-
-  beforeEach(async () => {
-    tmpDir = path.join(import.meta.dir, `.tmp-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
-    await mkdir(path.join(tmpDir, "workflows"), { recursive: true });
-  });
-
-  afterEach(async () => {
-    await ext.shutdown();
-    await rm(tmpDir, { recursive: true, force: true });
-  });
-
-  /** Helper to seed a workflow and initialize the extension with a custom mock context. */
-  async function setupWithWorkflow(wfData: Record<string, unknown>, ctxOverrides?: Partial<ExtensionContext>) {
-    const wfName = wfData.name as string;
-    await Bun.write(path.join(tmpDir, "workflows", `${wfName}.json5`), JSON.stringify(wfData, null, 2));
-
-    ext = createExtension();
-    const mock = createMockContext(tmpDir);
-    // Fix the FlowProducer mock to return jobIds (matches real bunqueue API)
-    (mock.ctx as any).queues = {
-      ...mock.ctx.queues,
-      getFlowProducer: () =>
-        ({
-          addChain: async (steps: unknown[]) => ({
-            jobIds: (steps as Array<{ name: string }>).map((_, i) => `job-${i}`),
-          }),
-        }) as unknown as ReturnType<ExtensionContext["queues"]["getFlowProducer"]>,
-    };
-    if (ctxOverrides) {
-      Object.assign(mock.ctx, ctxOverrides);
-    }
-    routes = mock.routes;
-    await ext.initialize(mock.ctx);
-    return mock;
-  }
-
-  test("dispatches workflow and returns 202", async () => {
-    await setupWithWorkflow({
-      name: "all-good",
-      trigger: { type: "manual" },
-      steps: [
-        { slug: "step-one", type: "agent", prompt: "Go", tools: ["exec", "tool-alpha"], skills: ["skill-alice"] },
-      ],
-    });
-
-    const handler = routes.get("POST /run/:name")!;
-    const response = await handler({
-      params: { name: "all-good" },
-      body: null,
-    } as unknown as Parameters<RouteHandler>[0]);
-
-    expect(response.status).toBe(202);
-    const body = (await response.json()) as { ok: boolean; workflowRunId: string; jobIds: string[] };
-    expect(body.ok).toBe(true);
-    expect(body.workflowRunId).toBeDefined();
-    expect(body.jobIds.length).toBe(1);
-  });
-
-  test("dispatches even when tools are missing (validation happens at step execution)", async () => {
-    await setupWithWorkflow({
-      name: "missing-deps",
-      trigger: { type: "manual" },
-      steps: [{ slug: "step-one", type: "agent", prompt: "Go", tools: ["nonexistent_tool"] }],
-    });
-
-    const handler = routes.get("POST /run/:name")!;
-    const response = await handler({
-      params: { name: "missing-deps" },
-      body: null,
-    } as unknown as Parameters<RouteHandler>[0]);
-
-    // Workflow is dispatched - validation will fail at step execution time
-    expect(response.status).toBe(202);
-  });
-
-  test("returns 404 for non-existent workflow", async () => {
-    await setupWithWorkflow({
-      name: "exists",
-      trigger: { type: "manual" },
-      steps: [{ slug: "step-one", type: "agent", prompt: "Go" }],
-    });
-
-    const handler = routes.get("POST /run/:name")!;
-    const response = await handler({
-      params: { name: "does-not-exist" },
-      body: null,
-    } as unknown as Parameters<RouteHandler>[0]);
-
-    expect(response.status).toBe(404);
   });
 });

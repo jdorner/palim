@@ -31,7 +31,7 @@ import type {
   RunAgentOptions,
 } from "@src/extensions";
 import { ExtensionRegistry } from "@src/extensions";
-import { deleteByIds as deleteRunsByIds } from "@src/extensions/core/workflows/runStore";
+import { deleteByIds as deleteRunsByIds } from "@src/extensions/core/workflows/dagRunStore";
 import { deleteByRunIds as deleteSignalsByRunIds } from "@src/extensions/core/workflows/signalStore";
 import type { EventBus } from "@src/extensions/engine/eventBus";
 import { ExtensionWatcher } from "@src/extensions/engine/extensionWatcher";

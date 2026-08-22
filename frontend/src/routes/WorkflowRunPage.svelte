@@ -22,8 +22,11 @@ let inspectedStep = $state<RunStep | null>(null);
 let stepLogs = $state<Array<{ message: string; timestamp: number }>>([]);
 let loadingLogs = $state(false);
 
-/** Full workflow definition steps (recursive tree with branches). */
+/** Full workflow definition steps (DAG nodes as an array with slug). */
 let definitionSteps = $state<Array<Record<string, unknown>>>([]);
+
+/** Full workflow definition edges (DAG connections). */
+let definitionEdges = $state<Array<{ from: string; to: string; branch?: string }>>([]);
 
 const params = $derived(route.params as { name?: string; runId?: string });
 const runId = $derived(params.runId ?? "");
@@ -42,132 +45,24 @@ const statusMap = $derived.by((): Record<string, StepStatus> => {
   if (!run) return {};
   const map: Record<string, StepStatus> = {};
 
-  // Map executed steps by slug
+  // Map executed steps by slug. The DAG backend reports per-slug status,
+  // including "dead" for steps on non-taken branches, which we render as "skipped".
   for (const step of run.steps) {
-    map[step.slug] = step.status as StepStatus;
+    const status = step.status as string;
+    map[step.slug] = (status === "dead" ? "skipped" : status) as StepStatus;
   }
 
-  // Mark definition steps not in the run based on branch analysis
-  const chosenBranches = workflowStore.chosenBranches;
-  markSkippedSteps(definitionSteps, map, chosenBranches, run.status);
+  // Any definition step not present in the run's status map:
+  // skipped if the run finished, otherwise not yet reached (waiting).
+  for (const step of definitionSteps) {
+    const slug = step.slug as string;
+    if (map[slug] === undefined && (run.status === "completed" || run.status === "failed")) {
+      map[slug] = "skipped";
+    }
+  }
 
   return map;
 });
-
-/**
- * Recursively walks the definition step tree and marks steps that were not
- * executed. If the parent CF node has completed and a branch was chosen,
- * steps in other branches are "skipped". Steps not yet reached are "waiting".
- */
-function markSkippedSteps(
-  steps: Array<Record<string, unknown>>,
-  map: Record<string, StepStatus>,
-  chosenBranches: Record<string, string>,
-  runStatus: string,
-): void {
-  for (const step of steps) {
-    const slug = step.slug as string;
-    const type = step.type as string;
-
-    // If the step already has a status from the run, skip it
-    if (map[slug] !== undefined) {
-      // But still recurse into CF branches to mark branch children
-      if (type === "if" || type === "case") {
-        markCfBranches(step, slug, map, chosenBranches, runStatus);
-      }
-      continue;
-    }
-
-    // Step not in run - determine if skipped or just not reached
-    // If the run is completed or failed, any step not executed was skipped
-    if (runStatus === "completed" || runStatus === "failed") {
-      map[slug] = "skipped";
-    }
-    // Otherwise it hasn't been reached yet
-  }
-}
-
-/**
- * Marks children of a control flow node based on which branch was chosen.
- */
-function markCfBranches(
-  step: Record<string, unknown>,
-  slug: string,
-  map: Record<string, StepStatus>,
-  chosenBranches: Record<string, string>,
-  runStatus: string,
-): void {
-  const chosen = chosenBranches[slug];
-  const cfStatus = map[slug];
-  const cfCompleted = cfStatus === "completed";
-
-  if (step.type === "if") {
-    const thenSteps = (step.then as Array<Record<string, unknown>>) ?? [];
-    const elseSteps = (step.else as Array<Record<string, unknown>>) ?? [];
-
-    if (cfCompleted && chosen) {
-      // Mark the not-chosen branch as skipped
-      const skippedBranch = chosen === "then" ? elseSteps : thenSteps;
-      const takenBranch = chosen === "then" ? thenSteps : elseSteps;
-      markBranchSkipped(skippedBranch, map);
-      markSkippedSteps(takenBranch, map, chosenBranches, runStatus);
-    } else {
-      // CF not yet completed - recurse normally
-      markSkippedSteps(thenSteps, map, chosenBranches, runStatus);
-      markSkippedSteps(elseSteps, map, chosenBranches, runStatus);
-    }
-  } else if (step.type === "case") {
-    const paths = (step.paths as Record<string, Array<Record<string, unknown>>>) ?? {};
-    const defaultSteps = (step.default as Array<Record<string, unknown>>) ?? [];
-
-    if (cfCompleted && chosen) {
-      // Map __default to default for case step matching
-      const normalizedChosen = chosen === "__default" ? "default" : chosen;
-      // Mark all non-chosen paths as skipped
-      for (const [pathKey, pathSteps] of Object.entries(paths)) {
-        if (pathKey === normalizedChosen) {
-          markSkippedSteps(pathSteps, map, chosenBranches, runStatus);
-        } else {
-          markBranchSkipped(pathSteps, map);
-        }
-      }
-      if (normalizedChosen === "default") {
-        markSkippedSteps(defaultSteps, map, chosenBranches, runStatus);
-      } else {
-        markBranchSkipped(defaultSteps, map);
-      }
-    } else {
-      for (const pathSteps of Object.values(paths)) {
-        markSkippedSteps(pathSteps, map, chosenBranches, runStatus);
-      }
-      markSkippedSteps(defaultSteps, map, chosenBranches, runStatus);
-    }
-  }
-}
-
-/** Marks all steps in a branch as skipped (recursively). */
-function markBranchSkipped(steps: Array<Record<string, unknown>>, map: Record<string, StepStatus>): void {
-  for (const step of steps) {
-    const slug = step.slug as string;
-    if (!map[slug]) {
-      map[slug] = "skipped";
-    }
-    // Recurse into nested CF branches
-    if (step.type === "if") {
-      const thenSteps = (step.then as Array<Record<string, unknown>>) ?? [];
-      const elseSteps = (step.else as Array<Record<string, unknown>>) ?? [];
-      markBranchSkipped(thenSteps, map);
-      markBranchSkipped(elseSteps, map);
-    } else if (step.type === "case") {
-      const paths = (step.paths as Record<string, Array<Record<string, unknown>>>) ?? {};
-      const defaultSteps = (step.default as Array<Record<string, unknown>>) ?? [];
-      for (const pathSteps of Object.values(paths)) {
-        markBranchSkipped(pathSteps, map);
-      }
-      markBranchSkipped(defaultSteps, map);
-    }
-  }
-}
 
 async function fetchRun() {
   if (!runId) return;
@@ -183,10 +78,13 @@ async function fetchRun() {
     const detail = await runRes.json();
     workflowStore.track(runId, detail);
 
-    // Load definition steps (best-effort; fall back to run steps if unavailable)
+    // Load definition steps (best-effort; fall back to run steps if unavailable).
+    // DAG format: steps is a map keyed by slug, edges is an array.
     if (defRes.ok) {
       const def = await defRes.json();
-      definitionSteps = def.steps ?? [];
+      const stepsMap = (def.steps ?? {}) as Record<string, Record<string, unknown>>;
+      definitionSteps = Object.entries(stepsMap).map(([slug, s]) => ({ slug, ...s }));
+      definitionEdges = def.edges ?? [];
     }
   } catch (err) {
     error = err instanceof Error ? err.message : "Failed to load run";
@@ -328,6 +226,7 @@ onDestroy(() => {
             status: s.status,
             jobId: s.jobId,
           }))) as Array<{ slug: string; type: string; [key: string]: unknown }>}
+          edges={definitionEdges}
           trigger={run.trigger ?? undefined}
           statusMap={definitionSteps.length > 0 ? statusMap : undefined}
           onNodeClick={openSidebar}

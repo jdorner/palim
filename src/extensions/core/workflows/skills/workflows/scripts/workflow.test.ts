@@ -42,33 +42,39 @@ async function makeCtxWithFiles(files: Record<string, string>): Promise<CommandC
   return ctx;
 }
 
-/** A minimal valid workflow JSON5 string. */
+/** A minimal valid DAG workflow JSON5 string. */
 const VALID_WORKFLOW = `{
   "name": "deploy-app",
   "description": "Deploy the application",
   "trigger": { "type": "manual" },
-  "steps": [
-    { "slug": "build", "type": "agent", "prompt": "Build the application" }
-  ]
+  "steps": {
+    "build": { "type": "agent", "prompt": "Build the application" }
+  },
+  "edges": []
 }`;
 
-/** A workflow with two steps. */
+/** A DAG workflow with two steps. */
 const TWO_STEP_WORKFLOW = `{
   "name": "two-step",
   "trigger": { "type": "webhook", "ref": "github" },
-  "steps": [
-    { "slug": "lint", "type": "agent", "prompt": "Run linting" },
-    { "slug": "deploy", "type": "webhook", "url": "https://example.com/deploy" }
+  "steps": {
+    "lint": { "type": "agent", "prompt": "Run linting" },
+    "deploy": { "type": "agent", "prompt": "Deploy it" }
+  },
+  "edges": [
+    { "from": "lint", "to": "deploy" }
   ]
 }`;
 
-/** A workflow with duplicate step slugs. */
-const DUPLICATE_SLUG_WORKFLOW = `{
+/** A DAG workflow with an edge referencing a non-existent step (structural error). */
+const BAD_EDGE_WORKFLOW = `{
   "name": "bad-workflow",
   "trigger": { "type": "manual" },
-  "steps": [
-    { "slug": "build", "type": "agent", "prompt": "First step" },
-    { "slug": "build", "type": "agent", "prompt": "Duplicate slug" }
+  "steps": {
+    "build": { "type": "agent", "prompt": "First step" }
+  },
+  "edges": [
+    { "from": "build", "to": "nonexistent" }
   ]
 }`;
 
@@ -76,16 +82,18 @@ const DUPLICATE_SLUG_WORKFLOW = `{
 const INVALID_WORKFLOW = `{
   "name": "missing-stuff",
   "trigger": { "type": "manual" },
-  "steps": []
+  "steps": {},
+  "edges": []
 }`;
 
 /** A workflow with additional properties not in the schema. */
 const EXTRA_PROPS_WORKFLOW = `{
   "name": "extra-props",
   "trigger": { "type": "manual", "ref": "something", "extraTriggerProp": "should-fail" },
-  "steps": [
-    { "slug": "build", "type": "agent", "prompt": "Build it" }
-  ]
+  "steps": {
+    "build": { "type": "agent", "prompt": "Build it" }
+  },
+  "edges": []
 }`;
 
 // ---------------------------------------------------------------------------
@@ -327,10 +335,10 @@ describe("workflow command", () => {
       expect(result.stderr).toContain("Validation failed");
     });
 
-    test("rejects workflow with duplicate step slugs", async () => {
-      const result = await command(["write", "dup", DUPLICATE_SLUG_WORKFLOW], makeCtx());
+    test("rejects workflow with an edge referencing a non-existent step", async () => {
+      const result = await command(["write", "bad", BAD_EDGE_WORKFLOW], makeCtx());
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain("duplicate step slug");
+      expect(result.stderr).toContain("DAG validation failed");
     });
 
     test("rejects invalid JSON5 syntax", async () => {
@@ -378,12 +386,12 @@ describe("workflow command", () => {
       expect(result.stderr).toContain("Schema validation failed");
     });
 
-    test("reports duplicate step slugs", async () => {
-      const ctx = await makeCtxWithFiles({ "dup.json5": DUPLICATE_SLUG_WORKFLOW });
+    test("reports edges referencing non-existent steps", async () => {
+      const ctx = await makeCtxWithFiles({ "bad.json5": BAD_EDGE_WORKFLOW });
 
-      const result = await command(["validate", "dup"], ctx);
+      const result = await command(["validate", "bad"], ctx);
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain("duplicate step slug");
+      expect(result.stderr).toContain("DAG validation failed");
     });
 
     test("reports JSON5 syntax errors", async () => {

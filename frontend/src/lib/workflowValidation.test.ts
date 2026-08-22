@@ -134,6 +134,7 @@ describe("workflowValidation", () => {
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "Do something" }],
+      edges: [],
     };
 
     test("valid draft returns empty error map", () => {
@@ -199,6 +200,7 @@ describe("workflowValidation", () => {
         trigger: { type: "manual", ref: "some-ref" },
         enabled: true,
         steps: [{ slug: "step-one", type: "agent", prompt: "Do something" }],
+        edges: [],
       };
       const errors = validateWorkflowDraft(draft);
       expect(errors.has("trigger.ref")).toBe(true);
@@ -212,6 +214,7 @@ describe("workflowValidation", () => {
         trigger: { type: "manual", ref: "" },
         enabled: true,
         steps: [{ slug: "step-one", type: "agent", prompt: "Do something" }],
+        edges: [],
       };
       const errors = validateWorkflowDraft(draft);
       expect(errors.has("trigger.ref")).toBe(false);
@@ -224,9 +227,33 @@ describe("workflowValidation", () => {
         trigger: { type: "schedule", ref: "*/5 * * * *" },
         enabled: true,
         steps: [{ slug: "step-one", type: "agent", prompt: "Do something" }],
+        edges: [],
       };
       const errors = validateWorkflowDraft(draft);
       expect(errors.has("trigger.ref")).toBe(false);
+    });
+
+    test("accepts valid edges between existing steps", () => {
+      const draft: WorkflowDraft = {
+        ...validDraft,
+        steps: [
+          { slug: "a", type: "agent", prompt: "x" },
+          { slug: "b", type: "agent", prompt: "y" },
+        ],
+        edges: [{ from: "a", to: "b" }],
+      };
+      const errors = validateWorkflowDraft(draft);
+      expect(errors.size).toBe(0);
+    });
+
+    test("catches edge referencing an unknown step", () => {
+      const draft: WorkflowDraft = {
+        ...validDraft,
+        steps: [{ slug: "a", type: "agent", prompt: "x" }],
+        edges: [{ from: "a", to: "nonexistent" }],
+      };
+      const errors = validateWorkflowDraft(draft);
+      expect(errors.has("edges[0].to")).toBe(true);
     });
   });
 
@@ -294,7 +321,7 @@ describe("workflowValidation", () => {
 describe("serializeStep", () => {
   const { serializeStep } = require("./workflowValidation");
 
-  test("agent step includes only agent-valid fields", () => {
+  test("agent step includes only agent-valid fields (no slug in value)", () => {
     const step = {
       slug: "my-step",
       type: "agent" as const,
@@ -307,12 +334,13 @@ describe("serializeStep", () => {
     };
     const result = serializeStep(step);
     expect(result).toEqual({
-      slug: "my-step",
       type: "agent",
       prompt: "Do something",
       tools: ["read_file"],
       skills: ["wiki"],
     });
+    // slug is the map key in the DAG format, not a field in the value
+    expect(result).not.toHaveProperty("slug");
     expect(result).not.toHaveProperty("url");
     expect(result).not.toHaveProperty("method");
     expect(result).not.toHaveProperty("body");
@@ -328,7 +356,6 @@ describe("serializeStep", () => {
     };
     const result = serializeStep(step);
     expect(result).toEqual({
-      slug: "agent-step",
       type: "agent",
       prompt: "Hello",
     });
@@ -346,7 +373,6 @@ describe("serializeStep", () => {
     };
     const result = serializeStep(step);
     expect(result).toEqual({
-      slug: "agent-step",
       type: "agent",
       prompt: "Hello",
       tools: ["tool-a"],
@@ -354,7 +380,39 @@ describe("serializeStep", () => {
     expect(result).not.toHaveProperty("skills");
   });
 
-  test("custom step type merges slug + type + config", () => {
+  test("if step serializes condition only (branches are edges)", () => {
+    const step = {
+      slug: "decide",
+      type: "if" as const,
+      condition: { ref: "{{steps.x.result}}", eq: "yes" },
+    };
+    const result = serializeStep(step);
+    expect(result).toEqual({
+      type: "if",
+      condition: { ref: "{{steps.x.result}}", eq: "yes" },
+    });
+    expect(result).not.toHaveProperty("then");
+    expect(result).not.toHaveProperty("else");
+  });
+
+  test("case step serializes match + paths (string keys) + default", () => {
+    const step = {
+      slug: "route",
+      type: "case" as const,
+      match: "{{steps.x.result}}",
+      paths: ["low", "high"],
+      default: "low",
+    };
+    const result = serializeStep(step);
+    expect(result).toEqual({
+      type: "case",
+      match: "{{steps.x.result}}",
+      paths: ["low", "high"],
+      default: "low",
+    });
+  });
+
+  test("custom step type merges type + config (no slug)", () => {
     const step = {
       slug: "generate-report",
       type: "excel",
@@ -367,23 +425,22 @@ describe("serializeStep", () => {
     };
     const result = serializeStep(step);
     expect(result).toEqual({
-      slug: "generate-report",
       type: "excel",
       mode: "create",
       path: "data/reports",
       filename: "report.xlsx",
       sheets: [{ name: "Sales", columns: [{ header: "Product", key: "product" }] }],
     });
+    expect(result).not.toHaveProperty("slug");
   });
 
-  test("custom step type with no config outputs slug and type only", () => {
+  test("custom step type with no config outputs type only", () => {
     const step = {
       slug: "empty-custom",
       type: "custom-type",
     };
     const result = serializeStep(step);
     expect(result).toEqual({
-      slug: "empty-custom",
       type: "custom-type",
     });
   });
@@ -399,6 +456,7 @@ describe("serializeWorkflowDraft", () => {
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "Do it" }],
+      edges: [],
     };
     const result = serializeWorkflowDraft(draft);
     expect(result).not.toHaveProperty("description");
@@ -413,6 +471,7 @@ describe("serializeWorkflowDraft", () => {
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "Do it" }],
+      edges: [],
     };
     const result = serializeWorkflowDraft(draft);
     expect(result.description).toBe("A useful workflow");
@@ -425,6 +484,7 @@ describe("serializeWorkflowDraft", () => {
       trigger: { type: "schedule", ref: "" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "Do it" }],
+      edges: [],
     };
     const result = serializeWorkflowDraft(draft) as { trigger: { type: string; ref?: string } };
     expect(result.trigger.type).toBe("schedule");
@@ -438,12 +498,13 @@ describe("serializeWorkflowDraft", () => {
       trigger: { type: "schedule", ref: "*/5 * * * *" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "Do it" }],
+      edges: [],
     };
     const result = serializeWorkflowDraft(draft) as { trigger: { type: string; ref?: string } };
     expect(result.trigger.ref).toBe("*/5 * * * *");
   });
 
-  test("serializes steps using serializeStep (strips extra fields)", () => {
+  test("serializes steps as a map keyed by slug + edges array", () => {
     const draft = {
       name: "test-wf",
       description: "",
@@ -453,15 +514,24 @@ describe("serializeWorkflowDraft", () => {
         { slug: "agent-step", type: "agent", prompt: "Hello", config: { junk: true } },
         { slug: "req-step", type: "http-request", config: { url: "http://real.com", method: "POST" } },
       ],
+      edges: [{ from: "agent-step", to: "req-step" }],
     };
-    const result = serializeWorkflowDraft(draft) as { steps: Record<string, unknown>[] };
-    // Agent step should only have slug, type, prompt
-    expect(result.steps[0]).not.toHaveProperty("config");
-    expect(result.steps[0]).toHaveProperty("prompt");
-    // Custom step should spread config into the output
-    expect(result.steps[1]).toHaveProperty("url");
-    expect(result.steps[1]).toHaveProperty("method");
-    expect(result.steps[1]).not.toHaveProperty("config");
+    const result = serializeWorkflowDraft(draft) as {
+      steps: Record<string, Record<string, unknown>>;
+      edges: Array<{ from: string; to: string }>;
+    };
+    // steps is a map keyed by slug
+    expect(Object.keys(result.steps).sort()).toEqual(["agent-step", "req-step"]);
+    // Agent step value has no slug/config, keeps prompt
+    expect(result.steps["agent-step"]).not.toHaveProperty("slug");
+    expect(result.steps["agent-step"]).not.toHaveProperty("config");
+    expect(result.steps["agent-step"]).toHaveProperty("prompt");
+    // Custom step spreads config into the output value
+    expect(result.steps["req-step"]).toHaveProperty("url");
+    expect(result.steps["req-step"]).toHaveProperty("method");
+    expect(result.steps["req-step"]).not.toHaveProperty("config");
+    // edges preserved
+    expect(result.edges).toEqual([{ from: "agent-step", to: "req-step" }]);
   });
 
   test("omits ref when trigger type is manual even if ref is set", () => {
@@ -628,6 +698,7 @@ describe("validateWorkflowDraft with step type schemas", () => {
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "req-step", type: "http-request", config: { method: "GET" } }],
+      edges: [],
     };
     const errors = validateWorkflowDraft(draft, stepTypeSchemas);
     expect(errors.has("steps[0].config.url")).toBe(true);
@@ -641,6 +712,7 @@ describe("validateWorkflowDraft with step type schemas", () => {
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "req-step", type: "http-request", config: { url: "http://example.com" } }],
+      edges: [],
     };
     const errors = validateWorkflowDraft(draft, stepTypeSchemas);
     expect(errors.has("steps[0].config.url")).toBe(false);
@@ -653,6 +725,7 @@ describe("validateWorkflowDraft with step type schemas", () => {
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "unknown-step", type: "unknown-type", config: {} }],
+      edges: [],
     };
     const errors = validateWorkflowDraft(draft, stepTypeSchemas);
     // No config errors since there's no schema for "unknown-type"
@@ -667,6 +740,7 @@ describe("validateWorkflowDraft with step type schemas", () => {
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "req-step", type: "http-request", config: {} }],
+      edges: [],
     };
     const errors = validateWorkflowDraft(draft);
     const configErrors = [...errors.keys()].filter((k) => k.includes("config"));

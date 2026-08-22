@@ -110,6 +110,7 @@ export async function dispatchDagWorkflow(
   triggerPayload: unknown,
   log: Logger,
   sessionStore: SessionFactory,
+  onInlineRoots?: (runId: string, rootSlugs: string[]) => Promise<void>,
 ): Promise<WorkflowDispatchResult> {
   const workflowRunId = crypto.randomUUID();
   const { steps, edges } = definition;
@@ -153,15 +154,22 @@ export async function dispatchDagWorkflow(
   // Compute root steps (no incoming edges)
   const rootSlugs = computeRootSteps(definition);
 
-  // Filter out CF root nodes (they should be evaluated inline, not dispatched)
-  const dispatchableRoots = rootSlugs.filter((slug) => !DAG_CF_TYPES.has(steps[slug]!.type));
+  // Filter out non-dispatchable root nodes (CF and waitFor are handled inline,
+  // not dispatched as queue jobs).
+  const dispatchableRoots = rootSlugs.filter((slug) => {
+    const t = steps[slug]!.type;
+    return !DAG_CF_TYPES.has(t) && t !== "waitFor";
+  });
 
   if (dispatchableRoots.length === 0 && rootSlugs.length > 0) {
-    // All roots are CF nodes — they need inline evaluation by the coordinator
-    // Return empty jobIds; the caller/coordinator handles this
+    // All roots are inline nodes (CF/waitFor) — the coordinator handles them.
+    // Kick off inline evaluation for each inline root via the provided callback.
     log.info(
-      `Dispatching DAG workflow "${definition.name}" run ${workflowRunId} (${Object.keys(steps).length} steps, all roots are CF nodes - deferring to coordinator)`,
+      `Dispatching DAG workflow "${definition.name}" run ${workflowRunId} (${Object.keys(steps).length} steps, all roots are inline nodes - deferring to coordinator)`,
     );
+    if (onInlineRoots) {
+      await onInlineRoots(workflowRunId, rootSlugs);
+    }
     return { workflowRunId, jobIds: [] };
   }
 

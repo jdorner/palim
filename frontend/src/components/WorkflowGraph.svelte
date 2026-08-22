@@ -10,7 +10,7 @@ import {
 } from "@xyflow/svelte";
 import "@xyflow/svelte/dist/style.css";
 import { onMount, untrack } from "svelte";
-import { flattenWorkflow, type StepData } from "$lib/workflowGraph";
+import { buildDagGraph, type DagEdge, type StepData } from "$lib/workflowGraph";
 import { computeLayout } from "$lib/workflowLayout";
 import AddStepNode from "./AddStepNode.svelte";
 import ControlFlowNode from "./ControlFlowNode.svelte";
@@ -36,9 +36,12 @@ interface TriggerInfo {
 
 interface Props {
   steps: StepInfo[];
+  /** DAG edges connecting steps by slug. */
+  edges?: DagEdge[];
   trigger?: TriggerInfo;
   editMode?: boolean;
-  selectedStepIndex?: number;
+  /** Slug of the currently selected step (for highlight). */
+  selectedStepSlug?: string;
   /** Whether the trigger node is currently selected (shows orange highlight). */
   triggerSelected?: boolean;
   fitViewTrigger?: number;
@@ -58,9 +61,10 @@ interface Props {
 
 let {
   steps,
+  edges: dagEdges = [],
   trigger,
   editMode,
-  selectedStepIndex = -1,
+  selectedStepSlug,
   triggerSelected = false,
   fitViewTrigger = 0,
   customStepTypes = [],
@@ -79,9 +83,14 @@ const nodeTypes = { step: WorkflowStepNode, controlFlow: ControlFlowNode, waitFo
 // Layout computation using flatten + dagre
 // ---------------------------------------------------------------------------
 
-/** Compute the full graph layout from current steps. */
+/** Compute the full graph layout from current steps + edges. */
 function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
-  const flatGraph = flattenWorkflow(steps as StepData[]);
+  const stepsMap: Record<string, Omit<StepData, "slug">> = {};
+  for (const s of steps) {
+    const { slug, ...rest } = s;
+    stepsMap[slug] = rest as Omit<StepData, "slug">;
+  }
+  const flatGraph = buildDagGraph(stepsMap, dagEdges);
 
   // Derive the set of terminal step types from extension metadata
   const terminalTypes = new Set(customStepTypes.filter((st) => st.terminal).map((st) => st.type));
@@ -115,38 +124,30 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
       };
     }
 
-    // Find the corresponding step for status overlay.
-    // If a statusMap is provided (run page), resolve status by slug lookup.
-    // Otherwise fall back to index-based lookup (detail/edit page).
+    // Node IDs are step slugs in the DAG model. Resolve status/selection by slug.
     const isTerminal = terminalTypes.has(node.data.type as string);
+    const slug = node.data.slug as string;
 
     if (statusMap) {
-      const slug = node.data.slug as string;
       const status = statusMap[slug] ?? "waiting";
       return {
         ...node,
         data: {
           ...node.data,
           status,
-          selected: false,
+          selected: slug === selectedStepSlug,
           terminal: isTerminal,
         },
       };
     }
 
-    // Root-level nodes have IDs like "step-0", "step-1", etc.
-    // Branch nodes have IDs like "step-0.then-0", "step-1.path-create-0", etc.
-    const rootIndex = parseRootIndex(node.id);
-    const step = rootIndex !== null ? steps[rootIndex] : undefined;
-    // Mark as selected if this node belongs to the currently selected top-level step
-    const isSelected = rootIndex !== null && rootIndex === selectedStepIndex;
-
+    const step = steps.find((s) => s.slug === slug);
     return {
       ...node,
       data: {
         ...node.data,
         status: step?.status ?? node.data.status ?? "waiting",
-        selected: isSelected,
+        selected: slug === selectedStepSlug,
         terminal: isTerminal,
       },
     };
@@ -160,57 +161,6 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
   });
 
   return { nodes: nodesWithStatus, edges: edgesWithAnimation };
-}
-
-/**
- * Extracts the root-level step index from a node ID.
- * - "step-2" -> 2
- * - "step-1.then-0" -> 1 (the parent CF node index)
- * - "__trigger__" -> null
- */
-function parseRootIndex(nodeId: string): number | null {
-  if (!nodeId.startsWith("step-")) return null;
-  const match = nodeId.match(/^step-(\d+)/);
-  return match ? Number.parseInt(match[1], 10) : null;
-}
-
-/**
- * Recursively searches the step tree for a step with the given slug.
- * Returns a StepInfo-compatible object or undefined if not found.
- */
-function findStepBySlug(stepsArray: StepInfo[], slug: string): StepInfo | undefined {
-  for (const step of stepsArray) {
-    if (step.slug === slug) return step;
-    // Search in if branches
-    if (step.type === "if") {
-      const thenSteps = (step as { then?: StepInfo[] }).then;
-      if (thenSteps) {
-        const found = findStepBySlug(thenSteps, slug);
-        if (found) return found;
-      }
-      const elseSteps = (step as { else?: StepInfo[] }).else;
-      if (elseSteps) {
-        const found = findStepBySlug(elseSteps, slug);
-        if (found) return found;
-      }
-    }
-    // Search in case branches
-    if (step.type === "case") {
-      const paths = (step as { paths?: Record<string, StepInfo[]> }).paths;
-      if (paths) {
-        for (const pathSteps of Object.values(paths)) {
-          const found = findStepBySlug(pathSteps, slug);
-          if (found) return found;
-        }
-      }
-      const defaultSteps = (step as { default?: StepInfo[] }).default;
-      if (defaultSteps) {
-        const found = findStepBySlug(defaultSteps, slug);
-        if (found) return found;
-      }
-    }
-  }
-  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -286,25 +236,49 @@ function handleNodeDragStop(ev: { event: MouseEvent | TouchEvent; targetNode: No
 // ---------------------------------------------------------------------------
 
 function isValidConnection({ source, target }: { source: string; target: string }): boolean {
-  if (source === target) return false;
-  const currentEdges = editMode ? editableEdges : derivedEdges;
-  if (currentEdges.some((e) => e.target === target && e.source !== source)) return false;
-  return true;
+  // Only reject self-loops. Fan-in (multiple incoming edges to a join node) is
+  // valid in the DAG model; cycle prevention is enforced by backend validation.
+  return source !== target;
 }
 
 function handleConnect(connection: Connection) {
-  const { source, target } = connection;
+  const { source, target, sourceHandle } = connection;
   if (!source || !target) return;
 
+  const branch = branchFromHandle(source, sourceHandle);
   const newEdge: Edge = {
-    id: `${source}-${target}`,
+    id: branch ? `${source}->${target}:${branch}` : `${source}->${target}`,
     source,
     target,
+    ...(sourceHandle ? { sourceHandle } : {}),
+    ...(branch ? { label: branch } : {}),
     animated: false,
   };
 
+  // Avoid duplicate edges (same source+target+handle)
+  const exists = editableEdges.some(
+    (e) => e.source === source && e.target === target && (e.sourceHandle ?? null) === (sourceHandle ?? null),
+  );
+  if (exists) return;
+
   editableEdges = [...editableEdges, newEdge];
   onEdgesChange?.(editableEdges);
+}
+
+/**
+ * Extracts the branch label from a CF node's source handle ID.
+ * Mirrors the convention in workflowGraph.ts / ControlFlowNode.svelte:
+ *  - case path:  `${slug}-path-${key}` -> key
+ *  - if / default: `${slug}-${branch}` -> branch
+ * Returns undefined for non-CF edges (no handle).
+ */
+function branchFromHandle(sourceSlug: string, sourceHandle: string | null | undefined): string | undefined {
+  if (!sourceHandle) return undefined;
+  const pathPrefix = `${sourceSlug}-path-`;
+  if (sourceHandle.startsWith(pathPrefix)) return sourceHandle.slice(pathPrefix.length);
+  const prefix = `${sourceSlug}-`;
+  if (sourceHandle.startsWith(prefix)) return sourceHandle.slice(prefix.length);
+  return undefined;
 }
 
 function handleDelete({ edges: deletedEdges }: { nodes: Node[]; edges: Edge[] }) {
@@ -316,11 +290,8 @@ function handleDelete({ edges: deletedEdges }: { nodes: Node[]; edges: Edge[] })
 }
 
 function handleBeforeReconnect(newEdge: Edge, _oldEdge: Edge): Edge | null {
-  const edgesWithoutOld = editableEdges.filter((e) => e.id !== _oldEdge.id);
-
-  const targetHasIncoming = edgesWithoutOld.some((e) => e.target === newEdge.target && e.source !== newEdge.source);
-  if (targetHasIncoming) return null;
-
+  // Reject self-loops; fan-in is allowed in the DAG model.
+  if (newEdge.source === newEdge.target) return null;
   return newEdge;
 }
 
@@ -343,21 +314,14 @@ function handleNodeClick(ev: { event: MouseEvent | TouchEvent; node: Node }) {
     return;
   }
 
-  // When statusMap is provided (run page), resolve by slug for all nodes
-  if (statusMap && onNodeClick) {
-    const slug = ev.node.data?.slug as string | undefined;
-    if (!slug) return;
-    // Find a matching step in the steps array (may be nested for branch steps)
-    const matchingStep = findStepBySlug(steps, slug);
-    if (matchingStep) onNodeClick(matchingStep, -1);
-    return;
+  // Node IDs are step slugs. Resolve the clicked step by slug.
+  const slug = ev.node.data?.slug as string | undefined;
+  if (!slug || !onNodeClick) return;
+  const step = steps.find((s) => s.slug === slug);
+  if (step) {
+    const index = steps.findIndex((s) => s.slug === slug);
+    onNodeClick(step, index);
   }
-
-  const rootIndex = parseRootIndex(ev.node.id);
-  if (rootIndex === null) return;
-
-  const step = steps[rootIndex];
-  if (step && onNodeClick) onNodeClick(step, rootIndex);
 }
 
 // ---------------------------------------------------------------------------

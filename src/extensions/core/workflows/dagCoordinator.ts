@@ -20,8 +20,18 @@ import { buildDagStepJob, buildIncomingEdgeMap, buildOutgoingEdgeMap, type Sessi
 import * as dagRunStore from "./dagRunStore";
 import { type DagWorkflowRun, type EdgeState, edgeId, getReadySteps, type StepStatus } from "./dagRunStore";
 import { computeTerminalSteps } from "./dagValidation";
-import type { ConditionDef, DagCaseStep, DagIfStep, DagStep, DagWorkflowDefinition, Edge } from "./schemas";
+import type {
+  ConditionDef,
+  DagCaseStep,
+  DagIfStep,
+  DagStep,
+  DagWaitForStep,
+  DagWorkflowDefinition,
+  Edge,
+} from "./schemas";
 import { DAG_CF_TYPES } from "./schemas";
+import * as signalStore from "./signalStore";
+import * as signalTimers from "./signalTimers";
 import { resolveTemplates, type TemplateContext } from "./template";
 
 // ---------------------------------------------------------------------------
@@ -430,6 +440,11 @@ async function checkSuccessors(
       const postCfRun = dagRunStore.get(runId);
       if (!postCfRun || postCfRun.status !== "running") return;
       Object.assign(run, postCfRun);
+    } else if (stepDef.type === "waitFor") {
+      // WaitFor node: register a signal and pause this branch (no queue job)
+      registerWaitForNode(runId, slug, stepDef as DagWaitForStep, deps);
+      const freshRun = dagRunStore.get(runId)!;
+      Object.assign(run, freshRun);
     } else {
       // Execution node: dispatch as a job
       await dispatchStep(runId, slug, stepDef as DagStep, run, definition, deps);
@@ -606,6 +621,159 @@ async function checkRunCompletion(
     broadcast({ type: "workflow_completed", workflowRunId: runId });
     log.info(`DAG workflow run ${runId} completed`);
   }
+}
+
+// ---------------------------------------------------------------------------
+// Inline Root Evaluation
+// ---------------------------------------------------------------------------
+
+/**
+ * Evaluates an inline root node (a CF or waitFor node with no incoming edges).
+ *
+ * Called by the engine when a workflow's root steps are all inline nodes that
+ * cannot be dispatched as queue jobs. Marks the node running and evaluates it
+ * inline (CF) or registers it (waitFor).
+ *
+ * @param runId - The workflow run ID
+ * @param slug - The inline root node slug
+ * @param deps - Injected dependencies
+ */
+export async function evaluateInlineRoot(runId: string, slug: string, deps: DagCoordinatorDeps): Promise<void> {
+  const { log, getWorkflowDefinition } = deps;
+
+  const run = dagRunStore.get(runId);
+  if (!run || run.status !== "running") return;
+
+  const definition = getWorkflowDefinition(run.workflowName);
+  if (!definition) {
+    failRun(runId, slug, `Workflow definition "${run.workflowName}" no longer available`, deps);
+    return;
+  }
+
+  const stepDef = definition.steps[slug];
+  if (!stepDef) return;
+
+  const topology = buildGraphTopology(definition);
+
+  if (DAG_CF_TYPES.has(stepDef.type)) {
+    dagRunStore.updateStepStatus(runId, slug, "running");
+    await evaluateCfNode(runId, slug, dagRunStore.get(runId)!, definition, topology, deps);
+  } else if (stepDef.type === "waitFor") {
+    registerWaitForNode(runId, slug, stepDef as DagWaitForStep, deps);
+  } else {
+    log.warn(`DAG coordinator: evaluateInlineRoot called for non-inline step "${slug}" (type: ${stepDef.type})`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WaitFor Registration
+// ---------------------------------------------------------------------------
+
+/**
+ * Registers a `waitFor` node: marks the step running, creates a signal record,
+ * broadcasts a waiting event, and arms a timeout timer if configured.
+ *
+ * The waitFor node does NOT run as a queue job. It pauses its branch until a
+ * signal is delivered (via the signal endpoint or emit handler), at which point
+ * {@link resumeWaitForNode} advances execution.
+ *
+ * @param runId - The workflow run ID
+ * @param slug - The waitFor node slug
+ * @param stepDef - The waitFor step definition
+ * @param deps - Injected dependencies
+ */
+function registerWaitForNode(runId: string, slug: string, stepDef: DagWaitForStep, deps: DagCoordinatorDeps): void {
+  const { log, broadcast } = deps;
+
+  dagRunStore.updateStepStatus(runId, slug, "running");
+
+  // Create a signal record so the delivery endpoint can find this waiting step
+  let signalRecord: signalStore.SignalRecord;
+  try {
+    signalRecord = signalStore.create({
+      runId,
+      stepSlug: slug,
+      event: stepDef.event,
+      timeoutMs: stepDef.timeout ?? null,
+      inputSchema: stepDef.inputSchema ?? null,
+    });
+  } catch (err) {
+    log.error(`DAG coordinator: signal store error for waitFor "${slug}" in run ${runId}:`, err);
+    failRun(runId, slug, `Signal Store unavailable: ${err instanceof Error ? err.message : String(err)}`, deps);
+    return;
+  }
+
+  broadcast({
+    type: "workflow_step_waiting",
+    workflowRunId: runId,
+    stepSlug: slug,
+    event: stepDef.event,
+    inputSchema: stepDef.inputSchema ?? null,
+  });
+
+  log.info(
+    `DAG waitFor node "${slug}" in run ${runId}: waiting for signal "${stepDef.event}"${stepDef.timeout ? ` (timeout: ${stepDef.timeout}ms)` : ""}`,
+  );
+
+  // Arm timeout timer if configured
+  if (stepDef.timeout != null && stepDef.timeout > 0) {
+    signalTimers.arm(signalRecord.id, runId, slug, stepDef.event, stepDef.timeout, { log, broadcast });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// WaitFor Resume
+// ---------------------------------------------------------------------------
+
+/**
+ * Resumes a workflow run after a `waitFor` node receives its signal.
+ *
+ * Marks the waitFor node completed with the signal payload as its result,
+ * satisfies its outgoing edges, and dispatches ready successors. This is
+ * called by the signal delivery endpoint and the emit handler.
+ *
+ * @param runId - The workflow run ID
+ * @param stepSlug - The waitFor node slug
+ * @param payload - The signal payload (becomes the step's result)
+ * @param deps - Injected dependencies
+ */
+export async function resumeWaitForNode(
+  runId: string,
+  stepSlug: string,
+  payload: unknown,
+  deps: DagCoordinatorDeps,
+): Promise<void> {
+  const { log, getWorkflowDefinition } = deps;
+
+  const run = dagRunStore.get(runId);
+  if (!run) {
+    log.error(`DAG coordinator: run ${runId} not found for waitFor resume`);
+    return;
+  }
+
+  const definition = getWorkflowDefinition(run.workflowName);
+  if (!definition) {
+    failRun(runId, stepSlug, `Workflow definition "${run.workflowName}" no longer available`, deps);
+    return;
+  }
+
+  const topology = buildGraphTopology(definition);
+
+  // Persist payload as the waitFor step result and mark completed
+  dagRunStore.updateStepResult(runId, stepSlug, payload);
+  dagRunStore.updateStepStatus(runId, stepSlug, "completed");
+  dagRunStore.updateStatus(runId, "running");
+
+  // Satisfy outgoing edges
+  const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
+  for (const edge of outEdges) {
+    const eid = edgeId(edge.from, edge.to, edge.branch);
+    dagRunStore.updateEdgeState(runId, eid, "satisfied");
+  }
+
+  // Check successors
+  const updatedRun = dagRunStore.get(runId)!;
+  await checkSuccessors(runId, outEdges, updatedRun, definition, topology, deps);
 }
 
 // ---------------------------------------------------------------------------

@@ -20,6 +20,7 @@ import type { OutputSchemas } from "$lib/templateScope";
 import { aggregateStepStatus, formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import {
+  type EdgeDraft,
   type StepDraft,
   serializeWorkflowDraft,
   validateSlug,
@@ -56,7 +57,10 @@ interface WorkflowDetail {
   description?: string;
   trigger: { type: string; ref?: string };
   enabled?: boolean;
+  /** DAG steps normalized to an array with slug (for the array-based editor). */
   steps: StepDef[];
+  /** DAG edges connecting steps by slug. */
+  edges: Array<{ from: string; to: string; branch?: string }>;
   warnings: Array<WarningsDef>;
   outputSchemas?: OutputSchemas;
   runs: Array<{
@@ -66,6 +70,20 @@ interface WorkflowDetail {
     completedAt?: number;
     steps: Array<{ slug: string; status: string; jobId: string }>;
   }>;
+}
+
+/**
+ * Normalizes a DAG workflow API response (steps map + edges array) into the
+ * page's internal shape (steps array with slug + edges array).
+ */
+function normalizeWorkflow(raw: Record<string, unknown>): WorkflowDetail {
+  const stepsMap = (raw.steps ?? {}) as Record<string, Record<string, unknown>>;
+  const stepsArray = Object.entries(stepsMap).map(([slug, s]) => ({ slug, ...s })) as StepDef[];
+  return {
+    ...(raw as Omit<WorkflowDetail, "steps" | "edges">),
+    steps: stepsArray,
+    edges: (raw.edges ?? []) as WorkflowDetail["edges"],
+  };
 }
 
 let workflow = $state<WorkflowDetail | null>(null);
@@ -164,37 +182,25 @@ function toStepDraft(s: StepDef | Record<string, unknown>): StepDraft {
     };
   }
 
-  // Control flow: if - preserve condition + recursively transform branches
+  // Control flow: if - preserve condition (branches are edges, not nested arrays)
   if (type === "if") {
-    const thenSteps = (raw.then as Record<string, unknown>[] | undefined) ?? [];
-    const elseSteps = (raw.else as Record<string, unknown>[] | undefined) ?? [];
-    const result: StepDraft = {
+    return {
       slug,
       type,
       condition: JSON.parse(JSON.stringify(raw.condition ?? {})),
     };
-    if (thenSteps.length > 0) {
-      // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
-      result.then = thenSteps.map(toStepDraft);
-    }
-    if (elseSteps.length > 0) {
-      result.else = elseSteps.map(toStepDraft);
-    }
-    return result;
   }
 
-  // Control flow: case - preserve match + recursively transform paths and default
+  // Control flow: case - preserve match, paths (string[] of keys), default (string)
   if (type === "case") {
-    const paths = (raw.paths ?? {}) as Record<string, Record<string, unknown>[]>;
-    const defaultSteps = (raw.default as Record<string, unknown>[] | undefined) ?? [];
     const result: StepDraft = {
       slug,
       type,
       match: raw.match as string,
-      paths: Object.fromEntries(Object.entries(paths).map(([key, steps]) => [key, steps.map(toStepDraft)])),
+      paths: Array.isArray(raw.paths) ? [...(raw.paths as string[])] : [],
     };
-    if (defaultSteps.length > 0) {
-      result.default = defaultSteps.map(toStepDraft);
+    if (typeof raw.default === "string") {
+      result.default = raw.default;
     }
     return result;
   }
@@ -227,10 +233,10 @@ function enterEditMode() {
     trigger: { type: workflow.trigger.type, ref: workflow.trigger.ref ?? "" },
     enabled: workflow.enabled ?? true,
     steps: workflow.steps.map(toStepDraft),
+    edges: (workflow.edges ?? []).map((e) => ({ ...e })),
   };
   saveError = null;
   validationErrors = new Map();
-  currentGraphEdges = [];
   editMode = true;
   fitViewTrigger++;
   fetchMeta();
@@ -280,108 +286,70 @@ function updateDraftStep(index: number, updater: (step: StepDraft) => void) {
   };
 }
 
-/** Add a new step to the draft with the given type (defaults to "agent"). */
+/**
+ * Generates a unique placeholder slug for a newly added step
+ * (e.g. "step-1", "step-2", ...) that doesn't collide with existing slugs.
+ */
+function nextStepSlug(): string {
+  if (!editDraft) return "step-1";
+  const existing = new Set(editDraft.steps.map((s) => s.slug));
+  let n = editDraft.steps.length + 1;
+  let candidate = `step-${n}`;
+  while (existing.has(candidate)) {
+    n++;
+    candidate = `step-${n}`;
+  }
+  return candidate;
+}
+
+/**
+ * Add a new step to the draft with the given type (defaults to "agent").
+ *
+ * When `branchContext` is provided, the new step is connected to the parent
+ * CF node via a labeled edge (the DAG equivalent of inserting into a branch).
+ * Otherwise the step is added as an unconnected node the user can wire up.
+ */
 function addStep(type: string = "agent", branchContext?: { parentNodeId: string; branch: string }) {
   if (!editDraft) return;
 
   const template = stepTemplate(type);
+  template.slug = nextStepSlug();
 
+  const newEdges = [...editDraft.edges];
   if (branchContext) {
-    // Insert into a branch of a CF step
-    const stepIndex = parseStepIndex(branchContext.parentNodeId);
-    if (stepIndex === null || stepIndex >= editDraft.steps.length) return;
-
-    editDraft = {
-      ...editDraft,
-      steps: editDraft.steps.map((s, i) => {
-        if (i !== stepIndex) return s;
-        return insertIntoBranch(s, branchContext.branch, template);
-      }),
-    };
-  } else {
-    // Append to top-level steps
-    editDraft = {
-      ...editDraft,
-      steps: [...editDraft.steps, template],
-    };
+    // Connect the parent CF node to the new step via a labeled branch edge.
+    newEdges.push({ from: branchContext.parentNodeId, to: template.slug, branch: branchContext.branch });
   }
 
-  // Mark validation errors for the new step
+  editDraft = {
+    ...editDraft,
+    steps: [...editDraft.steps, template],
+    edges: newEdges,
+  };
+
+  const newIndex = editDraft.steps.length - 1;
   const newErrors = new Map(validationErrors);
-  if (!branchContext) {
-    const newIndex = editDraft.steps.length - 1;
-    newErrors.set(`steps[${newIndex}].slug`, "Slug is required");
-    if (type === "agent") {
-      newErrors.set(`steps[${newIndex}].prompt`, "Prompt is required for agent steps");
-    }
-    // Auto-select the new step in the sidebar
-    selectedStep = editDraft.steps[newIndex] as StepDef;
-    selectedStepIndex = newIndex;
-    sidebarOpen = true;
+  if (type === "agent") {
+    newErrors.set(`steps[${newIndex}].prompt`, "Prompt is required for agent steps");
   }
   validationErrors = newErrors;
+
+  // Auto-select the new step in the sidebar
+  selectedStep = editDraft.steps[newIndex] as StepDef;
+  selectedStepIndex = newIndex;
+  triggerSelected = false;
+  sidebarOpen = true;
 }
 
-/**
- * Extracts the step array index from a graph node ID.
- * "step-2" -> 2, "step-0.then-0" -> 0
- */
-function parseStepIndex(nodeId: string): number | null {
-  const match = nodeId.match(/^step-(\d+)/);
-  return match ? Number.parseInt(match[1], 10) : null;
-}
-
-/**
- * Inserts a new step into the specified branch of a CF step.
- * Handles "then", "else" for if steps, and path keys / "default" for case steps.
- */
-function insertIntoBranch(step: StepDraft, branch: string, template: StepDraft): StepDraft {
-  const copy = { ...step };
-
-  if (step.type === "if") {
-    if (branch === "then") {
-      const current = (copy.then as StepDraft[] | undefined) ?? [];
-      // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
-      copy.then = [...current, template];
-    } else if (branch === "else") {
-      const current = (copy.else as StepDraft[] | undefined) ?? [];
-      copy.else = [...current, template];
-    }
-  } else if (step.type === "case") {
-    if (branch === "default") {
-      const current = (copy.default as StepDraft[] | undefined) ?? [];
-      copy.default = [...current, template];
-    } else {
-      const paths = { ...((copy.paths as Record<string, StepDraft[]>) ?? {}) };
-      const current = paths[branch] ?? [];
-      paths[branch] = [...current, template];
-      copy.paths = paths;
-    }
-  }
-
-  return copy;
-}
-
-/** Returns a default step template for a given type. */
+/** Returns a default step template for a given type (DAG: no nested branches). */
 function stepTemplate(type: string): StepDraft {
   switch (type) {
     case "agent":
       return { slug: "", type: "agent", prompt: "" };
     case "if":
-      return {
-        slug: "",
-        type: "if",
-        condition: { ref: "" },
-        // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
-        then: [],
-      };
+      return { slug: "", type: "if", condition: { ref: "" } };
     case "case":
-      return {
-        slug: "",
-        type: "case",
-        match: "",
-        paths: {},
-      };
+      return { slug: "", type: "case", match: "", paths: [] };
     case "waitFor":
       return { slug: "", type: "waitFor", event: "" };
     case "emit":
@@ -393,70 +361,48 @@ function stepTemplate(type: string): StepDraft {
 }
 
 /**
- * Store the latest edge state from the graph without reordering steps.
- * Step order is resolved from edges only at save time to avoid visual disruption.
+ * Translates the graph's SvelteFlow edges into the draft's DAG edges.
+ *
+ * Edge source/target are step slugs (the DAG graph node IDs). The
+ * `sourceHandle` encodes the branch for CF nodes:
+ *  - if:    `${slug}-then` / `${slug}-else`
+ *  - case:  `${slug}-path-${key}` / `${slug}-default`
+ * Non-CF edges have no branch.
  */
-let currentGraphEdges = $state<Edge[]>([]);
-
 function handleEdgesChange(edges: Edge[]) {
-  currentGraphEdges = edges;
+  if (!editDraft) return;
+
+  const stepSlugs = new Set(editDraft.steps.map((s) => s.slug));
+  const draftEdges: EdgeDraft[] = [];
+
+  for (const edge of edges) {
+    // Skip edges to/from synthetic nodes (trigger, addStep)
+    if (!stepSlugs.has(edge.source) || !stepSlugs.has(edge.target)) continue;
+
+    const branch = branchFromHandle(edge.source, edge.sourceHandle);
+    draftEdges.push(branch !== undefined ? { from: edge.source, to: edge.target, branch } : { from: edge.source, to: edge.target });
+  }
+
+  editDraft = { ...editDraft, edges: draftEdges };
 }
 
 /**
- * Resolves step order from edge topology. Used at save time to ensure
- * the serialized step array follows the user's edge connections.
- * Returns steps in topological order based on the current graph edges.
+ * Extracts the branch label from a CF node's source handle ID.
+ * Returns undefined for non-CF edges (no branch).
  */
-function resolveStepOrderFromEdges(draft: WorkflowDraft): StepDraft[] {
-  if (currentGraphEdges.length === 0) return draft.steps;
-
-  // Filter to only step-to-step edges (exclude trigger and addStep edges)
-  const stepEdges = currentGraphEdges.filter((e) => e.source.startsWith("step-") && e.target.startsWith("step-"));
-
-  if (stepEdges.length === 0) return draft.steps;
-
-  // Build adjacency using node IDs (index-based)
-  const outgoing = new Map<string, string>();
-  const incoming = new Set<string>();
-  for (const edge of stepEdges) {
-    outgoing.set(edge.source, edge.target);
-    incoming.add(edge.target);
+function branchFromHandle(sourceSlug: string, sourceHandle: string | null | undefined): string | undefined {
+  if (!sourceHandle) return undefined;
+  // if-node handles: "${slug}-then" / "${slug}-else"
+  // case-node handles: "${slug}-path-${key}" / "${slug}-default"
+  const pathPrefix = `${sourceSlug}-path-`;
+  if (sourceHandle.startsWith(pathPrefix)) {
+    return sourceHandle.slice(pathPrefix.length);
   }
-
-  // All step node IDs
-  const allStepIds = draft.steps.map((_, i) => `step-${i}`);
-
-  // Find chain starts: step nodes with outgoing edges but no incoming edge from other steps
-  const connectedSteps = new Set([...outgoing.keys(), ...incoming]);
-  const chainStarts = [...connectedSteps].filter((id) => !incoming.has(id));
-
-  // Walk the chain from each start to produce ordered node IDs
-  const ordered: string[] = [];
-  const visited = new Set<string>();
-
-  for (const start of chainStarts) {
-    let current: string | undefined = start;
-    while (current && !visited.has(current)) {
-      visited.add(current);
-      ordered.push(current);
-      current = outgoing.get(current);
-    }
+  const prefix = `${sourceSlug}-`;
+  if (sourceHandle.startsWith(prefix)) {
+    return sourceHandle.slice(prefix.length);
   }
-
-  // Append any steps not part of the chain (disconnected nodes) in original order
-  for (const id of allStepIds) {
-    if (!visited.has(id)) {
-      ordered.push(id);
-    }
-  }
-
-  // Convert node IDs back to indices and reorder steps
-  return ordered
-    .map((id) => {
-      const idx = Number.parseInt(id.replace("step-", ""), 10);
-      return draft.steps[idx];
-    })
-    .filter(Boolean) as StepDraft[];
+  return undefined;
 }
 
 /** Remove a step at the given index. Returns false if removal was prevented. */
@@ -468,6 +414,8 @@ function removeStep(index: number) {
   editDraft = {
     ...editDraft,
     steps: editDraft.steps.filter((_, i) => i !== index),
+    // Drop any edges touching the removed step
+    edges: editDraft.edges.filter((e) => e.from !== removedSlug && e.to !== removedSlug),
   };
 
   // Clean up validation errors for the removed step and re-index subsequent steps
@@ -507,9 +455,19 @@ let stepSlugTimeouts: Map<number, ReturnType<typeof setTimeout>> = new Map();
 
 function onStepSlugInput(index: number, value: string) {
   if (!editDraft) return;
+  const oldSlug = editDraft.steps[index]?.slug;
   editDraft = {
     ...editDraft,
     steps: editDraft.steps.map((s, i) => (i === index ? { ...s, slug: value } : s)),
+    // Keep edges in sync when a step is renamed so connections aren't orphaned
+    edges:
+      oldSlug && oldSlug !== value
+        ? editDraft.edges.map((e) => ({
+            ...e,
+            from: e.from === oldSlug ? value : e.from,
+            to: e.to === oldSlug ? value : e.to,
+          }))
+        : editDraft.edges,
   };
 
   const existing = stepSlugTimeouts.get(index);
@@ -571,14 +529,8 @@ function handleStepTypeChange(index: number, newType: string) {
 async function saveWorkflow() {
   if (!editDraft || !workflow) return;
 
-  // Resolve step order from edge topology before validation and save
-  const orderedDraft: WorkflowDraft = {
-    ...editDraft,
-    steps: resolveStepOrderFromEdges(editDraft),
-  };
-
-  // Run full validation
-  const errors = validateWorkflowDraft(orderedDraft, customStepTypes);
+  // Run full validation (edges are explicit in the draft — no reordering needed)
+  const errors = validateWorkflowDraft(editDraft, customStepTypes);
   if (errors.size > 0) {
     validationErrors = errors;
     return;
@@ -591,7 +543,7 @@ async function saveWorkflow() {
     const res = await authFetch(`/ext/workflows/${workflow.name}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(serializeWorkflowDraft(orderedDraft)),
+      body: JSON.stringify(serializeWorkflowDraft(editDraft)),
     });
 
     if (!res.ok) {
@@ -645,7 +597,7 @@ async function fetchWorkflow() {
   try {
     const res = await authFetch(`/ext/workflows/${name}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    workflow = await res.json();
+    workflow = normalizeWorkflow(await res.json());
   } catch (err) {
     error = err instanceof Error ? err.message : "Failed to load workflow";
   } finally {
@@ -976,9 +928,12 @@ onDestroy(() => {
                 ...s,
                 status: "waiting" as const,
               }))}
+              edges={editMode && editDraft ? editDraft.edges : workflow.edges}
               trigger={editMode && editDraft ? editDraft.trigger : workflow.trigger}
               {editMode}
-              selectedStepIndex={sidebarOpen && !triggerSelected ? selectedStepIndex : -1}
+              selectedStepSlug={sidebarOpen && !triggerSelected && selectedStepIndex >= 0
+                ? ((editDraft ?? workflow).steps[selectedStepIndex]?.slug ?? undefined)
+                : undefined}
               triggerSelected={sidebarOpen && triggerSelected}
               {customStepTypes}
               onNodeClick={onStepClick}

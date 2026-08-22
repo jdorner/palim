@@ -375,6 +375,17 @@ export function getByStatus(status: DagRunStatus): DagWorkflowRun[] {
 }
 
 /**
+ * Retrieves all DAG runs for the given workflow name.
+ *
+ * @param name - The workflow definition name
+ * @returns Array of matching runs
+ */
+export function getByWorkflowName(name: string): DagWorkflowRun[] {
+  const rows = db.select().from(workflowRuns).where(eq(workflowRuns.workflowName, name)).all();
+  return rows.map(rowToRun);
+}
+
+/**
  * Deletes DAG workflow run records by their IDs.
  *
  * @param ids - Array of run IDs to delete

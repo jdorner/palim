@@ -1,11 +1,11 @@
 /**
- * Load-time validation for workflow template expressions.
+ * Load-time validation for DAG workflow template expressions.
  *
- * Performs a dry-run check of all `{{...}}` placeholders in step fields
- * (prompt, url, body) against the workflow's own structure. Validates:
+ * Performs a dry-run check of all `{{...}}` placeholders in step fields against
+ * the workflow's DAG structure. Validates:
  *
  * 1. Step slug references exist in the workflow
- * 2. Steps only reference results from earlier steps (no forward references)
+ * 2. Steps only reference results from ancestor steps (no forward/non-ancestor references)
  * 3. Expression syntax matches known prefixes (trigger, steps, env, secret)
  * 4. Environment variable names are on the allowlist
  * 5. Secret keys exist in the vault (optional, only if resolver provided)
@@ -13,7 +13,7 @@
  * @module
  */
 
-import type { WorkflowDefinition, WorkflowStep } from "./schemas";
+import type { DagStepDef, DagWorkflowDefinition } from "./schemas";
 import type { TemplateSecretResolver } from "./template";
 
 /**
@@ -22,7 +22,7 @@ import type { TemplateSecretResolver } from "./template";
 export interface TemplateWarning {
   /** The step slug where the issue was found. */
   stepSlug: string;
-  /** The field containing the expression (e.g. "prompt", "url", "body"). */
+  /** The field containing the expression (e.g. "prompt", "condition.ref"). */
   field: string;
   /** Human-readable description of the issue. */
   message: string;
@@ -38,16 +38,12 @@ export interface TemplateValidationOptions {
   workflowName?: string;
 }
 
-/** Regex matching `{{...}}` template expressions (same as in template.ts). */
+/** Regex matching `{{...}}` template expressions. */
 const TEMPLATE_PATTERN = /\{\{([^}]+)\}\}/g;
 
 /** Known expression prefixes. */
 const KNOWN_PREFIXES = new Set(["trigger", "steps", "env", "secret"]);
 
-/**
- * Default env var allowlist (must stay in sync with template.ts).
- * Re-computes lazily including WORKFLOW_ENV_ALLOWLIST additions.
- */
 let _envAllowlist: Set<string> | undefined;
 
 function getEnvAllowlist(): Set<string> {
@@ -64,89 +60,123 @@ function getEnvAllowlist(): Set<string> {
 }
 
 /**
- * Extract all template-bearing fields from a step.
+ * Extract all template-bearing fields from a DAG step definition.
  *
- * @param step - The workflow step definition
+ * @param slug - The step slug
+ * @param step - The DAG step definition (no slug field)
  * @returns Array of [fieldName, fieldValue] pairs that may contain templates
  */
-function getTemplateFields(step: WorkflowStep): [string, string][] {
+function getTemplateFields(step: DagStepDef): [string, string][] {
   const fields: [string, string][] = [];
   if (step.type === "agent") {
-    const agentStep = step as import("./schemas").AgentStep;
+    const agentStep = step as { prompt: string | string[] };
     const prompt = Array.isArray(agentStep.prompt) ? agentStep.prompt.join("\n") : agentStep.prompt;
     fields.push(["prompt", prompt]);
+  } else if (step.type === "if") {
+    const ifStep = step as { condition: { ref: string } };
+    if (ifStep.condition?.ref) fields.push(["condition.ref", ifStep.condition.ref]);
+  } else if (step.type === "case") {
+    const caseStep = step as { match: string };
+    if (caseStep.match) fields.push(["match", caseStep.match]);
   } else {
-    // Custom step types: scan all string-valued config fields for template expressions
-    const { slug: _s, type: _t, outputSchema: _os, ...config } = step as Record<string, unknown>;
+    // Custom / emit / waitFor: scan all string-valued config fields
+    const { type: _t, outputSchema: _os, ...config } = step as Record<string, unknown>;
     for (const [key, value] of Object.entries(config)) {
-      if (typeof value === "string") {
-        fields.push([key, value]);
-      }
+      if (typeof value === "string") fields.push([key, value]);
     }
   }
   return fields;
 }
 
 /**
- * Validate all template expressions in a workflow definition.
+ * Computes the set of ancestor slugs for each step in the DAG.
  *
- * Performs structural checks that can be done at load time without executing
- * the workflow. Returns a list of warnings (empty if everything is valid).
+ * An ancestor of step X is any step from which X is reachable following edges.
+ * Used to validate that template references point to steps that will have
+ * completed before the referencing step runs.
  *
- * @param definition - The validated workflow definition
+ * @param definition - The DAG workflow definition
+ * @returns Map of step slug to set of ancestor slugs
+ */
+function computeAncestors(definition: DagWorkflowDefinition): Map<string, Set<string>> {
+  const directPreds = new Map<string, Set<string>>();
+  for (const slug of Object.keys(definition.steps)) {
+    directPreds.set(slug, new Set());
+  }
+  for (const edge of definition.edges) {
+    directPreds.get(edge.to)?.add(edge.from);
+  }
+
+  const ancestorCache = new Map<string, Set<string>>();
+
+  function resolve(slug: string, visiting: Set<string>): Set<string> {
+    const cached = ancestorCache.get(slug);
+    if (cached) return cached;
+    if (visiting.has(slug)) return new Set(); // cycle guard (shouldn't happen in a valid DAG)
+
+    visiting.add(slug);
+    const ancestors = new Set<string>();
+    for (const pred of directPreds.get(slug) ?? []) {
+      ancestors.add(pred);
+      for (const a of resolve(pred, visiting)) ancestors.add(a);
+    }
+    visiting.delete(slug);
+    ancestorCache.set(slug, ancestors);
+    return ancestors;
+  }
+
+  const result = new Map<string, Set<string>>();
+  for (const slug of Object.keys(definition.steps)) {
+    result.set(slug, resolve(slug, new Set()));
+  }
+  return result;
+}
+
+/**
+ * Validate all template expressions in a DAG workflow definition.
+ *
+ * @param definition - The validated DAG workflow definition
  * @param options - Optional validation settings (secret store, workflow name)
  * @returns Array of template warnings (empty means valid)
  */
-export async function validateWorkflowTemplates(
-  definition: WorkflowDefinition,
+export async function validateDagWorkflowTemplates(
+  definition: DagWorkflowDefinition,
   options: TemplateValidationOptions = {},
 ): Promise<TemplateWarning[]> {
   const warnings: TemplateWarning[] = [];
   const { secretStore, workflowName } = options;
 
-  // Build a set of all step slugs and their indices for ordering checks
-  const slugIndex = new Map<string, number>();
-  for (let i = 0; i < definition.steps.length; i++) {
-    slugIndex.set(definition.steps[i]!.slug, i);
-  }
+  const slugs = new Set(Object.keys(definition.steps));
+  const ancestors = computeAncestors(definition);
 
-  for (let stepIdx = 0; stepIdx < definition.steps.length; stepIdx++) {
-    const step = definition.steps[stepIdx]!;
+  for (const [slug, step] of Object.entries(definition.steps)) {
     const fields = getTemplateFields(step);
 
     for (const [fieldName, fieldValue] of fields) {
-      // Reset lastIndex for global regex reuse
       TEMPLATE_PATTERN.lastIndex = 0;
-
-      // Track reported expressions to avoid duplicate warnings for the same placeholder
       const reported = new Set<string>();
 
       for (let match = TEMPLATE_PATTERN.exec(fieldValue); match !== null; match = TEMPLATE_PATTERN.exec(fieldValue)) {
         const expr = match[1]!.trim();
-
-        // Skip if we already reported this exact expression in this field
         if (reported.has(expr)) continue;
         reported.add(expr);
 
         const parts = expr.split(".");
-
         const prefix = parts[0];
 
-        // Check for unknown prefix
         if (!prefix || !KNOWN_PREFIXES.has(prefix)) {
           warnings.push({
-            stepSlug: step.slug,
+            stepSlug: slug,
             field: fieldName,
             message: `Unknown expression prefix "${prefix}" in "{{${expr}}}"`,
           });
           continue;
         }
 
-        // Validate trigger expressions
         if (prefix === "trigger") {
           if (parts.length < 2 || parts[1] !== "payload") {
             warnings.push({
-              stepSlug: step.slug,
+              stepSlug: slug,
               field: fieldName,
               message: `Invalid trigger expression "{{${expr}}}" - expected "trigger.payload" or "trigger.payload.<path>"`,
             });
@@ -154,11 +184,10 @@ export async function validateWorkflowTemplates(
           continue;
         }
 
-        // Validate steps expressions
         if (prefix === "steps") {
           if (parts.length < 3) {
             warnings.push({
-              stepSlug: step.slug,
+              stepSlug: slug,
               field: fieldName,
               message: `Incomplete steps expression "{{${expr}}}" - expected "steps.<slug>.result[.<path>]"`,
             });
@@ -168,34 +197,32 @@ export async function validateWorkflowTemplates(
           const referencedSlug = parts[1]!;
           const accessor = parts[2];
 
-          // Check slug exists
-          if (!slugIndex.has(referencedSlug)) {
+          if (!slugs.has(referencedSlug)) {
             warnings.push({
-              stepSlug: step.slug,
+              stepSlug: slug,
               field: fieldName,
               message: `References unknown step slug "${referencedSlug}" in "{{${expr}}}"`,
             });
             continue;
           }
 
-          // Check ordering (no forward references) — only applies to "result",
-          // not "config" since config is static and known at load time.
+          // For result references, the referenced step must be an ancestor
+          // (guaranteed to have completed before this step runs). Config is static.
           if (accessor === "result") {
-            const referencedIdx = slugIndex.get(referencedSlug)!;
-            if (referencedIdx >= stepIdx) {
+            const stepAncestors = ancestors.get(slug) ?? new Set();
+            if (referencedSlug !== slug && !stepAncestors.has(referencedSlug)) {
               warnings.push({
-                stepSlug: step.slug,
+                stepSlug: slug,
                 field: fieldName,
-                message: `Forward reference to step "${referencedSlug}" in "{{${expr}}}" - can only reference earlier steps`,
+                message: `Reference to step "${referencedSlug}" in "{{${expr}}}" is not an ancestor - its result may not be available`,
               });
               continue;
             }
           }
 
-          // Check accessor is "result" or "config"
           if (accessor !== "result" && accessor !== "config") {
             warnings.push({
-              stepSlug: step.slug,
+              stepSlug: slug,
               field: fieldName,
               message: `Invalid step accessor "${accessor}" in "{{${expr}}}" - only "result" and "config" are supported`,
             });
@@ -203,11 +230,10 @@ export async function validateWorkflowTemplates(
           continue;
         }
 
-        // Validate env expressions
         if (prefix === "env") {
           if (parts.length < 2) {
             warnings.push({
-              stepSlug: step.slug,
+              stepSlug: slug,
               field: fieldName,
               message: `Incomplete env expression "{{${expr}}}" - expected "env.<VAR_NAME>"`,
             });
@@ -216,7 +242,7 @@ export async function validateWorkflowTemplates(
           const varName = parts.slice(1).join(".");
           if (!getEnvAllowlist().has(varName)) {
             warnings.push({
-              stepSlug: step.slug,
+              stepSlug: slug,
               field: fieldName,
               message: `Environment variable "${varName}" is not in the workflow allowlist`,
             });
@@ -224,30 +250,28 @@ export async function validateWorkflowTemplates(
           continue;
         }
 
-        // Validate secret expressions
         if (prefix === "secret") {
           if (parts.length !== 2 || !parts[1]) {
             warnings.push({
-              stepSlug: step.slug,
+              stepSlug: slug,
               field: fieldName,
               message: `Invalid secret expression "{{${expr}}}" - expected "secret.<KEY>"`,
             });
             continue;
           }
 
-          // Optional: check if secret exists in vault
           if (secretStore && workflowName) {
             const secretKey = parts[1];
             const result = await secretStore.resolve(secretKey, `workflow:${workflowName}`);
             if (!result.granted) {
               warnings.push({
-                stepSlug: step.slug,
+                stepSlug: slug,
                 field: fieldName,
                 message: `Secret "${secretKey}" access denied for workflow "${workflowName}": ${result.reason ?? "unknown"}`,
               });
             } else if (result.value === null) {
               warnings.push({
-                stepSlug: step.slug,
+                stepSlug: slug,
                 field: fieldName,
                 message: `Secret "${secretKey}" not found in vault`,
               });
@@ -259,11 +283,4 @@ export async function validateWorkflowTemplates(
   }
 
   return warnings;
-}
-
-/**
- * Reset the cached env allowlist (for testing purposes).
- */
-export function resetEnvAllowlistCache(): void {
-  _envAllowlist = undefined;
 }
