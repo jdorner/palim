@@ -236,14 +236,20 @@ function toStepDraft(s: StepDef | Record<string, unknown>): StepDraft {
     };
   }
 
-  // Control flow: if - preserve condition (branches are edges, not nested arrays)
+  // Control flow: if - preserve condition + optional branch label overrides
+  // (branches themselves are edges, not nested arrays)
   if (type === "if") {
-    return {
+    const result: StepDraft = {
       id,
       slug,
       type,
       condition: JSON.parse(JSON.stringify(raw.condition ?? {})),
     };
+    const bl = raw.branchLabels as { then?: string; else?: string } | undefined;
+    if (bl && (typeof bl.then === "string" || typeof bl.else === "string")) {
+      result.branchLabels = { ...bl };
+    }
+    return result;
   }
 
   // Control flow: case - preserve match, paths (string[] of keys), default (string)

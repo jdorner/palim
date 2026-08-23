@@ -376,6 +376,53 @@ function clearConditionError(index: number) {
                 clearConditionError(selectedStepIndex);
               }}
             />
+
+            <!-- Optional branch edge label overrides. Display-only: the branch
+                 routing keys stay "then"/"else"; these just relabel the edges. -->
+            {@const bl = (editDraftStep.branchLabels as { then?: string; else?: string } | undefined) ?? {}}
+            <div class="flex flex-col gap-3">
+              <span class="text-xs font-medium text-muted-foreground">Branch edge labels (optional)</span>
+              <div class="flex flex-col gap-1">
+                <label for="if-then-label" class="text-[11px] text-muted-foreground">Then edge label</label>
+                <input
+                  id="if-then-label"
+                  type="text"
+                  class="px-2 py-1 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                  maxlength={64}
+                  value={bl.then ?? ""}
+                  placeholder="then"
+                  oninput={(e) => {
+                    const v = (e.target as HTMLInputElement).value;
+                    onUpdateDraftStep(selectedStepIndex, (s) => {
+                      const next = { ...(s.branchLabels ?? {}) };
+                      // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+                      next.then = v;
+                      s.branchLabels = next;
+                    });
+                  }}
+                >
+              </div>
+              <div class="flex flex-col gap-1">
+                <label for="if-else-label" class="text-[11px] text-muted-foreground">Else edge label</label>
+                <input
+                  id="if-else-label"
+                  type="text"
+                  class="px-2 py-1 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                  maxlength={64}
+                  value={bl.else ?? ""}
+                  placeholder="else"
+                  oninput={(e) => {
+                    const v = (e.target as HTMLInputElement).value;
+                    onUpdateDraftStep(selectedStepIndex, (s) => {
+                      const next = { ...(s.branchLabels ?? {}) };
+                      next.else = v;
+                      s.branchLabels = next;
+                    });
+                  }}
+                >
+              </div>
+            </div>
+
             <button
               type="button"
               class="text-xs text-muted-foreground underline hover:text-foreground self-start"
@@ -570,6 +617,20 @@ function clearConditionError(index: number) {
           condition={((selectedStep as unknown as StepDraft).condition as Record<string, unknown>) ?? { ref: "" }}
           readonly={true}
         />
+        {@const roBl = (selectedStep as unknown as StepDraft).branchLabels as { then?: string; else?: string } | undefined}
+        {#if roBl && (roBl.then || roBl.else)}
+          <div class="flex flex-col gap-1.5 mt-3">
+            <span class="text-xs font-medium text-muted-foreground">Branch edge labels</span>
+            <div class="flex items-center gap-2">
+              <span class="text-[11px] text-muted-foreground w-10">then:</span>
+              <Badge variant="outline" class="text-xs">{roBl.then || "then"}</Badge>
+            </div>
+            <div class="flex items-center gap-2">
+              <span class="text-[11px] text-muted-foreground w-10">else:</span>
+              <Badge variant="outline" class="text-xs">{roBl.else || "else"}</Badge>
+            </div>
+          </div>
+        {/if}
         <button
           type="button"
           class="text-xs text-muted-foreground underline hover:text-foreground mt-3 self-start"
