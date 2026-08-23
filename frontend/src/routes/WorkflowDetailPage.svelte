@@ -20,6 +20,8 @@ import type { OutputSchemas } from "$lib/templateScope";
 import { aggregateStepStatus, formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import {
+  computeOrphanedStepIndices,
+  disconnectedStepError,
   type EdgeDraft,
   type StepDraft,
   serializeWorkflowDraft,
@@ -140,6 +142,12 @@ let editDraft = $state<WorkflowDraft | null>(null);
 let fitViewTrigger = $state(0);
 let saving = $state(false);
 let saveError = $state<string | null>(null);
+/**
+ * Per-item detail lines accompanying {@link saveError}, parsed from the
+ * backend's `details` string (e.g. each invalid edge/branch on a case node).
+ * Rendered as a bulleted list under the main error message.
+ */
+let saveErrorDetails = $state<string[]>([]);
 let validationErrors = $state<Map<string, string>>(new Map());
 /** Whether to show the raw JSON editor instead of the schema-driven form for custom step types. */
 let editAsJson = $state(false);
@@ -285,6 +293,7 @@ function enterEditMode() {
     edges: (workflow.edges ?? []).map((e) => ({ ...e })),
   };
   saveError = null;
+  saveErrorDetails = [];
   validationErrors = new Map();
   editMode = true;
   fitViewTrigger++;
@@ -297,6 +306,7 @@ function cancelEdit() {
   editMode = false;
   editDraft = null;
   saveError = null;
+  saveErrorDetails = [];
   validationErrors = new Map();
   editAsJson = false;
   viewAsJson = false;
@@ -464,6 +474,47 @@ function handleEdgesChange(edges: Edge[]) {
   }
 
   editDraft = { ...editDraft, edges: draftEdges };
+
+  // Connectivity errors are otherwise only recomputed on save, so drawing an
+  // edge that reconnects an orphaned step would leave its stale "not connected"
+  // error (and a disabled Save button) hanging. Reconcile that error class here
+  // against the updated edge set.
+  reconcileConnectivityErrors();
+}
+
+/**
+ * Re-evaluates the "step is not connected" validation errors against the
+ * current draft edges and updates {@link validationErrors} in place.
+ *
+ * Only touches errors whose message is the disconnected-step message, so a
+ * genuine slug-format error sharing the same `steps[i].slug` key is preserved.
+ * Newly-orphaned steps gain the error; reconnected steps lose it.
+ */
+function reconcileConnectivityErrors() {
+  if (!editDraft) return;
+  const orphaned = new Set(computeOrphanedStepIndices(editDraft));
+  const next = new Map(validationErrors);
+
+  for (let i = 0; i < editDraft.steps.length; i++) {
+    const key = `steps[${i}].slug`;
+    const current = next.get(key);
+    // A connectivity error for this key, regardless of the slug embedded in the
+    // message (the slug may have changed since it was set).
+    const isConnectivityError = current?.endsWith("is not connected to any other step");
+
+    if (orphaned.has(i)) {
+      // Add/refresh the connectivity error, but never clobber a genuine
+      // slug-format error already occupying this key.
+      if (current === undefined || isConnectivityError) {
+        next.set(key, disconnectedStepError(editDraft.steps[i]!.slug));
+      }
+    } else if (isConnectivityError) {
+      // Step is connected now and the only error here was connectivity.
+      next.delete(key);
+    }
+  }
+
+  validationErrors = next;
 }
 
 /**
@@ -647,6 +698,7 @@ async function saveWorkflow() {
 
   saving = true;
   saveError = null;
+  saveErrorDetails = [];
 
   try {
     const res = await authFetch(`/ext/workflows/${workflow.name}`, {
@@ -656,8 +708,18 @@ async function saveWorkflow() {
     });
 
     if (!res.ok) {
-      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      const data = (await res.json().catch(() => null)) as { error?: string; details?: string } | null;
       saveError = data?.error ?? `HTTP ${res.status}`;
+      // The backend may attach a `details` string enumerating each specific
+      // validation failure, separated by "; ". Surface them as a list so the
+      // user can see exactly which edges/branches are invalid, not just the
+      // generic top-level message.
+      saveErrorDetails = data?.details
+        ? data.details
+            .split("; ")
+            .map((d) => d.trim())
+            .filter((d) => d.length > 0)
+        : [];
       return;
     }
 
@@ -683,6 +745,60 @@ async function saveWorkflow() {
 }
 
 let saveDisabled = $derived(saving || validationErrors.size > 0);
+
+/**
+ * Whether the template-issues banner is expanded to show the individual
+ * warnings. Collapsed by default so the banner stays compact; the count in the
+ * header still communicates that issues exist.
+ */
+let warningsExpanded = $state(false);
+
+/**
+ * Slugs of steps that have a template/config warning, derived from the
+ * workflow's `warnings`. Passed to the graph so the offending nodes render a
+ * red error badge. Only meaningful in read-only view mode (warnings are not
+ * produced for the in-progress edit draft).
+ */
+let errorSlugs = $derived(new Set((workflow?.warnings ?? []).map((w) => w.stepSlug)));
+
+/**
+ * Synthetic node ids of draft steps that should render an error badge in edit
+ * mode. Combines two sources:
+ *
+ *  1. Live draft `validationErrors` (keys like `steps[2].slug` or
+ *     `steps[2].config.url`); the `steps[<index>]` segment maps to that step's
+ *     synthetic id. These update as the user types.
+ *  2. The backend template `warnings` carried over from the loaded workflow,
+ *     mapped from their `stepSlug` to the matching draft step's synthetic id so
+ *     the same badges shown in view mode persist into edit mode (they don't
+ *     vanish just because editing started). A warning whose slug no longer
+ *     matches any draft step (e.g. the step was renamed) is simply dropped.
+ *
+ * Matching on the id (not the slug) keeps the badge on the right node even when
+ * a slug is temporarily empty or duplicated mid-edit. Empty outside edit mode.
+ */
+let errorNodeIds = $derived.by(() => {
+  if (!editMode || !editDraft) return new Set<string>();
+  const ids = new Set<string>();
+
+  // 1. Live draft validation errors, keyed by step index -> synthetic id.
+  for (const key of validationErrors.keys()) {
+    const match = key.match(/^steps\[(\d+)\]\./);
+    if (!match) continue;
+    const index = Number.parseInt(match[1]!, 10);
+    const id = editDraft.steps[index]?.id;
+    if (id) ids.add(id);
+  }
+
+  // 2. Backend template warnings, mapped slug -> synthetic id.
+  const slugToId = new Map(editDraft.steps.map((s) => [s.slug, s.id]));
+  for (const w of workflow?.warnings ?? []) {
+    const id = slugToId.get(w.stepSlug);
+    if (id) ids.add(id);
+  }
+
+  return ids;
+});
 
 const RUNS_PAGE_SIZE = 10;
 
@@ -1004,21 +1120,43 @@ onDestroy(() => {
       <div
         class="mb-4 px-3 py-2 rounded-md border border-destructive bg-destructive/10 text-sm text-destructive shrink-0"
       >
-        {saveError}
+        <div class="font-medium">{saveError}</div>
+        {#if saveErrorDetails.length > 0}
+          <ul class="list-disc list-inside mt-1 space-y-0.5 text-xs text-destructive/90">
+            {#each saveErrorDetails as detail}
+              <li>{detail}</li>
+            {/each}
+          </ul>
+        {/if}
       </div>
     {/if}
 
     {#if !editMode && workflow.warnings && workflow.warnings.length > 0}
       <div class="mb-4 px-3 py-2 rounded-md border border-amber-500/50 bg-amber-500/10 text-sm shrink-0">
-        <div class="flex items-center gap-1.5 font-medium text-amber-500 mb-1">
+        <button
+          type="button"
+          class="flex w-full items-center gap-1.5 font-medium text-amber-500 text-left"
+          aria-expanded={warningsExpanded}
+          onclick={() => { warningsExpanded = !warningsExpanded; }}
+        >
+          <CaretRightIcon
+            size={12}
+            aria-hidden="true"
+            class="transition-transform {warningsExpanded ? 'rotate-90' : ''}"
+          />
           <WarningIcon size={14} aria-hidden="true" />
           Template {workflow.warnings.length === 1 ? "Issue" : "Issues"} ({workflow.warnings.length})
-        </div>
-        <ul class="list-disc list-inside text-xs text-amber-500/80 space-y-0.5">
-          {#each workflow.warnings as warning}
-            <li><span class="font-mono">{warning.stepSlug}.{warning.field}</span>: {warning.message}</li>
-          {/each}
-        </ul>
+        </button>
+        {#if warningsExpanded}
+          <ul
+            class="list-disc list-inside text-xs text-amber-500/80 space-y-0.5 mt-1"
+            transition:slide={{ duration: 100 }}
+          >
+            {#each workflow.warnings as warning}
+              <li><span class="font-mono">{warning.stepSlug}.{warning.field}</span>: {warning.message}</li>
+            {/each}
+          </ul>
+        {/if}
       </div>
     {/if}
 
@@ -1075,6 +1213,8 @@ onDestroy(() => {
                 : undefined}
               triggerSelected={sidebarOpen && triggerSelected}
               {customStepTypes}
+              errorSlugs={editMode ? undefined : errorSlugs}
+              errorNodeIds={editMode ? errorNodeIds : undefined}
               onNodeClick={onStepClick}
               {onTriggerClick}
               onAddStep={addStep}

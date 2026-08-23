@@ -488,18 +488,65 @@ function extractCFMeta(node: GraphNode, edges: GraphEdge[]): Record<string, unkn
     return {};
   }
 
-  const branchEdges = edges.filter((e) => e.source === node.id && e.label);
-  const branches = branchEdges.map((e) => e.label!);
-
   // For if nodes, always include "then" and "else" even if branches are empty
   if (node.data.type === "if") {
-    const allBranches = new Set(branches);
-    allBranches.add("then");
-    allBranches.add("else");
-    return { branches: [...allBranches] };
+    return { branches: ["then", "else"] };
   }
 
+  // case node: branch handles are driven by the declared `paths` (+ `default`)
+  // so a newly added path key surfaces a connectable handle even before any
+  // edge exists. Falls back to edge-derived labels for robustness.
+  const branches = caseBranchLabels(node, edges);
   return branches.length > 0 ? { branches } : {};
+}
+
+/**
+ * Computes the branch labels for a `case` node.
+ *
+ * Branches are derived from the step's declared `paths` array (carried in
+ * `node.data`) plus a `default` branch when the step declares a non-empty
+ * `default` key. The set is unioned with any labels already present on the
+ * node's outgoing edges, so a draft that has edges for a path not (yet) in
+ * `paths` still renders that handle rather than orphaning the edge.
+ *
+ * Deriving handles from `paths` (not only from edges) is what lets a user add a
+ * new branch: typing a new key into the sidebar `paths` field surfaces a
+ * connectable source handle and a per-branch "+" add-step.
+ *
+ * @param node - The case control-flow node.
+ * @param edges - All edges in the flat graph.
+ * @returns Ordered, de-duplicated branch labels (declared paths, then any
+ *   edge-only labels, with "default" last when present).
+ */
+function caseBranchLabels(node: GraphNode, edges: GraphEdge[]): string[] {
+  const paths = Array.isArray(node.data.paths)
+    ? (node.data.paths as unknown[]).filter((p): p is string => typeof p === "string" && p.length > 0)
+    : [];
+  const hasDefaultKey = typeof node.data.default === "string" && (node.data.default as string).length > 0;
+
+  const edgeLabels = edges.filter((e) => e.source === node.id && e.label).map((e) => e.label!);
+
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  // Declared path keys first (preserves the order the user entered them).
+  for (const key of paths) {
+    if (key === "default") continue;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    labels.push(key);
+  }
+  // Any edge-only labels (excluding "default") that are not declared paths.
+  for (const label of edgeLabels) {
+    if (label === "default") continue;
+    if (seen.has(label)) continue;
+    seen.add(label);
+    labels.push(label);
+  }
+  // "default" always sorts last when the step declares it or an edge uses it.
+  if (hasDefaultKey || edgeLabels.includes("default")) {
+    labels.push("default");
+  }
+  return labels;
 }
 
 /** Info about a branch discovered from the graph structure. */
@@ -677,13 +724,9 @@ function branchLabelsFor(node: GraphNode, graph: FlatGraph): string[] {
     return ["then", "else"];
   }
 
-  // case node
-  const pathEdges = graph.edges.filter((e) => e.source === node.id && e.label && e.label !== "default");
-  const labels = [...new Set(pathEdges.map((e) => e.label!))];
-  if (graph.edges.some((e) => e.source === node.id && e.label === "default")) {
-    labels.push("default");
-  }
-  return labels;
+  // case node: derive from the declared `paths` (+ `default`) unioned with any
+  // edge-only labels, matching the handles rendered by ControlFlowNode.
+  return caseBranchLabels(node, graph.edges);
 }
 
 /**
