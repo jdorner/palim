@@ -10,6 +10,7 @@
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 import TelegramBot from "node-telegram-bot-api";
+import { createNotifyStepHandler } from "./notifyStep";
 
 const CHAT_ACTION_DELAY_MS = 3000;
 const TELEGRAM_BOT_TOKEN = "TELEGRAM_BOT_TOKEN" as const;
@@ -18,7 +19,7 @@ const manifest = {
   name: "telegram",
   version: "1.0.0",
   description: "Telegram bot integration with message queuing and persistent conversation history",
-  dependencies: [],
+  dependencies: ["workflows"],
   settingsSchema: Type.Object({
     chatId: Type.Optional(
       Type.String({
@@ -158,6 +159,57 @@ export function createExtension(): Extension {
         }
       });
 
+      /**
+       * Sends a message to a Telegram chat and persists it in the session so
+       * the agent has context when the user replies later.
+       *
+       * Shared by the `send_telegram_message` tool and the `notify` workflow
+       * step type so both go through the same delivery and persistence path.
+       *
+       * @param message - The message text to send
+       * @param chatId - Target chat ID; falls back to the configured default when omitted
+       * @returns The chat ID the message was delivered to
+       * @throws If no chat ID is available, the bot is not connected, or the send fails
+       */
+      async function sendTelegramMessage(message: string, chatId?: string): Promise<string> {
+        const targetChatId = chatId || defaultChatId;
+
+        if (!targetChatId) {
+          throw new Error("No chat_id provided and no default chat configured.");
+        }
+        if (!bot) {
+          throw new Error("Telegram bot is not connected (missing or invalid bot token).");
+        }
+
+        await bot.sendMessage(Number(targetChatId), message);
+
+        // Persist the sent message in the session so the agent has context
+        // when the user replies later.
+        const session = ctx.sessions.getOrCreate({
+          source: "telegram",
+          sourceId: targetChatId,
+        });
+        session.append({
+          role: "assistant",
+          content: [{ type: "text", text: message }],
+          api: "synthetic",
+          provider: "telegram",
+          model: "send_telegram_message",
+          usage: {
+            input: 0,
+            output: 0,
+            cacheRead: 0,
+            cacheWrite: 0,
+            totalTokens: 0,
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+          },
+          stopReason: "stop",
+          timestamp: Date.now(),
+        });
+
+        return targetChatId;
+      }
+
       // Register the send_telegram_message tool for proactive messaging
       const SendTelegramMessageParams = Type.Object({
         message: Type.String({ minLength: 1, description: "The message text to send" }),
@@ -171,55 +223,26 @@ export function createExtension(): Extension {
         parameters: SendTelegramMessageParams,
         execute: async (_toolCallId, paramsRaw: unknown) => {
           const params = paramsRaw as { message: string; chat_id?: string };
-          const targetChatId = params.chat_id || defaultChatId;
-
-          if (!targetChatId) {
-            return {
-              content: [{ type: "text" as const, text: "Error: No chat_id provided and no default chat configured." }],
-              details: {},
-            };
-          }
-
           try {
-            await bot!.sendMessage(Number(targetChatId), params.message);
-
-            // Persist the sent message in the session so the agent has context
-            // when the user replies later.
-            const session = ctx.sessions.getOrCreate({
-              source: "telegram",
-              sourceId: targetChatId,
-            });
-            session.append({
-              role: "assistant",
-              content: [{ type: "text", text: params.message }],
-              api: "synthetic",
-              provider: "telegram",
-              model: "send_telegram_message",
-              usage: {
-                input: 0,
-                output: 0,
-                cacheRead: 0,
-                cacheWrite: 0,
-                totalTokens: 0,
-                cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
-              },
-              stopReason: "stop",
-              timestamp: Date.now(),
-            });
-
+            const deliveredTo = await sendTelegramMessage(params.message, params.chat_id);
             return {
-              content: [{ type: "text" as const, text: `Message sent to chat ${targetChatId}.` }],
+              content: [{ type: "text" as const, text: `Message sent to chat ${deliveredTo}.` }],
               details: {},
             };
           } catch (err) {
             const errorMsg = err instanceof Error ? err.message : String(err);
             return {
-              content: [{ type: "text" as const, text: `Error sending message to chat ${targetChatId}: ${errorMsg}` }],
+              content: [{ type: "text" as const, text: `Error sending message: ${errorMsg}` }],
               details: {},
             };
           }
         },
       });
+
+      // Register the `notify` workflow step type: a deterministic Telegram send
+      // that reuses the same delivery path as the tool. The bot token stays
+      // encapsulated (never templated into workflow files).
+      ctx.stepTypes.register("notify-telegram", createNotifyStepHandler(sendTelegramMessage));
 
       // Re-assign default chat ID when extension settings change
       ctx.events.on("settings:changed", (event) => {
