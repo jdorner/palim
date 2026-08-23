@@ -151,3 +151,41 @@
     @apply flex items-center gap-2 rounded-md bg-yellow-500/10 px-3 py-1.5 text-yellow-600 dark:text-yellow-400;
   }
 }
+
+/*
+ * Workflow graph node keyboard focus.
+ *
+ * SvelteFlow makes each `.svelte-flow__node` wrapper focusable, so keyboard
+ * focus draws the browser's default rectangular outline on that square wrapper,
+ * clipping the rounded/diamond shape of the card rendered inside it. Suppress
+ * the wrapper outline and instead render a focus ring on the shaped inner
+ * element so the focus indicator traces the node's real border shape. The ring
+ * mirrors the `ring-2 ring-primary` selection accent used by the node cards.
+ */
+.svelte-flow__node:focus,
+.svelte-flow__node:focus-visible {
+  outline: none;
+}
+
+/*
+ * Rectangular step / trigger / wait-for cards and the circular add-step button.
+ * The shaped element is the node's first child and already carries its own
+ * border-radius (rounded-xl card, rounded-full button); a CSS `outline` follows
+ * that radius, so the focus ring hugs the real shape instead of boxing it.
+ */
+.svelte-flow__node-step:focus-visible > div,
+.svelte-flow__node-waitFor:focus-visible > div,
+.svelte-flow__node-addStep:focus-visible > div > button {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 2px;
+}
+
+/*
+ * Control-flow (diamond) node: the visible shape is the rotated inner face
+ * (`.inset-4` div). Ring that element directly so the accent traces the diamond
+ * outline just like the selection ring does, rather than boxing the wrapper.
+ */
+.svelte-flow__node-controlFlow:focus-visible > div > div:first-child {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: 1px;
+}
