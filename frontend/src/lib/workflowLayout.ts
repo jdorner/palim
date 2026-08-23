@@ -16,11 +16,15 @@ import type { FlatGraph, GraphEdge, GraphNode } from "./workflowGraph";
 
 /**
  * Default dimensions for standard step nodes. Must stay in sync with the card
- * width in WorkflowStepNode/WaitForNode (`w-55` = 220px) so dagre spacing,
- * handle alignment, and add-step re-anchoring line up with what is rendered.
+ * in WorkflowStepNode/WaitForNode (`w-55` = 220px wide; the `h-9` icon tile plus
+ * `py-2.5` vertical padding render at ~56px tall) so dagre spacing, handle
+ * alignment, and add-step re-anchoring line up with what is rendered. The height
+ * matters for re-anchoring: an add-step's rendered center (top-left + its own
+ * half-height) must equal the source node's rendered center, which only holds
+ * when this constant equals the true card height.
  */
 const NODE_WIDTH = 220;
-const NODE_HEIGHT = 60;
+const NODE_HEIGHT = 56;
 
 /**
  * Default dimensions for control flow nodes. Must match the diamond container
@@ -32,6 +36,13 @@ const CF_NODE_HEIGHT = 108;
 /** Default dimensions for the add-step button node. */
 const ADD_NODE_WIDTH = 32;
 const ADD_NODE_HEIGHT = 32;
+
+/**
+ * Horizontal gap between a source node's right edge and its re-anchored add-step
+ * button. Kept smaller than a full rank separation so the "+" reads as attached
+ * to its source rather than as a node in the next rank.
+ */
+const ADD_NODE_ATTACH_GAP = 32;
 
 /** Layout options for dagre. */
 const LAYOUT_OPTIONS: GraphLabel = {
@@ -278,8 +289,9 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
     if (!addPos || !srcPos) return;
     const srcIsCF = graph.nodes.find((n) => n.id === sourceId)?.data.type;
     const srcWidth = srcIsCF === "if" || srcIsCF === "case" ? CF_NODE_WIDTH : NODE_WIDTH;
-    // Place the add-step one rank-gap to the right of the source, centered on it.
-    addPos.x = srcPos.x + srcWidth / 2 + LAYOUT_OPTIONS.ranksep! / 2 + ADD_NODE_WIDTH / 2;
+    // Place the add-step a small attach-gap to the right of the source's right
+    // edge, centered on it, so the "+" stays visually attached to its source.
+    addPos.x = srcPos.x + srcWidth / 2 + ADD_NODE_ATTACH_GAP + ADD_NODE_WIDTH / 2;
     addPos.y = srcPos.y;
   };
 
