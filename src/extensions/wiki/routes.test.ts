@@ -58,7 +58,7 @@ function getCtx(params: Record<string, string | string[]> = {}): Context {
 /** Build wiki index + routes for the current tmpDir. */
 async function build() {
   const wikiDir = join(tmpDir, "data", "wiki");
-  const index = await createWikiIndex(wikiDir, logger);
+  const index = await createWikiIndex(wikiDir, "", logger);
   return createWikiRoutes(
     {
       getIndex: () => index,
@@ -106,7 +106,7 @@ describe("createWikiIndex", () => {
   });
 
   test("handles wiki directory that does not exist", async () => {
-    const index = await createWikiIndex(join(tmpDir, "nonexistent"), logger);
+    const index = await createWikiIndex(join(tmpDir, "nonexistent"), "", logger);
     expect(index).toBeDefined();
   });
 });

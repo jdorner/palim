@@ -13,274 +13,25 @@
  * Also exposes a `POST /ext/wiki/search` route for searching the wiki by text.
  */
 
-import { existsSync } from "node:fs";
 import path from "node:path";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
-import { create, insert, type Orama, removeMultiple, search } from "@orama/orama";
 import { Type } from "@sinclair/typebox";
 import { FileWatcher } from "@src/utils/fileWatcher";
-import { nanoid } from "nanoid";
 import { EmbeddingCache } from "./embeddingCache";
 import { EmbeddingManager } from "./embeddingManager";
 import { EmbeddingService } from "./embeddings";
+import { WikiIndexer } from "./indexer";
+import { buildWikiIndex, embedAndReinsert, indexFile, removeFileChunks, type WikiIndex } from "./indexing";
 import { createWikiRoutes } from "./routes";
 
-// ---------------------------------------------------------------------------
-// Shared type for the Orama wiki index instance
-// ---------------------------------------------------------------------------
-
-/** Type alias for the wiki search index (uses `any` to support dynamic vector field). */
-export type WikiIndex = Orama<any>;
-
-/** Base schema fields (always present). */
-const WIKI_SCHEMA_BASE = {
-  id: "string" as const,
-  filePath: "enum" as const,
-  title: "string" as const,
-  content: "string" as const,
-  sectionDepth: "number" as const,
-};
-
-/**
- * Creates the Orama schema, optionally including a vector field.
- *
- * @param dimension - Embedding vector dimension (omits vector field if null)
- * @returns The Orama schema object
- */
-function createWikiSchema(dimension: number | null) {
-  if (dimension) {
-    return { ...WIKI_SCHEMA_BASE, embedding: `vector[${dimension}]` };
-  }
-  return { ...WIKI_SCHEMA_BASE };
-}
+export type { WikiDocument, WikiIndex } from "./indexing";
+// Re-export the indexing primitives so existing consumers (tests, sibling
+// modules) can keep importing them from the extension entry point.
+export { chunkMarkdown, createWikiIndex, listMarkdownFiles } from "./indexing";
 
 // ---------------------------------------------------------------------------
-// Types
+// Embedding manager construction
 // ---------------------------------------------------------------------------
-
-export interface WikiDocument {
-  /** Unique identifier */
-  id: string;
-  /** Relative path to the wiki markdown file */
-  filePath: string;
-  /** Chunk title (derived from heading) */
-  title: string;
-  /** Full chunk text (heading + content) */
-  content: string;
-  /** Markdown heading level this chunk starts at (1-6) */
-  sectionDepth: number;
-}
-
-// ---------------------------------------------------------------------------
-// File scanning & chunking
-// ---------------------------------------------------------------------------
-
-/**
- * Recursively lists all `.md` files under a directory.
- *
- * @param dir - Absolute directory path to scan
- * @returns Array of file paths relative to `dir`
- */
-async function listMarkdownFiles(dir: string): Promise<string[]> {
-  const pattern = `${dir}/**/*.md`;
-  try {
-    const globber = new Bun.Glob(pattern);
-    const results: string[] = [];
-    for await (const entry of globber.scan({ absolute: true })) {
-      results.push(entry);
-    }
-    return results.map((f) => f.replace(`${dir}/`, ""));
-  } catch (_err: unknown) {
-    // Directory doesn't exist or no files match - return empty array
-    return [];
-  }
-}
-
-/**
- * Splits a markdown file into semantic chunks at heading boundaries.
- *
- * Each chunk consists of a heading (### Level, #### etc.) and its following content
- * until the next heading of equal or greater depth. The first heading in each chunk
- * is stored as `title`; sub-headings remain as inline content within `content`.
- *
- * @param fileName - Relative path of the file (used for `filePath` metadata)
- * @param content  - Raw markdown file content
- * @returns Array of WikiDocument chunks
- */
-function chunkMarkdown(fileName: string, content: string): WikiDocument[] {
-  const lines = content.split("\n");
-  const chunks: WikiDocument[] = [];
-  let currentTitle = "";
-  let currentDepth = 7; // Higher than any real heading
-  let currentContent = "";
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    if (!line) continue;
-
-    const match = line.match(/^(#{1,6})\s+(.+)/);
-
-    if (match) {
-      const depth = match[1]!.length;
-      const title = (match[2] ?? "").trim();
-
-      // Only finalize the previous chunk when we're starting a new sibling or ancestor heading
-      // Sub-headings (deeper level) are absorbed into their parent - no push here
-      if (depth <= currentDepth) {
-        if (currentContent.trim()) {
-          chunks.push({
-            id: nanoid(),
-            filePath: fileName,
-            title: currentTitle,
-            content: currentContent.trim(),
-            sectionDepth: currentDepth,
-          });
-        }
-        currentTitle = title;
-        currentDepth = depth;
-        currentContent = `${line}\n`;
-      } else {
-        // Sub-heading of a previous level - append to current chunk's content
-        currentContent += `${line}\n`;
-      }
-    } else {
-      currentContent += `${line}\n`;
-    }
-  }
-
-  // Push the final chunk
-  if (currentContent.trim()) {
-    chunks.push({
-      id: nanoid(),
-      filePath: fileName,
-      title: currentTitle,
-      content: currentContent.trim(),
-      sectionDepth: currentDepth,
-    });
-  }
-
-  return chunks;
-}
-
-export { chunkMarkdown, listMarkdownFiles };
-
-/**
- * Builds a wiki index from all markdown files in the wiki directory.
- * Used by tests and external consumers.
- *
- * @param wikiDir - Absolute path to the wiki directory
- * @param log - Logger instance
- * @param pathPrefix - Prefix for stored file paths (defaults to empty string)
- * @param dimension - Embedding vector dimension (omits vector field if null)
- * @returns The created Orama wiki index
- */
-export async function createWikiIndex(
-  wikiDir: string,
-  log: Logger,
-  pathPrefix = "",
-  dimension: number | null = null,
-): Promise<WikiIndex> {
-  return buildWikiIndex(wikiDir, pathPrefix, log, dimension);
-}
-
-// ---------------------------------------------------------------------------
-// Index building & incremental updates
-// ---------------------------------------------------------------------------
-
-/**
- * Scans all wiki markdown files and indexes them into Orama.
- *
- * @param wikiDir - Absolute path to the wiki directory
- * @param pathPrefix - Prefix prepended to file paths stored in the index (e.g. "data/wiki")
- * @param log - Logger instance
- * @param dimension - Embedding vector dimension (omits vector field if null)
- * @returns The created Orama index instance
- */
-async function buildWikiIndex(
-  wikiDir: string,
-  pathPrefix: string,
-  log: Logger,
-  dimension: number | null = null,
-): Promise<WikiIndex> {
-  const schema = createWikiSchema(dimension);
-  const index = create({ schema } as any);
-
-  if (!existsSync(wikiDir)) {
-    log.error(`[wiki] Wiki directory does not exist: ${wikiDir}`);
-    return index;
-  }
-
-  const files = await listMarkdownFiles(wikiDir);
-
-  for (const relativePath of files) {
-    await indexFile(index, wikiDir, pathPrefix, relativePath, log);
-  }
-
-  return index;
-}
-
-/**
- * Removes all indexed chunks belonging to a specific file from the Orama index.
- * Uses a `where` filter on the `filePath` enum field to locate matching document IDs.
- *
- * @param index - The Orama wiki index
- * @param storedPath - The file path as stored in the index (workDir-relative)
- */
-function removeFileChunks(index: WikiIndex, storedPath: string): void {
-  const results = search(index, {
-    term: "",
-    where: { filePath: { eq: storedPath } },
-    limit: 10000,
-  });
-  // search() is synchronous for in-memory indexes but typed as Results | Promise<Results>
-  const resolved = results as Awaited<typeof results>;
-  const ids = resolved.hits.map((hit) => hit.id);
-  if (ids.length > 0) {
-    removeMultiple(index, ids);
-  }
-}
-
-/**
- * Indexes a single file into the Orama index.
- * Reads the file, chunks it, and inserts all chunks.
- * Optionally attaches pre-computed embeddings to each chunk.
- *
- * @param index - The Orama wiki index
- * @param wikiDir - Absolute path to the wiki directory
- * @param pathPrefix - Prefix prepended to file paths stored in the index (e.g. "data/wiki")
- * @param relativePath - Relative path of the file to index (relative to wikiDir)
- * @param log - Logger instance
- * @param embeddings - Optional map of chunk ID to embedding vector
- */
-async function indexFile(
-  index: WikiIndex,
-  wikiDir: string,
-  pathPrefix: string,
-  relativePath: string,
-  log: Logger,
-  embeddings?: Map<string, number[]>,
-): Promise<WikiDocument[]> {
-  const filePath = path.join(wikiDir, relativePath);
-  const storedPath = path.join(pathPrefix, relativePath);
-  try {
-    const raw = await Bun.file(filePath).text();
-    const chunks = chunkMarkdown(storedPath, raw);
-
-    for (const chunk of chunks) {
-      const embeddingVec = embeddings?.get(chunk.id);
-      if (embeddingVec) {
-        insert(index, { ...chunk, embedding: embeddingVec });
-      } else {
-        insert(index, chunk);
-      }
-    }
-
-    return chunks;
-  } catch (err: unknown) {
-    log.warn(`[wiki] Skipping unreadable file ${relativePath}:`, (err as Error).message);
-    return [];
-  }
-}
 
 /**
  * Initializes the embedding manager if semantic search is enabled.
@@ -371,6 +122,16 @@ const manifest = {
   }),
 } satisfies ExtensionManifest;
 
+/** Runtime shape of a `settings:changed` event as observed by the wiki extension. */
+interface WikiSettingsChangedEvent {
+  /** Present when an extension's own settings changed (e.g. "wiki"). Absent for global model-intent changes. */
+  extensionName?: string;
+  /** Model intent affected by a global model-selection change. */
+  intent?: string;
+  /** The newly selected model ID (for model-intent changes). */
+  modelId?: string;
+}
+
 /**
  * Creates a fresh Wiki extension instance.
  *
@@ -378,10 +139,15 @@ const manifest = {
  */
 export function createExtension(): Extension {
   let wikiDir: string;
+  let wikiSubdir: string;
   let wikiIndex: WikiIndex | null = null;
   let logger: Logger;
   let watcher: FileWatcher;
   let embeddingManager: EmbeddingManager | null = null;
+
+  // Indexer reads/writes the mutable state above via accessors so it stays
+  // correct across settings-driven directory and index swaps.
+  let indexer: WikiIndexer;
 
   return {
     manifest,
@@ -390,7 +156,7 @@ export function createExtension(): Extension {
       logger = ctx.log;
       logger.info("Wiki extension initializing - scanning markdown files...");
 
-      let wikiSubdir = ctx.config.get<string>("WIKI_PATH", manifest.settingsSchema.properties.wikiPath.default);
+      wikiSubdir = ctx.config.get<string>("WIKI_PATH", manifest.settingsSchema.properties.wikiPath.default);
       wikiDir = path.join(ctx.paths.work, wikiSubdir);
 
       const enableSemantic = ctx.config.get<boolean>(
@@ -412,81 +178,22 @@ export function createExtension(): Extension {
       wikiIndex = await buildWikiIndex(wikiDir, wikiSubdir, ctx.log, dimension);
       logger.info("Wiki search index built.");
 
-      /**
-       * Runs a background embedding pass over all wiki files.
-       * Removes existing chunks from the Orama index and re-inserts them with embeddings.
-       * Called at startup and when the embedding model changes.
-       *
-       * If the embedding dimension has changed (e.g. switching from a 768-dim model
-       * to a 1024-dim model), the Orama index is rebuilt with the new dimension
-       * before inserting embeddings to avoid vector size mismatch errors.
-       */
-      function runBackgroundEmbedding(): void {
-        if (!embeddingManager || !wikiIndex) return;
-
-        // Snapshot the manager reference so the async body stays safe even if
-        // embeddingManager is set to null by a concurrent settings change.
-        const mgr = embeddingManager;
-        mgr.setVectorReady(false);
-
-        (async () => {
-          try {
-            // Force model re-resolution so cache lookups use the current model
-            await mgr.refreshModel();
-
-            // Only reprobe dimension if the model actually changed since last index build
-            if (mgr.hasModelChanged()) {
-              const prevDimension = mgr.getDimension();
-              const newDimension = await mgr.reprobeDimension();
-              if (newDimension && newDimension !== prevDimension) {
-                // Rebuild the Orama index with the new vector dimension
-                wikiIndex = await buildWikiIndex(wikiDir, wikiSubdir, logger, newDimension);
-              }
-            }
-
-            // Use the (possibly rebuilt) index for insertions
-            const bgIndex = wikiIndex!;
-            const files = await listMarkdownFiles(wikiDir);
-            let totalEmbedded = 0;
-
-            for (const relativePath of files) {
-              const filePath = path.join(wikiDir, relativePath);
-              const storedPath = path.join(wikiSubdir, relativePath);
-              try {
-                const raw = await Bun.file(filePath).text();
-                const chunks = chunkMarkdown(storedPath, raw);
-                const embedded = await mgr.embedChunks(chunks);
-
-                // Remove existing text-only documents for this file
-                removeFileChunks(bgIndex, storedPath);
-
-                // Re-insert all chunks with embeddings
-                for (let i = 0; i < chunks.length; i++) {
-                  const chunk = chunks[i]!;
-                  const emb = embedded[i]?.embedding;
-                  if (emb) {
-                    insert(bgIndex, { ...chunk, embedding: emb });
-                    totalEmbedded++;
-                  } else {
-                    insert(bgIndex, chunk);
-                  }
-                }
-              } catch (err: unknown) {
-                logger.warn(`[wiki] Background embed skipping ${relativePath}:`, (err as Error).message);
-              }
-            }
-
-            mgr.setVectorReady(true);
-            logger.info(`[wiki] Background embedding complete: ${totalEmbedded} chunks embedded`);
-          } catch (err: unknown) {
-            logger.warn("[wiki] Background embedding pass failed:", (err as Error).message);
-          }
-        })();
-      }
+      indexer = new WikiIndexer(
+        {
+          getIndex: () => wikiIndex,
+          setIndex: (index) => {
+            wikiIndex = index;
+          },
+          getWikiDir: () => wikiDir,
+          getWikiSubdir: () => wikiSubdir,
+          getEmbeddingManager: () => embeddingManager,
+        },
+        logger,
+      );
 
       // Initial background embedding pass (non-blocking)
       if (embeddingManager) {
-        runBackgroundEmbedding();
+        indexer.run();
       }
 
       // Watch wiki directory for changes and update index incrementally
@@ -507,16 +214,7 @@ export function createExtension(): Extension {
 
         // Generate embeddings for new chunks if available
         if (embeddingManager?.isServiceAvailable() && chunks.length > 0) {
-          const embedded = await embeddingManager.embedChunks(chunks);
-          const storedPath = path.join(wikiSubdir, relative);
-          removeFileChunks(wikiIndex, storedPath);
-          for (const { chunk, embedding } of embedded) {
-            if (embedding) {
-              insert(wikiIndex, { ...chunk, embedding });
-            } else {
-              insert(wikiIndex, chunk);
-            }
-          }
+          await embedAndReinsert(wikiIndex, embeddingManager, chunks, path.join(wikiSubdir, relative));
         }
       });
 
@@ -530,15 +228,7 @@ export function createExtension(): Extension {
 
         // Re-embed changed chunks if available
         if (embeddingManager?.isServiceAvailable() && chunks.length > 0) {
-          const embedded = await embeddingManager.embedChunks(chunks);
-          removeFileChunks(wikiIndex, storedPath);
-          for (const { chunk, embedding } of embedded) {
-            if (embedding) {
-              insert(wikiIndex, { ...chunk, embedding });
-            } else {
-              insert(wikiIndex, chunk);
-            }
-          }
+          await embedAndReinsert(wikiIndex, embeddingManager, chunks, storedPath);
         }
       });
 
@@ -550,7 +240,12 @@ export function createExtension(): Extension {
       });
       await watcher.start();
 
-      ctx.events.on("settings:changed", async (_event) => {
+      /**
+       * Handles wiki-owned settings changes: wiki directory relocation and the
+       * semantic-search toggle. Rebuilds the index when the effective directory
+       * or embedding configuration changes.
+       */
+      const handleWikiSettingsChanged = async (): Promise<void> => {
         wikiSubdir = ctx.config.get<string>("WIKI_PATH", manifest.settingsSchema.properties.wikiPath.default);
         const newWikiDir = path.join(ctx.paths.work, wikiSubdir);
         const newEnableSemantic = ctx.config.get<boolean>(
@@ -584,21 +279,30 @@ export function createExtension(): Extension {
           wikiIndex = await buildWikiIndex(wikiDir, wikiSubdir, ctx.log, newDimension);
           logger.info("[wiki] Index fully rebuilt due to configuration change");
           if (embeddingManager) {
-            runBackgroundEmbedding();
+            indexer.run();
           }
         }
-      });
+      };
 
-      // Listen for model intent changes (emitted by model routes without extensionName scope)
-      ctx.events.on("settings:changed", (event) => {
-        const values = event as unknown as { intent?: string; modelId?: string; extensionName?: string };
-        // Skip wiki's own settings changes (those have extensionName === "wiki")
-        if (values.extensionName) return;
+      // Single `settings:changed` handler covering both wiki-owned settings and
+      // global embedding-model changes (the latter arrive without extensionName).
+      ctx.events.on("settings:changed", async (event) => {
+        const values = event as unknown as WikiSettingsChangedEvent;
+
+        if (values.extensionName) {
+          // Wiki's own settings changed (path, semantic toggle, etc.).
+          if (values.extensionName === manifest.name) {
+            await handleWikiSettingsChanged();
+          }
+          return;
+        }
+
+        // Global model-selection change: re-index only when the embedding model changed.
         if (values.intent !== "embedding") return;
-
         logger.info(`[wiki] Embedding model changed to "${values.modelId}" - triggering re-index`);
-        runBackgroundEmbedding();
+        indexer.run();
       });
+
       // -- REST routes --------------------------------------------------------
 
       const routes = createWikiRoutes(
@@ -611,7 +315,7 @@ export function createExtension(): Extension {
               "SIMILARITY_THRESHOLD",
               manifest.settingsSchema.properties.similarityThreshold.default,
             ),
-          triggerReindex: () => runBackgroundEmbedding(),
+          triggerReindex: () => indexer.run(),
         },
         logger,
       );

@@ -135,6 +135,18 @@ export class EmbeddingService {
   }
 
   /**
+   * Resolves the current model ID for per-request use, updating the stored value.
+   * Delegates to {@link refreshModel} and falls back to the last-known model
+   * (or empty string) when resolution fails.
+   *
+   * @returns The resolved model ID
+   */
+  private async currentModelId(): Promise<string> {
+    const resolved = await this.refreshModel();
+    return resolved ?? "";
+  }
+
+  /**
    * Re-probes the embedding dimension by generating a test embedding with the
    * current model. Call this after {@link refreshModel} when the model may have
    * changed to detect a new vector dimension.
@@ -153,26 +165,6 @@ export class EmbeddingService {
       this.dimension = newDimension;
     }
     return newDimension;
-  }
-
-  /**
-   * Resolves the current model ID, updating the stored value.
-   * Falls back to the last-known model if resolution fails.
-   *
-   * @returns The resolved model ID
-   */
-  private async currentModelId(): Promise<string> {
-    try {
-      const resolved = await this.resolveModel();
-      if (resolved !== this.modelId) {
-        this.log.info(`[wiki/embeddings] Model changed: ${this.modelId} -> ${resolved}`);
-        this.modelId = resolved;
-      }
-      return resolved;
-    } catch {
-      // Fall back to last-known model if resolver fails transiently
-      return this.modelId ?? "";
-    }
   }
 
   /**
