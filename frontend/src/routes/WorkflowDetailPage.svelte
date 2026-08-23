@@ -1294,9 +1294,6 @@ onDestroy(() => {
                     </button>
                     <span class="text-sm font-medium truncate">Trigger</span>
                   </div>
-                </div>
-
-                <div class="flex-1 overflow-y-auto min-h-0 p-4 flex flex-col gap-4">
                   {#if editMode && editDraft}
                     <div class="flex flex-col gap-1">
                       <label for="sidebar-trigger-type" class="text-xs font-medium text-muted-foreground">Type</label>
@@ -1331,7 +1328,18 @@ onDestroy(() => {
                         <span class="text-xs text-destructive">{validationErrors.get("trigger.type")}</span>
                       {/if}
                     </div>
+                  {:else}
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-muted-foreground">Type:</span>
+                      <Badge variant="outline" class="w-fit gap-1.5"
+                        >{@render triggerChip(workflow.trigger.type)}</Badge
+                      >
+                    </div>
+                  {/if}
+                </div>
 
+                <div class="flex-1 overflow-y-auto min-h-0 p-4 flex flex-col gap-4">
+                  {#if editMode && editDraft}
                     {#if editDraft.trigger.type !== "manual"}
                       {@const refOptions = availableTriggerRefs[editDraft.trigger.type] ?? []}
                       <div class="flex flex-col gap-1">
@@ -1368,19 +1376,11 @@ onDestroy(() => {
                         {/if}
                       </div>
                     {/if}
-                  {:else}
+                  {:else if workflow.trigger.ref}
                     <div class="flex items-center gap-2">
-                      <span class="text-xs font-medium text-muted-foreground">Type:</span>
-                      <Badge variant="outline" class="w-fit gap-1.5"
-                        >{@render triggerChip(workflow.trigger.type)}</Badge
-                      >
+                      <span class="text-xs font-medium text-muted-foreground">Ref:</span>
+                      <Badge variant="outline">{workflow.trigger.ref}</Badge>
                     </div>
-                    {#if workflow.trigger.ref}
-                      <div class="flex items-center gap-2">
-                        <span class="text-xs font-medium text-muted-foreground">Ref:</span>
-                        <Badge variant="outline">{workflow.trigger.ref}</Badge>
-                      </div>
-                    {/if}
                   {/if}
                 </div>
               </div>
