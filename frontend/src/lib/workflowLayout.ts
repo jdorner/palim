@@ -359,7 +359,10 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
       id: "__addStep__",
       type: "addStep",
       position: { x: pos.x - ADD_NODE_WIDTH / 2, y: pos.y - ADD_NODE_HEIGHT / 2 },
-      data: {},
+      // Stamp the source node this add-step hangs off (the tail of the main
+      // chain) so the caller can wire the new step sequentially after it.
+      // Without this the new step is created detached from the graph.
+      data: { sourceNodeId: lastRoot?.id },
     });
   }
 

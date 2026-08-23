@@ -99,6 +99,25 @@ describe("computeLayout", () => {
       });
     });
 
+    describe("root add-step", () => {
+      test("carries sourceNodeId pointing at the tail of the main chain so new steps attach", () => {
+        // Regression: the root "+" produced a new step with no connecting edge,
+        // leaving it detached from the graph. The root add-step node must stamp
+        // the main-chain tail as sourceNodeId so the caller can wire the edge.
+        const steps: Record<string, Record<string, unknown>> = {
+          first: { type: "agent", prompt: "a" },
+          second: { type: "agent", prompt: "b" },
+        };
+        const edges: DagEdge[] = [{ from: "first", to: "second" }];
+        const graph = buildDagGraph(toStepArray(steps), edges);
+        const layout = computeLayout(graph, { includeAddNode: true });
+
+        const rootAddStep = layout.nodes.find((n) => n.id === "__addStep__");
+        expect(rootAddStep).not.toBeUndefined();
+        expect(rootAddStep!.data.sourceNodeId).toBe("second");
+      });
+    });
+
     describe("empty branches", () => {
       test("an if-node's unconnected branch gets an addStep directly off the if node", () => {
         // "if" nodes always expose then/else. Here "else" has no target -> empty.

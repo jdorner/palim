@@ -354,20 +354,22 @@ function nextStepSlug(): string {
 /**
  * Add a new step to the draft with the given type (defaults to "agent").
  *
- * When `branchContext` is provided, the new step is wired into a control-flow
- * branch:
+ * When `branchContext` is provided, the new step is wired into the graph:
+ * - Main-chain tail or populated branch (`lastNodeId` set): append the new step
+ *   sequentially after the source node (`lastNodeId -> newStep`). This is what
+ *   the root "+" button uses (source = tail of the main chain), and what a
+ *   branch "+" uses when the branch already has steps. Using a labeled branch
+ *   edge here would give the branch two outgoing edges and corrupt the graph.
  * - Empty branch (`lastNodeId` null): connect the CF node to the new step via
  *   the labeled branch edge (`parentNodeId -> newStep [branch]`).
- * - Populated branch (`lastNodeId` set): append the new step sequentially after
- *   the branch's tail node (`lastNodeId -> newStep`). Using the labeled branch
- *   edge here would give the branch two outgoing edges and corrupt the graph.
  *
- * Without `branchContext`, the step is added as an unconnected node the user
- * can wire up manually.
+ * Without `branchContext` (e.g. the very first step of an empty workflow, which
+ * has no source node), the step is added unconnected; the trigger edge or a
+ * manual connection wires it up.
  */
 function addStep(
   type: string = "agent",
-  branchContext?: { parentNodeId: string; branch: string; lastNodeId: string | null },
+  branchContext?: { parentNodeId: string; branch?: string; lastNodeId: string | null },
 ) {
   if (!editDraft) return;
 
@@ -380,9 +382,10 @@ function addStep(
   const newEdges = [...editDraft.edges];
   if (branchContext) {
     if (branchContext.lastNodeId) {
-      // Populated branch: append after the branch tail (plain sequential edge).
+      // Main-chain tail or populated branch: append after the source node via a
+      // plain sequential edge so the new step stays attached to the graph.
       newEdges.push({ from: branchContext.lastNodeId, to: newStepId });
-    } else {
+    } else if (branchContext.branch) {
       // Empty branch: connect the CF node to the new step via a labeled edge.
       newEdges.push({ from: branchContext.parentNodeId, to: newStepId, branch: branchContext.branch });
     }
