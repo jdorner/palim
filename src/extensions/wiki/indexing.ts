@@ -13,7 +13,7 @@
 import { existsSync } from "node:fs";
 import path from "node:path";
 import type { Logger } from "@ext/types";
-import { create, insert, type Orama, removeMultiple, search } from "@orama/orama";
+import { type AnySchema, create, insert, type Orama, removeMultiple, search, type Vector } from "@orama/orama";
 import { nanoid } from "nanoid";
 import type { EmbeddingManager } from "./embeddingManager";
 
@@ -21,7 +21,19 @@ import type { EmbeddingManager } from "./embeddingManager";
 // Shared type for the Orama wiki index instance
 // ---------------------------------------------------------------------------
 
-/** Type alias for the wiki search index (uses `any` to support dynamic vector field). */
+/**
+ * Type alias for the wiki search index.
+ *
+ * The generic parameter is intentionally `any`. Orama's type system cannot
+ * express this index precisely: the `embedding` field has a dynamic dimension
+ * (`vector[${number}]`) resolved at runtime, and it is present only when
+ * semantic search is enabled. Attempting a concrete schema type forces one of
+ * two failures - Orama's `Schema<>`/`TypedDocument<>` collapse document types to
+ * `never` unless the schema carries an index signature, but adding that index
+ * signature makes `WhereCondition<>` recurse infinitely (TS2589). `any` is the
+ * pragmatic boundary; our own code operates on the strongly-typed
+ * {@link WikiDocument} shape instead.
+ */
 export type WikiIndex = Orama<any>;
 
 /** Base schema fields (always present). */
@@ -34,14 +46,14 @@ const WIKI_SCHEMA_BASE = {
 };
 
 /**
- * Creates the Orama schema, optionally including a vector field.
+ * Creates the Orama schema object, optionally including a vector field.
  *
  * @param dimension - Embedding vector dimension (omits vector field if null)
- * @returns The Orama schema object
+ * @returns The Orama schema object (with `embedding` when a dimension is given)
  */
 function createWikiSchema(dimension: number | null) {
   if (dimension) {
-    return { ...WIKI_SCHEMA_BASE, embedding: `vector[${dimension}]` };
+    return { ...WIKI_SCHEMA_BASE, embedding: `vector[${dimension}]` as Vector };
   }
   return { ...WIKI_SCHEMA_BASE };
 }
@@ -174,8 +186,13 @@ export async function buildWikiIndex(
   log: Logger,
   dimension: number | null = null,
 ): Promise<WikiIndex> {
-  const schema = createWikiSchema(dimension);
-  const index = create({ schema } as any);
+  // The schema is built dynamically (with or without the vector field), so its
+  // literal type cannot be inferred statically. Cast the single boundary here to
+  // the declared WikiOramaSchema; all downstream index operations stay typed.
+  // createWikiSchema returns a widened object literal; assert it as Orama's
+  // AnySchema (not `any`) so create() type-checks, then narrow the result.
+  const schema = createWikiSchema(dimension) as AnySchema;
+  const index = create({ schema }) as WikiIndex;
 
   if (!existsSync(wikiDir)) {
     log.error(`[wiki] Wiki directory does not exist: ${wikiDir}`);
