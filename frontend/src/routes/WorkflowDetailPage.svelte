@@ -14,6 +14,7 @@ import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { extensions } from "$lib/extensionStore";
 import { visualForStepType } from "$lib/nodeVisuals";
@@ -167,6 +168,9 @@ let metaLoading = $state(false);
 
 // Cached secret keys for template autocomplete
 let cachedSecretKeys = $state<string[]>([]);
+
+/** Selectable workflow trigger types (subtypes of the built-in "trigger" node). */
+const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
 
 /** Custom step types registered by extensions, derived from the extension store. */
 let customStepTypes = $derived(
@@ -1296,12 +1300,11 @@ onDestroy(() => {
                   {#if editMode && editDraft}
                     <div class="flex flex-col gap-1">
                       <label for="sidebar-trigger-type" class="text-xs font-medium text-muted-foreground">Type</label>
-                      <select
-                        id="sidebar-trigger-type"
-                        class="px-2 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                      <Select
+                        type="single"
                         value={editDraft.trigger.type}
-                        onchange={(e) => {
-                          const newType = (e.target as HTMLSelectElement).value;
+                        onValueChange={(newType) => {
+                          if (!newType) return;
                           const oldType = editDraft!.trigger.type;
                           editDraft = {
                             ...editDraft!,
@@ -1313,11 +1316,17 @@ onDestroy(() => {
                           };
                         }}
                       >
-                        <option value="webhook">webhook</option>
-                        <option value="schedule">schedule</option>
-                        <option value="manual">manual</option>
-                        <option value="filewatcher">filewatcher</option>
-                      </select>
+                        <SelectTrigger id="sidebar-trigger-type" aria-label="Trigger type">
+                          {@render triggerChip(editDraft.trigger.type)}
+                        </SelectTrigger>
+                        <SelectContent>
+                          {#each TRIGGER_TYPES as triggerType (triggerType)}
+                            <SelectItem value={triggerType} label={triggerType}>
+                              {@render triggerChip(triggerType)}
+                            </SelectItem>
+                          {/each}
+                        </SelectContent>
+                      </Select>
                       {#if validationErrors.get("trigger.type")}
                         <span class="text-xs text-destructive">{validationErrors.get("trigger.type")}</span>
                       {/if}
