@@ -140,6 +140,14 @@ export class WikiIndexer {
 
       mgr.setVectorReady(true);
       this.log.info(`[wiki] Background embedding complete: ${totalEmbedded} chunks embedded`);
+
+      // Drop cached embeddings from any previously used model now that the
+      // index reflects the current one, keeping the cache from growing without
+      // bound across model changes.
+      const purged = mgr.purgeStaleCache();
+      if (purged > 0) {
+        this.log.info(`[wiki] Purged ${purged} stale cached embedding(s) from previous model(s)`);
+      }
     } catch (err: unknown) {
       this.log.warn("[wiki] Background embedding pass failed:", (err as Error).message);
     }
