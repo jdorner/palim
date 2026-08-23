@@ -76,6 +76,14 @@ interface Props {
     branchContext?: { parentNodeId: string; branch?: string; lastNodeId: string | null },
   ) => void;
   onEdgesChange?: (edges: Edge[]) => void;
+  /**
+   * Fired when the user deletes step nodes via SvelteFlow's native keyboard
+   * shortcut (Backspace/Delete). Reports the deleted steps by their synthetic
+   * node id so the parent can drop them from the draft. Without this the node
+   * disappears from SvelteFlow's internal store but survives in the draft and
+   * reappears on the next layout recompute as an orphaned node.
+   */
+  onNodesDelete?: (ids: string[]) => void;
 }
 
 let {
@@ -92,6 +100,7 @@ let {
   onTriggerClick,
   onAddStep,
   onEdgesChange,
+  onNodesDelete,
 }: Props = $props();
 
 let colorMode = $state<ColorMode>("light");
@@ -398,7 +407,22 @@ function branchFromHandle(sourceId: string, sourceHandle: string | null | undefi
   return undefined;
 }
 
-function handleDelete({ edges: deletedEdges }: { nodes: Node[]; edges: Edge[] }) {
+function handleDelete({ nodes: deletedNodes, edges: deletedEdges }: { nodes: Node[]; edges: Edge[] }) {
+  // Native node deletion (Backspace/Delete) removes step nodes from SvelteFlow's
+  // internal store, but the underlying draft step must also be dropped or it
+  // reappears on the next layout recompute as an orphaned node. Filter out
+  // synthetic nodes (trigger, addStep) -- only real step nodes map to draft
+  // steps -- and hand their ids to the parent for removal. The parent also
+  // strips the connected edges, so we skip the edge cleanup below when nodes
+  // were deleted to avoid a redundant onEdgesChange notification.
+  const deletedStepNodeIds = deletedNodes
+    .map((n) => n.id)
+    .filter((id) => id !== "__trigger__" && !id.startsWith("__addStep"));
+  if (deletedStepNodeIds.length > 0) {
+    onNodesDelete?.(deletedStepNodeIds);
+    return;
+  }
+
   if (deletedEdges.length === 0) return;
 
   const deletedIds = new Set(deletedEdges.map((e) => e.id));

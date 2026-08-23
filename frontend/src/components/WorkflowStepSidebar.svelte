@@ -21,6 +21,8 @@ interface StepTypeInfo {
 }
 
 interface StepDef {
+  /** Stable synthetic node id (matches the parent's StepDef), used for removal. */
+  id: string;
   slug: string;
   type: string;
   prompt?: string;
@@ -66,8 +68,8 @@ interface Props {
   onclose: () => void;
   /** Callback when slug input changes. */
   onSlugInput: (index: number, value: string) => void;
-  /** Callback to remove a step. */
-  onRemoveStep: (index: number) => void;
+  /** Callback to remove a step, identified by its stable synthetic node id. */
+  onRemoveStep: (id: string) => void;
   /** Callback to update a draft step field. */
   onUpdateDraftStep: (index: number, updater: (step: StepDraft) => void) => void;
   /** Callback to change validation errors. */
@@ -210,7 +212,7 @@ function clearConditionError(index: number) {
           type="button"
           class="shrink-0 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           disabled={!editDraft || editDraft.steps.length <= 1}
-          onclick={() => { onRemoveStep(selectedStepIndex); onclose(); }}
+          onclick={() => { onRemoveStep(editDraftStep?.id ?? selectedStep.id); onclose(); }}
           aria-label="Remove step"
           title={!editDraft || editDraft.steps.length <= 1 ? "At least one step is required" : `Remove step ${editDraftStep?.slug || "(unnamed)"}`}
         >
