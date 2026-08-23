@@ -492,12 +492,18 @@ function branchFromHandle(sourceId: string, sourceHandle: string | null | undefi
 }
 
 /** Remove a step at the given index. Returns false if removal was prevented. */
-function removeStep(index: number) {
+function removeStep(id: string) {
   if (!editDraft) return;
   if (editDraft.steps.length <= 1) return; // Prevent removal of last step
 
+  // Resolve the step by its stable synthetic id. The index is derived here
+  // purely to re-key the index-based validation-error map below; identity and
+  // edge cleanup are id-based so they survive slug edits and reordering.
+  const index = editDraft.steps.findIndex((s) => s.id === id);
+  if (index < 0) return;
+
   const removedSlug = editDraft.steps[index].slug;
-  const removedId = editDraft.steps[index].id;
+  const removedId = id;
   editDraft = {
     ...editDraft,
     steps: editDraft.steps.filter((_, i) => i !== index),
@@ -535,6 +541,30 @@ function removeStep(index: number) {
   }
 
   validationErrors = newErrors;
+}
+
+/**
+ * Remove one or more steps identified by their synthetic node id.
+ *
+ * Backs SvelteFlow's native node deletion (Backspace/Delete key), which reports
+ * the removed nodes by id. Ids are stable across the splices {@link removeStep}
+ * performs, so they can be removed in a plain loop with no index bookkeeping.
+ * The last-step guard in {@link removeStep} still applies, so the final step
+ * cannot be deleted.
+ *
+ * @param ids - Synthetic node ids of the steps to remove.
+ */
+function removeStepsByIds(ids: string[]) {
+  if (!editDraft || ids.length === 0) return;
+  // If the currently selected step is being deleted, close the sidebar first so
+  // it does not linger on a removed step.
+  const selectedId = selectedStepIndex >= 0 ? editDraft.steps[selectedStepIndex]?.id : undefined;
+  if (selectedId && ids.includes(selectedId)) {
+    closeSidebar();
+  }
+  for (const id of ids) {
+    removeStep(id);
+  }
 }
 
 /** Validate a step slug with debounced inline feedback. */
@@ -1049,6 +1079,7 @@ onDestroy(() => {
               {onTriggerClick}
               onAddStep={addStep}
               onEdgesChange={editMode ? handleEdgesChange : undefined}
+              onNodesDelete={editMode ? removeStepsByIds : undefined}
               {fitViewTrigger}
             />
           </div>
