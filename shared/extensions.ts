@@ -29,6 +29,45 @@ export interface ExtensionUiContribution {
 }
 
 /**
+ * Canonical set of icon identifiers that a custom workflow step type may use.
+ *
+ * This is the single source of truth for step icon names, shared between the
+ * backend (extension step handlers) and the frontend icon registry
+ * (`frontend/src/lib/iconRegistry.ts`), which maps each name to a phosphor
+ * component. Adding a name here requires adding the matching component to the
+ * registry, or the frontend will fail to type-check.
+ *
+ * Each name corresponds to a `phosphor-svelte` icon component.
+ */
+export const STEP_ICON_NAMES = [
+  "BroadcastIcon",
+  "ChatTextIcon",
+  "ClockIcon",
+  "DatabaseIcon",
+  "EnvelopeIcon",
+  "EyeIcon",
+  "FileTextIcon",
+  "FlowArrowIcon",
+  "GearIcon",
+  "GlobeIcon",
+  "LinkIcon",
+  "PaperPlaneTiltIcon",
+  "PlugIcon",
+  "ProhibitIcon",
+  "ReceiptIcon",
+  "RobotIcon",
+  "TableIcon",
+  "TerminalWindowIcon",
+  "TrayIcon",
+] as const;
+
+/**
+ * A valid step icon identifier. A key into the frontend icon registry
+ * (`frontend/src/lib/iconRegistry.ts`).
+ */
+export type StepIconName = (typeof STEP_ICON_NAMES)[number];
+
+/**
  * Metadata about a registered custom workflow step type.
  * Surfaced to the frontend for workflow editor UI rendering.
  */
@@ -37,8 +76,11 @@ export interface StepTypeInfo {
   type: string;
   /** Human-readable label (e.g. "Excel Writer"). */
   label: string;
-  /** Optional emoji or icon identifier. */
-  icon?: string;
+  /**
+   * Optional icon identifier. A key into the frontend icon registry
+   * (`frontend/src/lib/iconRegistry.ts`), e.g. `"TableIcon"`, not an emoji.
+   */
+  icon?: StepIconName;
   /** Name of the extension that registered this step type. */
   extensionName: string;
   /**

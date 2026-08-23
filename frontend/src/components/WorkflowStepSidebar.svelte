@@ -250,7 +250,7 @@ function clearConditionError(index: number) {
         >
           <option value="agent">{labelForStepType("agent")}</option>
           {#each customStepTypes as stepType}
-            <option value={stepType.type}>{stepType.icon ?? ""} {stepType.label}</option>
+            <option value={stepType.type}>{stepType.label}</option>
           {/each}
         </select>
       {/if}

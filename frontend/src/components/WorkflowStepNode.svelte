@@ -29,10 +29,9 @@ let isSkipped = $derived(status === "skipped");
 let visual = $derived(visualForStepType(data.type, { triggerType: data.triggerType, iconId: data.iconId }));
 let statusInfo = $derived(statusVisual(status));
 
-// The type label from stepTypes still carries an emoji prefix (used elsewhere);
-// strip a leading non-ASCII glyph + spaces so the card subtitle stays clean,
-// since the icon tile already conveys the type visually.
-let typeLabel = $derived(labelForStepType(data.type, data.triggerType).replace(/^[^\w]+\s*/u, ""));
+// Plain-text type label for the card subtitle; the icon tile conveys the
+// type visually.
+let typeLabel = $derived(labelForStepType(data.type, data.triggerType));
 
 // Selection ring takes precedence; otherwise the ring reflects run status.
 let ringClass = $derived(data.selected ? "ring-2 ring-primary" : `ring-2 ${statusInfo.ringClass}`);

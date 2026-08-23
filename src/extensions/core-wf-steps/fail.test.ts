@@ -20,7 +20,7 @@ describe("createFailHandler", () => {
   describe("metadata", () => {
     test("has correct label and icon", () => {
       expect(handler.label).toBe("Fail");
-      expect(handler.icon).toBe("\uD83D\uDCA3");
+      expect(handler.icon).toBe("ProhibitIcon");
     });
 
     test("schema allows optional message field", () => {

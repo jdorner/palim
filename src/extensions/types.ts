@@ -6,7 +6,7 @@
  */
 
 import type { AgentEvent, AgentMessage, AgentTool, ThinkingLevel } from "@mariozechner/pi-agent-core";
-import type { WebSocketMessage } from "@shared/types";
+import type { StepIconName, WebSocketMessage } from "@shared/types";
 import { type Static, type TObject, type TSchema, Type } from "@sinclair/typebox";
 import type { ModelIntent } from "@src/models";
 import type { PushMessageOptions, PushMessageResult } from "@src/push";
@@ -325,8 +325,15 @@ export interface StepTypeHandler {
   /** Human-readable label for the step type (shown in UI dropdowns and graph nodes). */
   label: string;
 
-  /** Optional emoji or icon identifier for graph node rendering. */
-  icon?: string;
+  /**
+   * Optional icon identifier for graph node and palette rendering.
+   *
+   * Must be one of the {@link StepIconName} keys registered in the frontend
+   * icon registry (`frontend/src/lib/iconRegistry.ts`), e.g. `"RobotIcon"` or
+   * `"LinkIcon"`. This is NOT an emoji or arbitrary string. When omitted, the
+   * UI falls back to a generic gear icon.
+   */
+  icon?: StepIconName;
 
   /**
    * When true, indicates this step type is a terminal node that never produces
@@ -384,8 +391,11 @@ export interface StepTypeInfo {
   type: string;
   /** Human-readable label (e.g. "Excel Writer"). */
   label: string;
-  /** Optional emoji or icon identifier. */
-  icon?: string;
+  /**
+   * Optional icon identifier. One of the {@link StepIconName} keys into the
+   * frontend icon registry (`frontend/src/lib/iconRegistry.ts`), not an emoji.
+   */
+  icon?: StepIconName;
   /** Name of the extension that registered this step type. */
   extensionName: string;
 }

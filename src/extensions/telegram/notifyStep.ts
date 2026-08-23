@@ -72,7 +72,7 @@ export function createNotifyStepHandler(send: TelegramSendFn): StepTypeHandler {
   return {
     schema: NotifyStepConfigSchema,
     label: "Notify (Telegram)",
-    icon: "\uD83D\uDCE3",
+    icon: "PaperPlaneTiltIcon",
 
     async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<NotifyStepResult> {
       const { slug: _slug, type: _type, outputSchema: _os, ...configFields } = stepDef;

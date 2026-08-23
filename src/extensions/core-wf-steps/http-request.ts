@@ -97,7 +97,7 @@ export function createHttpRequestHandler(): StepTypeHandler {
   return {
     schema: HttpRequestStepConfigSchema,
     label: "HTTP Request",
-    icon: "\uD83C\uDF10",
+    icon: "GlobeIcon",
 
     async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<HttpRequestResult> {
       const { slug: _slug, type: _type, outputSchema: _os, ...configFields } = stepDef;

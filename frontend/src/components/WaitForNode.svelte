@@ -20,7 +20,7 @@ let isWaitingSignal = $derived(status === "waiting-signal");
 
 let visual = $derived(visualForStepType(data.type));
 let statusInfo = $derived(statusVisual(status));
-let typeLabel = $derived(labelForStepType(data.type).replace(/^[^\w]+\s*/u, ""));
+let typeLabel = $derived(labelForStepType(data.type));
 
 // A node actively waiting for its signal gets an amber pulse ring to stand out.
 let ringClass = $derived(
