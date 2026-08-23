@@ -133,6 +133,78 @@ function computeAncestors(definition: DagWorkflowDefinition): Map<string, Set<st
 }
 
 /**
+ * Computes the dominator set for each step in the DAG.
+ *
+ * A step D dominates step N if every path from an entry node (a step with no
+ * incoming edges) to N passes through D. By convention a step dominates itself.
+ *
+ * This is stricter than ancestry: an ancestor reachable on only *some* paths
+ * (e.g. a step on the `else` branch of an `if`, feeding a join node) is NOT a
+ * dominator of that join node. Template `steps.<slug>.result` references are
+ * only *guaranteed* to resolve at runtime when the referenced step dominates
+ * the referencing step; a non-dominating ancestor lives on a conditional branch
+ * and may be skipped (dead branch), leaving its result absent.
+ *
+ * Uses the classic iterative data-flow formulation:
+ *   dom(entry) = {entry}
+ *   dom(n)     = {n} + intersection over preds p of dom(p)
+ * iterated to a fixpoint. DAGs converge in a single reverse-topological-free
+ * pass in practice, but the fixpoint loop is robust regardless of node order.
+ *
+ * @param definition - The DAG workflow definition
+ * @returns Map of step slug to the set of steps that dominate it (including itself)
+ */
+function computeDominators(definition: DagWorkflowDefinition): Map<string, Set<string>> {
+  const allSlugs = Object.keys(definition.steps);
+  const preds = new Map<string, Set<string>>();
+  for (const slug of allSlugs) preds.set(slug, new Set());
+  for (const edge of definition.edges) {
+    preds.get(edge.to)?.add(edge.from);
+  }
+
+  const entries = allSlugs.filter((slug) => (preds.get(slug)?.size ?? 0) === 0);
+
+  const dom = new Map<string, Set<string>>();
+  for (const slug of allSlugs) {
+    // Entry nodes are dominated only by themselves; every other node starts
+    // pessimistically dominated by all nodes, then is narrowed by intersection.
+    dom.set(slug, entries.includes(slug) ? new Set([slug]) : new Set(allSlugs));
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const slug of allSlugs) {
+      if (entries.includes(slug)) continue;
+      const slugPreds = [...(preds.get(slug) ?? [])];
+
+      // Intersection of the dominator sets of all predecessors.
+      let intersection: Set<string> | null = null;
+      for (const p of slugPreds) {
+        const pDom = dom.get(p)!;
+        if (intersection === null) {
+          intersection = new Set(pDom);
+        } else {
+          for (const d of [...intersection]) {
+            if (!pDom.has(d)) intersection.delete(d);
+          }
+        }
+      }
+      const newDom = intersection ?? new Set<string>();
+      newDom.add(slug);
+
+      const prev = dom.get(slug)!;
+      if (prev.size !== newDom.size || [...newDom].some((d) => !prev.has(d))) {
+        dom.set(slug, newDom);
+        changed = true;
+      }
+    }
+  }
+
+  return dom;
+}
+
+/**
  * Validate all template expressions in a DAG workflow definition.
  *
  * @param definition - The validated DAG workflow definition
@@ -148,6 +220,7 @@ export async function validateDagWorkflowTemplates(
 
   const slugs = new Set(Object.keys(definition.steps));
   const ancestors = computeAncestors(definition);
+  const dominators = computeDominators(definition);
 
   for (const [slug, step] of Object.entries(definition.steps)) {
     const fields = getTemplateFields(step);
@@ -206,15 +279,31 @@ export async function validateDagWorkflowTemplates(
             continue;
           }
 
-          // For result references, the referenced step must be an ancestor
-          // (guaranteed to have completed before this step runs). Config is static.
-          if (accessor === "result") {
+          // For result references, the referenced step must run before this one
+          // AND be guaranteed to have run. Two distinct failure modes:
+          //   - not an ancestor at all: the result is never available here;
+          //   - an ancestor but not a dominator: the referenced step sits on a
+          //     conditional branch (if/case) that may be skipped, so its result
+          //     is only available when that branch is taken. This is exactly the
+          //     case that slipped through before and blew up at runtime with
+          //     "Unknown step slug in template" on a join node. Config is static
+          //     (always present), so this only applies to result references.
+          if (accessor === "result" && referencedSlug !== slug) {
             const stepAncestors = ancestors.get(slug) ?? new Set();
-            if (referencedSlug !== slug && !stepAncestors.has(referencedSlug)) {
+            if (!stepAncestors.has(referencedSlug)) {
               warnings.push({
                 stepSlug: slug,
                 field: fieldName,
                 message: `Reference to step "${referencedSlug}" in "{{${expr}}}" is not an ancestor - its result may not be available`,
+              });
+              continue;
+            }
+            const stepDominators = dominators.get(slug) ?? new Set();
+            if (!stepDominators.has(referencedSlug)) {
+              warnings.push({
+                stepSlug: slug,
+                field: fieldName,
+                message: `Reference to step "${referencedSlug}" in "{{${expr}}}" is on a conditional branch that may be skipped - its result may not be available`,
               });
               continue;
             }
