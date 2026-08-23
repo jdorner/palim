@@ -161,6 +161,12 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
   // Derive the set of terminal step types from extension metadata
   const terminalTypes = new Set(customStepTypes.filter((st) => st.terminal).map((st) => st.type));
 
+  // Map each custom step type to its registered icon id so the step node can
+  // render the extension's icon instead of the generic gear fallback. The
+  // workflow JSON step itself never carries an icon; it comes from the
+  // extension metadata keyed by step type.
+  const iconIdByType = new Map(customStepTypes.filter((st) => st.icon).map((st) => [st.type, st.icon as string]));
+
   const layout = computeLayout(flatGraph, {
     trigger,
     includeAddNode: editMode && steps.length > 0,
@@ -206,6 +212,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
     const isTerminal = terminalTypes.has(node.data.type as string);
     const slug = node.data.slug as string;
     const hasError = (errorSlugs?.has(slug) ?? false) || (errorNodeIds?.has(node.id) ?? false);
+    const iconId = iconIdByType.get(node.data.type as string);
 
     if (statusMap) {
       const status = statusMap[slug] ?? "waiting";
@@ -217,6 +224,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
           selected: node.id === selectedStepId,
           terminal: isTerminal,
           hasError,
+          iconId,
         },
       };
     }
@@ -230,6 +238,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
         selected: node.id === selectedStepId,
         terminal: isTerminal,
         hasError,
+        iconId,
       },
     };
   });

@@ -14,8 +14,10 @@ import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { extensions } from "$lib/extensionStore";
+import { visualForStepType } from "$lib/nodeVisuals";
 import type { OutputSchemas } from "$lib/templateScope";
 import { aggregateStepStatus, formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
@@ -166,6 +168,9 @@ let metaLoading = $state(false);
 
 // Cached secret keys for template autocomplete
 let cachedSecretKeys = $state<string[]>([]);
+
+/** Selectable workflow trigger types (subtypes of the built-in "trigger" node). */
+const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
 
 /** Custom step types registered by extensions, derived from the extension store. */
 let customStepTypes = $derived(
@@ -1069,6 +1074,19 @@ onDestroy(() => {
 });
 </script>
 
+<!--
+  Renders a trigger's icon tile (colored by category) followed by its type text.
+  The icon is resolved by trigger subtype (manual/webhook/schedule/filewatcher)
+  via visualForStepType, matching the graph trigger node.
+-->
+{#snippet triggerChip(triggerType: string)}
+  {@const v = visualForStepType("trigger", { triggerType })}
+  <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-white {v.tileClass}">
+    <v.icon size={11} weight="bold" aria-hidden="true" />
+  </span>
+  {triggerType}
+{/snippet}
+
 {#if loading}
   <LoadingIndicator />
 {:else if error}
@@ -1276,18 +1294,14 @@ onDestroy(() => {
                     </button>
                     <span class="text-sm font-medium truncate">Trigger</span>
                   </div>
-                </div>
-
-                <div class="flex-1 overflow-y-auto min-h-0 p-4 flex flex-col gap-4">
                   {#if editMode && editDraft}
                     <div class="flex flex-col gap-1">
                       <label for="sidebar-trigger-type" class="text-xs font-medium text-muted-foreground">Type</label>
-                      <select
-                        id="sidebar-trigger-type"
-                        class="px-2 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                      <Select
+                        type="single"
                         value={editDraft.trigger.type}
-                        onchange={(e) => {
-                          const newType = (e.target as HTMLSelectElement).value;
+                        onValueChange={(newType) => {
+                          if (!newType) return;
                           const oldType = editDraft!.trigger.type;
                           editDraft = {
                             ...editDraft!,
@@ -1299,16 +1313,33 @@ onDestroy(() => {
                           };
                         }}
                       >
-                        <option value="webhook">webhook</option>
-                        <option value="schedule">schedule</option>
-                        <option value="manual">manual</option>
-                        <option value="filewatcher">filewatcher</option>
-                      </select>
+                        <SelectTrigger id="sidebar-trigger-type" aria-label="Trigger type">
+                          {@render triggerChip(editDraft.trigger.type)}
+                        </SelectTrigger>
+                        <SelectContent>
+                          {#each TRIGGER_TYPES as triggerType (triggerType)}
+                            <SelectItem value={triggerType} label={triggerType}>
+                              {@render triggerChip(triggerType)}
+                            </SelectItem>
+                          {/each}
+                        </SelectContent>
+                      </Select>
                       {#if validationErrors.get("trigger.type")}
                         <span class="text-xs text-destructive">{validationErrors.get("trigger.type")}</span>
                       {/if}
                     </div>
+                  {:else}
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-medium text-muted-foreground">Type:</span>
+                      <Badge variant="outline" class="w-fit gap-1.5"
+                        >{@render triggerChip(workflow.trigger.type)}</Badge
+                      >
+                    </div>
+                  {/if}
+                </div>
 
+                <div class="flex-1 overflow-y-auto min-h-0 p-4 flex flex-col gap-4">
+                  {#if editMode && editDraft}
                     {#if editDraft.trigger.type !== "manual"}
                       {@const refOptions = availableTriggerRefs[editDraft.trigger.type] ?? []}
                       <div class="flex flex-col gap-1">
@@ -1345,17 +1376,11 @@ onDestroy(() => {
                         {/if}
                       </div>
                     {/if}
-                  {:else}
+                  {:else if workflow.trigger.ref}
                     <div class="flex items-center gap-2">
-                      <span class="text-xs font-medium text-muted-foreground">Type:</span>
-                      <Badge variant="outline">{workflow.trigger.type}</Badge>
+                      <span class="text-xs font-medium text-muted-foreground">Ref:</span>
+                      <Badge variant="outline">{workflow.trigger.ref}</Badge>
                     </div>
-                    {#if workflow.trigger.ref}
-                      <div class="flex items-center gap-2">
-                        <span class="text-xs font-medium text-muted-foreground">Ref:</span>
-                        <Badge variant="outline">{workflow.trigger.ref}</Badge>
-                      </div>
-                    {/if}
                   {/if}
                 </div>
               </div>

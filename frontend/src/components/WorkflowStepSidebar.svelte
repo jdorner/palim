@@ -3,7 +3,9 @@ import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import WarningIcon from "phosphor-svelte/lib/WarningIcon";
 import { builtinConfigSchema } from "$lib/builtinStepSchemas";
 import { Badge } from "$lib/components/ui/badge";
-import { labelForStepType } from "$lib/stepTypes";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/components/ui/select";
+import { visualForStepType } from "$lib/nodeVisuals";
+import { iconIdForType, labelForStepType } from "$lib/stepTypes";
 import type { OutputSchemas } from "$lib/templateScope";
 import { renderMarkdown } from "$lib/utils";
 import type { StepDraft, WorkflowDraft } from "$lib/workflowValidation";
@@ -107,6 +109,17 @@ let {
   onViewAsJsonChange,
 }: Props = $props();
 
+/**
+ * Built-in control-flow step types. These are created via the "Add Step"
+ * palette (Control Flow section) and are not type-changeable once placed, so
+ * they are excluded from the step-type change dropdown to avoid converting a
+ * step into a non-editable state.
+ */
+const CF_TYPES = new Set(["if", "case", "waitFor", "emit"]);
+
+/** Custom step types offered in the change-type dropdown (excludes control-flow types). */
+let selectableCustomTypes = $derived(customStepTypes.filter((st) => !CF_TYPES.has(st.type)));
+
 // Element references for template autocomplete
 let promptEl = $state<HTMLTextAreaElement | null>(null);
 
@@ -182,6 +195,22 @@ function clearConditionError(index: number) {
 }
 </script>
 
+<!--
+  Renders a step type's icon tile (colored per category) followed by its label.
+  Custom extension icons are resolved from the extensions store via iconIdForType;
+  built-in types resolve their icon directly in visualForStepType.
+-->
+{#snippet stepTypeChip(type: string, size: number)}
+  {@const v = visualForStepType(type, { iconId: iconIdForType(type) })}
+  <span
+    class="flex shrink-0 items-center justify-center rounded text-white {v.tileClass}"
+    style="width: {size}px; height: {size}px;"
+  >
+    <v.icon size={Math.round(size * 0.68)} weight="bold" aria-hidden="true" />
+  </span>
+  <span class="truncate">{labelForStepType(type)}</span>
+{/snippet}
+
 <div class="w-95 h-full flex flex-col">
   <!-- Sidebar header -->
   <div class="px-4 pb-2 pt-2 flex flex-col gap-2">
@@ -230,34 +259,41 @@ function clearConditionError(index: number) {
         </div>
       {/if}
       {@const currentType = editDraftStep?.type ?? selectedStep.type}
-      {@const isCFType = currentType === "if" || currentType === "case" || currentType === "waitFor" || currentType === "emit"}
+      {@const isCFType = CF_TYPES.has(currentType)}
       {#if isCFType}
         <!-- CF nodes: type is not changeable -->
         <div class="flex items-center gap-2">
           <span class="text-xs font-medium text-muted-foreground">Type:</span>
-          <Badge variant="outline" class="w-fit">{labelForStepType(currentType)}</Badge>
+          <Badge variant="outline" class="w-fit gap-1.5"> {@render stepTypeChip(currentType, 16)} </Badge>
         </div>
       {:else}
         <label for="step-type" class="text-xs font-medium text-muted-foreground">Type</label>
-        <select
-          id="step-type"
-          class="px-2 py-1 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+        <Select
+          type="single"
           value={currentType}
-          onchange={(e) => {
-            const newType = (e.target as HTMLSelectElement).value;
-            onStepTypeChange(selectedStepIndex, newType);
+          onValueChange={(newType) => {
+            if (newType) onStepTypeChange(selectedStepIndex, newType);
           }}
         >
-          <option value="agent">{labelForStepType("agent")}</option>
-          {#each customStepTypes as stepType}
-            <option value={stepType.type}>{stepType.icon ?? ""} {stepType.label}</option>
-          {/each}
-        </select>
+          <SelectTrigger id="step-type" aria-label="Step type" class="gap-1.5">
+            {@render stepTypeChip(currentType, 20)}
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="agent" label={labelForStepType("agent")}>
+              {@render stepTypeChip("agent", 20)}
+            </SelectItem>
+            {#each selectableCustomTypes as stepType (stepType.type)}
+              <SelectItem value={stepType.type} label={stepType.label}>
+                {@render stepTypeChip(stepType.type, 20)}
+              </SelectItem>
+            {/each}
+          </SelectContent>
+        </Select>
       {/if}
     {:else}
       <div class="flex items-center gap-2">
         <span class="text-xs font-medium text-muted-foreground">Type:</span>
-        <Badge variant="outline" class="w-fit">{labelForStepType(selectedStep.type)}</Badge>
+        <Badge variant="outline" class="w-fit gap-1.5"> {@render stepTypeChip(selectedStep.type, 16)} </Badge>
       </div>
     {/if}
   </div>
@@ -357,7 +393,7 @@ function clearConditionError(index: number) {
     {:else if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) !== "agent"}
       <!-- Edit mode: control flow or custom step type -->
       {@const stepType = editDraftStep.type ?? selectedStep?.type}
-      {@const isCFStep = stepType === "if" || stepType === "case" || stepType === "waitFor" || stepType === "emit"}
+      {@const isCFStep = CF_TYPES.has(stepType)}
       {#if isCFStep}
         <!-- Built-in control-flow step: form-based config with a JSON fallback -->
         {@const cfSchema = builtinConfigSchema(stepType)}

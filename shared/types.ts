@@ -23,9 +23,11 @@ export type {
   ScheduleEntry,
   SecretSchemaEntry,
   SelectedModelResponse,
+  StepIconName,
   StepTypeInfo,
   TokenUsage,
   WebSocketMessage,
   WorkflowStepSummary,
   WorkflowWebSocketEvent,
 } from "./index";
+export { STEP_ICON_NAMES } from "./index";

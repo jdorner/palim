@@ -58,7 +58,7 @@ export function createDagEmitHandler(deps: DagEmitHandlerDeps): StepTypeHandler 
   return {
     schema: EmitStepConfigSchema,
     label: "Emit Signal",
-    icon: "\uD83D\uDCE1",
+    icon: "BroadcastIcon",
 
     async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<EmitStepResult> {
       const eventTemplate = stepDef.event as string;

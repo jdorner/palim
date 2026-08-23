@@ -34,7 +34,7 @@ function createTestHandler(label = "Test Step"): StepTypeHandler {
       path: Type.String(),
     }),
     label,
-    icon: "📊",
+    icon: "TableIcon",
     execute: async () => ({ success: true }),
   };
 }

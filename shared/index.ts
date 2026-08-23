@@ -13,8 +13,10 @@ export type {
   ExtensionUiContribution,
   NavigationEntry,
   SecretSchemaEntry,
+  StepIconName,
   StepTypeInfo,
 } from "./extensions";
+export { STEP_ICON_NAMES } from "./extensions";
 export type { JobEntry, LogEntry } from "./jobs";
 export type { AvailableModel, ModelIntent, SelectedModelResponse } from "./models";
 export { MODEL_INTENTS } from "./models";
