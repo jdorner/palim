@@ -110,26 +110,22 @@ export function createWikiRoutes(state: WikiState, log: Logger | undefined): Wik
       effectiveMode = requestedMode;
     }
 
+    // Fulltext BM25 search over title + content (also used as the fallback path).
+    const fulltextSearch = (idx: WikiIndex, term: string, lim: number) =>
+      search(idx, { term, properties: ["title", "content"], limit: lim });
+
     // Execute search based on mode
     let results: unknown;
 
     if (effectiveMode === "fulltext") {
-      results = await search(index, {
-        term: query,
-        properties: ["title", "content"],
-        limit,
-      });
+      results = await fulltextSearch(index, query, limit);
     } else if (effectiveMode === "vector") {
       const queryEmbedding = await manager!.embedQuery(query);
       if (!queryEmbedding) {
         // Fallback to fulltext if query embedding fails
         effectiveMode = "fulltext";
         warning = "Query embedding generation failed - falling back to fulltext.";
-        results = await search(index, {
-          term: query,
-          properties: ["title", "content"],
-          limit,
-        });
+        results = await fulltextSearch(index, query, limit);
       } else {
         results = await search(index, {
           mode: "vector",
@@ -144,11 +140,7 @@ export function createWikiRoutes(state: WikiState, log: Logger | undefined): Wik
       if (!queryEmbedding) {
         effectiveMode = "fulltext";
         warning = "Query embedding generation failed - falling back to fulltext.";
-        results = await search(index, {
-          term: query,
-          properties: ["title", "content"],
-          limit,
-        });
+        results = await fulltextSearch(index, query, limit);
       } else {
         results = await search(index, {
           term: query,

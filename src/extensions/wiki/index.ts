@@ -283,6 +283,36 @@ async function indexFile(
 }
 
 /**
+ * Re-embeds a file's chunks and replaces its documents in the index with
+ * embedding-bearing versions.
+ *
+ * Existing documents for the file are removed first, then each chunk is
+ * re-inserted with its embedding when available (falling back to a text-only
+ * insert when embedding generation failed for that chunk).
+ *
+ * @param index - The Orama wiki index
+ * @param mgr - The embedding manager (caller ensures the service is available)
+ * @param chunks - The freshly parsed chunks for the file
+ * @param storedPath - The workDir-relative stored path used to locate existing docs
+ */
+async function embedAndReinsert(
+  index: WikiIndex,
+  mgr: EmbeddingManager,
+  chunks: WikiDocument[],
+  storedPath: string,
+): Promise<void> {
+  const embedded = await mgr.embedChunks(chunks);
+  removeFileChunks(index, storedPath);
+  for (const { chunk, embedding } of embedded) {
+    if (embedding) {
+      insert(index, { ...chunk, embedding });
+    } else {
+      insert(index, chunk);
+    }
+  }
+}
+
+/**
  * Initializes the embedding manager if semantic search is enabled.
  *
  * @param ctx - Extension context providing logger, database, and config access
@@ -507,16 +537,7 @@ export function createExtension(): Extension {
 
         // Generate embeddings for new chunks if available
         if (embeddingManager?.isServiceAvailable() && chunks.length > 0) {
-          const embedded = await embeddingManager.embedChunks(chunks);
-          const storedPath = path.join(wikiSubdir, relative);
-          removeFileChunks(wikiIndex, storedPath);
-          for (const { chunk, embedding } of embedded) {
-            if (embedding) {
-              insert(wikiIndex, { ...chunk, embedding });
-            } else {
-              insert(wikiIndex, chunk);
-            }
-          }
+          await embedAndReinsert(wikiIndex, embeddingManager, chunks, path.join(wikiSubdir, relative));
         }
       });
 
@@ -530,15 +551,7 @@ export function createExtension(): Extension {
 
         // Re-embed changed chunks if available
         if (embeddingManager?.isServiceAvailable() && chunks.length > 0) {
-          const embedded = await embeddingManager.embedChunks(chunks);
-          removeFileChunks(wikiIndex, storedPath);
-          for (const { chunk, embedding } of embedded) {
-            if (embedding) {
-              insert(wikiIndex, { ...chunk, embedding });
-            } else {
-              insert(wikiIndex, chunk);
-            }
-          }
+          await embedAndReinsert(wikiIndex, embeddingManager, chunks, storedPath);
         }
       });
 
