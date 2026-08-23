@@ -27,6 +27,26 @@ export function getCustomStepLabel(type: string): string | undefined {
 }
 
 /**
+ * Resolves a custom step type's registered icon id from the extension store.
+ *
+ * Built-in types (agent, if, case, ...) return undefined because their icons
+ * are resolved directly by `visualForStepType` from its built-in map; only
+ * custom extension types carry an icon id here.
+ *
+ * @param type - The step type identifier (e.g. "excel")
+ * @returns The icon registry key, or undefined if the type is built-in or has no icon
+ */
+export function iconIdForType(type: string): string | undefined {
+  const allExtensions = get(extensions);
+  for (const ext of allExtensions) {
+    if (!ext.enabled || !ext.ui?.stepTypes) continue;
+    const match = ext.ui.stepTypes.find((st) => st.type === type);
+    if (match) return match.icon;
+  }
+  return undefined;
+}
+
+/**
  * Returns a plain-text human-readable label for a workflow step type.
  * Handles the built-in agent/control-flow types, triggers, and custom
  * extension types. Icons are rendered separately via the icon registry.
