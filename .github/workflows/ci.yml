@@ -33,7 +33,7 @@ jobs:
         run: bunx tsc --noEmit
 
       - name: Run tests
-        run: AGENT=1 bun test
+        run: AGENT=1 bun test src/
         env:
           OPENAI_API_KEY: sk-test
           OPENAI_API_BASE_URL: http://localhost:11434/v1
@@ -63,6 +63,10 @@ jobs:
 
       - name: Svelte type-check
         run: bun run check
+        working-directory: frontend
+
+      - name: Run frontend tests
+        run: bun test
         working-directory: frontend
 
       - name: Build frontend

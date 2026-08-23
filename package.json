@@ -40,7 +40,7 @@
     "migrate-workflows": "bun src/tools/migrateWorkflows.ts",
     "setup": "bun scripts/setup.ts",
     "start": "bun src/main.ts",
-    "test": "AGENT=1 bun test"
+    "test": "AGENT=1 bun test src/"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.10",
