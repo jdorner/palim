@@ -73,7 +73,7 @@ interface Props {
   onTriggerClick?: () => void;
   onAddStep?: (
     type?: string,
-    branchContext?: { parentNodeId: string; branch: string; lastNodeId: string | null },
+    branchContext?: { parentNodeId: string; branch?: string; lastNodeId: string | null },
   ) => void;
   onEdgesChange?: (edges: Edge[]) => void;
 }
@@ -149,6 +149,9 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
 
     // Inject addStep node callbacks and custom types (root + branch)
     if (node.id === "__addStep__" || node.id.startsWith("__addStep:")) {
+      // Branch add-step: carries parentNodeId + branch (+ optional lastNodeId).
+      // Root add-step: carries sourceNodeId (the tail of the main chain); the
+      // new step must be appended sequentially after it so it stays attached.
       const branchContext =
         node.data.parentNodeId && node.data.branch
           ? {
@@ -156,7 +159,12 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
               branch: node.data.branch as string,
               lastNodeId: (node.data.lastNodeId as string | null | undefined) ?? null,
             }
-          : undefined;
+          : node.data.sourceNodeId
+            ? {
+                parentNodeId: node.data.sourceNodeId as string,
+                lastNodeId: node.data.sourceNodeId as string,
+              }
+            : undefined;
 
       return {
         ...node,
