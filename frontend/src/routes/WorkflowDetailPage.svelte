@@ -685,6 +685,13 @@ async function saveWorkflow() {
 let saveDisabled = $derived(saving || validationErrors.size > 0);
 
 /**
+ * Whether the template-issues banner is expanded to show the individual
+ * warnings. Collapsed by default so the banner stays compact; the count in the
+ * header still communicates that issues exist.
+ */
+let warningsExpanded = $state(false);
+
+/**
  * Slugs of steps that have a template/config warning, derived from the
  * workflow's `warnings`. Passed to the graph so the offending nodes render a
  * red error badge. Only meaningful in read-only view mode (warnings are not
@@ -1039,15 +1046,30 @@ onDestroy(() => {
 
     {#if !editMode && workflow.warnings && workflow.warnings.length > 0}
       <div class="mb-4 px-3 py-2 rounded-md border border-amber-500/50 bg-amber-500/10 text-sm shrink-0">
-        <div class="flex items-center gap-1.5 font-medium text-amber-500 mb-1">
+        <button
+          type="button"
+          class="flex w-full items-center gap-1.5 font-medium text-amber-500 text-left"
+          aria-expanded={warningsExpanded}
+          onclick={() => { warningsExpanded = !warningsExpanded; }}
+        >
+          <CaretRightIcon
+            size={12}
+            aria-hidden="true"
+            class="transition-transform {warningsExpanded ? 'rotate-90' : ''}"
+          />
           <WarningIcon size={14} aria-hidden="true" />
           Template {workflow.warnings.length === 1 ? "Issue" : "Issues"} ({workflow.warnings.length})
-        </div>
-        <ul class="list-disc list-inside text-xs text-amber-500/80 space-y-0.5">
-          {#each workflow.warnings as warning}
-            <li><span class="font-mono">{warning.stepSlug}.{warning.field}</span>: {warning.message}</li>
-          {/each}
-        </ul>
+        </button>
+        {#if warningsExpanded}
+          <ul
+            class="list-disc list-inside text-xs text-amber-500/80 space-y-0.5 mt-1"
+            transition:slide={{ duration: 100 }}
+          >
+            {#each workflow.warnings as warning}
+              <li><span class="font-mono">{warning.stepSlug}.{warning.field}</span>: {warning.message}</li>
+            {/each}
+          </ul>
+        {/if}
       </div>
     {/if}
 
