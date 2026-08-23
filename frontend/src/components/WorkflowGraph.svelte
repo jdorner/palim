@@ -20,6 +20,12 @@ import WaitForNode from "./WaitForNode.svelte";
 import WorkflowStepNode from "./WorkflowStepNode.svelte";
 
 interface StepInfo {
+  /**
+   * Stable synthetic node identity, independent of the editable slug. Used as
+   * the SvelteFlow node id, selection key, and position-preservation key. Absent
+   * in read-only run views (statusMap path), where identity falls back to slug.
+   */
+  id?: string;
   slug: string;
   type: string;
   status?: "waiting" | "active" | "completed" | "failed" | "waiting-signal" | "skipped";
@@ -37,12 +43,17 @@ interface TriggerInfo {
 
 interface Props {
   steps: StepInfo[];
-  /** DAG edges connecting steps by slug. */
+  /**
+   * DAG edges connecting steps. In the editor, `from`/`to` are the steps'
+   * synthetic ids (stable across slug edits). In the read-only run view, steps
+   * carry no synthetic id so `from`/`to` are slugs (which equal the node id
+   * there). Either way the endpoints match the resolved node id space.
+   */
   edges?: DagEdge[];
   trigger?: TriggerInfo;
   editMode?: boolean;
-  /** Slug of the currently selected step (for highlight). */
-  selectedStepSlug?: string;
+  /** Synthetic node id of the currently selected step (for highlight). */
+  selectedStepId?: string;
   /** Whether the trigger node is currently selected (shows orange highlight). */
   triggerSelected?: boolean;
   fitViewTrigger?: number;
@@ -68,7 +79,7 @@ let {
   edges: dagEdges = [],
   trigger,
   editMode,
-  selectedStepSlug,
+  selectedStepId,
   triggerSelected = false,
   fitViewTrigger = 0,
   customStepTypes = [],
@@ -89,12 +100,12 @@ const nodeTypes = { step: WorkflowStepNode, controlFlow: ControlFlowNode, waitFo
 
 /** Compute the full graph layout from current steps + edges. */
 function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
-  const stepsMap: Record<string, Omit<StepData, "slug">> = {};
-  for (const s of steps) {
-    const { slug, ...rest } = s;
-    stepsMap[slug] = rest as Omit<StepData, "slug">;
-  }
-  const flatGraph = buildDagGraph(stepsMap, dagEdges);
+  // Pass steps as an ordered array (never a slug-keyed map) so two steps with
+  // the same or empty slug each keep a distinct node. The editor supplies a
+  // stable synthetic `id`; the read-only run view does not, so fall back to the
+  // slug (always valid/unique in a saved definition) as the node identity there.
+  const stepList: StepData[] = steps.map((s) => ({ ...s, id: s.id ?? s.slug }) as StepData);
+  const flatGraph = buildDagGraph(stepList, dagEdges);
 
   // Derive the set of terminal step types from extension metadata
   const terminalTypes = new Set(customStepTypes.filter((st) => st.terminal).map((st) => st.type));
@@ -143,7 +154,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
         data: {
           ...node.data,
           status,
-          selected: slug === selectedStepSlug,
+          selected: node.id === selectedStepId,
           terminal: isTerminal,
         },
       };
@@ -155,7 +166,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
       data: {
         ...node.data,
         status: step?.status ?? node.data.status ?? "waiting",
-        selected: slug === selectedStepSlug,
+        selected: node.id === selectedStepId,
         terminal: isTerminal,
       },
     };
@@ -317,17 +328,18 @@ function handleConnect(connection: Connection) {
 }
 
 /**
- * Extracts the branch label from a CF node's source handle ID.
- * Mirrors the convention in workflowGraph.ts / ControlFlowNode.svelte:
- *  - case path:  `${slug}-path-${key}` -> key
- *  - if / default: `${slug}-${branch}` -> branch
+ * Extracts the branch label from a CF node's source handle ID. Handle ids are
+ * prefixed with the synthetic source node id (see ControlFlowNode.svelte, which
+ * builds `<Handle id>` from the node id):
+ *  - case path:  `${sourceId}-path-${key}` -> key
+ *  - if / default: `${sourceId}-${branch}` -> branch
  * Returns undefined for non-CF edges (no handle).
  */
-function branchFromHandle(sourceSlug: string, sourceHandle: string | null | undefined): string | undefined {
+function branchFromHandle(sourceId: string, sourceHandle: string | null | undefined): string | undefined {
   if (!sourceHandle) return undefined;
-  const pathPrefix = `${sourceSlug}-path-`;
+  const pathPrefix = `${sourceId}-path-`;
   if (sourceHandle.startsWith(pathPrefix)) return sourceHandle.slice(pathPrefix.length);
-  const prefix = `${sourceSlug}-`;
+  const prefix = `${sourceId}-`;
   if (sourceHandle.startsWith(prefix)) return sourceHandle.slice(prefix.length);
   return undefined;
 }
@@ -365,13 +377,15 @@ function handleNodeClick(ev: { event: MouseEvent | TouchEvent; node: Node }) {
     return;
   }
 
-  // Node IDs are step slugs. Resolve the clicked step by slug.
-  const slug = ev.node.data?.slug as string | undefined;
-  if (!slug || !onNodeClick) return;
-  const step = steps.find((s) => s.slug === slug);
-  if (step) {
-    const index = steps.findIndex((s) => s.slug === slug);
-    onNodeClick(step, index);
+  // Resolve the clicked step by its stable synthetic node id (falling back to
+  // the slug for the read-only run view, where nodes carry no synthetic id).
+  // Keying on the node id -- not the slug -- means a step whose slug is
+  // temporarily empty or duplicated mid-edit is still selectable.
+  if (!onNodeClick) return;
+  const nodeId = ev.node.id;
+  const index = steps.findIndex((s) => (s.id ?? s.slug) === nodeId);
+  if (index >= 0) {
+    onNodeClick(steps[index], index);
   }
 }
 

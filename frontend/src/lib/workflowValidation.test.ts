@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   type StepTypeSchema,
+  serializeWorkflowDraft,
   validateSlug,
   validateStepConfig,
   validateStepSlugsUnique,
@@ -784,5 +785,77 @@ describe("validateWorkflowDraft with step type schemas", () => {
     const errors = validateWorkflowDraft(draft);
     const configErrors = [...errors.keys()].filter((k) => k.includes("config"));
     expect(configErrors.length).toBe(0);
+  });
+});
+
+describe("id-based edges (draft edges reference synthetic step ids)", () => {
+  const draft = (edges: Array<{ from: string; to: string; branch?: string }>): WorkflowDraft => ({
+    name: "wf",
+    description: "",
+    trigger: { type: "manual", ref: "" },
+    enabled: true,
+    steps: [
+      { id: "node-1", slug: "extract", type: "agent", prompt: "x" },
+      { id: "node-2", slug: "parse", type: "agent", prompt: "y" },
+    ],
+    edges,
+  });
+
+  describe("serializeWorkflowDraft translates id edges back to slugs", () => {
+    test("id-based edges become slug-based in the persisted output", () => {
+      const result = serializeWorkflowDraft(draft([{ from: "node-1", to: "node-2" }])) as {
+        edges: Array<{ from: string; to: string; branch?: string }>;
+      };
+      expect(result.edges).toEqual([{ from: "extract", to: "parse" }]);
+    });
+
+    test("connections survive after slugs are edited (edges keyed by stable id)", () => {
+      // Simulate the user renaming both steps: only the slugs change, the ids
+      // and the id-based edge stay put. Serialization must reflect the NEW slugs.
+      const d = draft([{ from: "node-1", to: "node-2" }]);
+      d.steps[0]!.slug = "extract-image-text";
+      d.steps[1]!.slug = "parse-data";
+      const result = serializeWorkflowDraft(d) as { edges: Array<{ from: string; to: string }> };
+      expect(result.edges).toEqual([{ from: "extract-image-text", to: "parse-data" }]);
+    });
+
+    test("preserves the branch label when translating", () => {
+      const result = serializeWorkflowDraft(draft([{ from: "node-1", to: "node-2", branch: "then" }])) as {
+        edges: Array<{ from: string; to: string; branch?: string }>;
+      };
+      expect(result.edges).toEqual([{ from: "extract", to: "parse", branch: "then" }]);
+    });
+
+    test("drops edges whose endpoints no longer resolve to a step", () => {
+      const result = serializeWorkflowDraft(draft([{ from: "node-1", to: "ghost" }])) as {
+        edges: Array<{ from: string; to: string }>;
+      };
+      expect(result.edges).toEqual([]);
+    });
+  });
+
+  describe("validateWorkflowDraft resolves edges by id", () => {
+    test("accepts id-based edges between existing steps", () => {
+      const errors = validateWorkflowDraft(draft([{ from: "node-1", to: "node-2" }]));
+      expect(errors.size).toBe(0);
+    });
+
+    test("does not flag connected steps as orphaned even with empty slugs", () => {
+      // Both steps have their slug cleared but remain connected by id -- the
+      // orphan check must key on id, not slug.
+      const d = draft([{ from: "node-1", to: "node-2" }]);
+      d.steps[0]!.slug = "";
+      d.steps[1]!.slug = "";
+      const errors = validateWorkflowDraft(d);
+      // Slug errors will fire (empty slug is invalid), but NOT the "not
+      // connected" orphan error.
+      expect(errors.get("steps[0].slug")).not.toContain("not connected");
+      expect(errors.get("steps[1].slug")).not.toContain("not connected");
+    });
+
+    test("flags an id-based edge referencing an unknown step", () => {
+      const errors = validateWorkflowDraft(draft([{ from: "node-1", to: "ghost" }]));
+      expect(errors.has("edges[0].to")).toBe(true);
+    });
   });
 });

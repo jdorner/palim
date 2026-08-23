@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { buildDagGraph, type DagEdge } from "./workflowGraph";
+import { buildDagGraph, type DagEdge, type StepData } from "./workflowGraph";
 import { computeLayout } from "./workflowLayout";
+
+/**
+ * Converts a slug-keyed step record into the ordered step array that
+ * `buildDagGraph` expects. These layout tests use slug-based identity (no
+ * synthetic ids), so the slug doubles as the node id and edges stay slug-based.
+ */
+function toStepArray(steps: Record<string, Record<string, unknown>>): StepData[] {
+  return Object.entries(steps).map(([slug, s]) => ({ slug, ...s }) as StepData);
+}
 
 /**
  * Builds a `case` node fanning out to `branches.length` sandbox-exec targets,
@@ -20,7 +29,7 @@ function buildCaseGraph(branches: string[]) {
     edges.push({ from: "sort", to: target, branch });
   }
 
-  return buildDagGraph(steps, edges);
+  return buildDagGraph(toStepArray(steps), edges);
 }
 
 describe("computeLayout", () => {
@@ -98,7 +107,7 @@ describe("computeLayout", () => {
           "on-then": { type: "sandbox-exec", command: "mv" },
         };
         const edges: DagEdge[] = [{ from: "decide", to: "on-then", branch: "then" }];
-        const graph = buildDagGraph(steps, edges);
+        const graph = buildDagGraph(toStepArray(steps), edges);
         const layout = computeLayout(graph, { includeAddNode: true });
 
         // The empty "else" branch produces an addStep edge sourced at "decide".
@@ -120,7 +129,7 @@ describe("computeLayout", () => {
           "fail-a": { type: "fail" },
         };
         const edges: DagEdge[] = [{ from: "sort", to: "fail-a", branch: "a" }];
-        const graph = buildDagGraph(steps, edges);
+        const graph = buildDagGraph(toStepArray(steps), edges);
         const layout = computeLayout(graph, {
           includeAddNode: true,
           terminalTypes: new Set(["fail"]),
@@ -154,7 +163,7 @@ describe("computeLayout", () => {
         { from: "move-a", to: "join" },
         { from: "move-b", to: "join" },
       ];
-      return buildDagGraph(steps, edges);
+      return buildDagGraph(toStepArray(steps), edges);
     }
 
     test("the shared join node gets exactly one addStep, not one per incoming branch", () => {
@@ -228,7 +237,7 @@ describe("computeLayout", () => {
         a: { type: "agent", prompt: "x" },
         b: { type: "agent", prompt: "y" },
       };
-      const graph = buildDagGraph(steps, [{ from: "a", to: "b" }]);
+      const graph = buildDagGraph(toStepArray(steps), [{ from: "a", to: "b" }]);
       const layout = computeLayout(graph, {});
 
       const seqEdge = layout.edges.find((e) => e.source === "a" && e.target === "b")!;

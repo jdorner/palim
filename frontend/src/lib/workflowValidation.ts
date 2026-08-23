@@ -9,7 +9,14 @@ export interface ValidationResult {
   error?: string;
 }
 
-/** An edge in a DAG workflow draft. */
+/**
+ * An edge in a DAG workflow draft.
+ *
+ * `from`/`to` reference the steps' SYNTHETIC IDS (`StepDraft.id`), not slugs.
+ * Id-based edges keep connections stable while the user edits slugs (which may
+ * be empty or duplicated mid-edit). They are translated back to slugs only at
+ * serialize time (`serializeWorkflowDraft`).
+ */
 export interface EdgeDraft {
   from: string;
   to: string;
@@ -24,13 +31,21 @@ export interface WorkflowDraft {
   enabled: boolean;
   /** Steps as a flat array with slug (converted to a map on serialize). */
   steps: StepDraft[];
-  /** DAG edges connecting steps by slug. */
+  /** DAG edges connecting steps by synthetic id (converted to slugs on serialize). */
   edges: EdgeDraft[];
 }
 
 /** Draft step within a workflow (DAG node; branches are edges, not nested arrays). */
 export interface StepDraft {
   [key: string]: unknown;
+  /**
+   * Stable synthetic identity for the editor graph, independent of the slug.
+   * Never serialized to the backend (see `serializeStep`); it only keeps node
+   * identity/selection/position stable while the user edits the slug. Optional
+   * here so pure validation/serialization callers need not mint one; the editor
+   * always populates it.
+   */
+  id?: string;
   slug: string;
   type: string;
   prompt?: string;
@@ -226,16 +241,19 @@ export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: St
     errors.set("steps.slugs", uniqueResult.error);
   }
 
-  // Validate edges reference existing steps
-  const slugSet = new Set(draft.steps.map((s) => s.slug));
+  // Validate edges reference existing steps. Edges are keyed by the step
+  // identity (`id` when present, else `slug` for callers that don't mint ids).
+  const stepIdentity = (s: StepDraft): string => s.id ?? s.slug;
+  const identitySet = new Set(draft.steps.map(stepIdentity));
+  const identityToSlug = new Map(draft.steps.map((s) => [stepIdentity(s), s.slug]));
   const edges = draft.edges ?? [];
   for (let i = 0; i < edges.length; i++) {
     const edge = edges[i]!;
-    if (!slugSet.has(edge.from)) {
-      errors.set(`edges[${i}].from`, `Edge references unknown step "${edge.from}"`);
+    if (!identitySet.has(edge.from)) {
+      errors.set(`edges[${i}].from`, `Edge references unknown step "${identityToSlug.get(edge.from) ?? edge.from}"`);
     }
-    if (!slugSet.has(edge.to)) {
-      errors.set(`edges[${i}].to`, `Edge references unknown step "${edge.to}"`);
+    if (!identitySet.has(edge.to)) {
+      errors.set(`edges[${i}].to`, `Edge references unknown step "${identityToSlug.get(edge.to) ?? edge.to}"`);
     }
   }
 
@@ -249,7 +267,7 @@ export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: St
     }
     for (let i = 0; i < draft.steps.length; i++) {
       const step = draft.steps[i]!;
-      if (!connected.has(step.slug)) {
+      if (!connected.has(stepIdentity(step))) {
         errors.set(`steps[${i}].slug`, `Step "${step.slug}" is not connected to any other step`);
       }
     }
@@ -389,6 +407,10 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
  * backend API: `steps` as a map keyed by slug (slug stripped from each value)
  * plus a top-level `edges` array.
  *
+ * Draft edges reference steps by synthetic id; the persisted format references
+ * them by slug, so each endpoint is translated id -> slug here. Edges whose
+ * endpoints no longer resolve to a step are dropped.
+ *
  * @param draft - The workflow draft to serialize
  * @returns A plain object matching the backend's DagWorkflowDefinitionSchema
  */
@@ -398,9 +420,17 @@ export function serializeWorkflowDraft(draft: WorkflowDraft): Record<string, unk
     steps[step.slug] = serializeStep(step);
   }
 
-  const edges = (draft.edges ?? []).map((e) =>
-    e.branch !== undefined ? { from: e.from, to: e.to, branch: e.branch } : { from: e.from, to: e.to },
-  );
+  // Map each step's identity (id when present, else slug) to its slug so
+  // id-based draft edges can be written back in the slug-based persisted format.
+  const identityToSlug = new Map(draft.steps.map((s) => [s.id ?? s.slug, s.slug]));
+  const edges = (draft.edges ?? [])
+    .map((e) => {
+      const from = identityToSlug.get(e.from);
+      const to = identityToSlug.get(e.to);
+      if (from === undefined || to === undefined) return null;
+      return e.branch !== undefined ? { from, to, branch: e.branch } : { from, to };
+    })
+    .filter((e): e is { from: string; to: string; branch?: string } => e !== null);
 
   const result: Record<string, unknown> = {
     name: draft.name,

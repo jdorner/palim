@@ -34,6 +34,11 @@ import WorkflowStepSidebar from "../components/WorkflowStepSidebar.svelte";
 import { navigate, route } from "../router";
 
 interface StepDef {
+  /**
+   * Stable synthetic node identity for the editor graph, independent of the
+   * user-editable slug. Minted client-side on load/add and never persisted.
+   */
+  id: string;
   slug: string;
   type: string;
   prompt?: string;
@@ -44,6 +49,22 @@ interface StepDef {
   body?: string;
   input?: string;
   output?: string;
+}
+
+/**
+ * Monotonic counter backing {@link nextStepId}. Module-scoped so ids stay
+ * unique across every workflow opened in the session.
+ */
+let stepIdCounter = 0;
+
+/**
+ * Mints a fresh, process-unique synthetic step id (e.g. "node-1"). Used as the
+ * graph node identity so selection, position, and click resolution survive slug
+ * edits (including cleared or duplicated slugs). Never persisted to the backend.
+ */
+function nextStepId(): string {
+  stepIdCounter += 1;
+  return `node-${stepIdCounter}`;
 }
 
 interface WarningsDef {
@@ -57,9 +78,13 @@ interface WorkflowDetail {
   description?: string;
   trigger: { type: string; ref?: string };
   enabled?: boolean;
-  /** DAG steps normalized to an array with slug (for the array-based editor). */
+  /** DAG steps normalized to an array with slug + synthetic id (array editor). */
   steps: StepDef[];
-  /** DAG edges connecting steps by slug. */
+  /**
+   * DAG edges connecting steps by SYNTHETIC ID (not slug). Converted from the
+   * slug-based API representation in `normalizeWorkflow` and back to slugs in
+   * `serializeWorkflowDraft`. Id-based edges survive slug edits/collisions.
+   */
   edges: Array<{ from: string; to: string; branch?: string }>;
   warnings: Array<WarningsDef>;
   outputSchemas?: OutputSchemas;
@@ -78,11 +103,27 @@ interface WorkflowDetail {
  */
 function normalizeWorkflow(raw: Record<string, unknown>): WorkflowDetail {
   const stepsMap = (raw.steps ?? {}) as Record<string, Record<string, unknown>>;
-  const stepsArray = Object.entries(stepsMap).map(([slug, s]) => ({ slug, ...s })) as StepDef[];
+  const stepsArray = Object.entries(stepsMap).map(([slug, s]) => ({ id: nextStepId(), slug, ...s })) as StepDef[];
+
+  // Persisted edges reference steps by slug. Convert them to the internal
+  // id-based representation so the editor tracks connections by stable identity
+  // (slugs are user-editable and can collide/empty mid-edit). Slugs are unique
+  // in a saved definition, so this mapping is unambiguous at load time.
+  const slugToId = new Map(stepsArray.map((s) => [s.slug, s.id]));
+  const rawEdges = (raw.edges ?? []) as Array<{ from: string; to: string; branch?: string }>;
+  const edges = rawEdges
+    .map((e) => {
+      const from = slugToId.get(e.from);
+      const to = slugToId.get(e.to);
+      if (from === undefined || to === undefined) return null;
+      return e.branch !== undefined ? { from, to, branch: e.branch } : { from, to };
+    })
+    .filter((e): e is { from: string; to: string; branch?: string } => e !== null);
+
   return {
     ...(raw as Omit<WorkflowDetail, "steps" | "edges">),
     steps: stepsArray,
-    edges: (raw.edges ?? []) as WorkflowDetail["edges"],
+    edges,
   };
 }
 
@@ -169,11 +210,16 @@ function toStepDraft(s: StepDef | Record<string, unknown>): StepDraft {
   const raw = s as Record<string, unknown>;
   const slug = raw.slug as string;
   const type = raw.type as string;
+  // Preserve the synthetic node id from the source step, or mint one if absent
+  // (e.g. a step that somehow lacks it). This keeps graph node identity stable
+  // between view mode and edit mode.
+  const id = (raw.id as string | undefined) ?? nextStepId();
 
   // Agent steps: extract known fields
   if (type === "agent") {
     const { prompt, tools, skills } = raw as { prompt?: string; tools?: string[]; skills?: string[] };
     return {
+      id,
       slug,
       type,
       prompt,
@@ -185,6 +231,7 @@ function toStepDraft(s: StepDef | Record<string, unknown>): StepDraft {
   // Control flow: if - preserve condition (branches are edges, not nested arrays)
   if (type === "if") {
     return {
+      id,
       slug,
       type,
       condition: JSON.parse(JSON.stringify(raw.condition ?? {})),
@@ -194,6 +241,7 @@ function toStepDraft(s: StepDef | Record<string, unknown>): StepDraft {
   // Control flow: case - preserve match, paths (string[] of keys), default (string)
   if (type === "case") {
     const result: StepDraft = {
+      id,
       slug,
       type,
       match: raw.match as string,
@@ -207,17 +255,18 @@ function toStepDraft(s: StepDef | Record<string, unknown>): StepDraft {
 
   // Control flow: waitFor
   if (type === "waitFor") {
-    return { slug, type, event: raw.event as string };
+    return { id, slug, type, event: raw.event as string };
   }
 
   // Control flow: emit
   if (type === "emit") {
-    return { slug, type, event: raw.event as string };
+    return { id, slug, type, event: raw.event as string };
   }
 
   // Custom extension step types: rebuild config from non-standard fields
-  const { slug: _s, type: _t, input: _i, output: _o, ...config } = raw;
+  const { id: _id, slug: _s, type: _t, input: _i, output: _o, ...config } = raw;
   return {
+    id,
     slug,
     type,
     config: Object.keys(config).length > 0 ? (config as Record<string, unknown>) : undefined,
@@ -325,14 +374,17 @@ function addStep(
   const template = stepTemplate(type);
   template.slug = nextStepSlug();
 
+  // Draft edges are id-based; branchContext ids and the new step's id are both
+  // synthetic ids, so edges can be written directly with no slug translation.
+  const newStepId = template.id!;
   const newEdges = [...editDraft.edges];
   if (branchContext) {
     if (branchContext.lastNodeId) {
       // Populated branch: append after the branch tail (plain sequential edge).
-      newEdges.push({ from: branchContext.lastNodeId, to: template.slug });
+      newEdges.push({ from: branchContext.lastNodeId, to: newStepId });
     } else {
       // Empty branch: connect the CF node to the new step via a labeled edge.
-      newEdges.push({ from: branchContext.parentNodeId, to: template.slug, branch: branchContext.branch });
+      newEdges.push({ from: branchContext.parentNodeId, to: newStepId, branch: branchContext.branch });
     }
   }
 
@@ -363,41 +415,44 @@ function addStep(
 
 /** Returns a default step template for a given type (DAG: no nested branches). */
 function stepTemplate(type: string): StepDraft {
+  const id = nextStepId();
   switch (type) {
     case "agent":
-      return { slug: "", type: "agent", prompt: "" };
+      return { id, slug: "", type: "agent", prompt: "" };
     case "if":
-      return { slug: "", type: "if", condition: { ref: "" } };
+      return { id, slug: "", type: "if", condition: { ref: "" } };
     case "case":
-      return { slug: "", type: "case", match: "", paths: [] };
+      return { id, slug: "", type: "case", match: "", paths: [] };
     case "waitFor":
-      return { slug: "", type: "waitFor", event: "" };
+      return { id, slug: "", type: "waitFor", event: "" };
     case "emit":
-      return { slug: "", type: "emit", event: "" };
+      return { id, slug: "", type: "emit", event: "" };
     default:
       // Custom extension step type
-      return { slug: "", type };
+      return { id, slug: "", type };
   }
 }
 
 /**
  * Translates the graph's SvelteFlow edges into the draft's DAG edges.
  *
- * Edge source/target are step slugs (the DAG graph node IDs). The
- * `sourceHandle` encodes the branch for CF nodes:
- *  - if:    `${slug}-then` / `${slug}-else`
- *  - case:  `${slug}-path-${key}` / `${slug}-default`
+ * Both the graph edges and the draft edges are id-based (source/target are the
+ * steps' synthetic ids), so endpoints pass through unchanged; only synthetic
+ * nodes (trigger, addStep) are filtered out. The `sourceHandle` encodes the
+ * branch for CF nodes, prefixed with the synthetic source id:
+ *  - if:    `${id}-then` / `${id}-else`
+ *  - case:  `${id}-path-${key}` / `${id}-default`
  * Non-CF edges have no branch.
  */
 function handleEdgesChange(edges: Edge[]) {
   if (!editDraft) return;
 
-  const stepSlugs = new Set(editDraft.steps.map((s) => s.slug));
+  const stepIds = new Set(editDraft.steps.map((s) => s.id));
   const draftEdges: EdgeDraft[] = [];
 
   for (const edge of edges) {
-    // Skip edges to/from synthetic nodes (trigger, addStep)
-    if (!stepSlugs.has(edge.source) || !stepSlugs.has(edge.target)) continue;
+    // Skip edges to/from synthetic nodes (trigger, addStep).
+    if (!stepIds.has(edge.source) || !stepIds.has(edge.target)) continue;
 
     const branch = branchFromHandle(edge.source, edge.sourceHandle);
     draftEdges.push(
@@ -410,17 +465,23 @@ function handleEdgesChange(edges: Edge[]) {
 
 /**
  * Extracts the branch label from a CF node's source handle ID.
+ *
+ * Handle ids are prefixed with the synthetic source node id (see
+ * `ControlFlowNode.svelte`, which builds `<Handle id>` from the node id).
  * Returns undefined for non-CF edges (no branch).
+ *
+ * @param sourceId - The edge's synthetic source node id.
+ * @param sourceHandle - The SvelteFlow source handle id, or null/undefined.
  */
-function branchFromHandle(sourceSlug: string, sourceHandle: string | null | undefined): string | undefined {
+function branchFromHandle(sourceId: string, sourceHandle: string | null | undefined): string | undefined {
   if (!sourceHandle) return undefined;
-  // if-node handles: "${slug}-then" / "${slug}-else"
-  // case-node handles: "${slug}-path-${key}" / "${slug}-default"
-  const pathPrefix = `${sourceSlug}-path-`;
+  // if-node handles: "${id}-then" / "${id}-else"
+  // case-node handles: "${id}-path-${key}" / "${id}-default"
+  const pathPrefix = `${sourceId}-path-`;
   if (sourceHandle.startsWith(pathPrefix)) {
     return sourceHandle.slice(pathPrefix.length);
   }
-  const prefix = `${sourceSlug}-`;
+  const prefix = `${sourceId}-`;
   if (sourceHandle.startsWith(prefix)) {
     return sourceHandle.slice(prefix.length);
   }
@@ -433,11 +494,12 @@ function removeStep(index: number) {
   if (editDraft.steps.length <= 1) return; // Prevent removal of last step
 
   const removedSlug = editDraft.steps[index].slug;
+  const removedId = editDraft.steps[index].id;
   editDraft = {
     ...editDraft,
     steps: editDraft.steps.filter((_, i) => i !== index),
-    // Drop any edges touching the removed step
-    edges: editDraft.edges.filter((e) => e.from !== removedSlug && e.to !== removedSlug),
+    // Drop any edges touching the removed step (edges are id-based).
+    edges: editDraft.edges.filter((e) => e.from !== removedId && e.to !== removedId),
   };
 
   // Clean up validation errors for the removed step and re-index subsequent steps
@@ -477,19 +539,11 @@ let stepSlugTimeouts: Map<number, ReturnType<typeof setTimeout>> = new Map();
 
 function onStepSlugInput(index: number, value: string) {
   if (!editDraft) return;
-  const oldSlug = editDraft.steps[index]?.slug;
+  // Edges are id-based and the step's id is stable, so a slug edit never touches
+  // edges: connections survive renames, clears, and duplicate slugs untouched.
   editDraft = {
     ...editDraft,
     steps: editDraft.steps.map((s, i) => (i === index ? { ...s, slug: value } : s)),
-    // Keep edges in sync when a step is renamed so connections aren't orphaned
-    edges:
-      oldSlug && oldSlug !== value
-        ? editDraft.edges.map((e) => ({
-            ...e,
-            from: e.from === oldSlug ? value : e.from,
-            to: e.to === oldSlug ? value : e.to,
-          }))
-        : editDraft.edges,
   };
 
   const existing = stepSlugTimeouts.get(index);
@@ -983,8 +1037,8 @@ onDestroy(() => {
               edges={editMode && editDraft ? editDraft.edges : workflow.edges}
               trigger={editMode && editDraft ? editDraft.trigger : workflow.trigger}
               {editMode}
-              selectedStepSlug={sidebarOpen && !triggerSelected && selectedStepIndex >= 0
-                ? ((editDraft ?? workflow).steps[selectedStepIndex]?.slug ?? undefined)
+              selectedStepId={sidebarOpen && !triggerSelected && selectedStepIndex >= 0
+                ? ((editDraft ?? workflow).steps[selectedStepIndex]?.id ?? undefined)
                 : undefined}
               triggerSelected={sidebarOpen && triggerSelected}
               {customStepTypes}
