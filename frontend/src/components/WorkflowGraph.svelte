@@ -1,15 +1,19 @@
 <script lang="ts">
 import {
   Background,
+  BackgroundVariant,
   type ColorMode,
   type Connection,
   Controls,
   type Edge,
+  MarkerType,
+  MiniMap,
   type Node,
   SvelteFlow,
 } from "@xyflow/svelte";
 import "@xyflow/svelte/dist/style.css";
 import { onMount, untrack } from "svelte";
+import { visualForStepType } from "$lib/nodeVisuals";
 import { buildDagGraph, type DagEdge, type StepData } from "$lib/workflowGraph";
 import { computeLayout } from "$lib/workflowLayout";
 import { type GraphStepStatus, isEdgeAnimated } from "$lib/workflowRunStatus";
@@ -94,6 +98,27 @@ let colorMode = $state<ColorMode>("light");
 
 const nodeTypes = { step: WorkflowStepNode, controlFlow: ControlFlowNode, waitFor: WaitForNode, addStep: AddStepNode };
 
+/**
+ * Colors a node dot in the minimap by its resolved category so the overview
+ * mirrors the icon-tile accents on the canvas.
+ */
+function miniMapNodeColor(node: Node): string {
+  const type = (node.data as { type?: string } | undefined)?.type;
+  const triggerType = (node.data as { triggerType?: string } | undefined)?.triggerType;
+  if (node.id.startsWith("__addStep")) return "#94a3b8";
+  const { category } = visualForStepType(type ?? "", { triggerType });
+  switch (category) {
+    case "trigger":
+      return "#10b981";
+    case "agent":
+      return "#8b5cf6";
+    case "logic":
+      return "#0ea5e9";
+    default:
+      return "#f59e0b";
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Layout computation using flatten + dagre
 // ---------------------------------------------------------------------------
@@ -177,10 +202,31 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
     id: n.id,
     status: (n.data as Record<string, unknown> | undefined)?.status as GraphStepStatus | undefined,
   }));
-  const edgesWithAnimation = layout.edges.map((edge) => ({
-    ...edge,
-    animated: isEdgeAnimated({ source: edge.source, target: edge.target, animated: edge.animated }, statusNodes),
-  }));
+  const edgesWithAnimation = layout.edges.map((edge) => {
+    // Add-step edges are dashed placeholders (they carry a stroke-dasharray
+    // style); keep them arrow-free and muted. Real flow edges get an arrowhead
+    // and a smooth curve so direction reads clearly.
+    const isAddStepEdge = edge.target === "__addStep__" || edge.target.startsWith("__addStep:");
+    return {
+      ...edge,
+      type: "smoothstep",
+      animated: isEdgeAnimated({ source: edge.source, target: edge.target, animated: edge.animated }, statusNodes),
+      ...(isAddStepEdge
+        ? {}
+        : {
+            markerEnd: { type: MarkerType.ArrowClosed, width: 18, height: 18 },
+          }),
+      // Rounded branch-label pills for readable then/else/case labels.
+      ...(edge.label
+        ? {
+            labelBgPadding: [6, 3] as [number, number],
+            labelBgBorderRadius: 6,
+            labelBgStyle: "fill: hsl(var(--muted)); fill-opacity: 0.95;",
+            labelStyle: "fill: hsl(var(--muted-foreground)); font-size: 10px; font-weight: 500;",
+          }
+        : {}),
+    };
+  });
 
   return { nodes: nodesWithStatus, edges: edgesWithAnimation };
 }
@@ -422,7 +468,14 @@ onMount(() => {
     onnodeclick={handleNodeClick}
   >
     <FitViewOnInit {fitViewTrigger} />
-    <Background />
-    <Controls />
+    <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} patternColor="hsl(var(--border))" />
+    <Controls class="shadow-md! rounded-lg! border! border-border! overflow-hidden!" />
+    <MiniMap
+      class="rounded-lg! border! border-border! bg-card!"
+      pannable
+      zoomable
+      nodeColor={miniMapNodeColor}
+      nodeStrokeWidth={0}
+    />
   </SvelteFlow>
 </div>

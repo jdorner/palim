@@ -1,13 +1,16 @@
 <script lang="ts">
 import { Handle, Position } from "@xyflow/svelte";
+import { type NodeStatus, statusVisual, visualForStepType } from "$lib/nodeVisuals";
 import { labelForStepType } from "$lib/stepTypes";
 
 interface Props {
   data: {
     slug: string;
     type: string;
-    status?: "waiting" | "active" | "completed" | "failed" | "waiting-signal" | "skipped";
+    status?: NodeStatus;
     triggerType?: string;
+    /** Optional custom-extension icon id for the shared icon registry. */
+    iconId?: string;
     selected?: boolean;
     terminal?: boolean;
   };
@@ -15,32 +18,63 @@ interface Props {
 
 let { data }: Props = $props();
 
-const statusColors: Record<string, string> = {
-  waiting: "bg-muted border-border",
-  active: "bg-yellow-100 border-yellow-400 dark:bg-yellow-900/30 dark:border-yellow-600",
-  completed: "bg-green-100 border-green-400 dark:bg-green-900/30 dark:border-green-600",
-  failed: "bg-red-100 border-red-400 dark:bg-red-900/30 dark:border-red-600",
-  "waiting-signal": "bg-amber-100 border-amber-400 dark:bg-amber-900/30 dark:border-amber-600",
-  skipped: "bg-muted/50 border-border/50 opacity-50",
-};
-
-let colorClass = $derived(
-  data.selected
-    ? "bg-orange-100 border-orange-400 dark:bg-orange-900/30 dark:border-orange-500"
-    : (statusColors[data.status ?? "waiting"] ?? statusColors.waiting),
-);
-let typeLabel = $derived(labelForStepType(data.type, data.triggerType));
 let isTrigger = $derived(data.type === "trigger");
 let isTerminal = $derived(data.terminal === true);
+let status = $derived<NodeStatus>(data.status ?? "waiting");
+let isSkipped = $derived(status === "skipped");
+
+let visual = $derived(visualForStepType(data.type, { triggerType: data.triggerType, iconId: data.iconId }));
+let statusInfo = $derived(statusVisual(status));
+
+// The type label from stepTypes still carries an emoji prefix (used elsewhere);
+// strip a leading non-ASCII glyph + spaces so the card subtitle stays clean,
+// since the icon tile already conveys the type visually.
+let typeLabel = $derived(labelForStepType(data.type, data.triggerType).replace(/^[^\w]+\s*/u, ""));
+
+// Selection ring takes precedence; otherwise the ring reflects run status.
+let ringClass = $derived(data.selected ? "ring-2 ring-primary" : `ring-2 ${statusInfo.ringClass}`);
 </script>
 
-<div class="px-4 py-3 rounded-lg border-2 shadow-sm w-45 text-center {colorClass}" class:border-dashed={isTrigger}>
+<div
+  class="group relative flex items-center gap-2.5 w-55 rounded-xl border border-border bg-card px-3 py-2.5 shadow-sm transition-shadow hover:shadow-md {ringClass}"
+  class:opacity-50={isSkipped}
+  class:border-dashed={isTrigger}
+>
   {#if !isTrigger}
-    <Handle type="target" position={Position.Left} />
+    <Handle
+      type="target"
+      position={Position.Left}
+      class="h-2.5! w-2.5! border-2! border-background! bg-muted-foreground!"
+    />
   {/if}
-  <div class="text-xs font-medium text-foreground">{data.slug}</div>
-  <div class="text-[10px] text-muted-foreground mt-0.5">{typeLabel}</div>
+
+  <!-- Icon tile -->
+  <div class="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-white {visual.tileClass}">
+    <visual.icon size={18} weight="bold" aria-hidden="true" />
+  </div>
+
+  <!-- Name + subtitle -->
+  <div class="min-w-0 flex-1 text-left">
+    <div class="truncate text-xs font-semibold text-foreground">{data.slug}</div>
+    <div class="truncate text-[10px] text-muted-foreground">{typeLabel}</div>
+  </div>
+
+  <!-- Status badge -->
+  {#if statusInfo.icon}
+    {@const StatusIcon = statusInfo.icon}
+    <StatusIcon
+      size={16}
+      weight="fill"
+      class="shrink-0 {statusInfo.colorClass} {statusInfo.spin ? 'animate-spin' : ''}"
+      aria-hidden="true"
+    />
+  {/if}
+
   {#if !isTerminal}
-    <Handle type="source" position={Position.Right} />
+    <Handle
+      type="source"
+      position={Position.Right}
+      class="h-2.5! w-2.5! border-2! border-background! bg-muted-foreground!"
+    />
   {/if}
 </div>

@@ -14,13 +14,20 @@ import type { FlatGraph, GraphEdge, GraphNode } from "./workflowGraph";
 // Configuration
 // ---------------------------------------------------------------------------
 
-/** Default dimensions for standard step nodes. */
-const NODE_WIDTH = 180;
-const NODE_HEIGHT = 56;
+/**
+ * Default dimensions for standard step nodes. Must stay in sync with the card
+ * width in WorkflowStepNode/WaitForNode (`w-55` = 220px) so dagre spacing,
+ * handle alignment, and add-step re-anchoring line up with what is rendered.
+ */
+const NODE_WIDTH = 220;
+const NODE_HEIGHT = 60;
 
-/** Default dimensions for control flow nodes. */
-const CF_NODE_WIDTH = 100;
-const CF_NODE_HEIGHT = 100;
+/**
+ * Default dimensions for control flow nodes. Must match the diamond container
+ * size in ControlFlowNode (108px square).
+ */
+const CF_NODE_WIDTH = 108;
+const CF_NODE_HEIGHT = 108;
 
 /** Default dimensions for the add-step button node. */
 const ADD_NODE_WIDTH = 32;
@@ -29,10 +36,10 @@ const ADD_NODE_HEIGHT = 32;
 /** Layout options for dagre. */
 const LAYOUT_OPTIONS: GraphLabel = {
   rankdir: "LR",
-  nodesep: 40,
-  ranksep: 80,
-  marginx: 20,
-  marginy: 20,
+  nodesep: 56,
+  ranksep: 96,
+  marginx: 24,
+  marginy: 24,
 };
 
 // ---------------------------------------------------------------------------

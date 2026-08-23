@@ -2,6 +2,7 @@
 import { Handle, type NodeProps, Position } from "@xyflow/svelte";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 import { tick } from "svelte";
+import { visualForStepType } from "$lib/nodeVisuals";
 
 interface Props extends NodeProps {
   data: {
@@ -79,16 +80,21 @@ function portal(node: HTMLElement) {
   };
 }
 
-/** Built-in step types available in the menu. */
+/**
+ * Built-in step types available in the menu. Icons/colors are resolved from the
+ * shared nodeVisuals helper so the menu rows match the rendered node cards.
+ */
 const builtinTypes = [
-  { type: "agent", label: "Agent", icon: "\uD83E\uDD16", category: "execution" },
-  { type: "if", label: "If / Condition", icon: "\u2194\uFE0F", category: "control-flow" },
-  { type: "case", label: "Case / Switch", icon: "\uD83D\uDD00", category: "control-flow" },
-  { type: "waitFor", label: "Wait For Signal", icon: "\u23F8\uFE0F", category: "control-flow" },
-  { type: "emit", label: "Emit Signal", icon: "\uD83D\uDCE1", category: "control-flow" },
+  { type: "agent", label: "Agent", category: "execution" },
+  { type: "if", label: "If / Condition", category: "control-flow" },
+  { type: "case", label: "Case / Switch", category: "control-flow" },
+  { type: "waitFor", label: "Wait For Signal", category: "control-flow" },
+  { type: "emit", label: "Emit Signal", category: "control-flow" },
 ] as const;
 
+let controlFlowTypes = $derived(builtinTypes.filter((t) => t.category === "control-flow"));
 let customTypes = $derived(data.customStepTypes ?? []);
+let agentVisual = $derived(visualForStepType("agent"));
 </script>
 
 <svelte:document onclick={handleClickOutside} />
@@ -97,12 +103,12 @@ let customTypes = $derived(data.customStepTypes ?? []);
   <button
     type="button"
     bind:this={buttonRef}
-    class="flex items-center justify-center rounded-full border-2 border-dashed border-blue-500/40 bg-muted/20 cursor-pointer hover:bg-muted/40 hover:border-primary/60 transition-all duration-200"
+    class="flex items-center justify-center rounded-full border-2 border-dashed border-primary/40 bg-muted/20 cursor-pointer hover:bg-muted/50 hover:border-primary/70 transition-all duration-200"
     style="width: 32px; height: 32px;"
     title="Add Step"
     onclick={toggleMenu}
   >
-    <PlusIcon size={20} class="text-blue-500" />
+    <PlusIcon size={20} weight="bold" class="text-primary" />
   </button>
   <Handle type="target" position={Position.Left} />
 </div>
@@ -111,41 +117,51 @@ let customTypes = $derived(data.customStepTypes ?? []);
   <div
     use:portal
     bind:this={menuRef}
-    class="fixed z-9999 min-w-45 max-h-80 overflow-y-auto rounded-lg border border-border bg-background shadow-lg py-1 text-sm"
+    class="fixed z-9999 min-w-52 max-h-80 overflow-y-auto rounded-xl border border-border bg-background p-1.5 shadow-lg text-sm"
     style="left: {menuPos.x}px; top: {menuPos.y}px; transform: translateX(-50%);"
   >
     <!-- Execution steps -->
-    <div class="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Steps</div>
+    <div class="px-2 pt-1 pb-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Steps</div>
     <button
       type="button"
-      class="w-full text-left px-3 py-1.5 hover:bg-muted/60 transition-colors flex items-center gap-2"
+      class="w-full text-left px-2 py-1.5 rounded-lg hover:bg-muted/60 transition-colors flex items-center gap-2.5"
       onclick={() => selectType("agent")}
     >
-      <span>{builtinTypes[0].icon}</span>
-      <span>Agent</span>
+      <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white {agentVisual.tileClass}">
+        <agentVisual.icon size={15} weight="bold" aria-hidden="true" />
+      </span>
+      <span class="font-medium text-foreground">Agent</span>
     </button>
     {#each customTypes as ct}
+      {@const ctVisual = visualForStepType(ct.type, { iconId: ct.icon })}
       <button
         type="button"
-        class="w-full text-left px-3 py-1.5 hover:bg-muted/60 transition-colors flex items-center gap-2"
+        class="w-full text-left px-2 py-1.5 rounded-lg hover:bg-muted/60 transition-colors flex items-center gap-2.5"
         onclick={() => selectType(ct.type)}
       >
-        <span>{ct.icon ?? "\u2699\uFE0F"}</span>
-        <span>{ct.label}</span>
+        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white {ctVisual.tileClass}">
+          <ctVisual.icon size={15} weight="bold" aria-hidden="true" />
+        </span>
+        <span class="font-medium text-foreground">{ct.label}</span>
       </button>
     {/each}
 
     <!-- Control flow -->
     <div class="border-t border-border my-1"></div>
-    <div class="px-2 py-1 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Control Flow</div>
-    {#each builtinTypes.filter(t => t.category === "control-flow") as cf}
+    <div class="px-2 pt-1 pb-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+      Control Flow
+    </div>
+    {#each controlFlowTypes as cf}
+      {@const cfVisual = visualForStepType(cf.type)}
       <button
         type="button"
-        class="w-full text-left px-3 py-1.5 hover:bg-muted/60 transition-colors flex items-center gap-2"
+        class="w-full text-left px-2 py-1.5 rounded-lg hover:bg-muted/60 transition-colors flex items-center gap-2.5"
         onclick={() => selectType(cf.type)}
       >
-        <span>{cf.icon}</span>
-        <span>{cf.label}</span>
+        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white {cfVisual.tileClass}">
+          <cfVisual.icon size={15} weight="bold" aria-hidden="true" />
+        </span>
+        <span class="font-medium text-foreground">{cf.label}</span>
       </button>
     {/each}
   </div>
