@@ -139,6 +139,48 @@ describe("computeLayout", () => {
         const thenAddStep = layout.edges.find((e) => e.target.includes(":then__"));
         expect(thenAddStep?.source).toBe("on-then");
       });
+
+      test("if node with custom branch labels does NOT spawn trailing add-steps on populated branches", () => {
+        // Regression: overriding an if node's then/else edge labels made the
+        // layout match branches by display label instead of the canonical key,
+        // so populated branches looked "empty" and each grew a spurious
+        // CF -> addStep placeholder edge. Both branches here have targets, so
+        // the ONLY add-steps must hang off the branch tails, never off "decide".
+        const steps: Record<string, Record<string, unknown>> = {
+          decide: {
+            type: "if",
+            condition: { ref: "{{x}}", eq: "y" },
+            // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+            branchLabels: { then: "Edge 1", else: "Edge 2" },
+          },
+          "on-then": { type: "agent", prompt: "t" },
+          "on-else": { type: "agent", prompt: "e" },
+        };
+        const edges: DagEdge[] = [
+          { from: "decide", to: "on-then", branch: "then" },
+          { from: "decide", to: "on-else", branch: "else" },
+        ];
+        const graph = buildDagGraph(toStepArray(steps), edges);
+        const layout = computeLayout(graph, { includeAddNode: true });
+
+        // No add-step edge may originate directly from the if node: both
+        // branches are populated, so no empty-branch placeholder should exist.
+        const addStepFromDecide = layout.edges.filter((e) => e.source === "decide" && e.target.startsWith("__addStep"));
+        expect(addStepFromDecide).toHaveLength(0);
+
+        // The add-steps that DO exist hang off the branch tails.
+        const addStepSources = layout.edges
+          .filter((e) => e.target.startsWith("__addStep"))
+          .map((e) => e.source)
+          .sort();
+        expect(addStepSources).toEqual(["on-else", "on-then"]);
+
+        // The real branch edges still carry the custom display labels.
+        const thenEdge = layout.edges.find((e) => e.source === "decide" && e.target === "on-then");
+        const elseEdge = layout.edges.find((e) => e.source === "decide" && e.target === "on-else");
+        expect(thenEdge?.label).toBe("Edge 1");
+        expect(elseEdge?.label).toBe("Edge 2");
+      });
     });
 
     describe("terminal branch tails", () => {

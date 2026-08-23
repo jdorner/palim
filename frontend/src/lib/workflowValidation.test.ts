@@ -2,7 +2,9 @@ import { describe, expect, test } from "bun:test";
 import {
   computeOrphanedStepIndices,
   disconnectedStepError,
+  normalizeIfBranchLabels,
   type StepTypeSchema,
+  serializeStep,
   serializeWorkflowDraft,
   validateSlug,
   validateStepConfig,
@@ -923,5 +925,45 @@ describe("disconnectedStepError", () => {
     const msg = disconnectedStepError("step-7");
     expect(msg).toContain("step-7");
     expect(msg.endsWith("is not connected to any other step")).toBe(true);
+  });
+});
+
+describe("if branch labels", () => {
+  describe("normalizeIfBranchLabels", () => {
+    test("returns undefined when both labels are empty or missing", () => {
+      expect(normalizeIfBranchLabels(undefined)).toBeUndefined();
+      expect(normalizeIfBranchLabels({})).toBeUndefined();
+      // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+      expect(normalizeIfBranchLabels({ then: "", else: "  " })).toBeUndefined();
+    });
+
+    test("trims and keeps only non-empty labels", () => {
+      // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+      expect(normalizeIfBranchLabels({ then: " yes ", else: "" })).toEqual({ then: "yes" });
+      // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+      expect(normalizeIfBranchLabels({ then: "yes", else: "no" })).toEqual({ then: "yes", else: "no" });
+      expect(normalizeIfBranchLabels({ else: "no" })).toEqual({ else: "no" });
+    });
+  });
+
+  describe("serializeStep for if", () => {
+    test("omits branchLabels when unset", () => {
+      const out = serializeStep({ id: "n1", slug: "check", type: "if", condition: { ref: "{{x}}" } });
+      expect(out).toEqual({ type: "if", condition: { ref: "{{x}}" } });
+      expect("branchLabels" in out).toBe(false);
+    });
+
+    test("persists only non-empty trimmed branch labels", () => {
+      const out = serializeStep({
+        id: "n1",
+        slug: "check",
+        type: "if",
+        condition: { ref: "{{x}}" },
+        // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+        branchLabels: { then: " approved ", else: "" },
+      });
+      // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+      expect(out.branchLabels).toEqual({ then: "approved" });
+    });
   });
 });

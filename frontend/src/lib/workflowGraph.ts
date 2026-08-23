@@ -63,8 +63,20 @@ export interface GraphEdge {
   source: string;
   /** Target node ID (the target step's synthetic id). */
   target: string;
-  /** Label for the edge (branch name for CF edges, undefined for sequential). */
+  /**
+   * Display label rendered on the edge. For branch edges this is the branch
+   * name by default, but an `if` node may override it with a custom label. Do
+   * NOT use this to identify a branch -- use `branch` (the canonical key) for
+   * any routing/matching logic. Undefined for sequential edges.
+   */
   label?: string;
+  /**
+   * Canonical branch routing key ("then"/"else"/case path key/"default") for CF
+   * edges; undefined for sequential edges. This is the STABLE identity used by
+   * layout to match branches, independent of the (possibly overridden) display
+   * `label`.
+   */
+  branch?: string;
   /** Source handle ID (for CF nodes with multiple outputs). */
   sourceHandle?: string;
 }
@@ -108,11 +120,18 @@ const CF_TYPES = new Set(["if", "case"]);
 export function buildDagGraph(steps: StepData[], edges: DagEdge[]): FlatGraph {
   const idToType = new Map<string, string>();
   const knownIds = new Set<string>();
+  // Per-if-node override map for branch EDGE display labels. Keyed by node id,
+  // holding the (optional) custom "then"/"else" text. The branch routing key on
+  // the edge stays canonical; only the rendered edge label is overridden.
+  const idToBranchLabels = new Map<string, { then?: string; else?: string }>();
 
   const nodes: GraphNode[] = steps.map((step) => {
     const id = step.id ?? step.slug;
     idToType.set(id, step.type);
     knownIds.add(id);
+    if (step.type === "if" && step.branchLabels && typeof step.branchLabels === "object") {
+      idToBranchLabels.set(id, step.branchLabels as { then?: string; else?: string });
+    }
     return {
       id,
       data: { ...step, id } as StepData,
@@ -132,7 +151,10 @@ export function buildDagGraph(steps: StepData[], edges: DagEdge[]): FlatGraph {
       target: edge.to,
       ...(isBranch
         ? {
-            label: edge.branch,
+            // Canonical routing key stays intact for layout matching; the
+            // display label may be overridden for if nodes.
+            branch: edge.branch,
+            label: branchEdgeLabel(idToType.get(edge.from), idToBranchLabels.get(edge.from), edge.branch!),
             sourceHandle: sourceHandleId(idToType.get(edge.from), edge.from, edge.branch!),
           }
         : {}),
@@ -140,6 +162,32 @@ export function buildDagGraph(steps: StepData[], edges: DagEdge[]): FlatGraph {
   }
 
   return { nodes, edges: graphEdges };
+}
+
+/**
+ * Resolves the display label for a branch edge.
+ *
+ * For `if` nodes, a per-node `branchLabels` override replaces the default
+ * "then"/"else" text when a non-empty custom label is set for that branch. The
+ * branch routing key (`branch`) is unchanged; this only affects the pill drawn
+ * on the edge. All other cases fall back to the raw branch key.
+ *
+ * @param sourceType - The source step's type ("if" | "case" | ...).
+ * @param branchLabels - The if node's optional then/else label overrides.
+ * @param branch - The canonical branch key ("then"/"else"/path key/"default").
+ * @returns The label text to render on the edge.
+ */
+function branchEdgeLabel(
+  sourceType: string | undefined,
+  branchLabels: { then?: string; else?: string } | undefined,
+  branch: string,
+): string {
+  if (sourceType === "if" && branchLabels) {
+    const override = branch === "then" ? branchLabels.then : branch === "else" ? branchLabels.else : undefined;
+    const trimmed = override?.trim();
+    if (trimmed) return trimmed;
+  }
+  return branch;
 }
 
 /**

@@ -303,7 +303,13 @@ let prevNodeIds = $state<string>("");
  */
 function layoutFingerprint(layout: { nodes: Node[]; edges: Edge[] }): string {
   const nodeIds = layout.nodes.map((n) => n.id).sort();
-  const edgeKeys = layout.edges.map((e) => `${e.source}>${e.target}>${e.sourceHandle ?? ""}`).sort();
+  // Fold the edge label into the key alongside source/target/handle. A branch
+  // label edit (e.g. an if node's custom then/else label) changes only the edge
+  // label, not the endpoints; without the label here the fingerprint would be
+  // unchanged, the data-only path would leave the bound `edges` store stale, and
+  // the graph would show duplicated/mismatched edge labels until the next
+  // structural change. Including it forces a full edge reseed on relabel.
+  const edgeKeys = layout.edges.map((e) => `${e.source}>${e.target}>${e.sourceHandle ?? ""}>${e.label ?? ""}`).sort();
   return `${nodeIds.join(" ")}||${edgeKeys.join(" ")}`;
 }
 

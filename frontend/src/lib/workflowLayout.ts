@@ -426,8 +426,10 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
       id: `${lastInBranch?.id ?? info.parentNodeId}->${info.nodeId}`,
       source: lastInBranch?.id ?? info.parentNodeId,
       target: info.nodeId,
-      // Show branch label only on direct CF->addStep edges (empty branches)
-      label: lastInBranch ? undefined : info.branch,
+      // Show branch label only on direct CF->addStep edges (empty branches).
+      // Honor an if node's custom then/else label override so an empty branch's
+      // dashed placeholder edge matches the populated-branch edge label.
+      label: lastInBranch ? undefined : branchAddStepLabel(graph, info.parentNodeId, info.branch),
       style: "stroke-dasharray: 5 5;",
       sourceHandle: lastInBranch ? undefined : sourceHandleForBranch(info.parentNodeId, info.branch, graph),
     });
@@ -524,7 +526,9 @@ function caseBranchLabels(node: GraphNode, edges: GraphEdge[]): string[] {
     : [];
   const hasDefaultKey = typeof node.data.default === "string" && (node.data.default as string).length > 0;
 
-  const edgeLabels = edges.filter((e) => e.source === node.id && e.label).map((e) => e.label!);
+  // Use the canonical branch keys (not display labels) so this returns routing
+  // keys consistent with everything else the layout matches on.
+  const edgeBranches = edges.filter((e) => e.source === node.id && e.branch).map((e) => e.branch!);
 
   const labels: string[] = [];
   const seen = new Set<string>();
@@ -535,15 +539,15 @@ function caseBranchLabels(node: GraphNode, edges: GraphEdge[]): string[] {
     seen.add(key);
     labels.push(key);
   }
-  // Any edge-only labels (excluding "default") that are not declared paths.
-  for (const label of edgeLabels) {
-    if (label === "default") continue;
-    if (seen.has(label)) continue;
-    seen.add(label);
-    labels.push(label);
+  // Any edge-only branch keys (excluding "default") that are not declared paths.
+  for (const branch of edgeBranches) {
+    if (branch === "default") continue;
+    if (seen.has(branch)) continue;
+    seen.add(branch);
+    labels.push(branch);
   }
   // "default" always sorts last when the step declares it or an edge uses it.
-  if (hasDefaultKey || edgeLabels.includes("default")) {
+  if (hasDefaultKey || edgeBranches.includes("default")) {
     labels.push("default");
   }
   return labels;
@@ -610,9 +614,9 @@ function branchTail(graph: FlatGraph, startId: string): string {
 
   while (!seen.has(currentId)) {
     seen.add(currentId);
-    // Only follow plain sequential edges (no branch label). If the current
-    // node branches, it is a CF node and owns its own addStep buttons.
-    const outgoing = graph.edges.filter((e) => e.source === currentId && !e.label);
+    // Only follow plain sequential edges (no branch key). If the current node
+    // branches, it is a CF node and owns its own addStep buttons.
+    const outgoing = graph.edges.filter((e) => e.source === currentId && !e.branch);
     if (outgoing.length !== 1) break;
     currentId = outgoing[0]!.target;
   }
@@ -633,7 +637,8 @@ function branchTail(graph: FlatGraph, startId: string): string {
  * @returns Ordered list of node IDs in the branch chain (empty if no edge).
  */
 function branchChainNodeIds(graph: FlatGraph, cfNodeId: string, branch: string): string[] {
-  const branchEdge = graph.edges.find((e) => e.source === cfNodeId && e.label === branch);
+  // Match branches by the canonical `branch` key
+  const branchEdge = graph.edges.find((e) => e.source === cfNodeId && e.branch === branch);
   if (!branchEdge) return [];
 
   const ids: string[] = [];
@@ -645,7 +650,7 @@ function branchChainNodeIds(graph: FlatGraph, cfNodeId: string, branch: string):
     ids.push(currentId);
     const node = graph.nodes.find((n) => n.id === currentId);
     if (node && (node.data.type === "if" || node.data.type === "case")) break;
-    const outgoing = graph.edges.filter((e) => e.source === currentId && !e.label);
+    const outgoing = graph.edges.filter((e) => e.source === currentId && !e.branch);
     if (outgoing.length !== 1) break;
     currentId = outgoing[0]!.target;
   }
@@ -682,8 +687,8 @@ function discoverBranches(graph: FlatGraph, terminalTypes?: Set<string>): Branch
     const branchLabels = branchLabelsFor(node, graph);
 
     for (const branch of branchLabels) {
-      // The branch's immediate target, resolved via the labeled edge.
-      const branchEdge = graph.edges.find((e) => e.source === node.id && e.label === branch);
+      // The branch's immediate target, resolved via the canonical branch key
+      const branchEdge = graph.edges.find((e) => e.source === node.id && e.branch === branch);
       const tailId = branchEdge ? branchTail(graph, branchEdge.target) : null;
       const tailNode = tailId ? graph.nodes.find((n) => n.id === tailId) : null;
 
@@ -727,6 +732,29 @@ function branchLabelsFor(node: GraphNode, graph: FlatGraph): string[] {
   // case node: derive from the declared `paths` (+ `default`) unioned with any
   // edge-only labels, matching the handles rendered by ControlFlowNode.
   return caseBranchLabels(node, graph.edges);
+}
+
+/**
+ * Resolves the label shown on an empty-branch add-step ("+") edge.
+ *
+ * Mirrors the populated-branch edge label: for an `if` node with a custom
+ * then/else label override, the placeholder edge shows that label; otherwise it
+ * shows the raw branch key. Only affects display text, not the branch routing.
+ *
+ * @param graph - The flat graph.
+ * @param parentNodeId - The CF node the branch belongs to.
+ * @param branch - The canonical branch key ("then"/"else"/path key/"default").
+ * @returns The label text for the add-step edge.
+ */
+function branchAddStepLabel(graph: FlatGraph, parentNodeId: string, branch: string): string {
+  const parentNode = graph.nodes.find((n) => n.id === parentNodeId);
+  if (parentNode?.data.type === "if") {
+    const labels = parentNode.data.branchLabels as { then?: string; else?: string } | undefined;
+    const override = branch === "then" ? labels?.then : branch === "else" ? labels?.else : undefined;
+    const trimmed = override?.trim();
+    if (trimmed) return trimmed;
+  }
+  return branch;
 }
 
 /**

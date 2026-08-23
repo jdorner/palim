@@ -88,6 +88,59 @@ describe("buildDagGraph", () => {
     });
   });
 
+  describe("if branch label overrides", () => {
+    test("custom then/else labels override edge label text but keep handle ids", () => {
+      const steps: StepData[] = [
+        {
+          id: "node-1",
+          slug: "check",
+          type: "if",
+          condition: { ref: "{{x}}", eq: "y" },
+          // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+          branchLabels: { then: "Approved", else: "Rejected" },
+        },
+        { id: "node-2", slug: "yes", type: "agent", prompt: "y" },
+        { id: "node-3", slug: "no", type: "agent", prompt: "n" },
+      ];
+      const graph = buildDagGraph(steps, [
+        { from: "node-1", to: "node-2", branch: "then" },
+        { from: "node-1", to: "node-3", branch: "else" },
+      ]);
+
+      const thenEdge = graph.edges.find((e) => e.target === "node-2")!;
+      const elseEdge = graph.edges.find((e) => e.target === "node-3")!;
+      // Edge display label uses the override...
+      expect(thenEdge.label).toBe("Approved");
+      expect(elseEdge.label).toBe("Rejected");
+      // ...but the routing handle id stays keyed to the canonical branch.
+      expect(thenEdge.sourceHandle).toBe("node-1-then");
+      expect(elseEdge.sourceHandle).toBe("node-1-else");
+    });
+
+    test("falls back to then/else when only one label is set or blank", () => {
+      const steps: StepData[] = [
+        {
+          id: "node-1",
+          slug: "check",
+          type: "if",
+          condition: { ref: "{{x}}", eq: "y" },
+          // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+          branchLabels: { then: "Approved", else: "  " },
+        },
+        { id: "node-2", slug: "yes", type: "agent", prompt: "y" },
+        { id: "node-3", slug: "no", type: "agent", prompt: "n" },
+      ];
+      const graph = buildDagGraph(steps, [
+        { from: "node-1", to: "node-2", branch: "then" },
+        { from: "node-1", to: "node-3", branch: "else" },
+      ]);
+
+      expect(graph.edges.find((e) => e.target === "node-2")!.label).toBe("Approved");
+      // Blank override falls back to the canonical key.
+      expect(graph.edges.find((e) => e.target === "node-3")!.label).toBe("else");
+    });
+  });
+
   test("if-node branch edges use `{node}-{branch}` handle IDs", () => {
     const steps: StepData[] = [
       { slug: "decide", type: "if", condition: { ref: "{{steps.x.result}}", eq: "yes" } },

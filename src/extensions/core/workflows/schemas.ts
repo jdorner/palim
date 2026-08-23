@@ -320,15 +320,34 @@ export const DagAgentStepSchema = Type.Object(
 );
 
 /**
+ * Optional display-only labels for an `if` node's branch edges.
+ *
+ * The branch routing keys stay canonical ("then"/"else") on the edges; these
+ * labels only override the TEXT shown on the branch edge in the graph editor.
+ * Either may be omitted, in which case the default "then"/"else" text is used.
+ */
+export const IfBranchLabelsSchema = Type.Object(
+  {
+    // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+    then: Type.Optional(Type.String({ maxLength: 64 })),
+    else: Type.Optional(Type.String({ maxLength: 64 })),
+  },
+  { additionalProperties: false },
+);
+
+/**
  * An `if` step definition for DAG format.
  *
- * Contains only the condition — branches are expressed through edges
- * with `branch: "then"` / `branch: "else"` properties.
+ * Contains the condition — branches are expressed through edges with
+ * `branch: "then"` / `branch: "else"` properties. `branchLabels` optionally
+ * overrides the display text of those branch edges (display-only; the branch
+ * routing keys remain "then"/"else").
  */
 export const DagIfStepSchema = Type.Object(
   {
     type: Type.Literal("if"),
     condition: ConditionSchema,
+    branchLabels: Type.Optional(IfBranchLabelsSchema),
   },
   { additionalProperties: false },
 );
@@ -404,10 +423,18 @@ export const DagStepDefSchema = Type.Union([
 /** TypeScript type for a DAG step definition (without slug — slug is the map key). */
 export type DagStepDef = Static<typeof DagStepDefSchema>;
 
+/** Optional display-only labels for an `if` node's then/else branch edges. */
+export interface IfBranchLabels {
+  then?: string;
+  else?: string;
+}
+
 /** TypeScript type for a DAG `if` step. */
 export interface DagIfStep {
   type: "if";
   condition: ConditionDef;
+  /** Optional display-only override for the then/else branch edge labels. */
+  branchLabels?: IfBranchLabels;
 }
 
 /** TypeScript type for a DAG `case` step. */

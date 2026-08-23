@@ -51,6 +51,11 @@ export interface StepDraft {
   prompt?: string;
   tools?: string[];
   skills?: string[];
+  /**
+   * Display-only override for an `if` step's then/else branch edge labels.
+   * Branch routing keys stay "then"/"else"; only the edge text changes.
+   */
+  branchLabels?: { then?: string; else?: string };
   /** Raw JSON config for custom (extension-registered) step types. */
   config?: Record<string, unknown>;
 }
@@ -360,6 +365,31 @@ function validateStepFields(
 }
 
 /**
+/**
+ * Normalizes an `if` step's branch-label overrides for persistence.
+ *
+ * Trims each label and drops empty ones. Returns an object with only the
+ * non-empty labels, or `undefined` when neither is set (so no `branchLabels`
+ * key is written). Keeps the persisted shape minimal and matches the backend's
+ * `additionalProperties: false` on the labels object.
+ *
+ * @param branchLabels - The draft's raw then/else label overrides.
+ * @returns A minimal `{ then?, else? }` object, or undefined when empty.
+ */
+export function normalizeIfBranchLabels(
+  branchLabels: { then?: string; else?: string } | undefined,
+): { then?: string; else?: string } | undefined {
+  if (!branchLabels) return undefined;
+  const result: { then?: string; else?: string } = {};
+  const then = branchLabels.then?.trim();
+  const els = branchLabels.else?.trim();
+  // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+  if (then) result.then = then;
+  if (els) result.else = els;
+  return result.then || result.else ? result : undefined;
+}
+
+/**
  * Serializes a single StepDraft into a clean object containing only the fields
  * valid for the step's type. This prevents the backend's `additionalProperties: false`
  * rejection when extra fields are present.
@@ -383,10 +413,16 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
 
   // Control flow: if (branches are edges, not nested arrays)
   if (step.type === "if") {
-    return {
+    const result: Record<string, unknown> = {
       type: "if",
       condition: step.condition,
     };
+    // Persist branch label overrides only when at least one is a non-empty
+    // string, so empty sidebar inputs don't write an empty object (which would
+    // still be valid but is noise) or blank keys.
+    const branchLabels = normalizeIfBranchLabels(step.branchLabels);
+    if (branchLabels) result.branchLabels = branchLabels;
+    return result;
   }
 
   // Control flow: case (paths is a string array of branch keys; branches are edges)
