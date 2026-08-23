@@ -140,6 +140,12 @@ let editDraft = $state<WorkflowDraft | null>(null);
 let fitViewTrigger = $state(0);
 let saving = $state(false);
 let saveError = $state<string | null>(null);
+/**
+ * Per-item detail lines accompanying {@link saveError}, parsed from the
+ * backend's `details` string (e.g. each invalid edge/branch on a case node).
+ * Rendered as a bulleted list under the main error message.
+ */
+let saveErrorDetails = $state<string[]>([]);
 let validationErrors = $state<Map<string, string>>(new Map());
 /** Whether to show the raw JSON editor instead of the schema-driven form for custom step types. */
 let editAsJson = $state(false);
@@ -285,6 +291,7 @@ function enterEditMode() {
     edges: (workflow.edges ?? []).map((e) => ({ ...e })),
   };
   saveError = null;
+  saveErrorDetails = [];
   validationErrors = new Map();
   editMode = true;
   fitViewTrigger++;
@@ -297,6 +304,7 @@ function cancelEdit() {
   editMode = false;
   editDraft = null;
   saveError = null;
+  saveErrorDetails = [];
   validationErrors = new Map();
   editAsJson = false;
   viewAsJson = false;
@@ -647,6 +655,7 @@ async function saveWorkflow() {
 
   saving = true;
   saveError = null;
+  saveErrorDetails = [];
 
   try {
     const res = await authFetch(`/ext/workflows/${workflow.name}`, {
@@ -656,8 +665,18 @@ async function saveWorkflow() {
     });
 
     if (!res.ok) {
-      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      const data = (await res.json().catch(() => null)) as { error?: string; details?: string } | null;
       saveError = data?.error ?? `HTTP ${res.status}`;
+      // The backend may attach a `details` string enumerating each specific
+      // validation failure, separated by "; ". Surface them as a list so the
+      // user can see exactly which edges/branches are invalid, not just the
+      // generic top-level message.
+      saveErrorDetails = data?.details
+        ? data.details
+            .split("; ")
+            .map((d) => d.trim())
+            .filter((d) => d.length > 0)
+        : [];
       return;
     }
 
@@ -1058,7 +1077,14 @@ onDestroy(() => {
       <div
         class="mb-4 px-3 py-2 rounded-md border border-destructive bg-destructive/10 text-sm text-destructive shrink-0"
       >
-        {saveError}
+        <div class="font-medium">{saveError}</div>
+        {#if saveErrorDetails.length > 0}
+          <ul class="list-disc list-inside mt-1 space-y-0.5 text-xs text-destructive/90">
+            {#each saveErrorDetails as detail}
+              <li>{detail}</li>
+            {/each}
+          </ul>
+        {/if}
       </div>
     {/if}
 
