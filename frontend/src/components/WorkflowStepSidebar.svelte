@@ -1,12 +1,14 @@
 <script lang="ts">
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import WarningIcon from "phosphor-svelte/lib/WarningIcon";
+import { builtinConfigSchema } from "$lib/builtinStepSchemas";
 import { Badge } from "$lib/components/ui/badge";
 import { labelForStepType } from "$lib/stepTypes";
 import type { OutputSchemas } from "$lib/templateScope";
 import { renderMarkdown } from "$lib/utils";
 import type { StepDraft, WorkflowDraft } from "$lib/workflowValidation";
 import { validateStepConfig } from "$lib/workflowValidation";
+import ConditionForm from "./ConditionForm.svelte";
 import MultiSelect from "./MultiSelect.svelte";
 import StepConfigForm from "./StepConfigForm.svelte";
 import TemplateAutocomplete from "./TemplateAutocomplete.svelte";
@@ -110,8 +112,71 @@ let promptEl = $state<HTMLTextAreaElement | null>(null);
  * Extracts the editable config from a CF step (everything except slug and type).
  */
 function cfStepConfig(step: StepDraft): Record<string, unknown> {
-  const { slug: _s, type: _t, ...rest } = step;
+  const { slug: _s, type: _t, id: _i, ...rest } = step;
   return rest as Record<string, unknown>;
+}
+
+/**
+ * Applies form values back onto a built-in control-flow step. Built-in CF types
+ * store their config as flat fields on the step (e.g. `step.event`), so this
+ * removes any previous config fields (all keys except slug/type/id) and copies
+ * the provided values in their place.
+ */
+function applyCfValues(index: number, values: Record<string, unknown>) {
+  onUpdateDraftStep(index, (s) => {
+    for (const key of Object.keys(s)) {
+      if (key !== "slug" && key !== "type" && key !== "id") delete s[key];
+    }
+    for (const [k, v] of Object.entries(values)) {
+      // Skip empty optional values the form renderer synthesizes (e.g. an unset
+      // numeric `timeout` becomes 0, empty strings, empty arrays/objects). These
+      // would otherwise be persisted and fail backend range/pattern validation.
+      if (v === "" || v === null || v === undefined) continue;
+      if (typeof v === "number" && v === 0) continue;
+      if (Array.isArray(v) && v.length === 0) continue;
+      if (typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length === 0) continue;
+      s[k] = v;
+    }
+  });
+}
+
+/**
+ * Re-runs schema validation for a built-in CF step against its config schema and
+ * updates the shared validation error map (keyed by `steps[i].<field>`).
+ */
+function revalidateCf(index: number, values: Record<string, unknown>, schema: Record<string, unknown>) {
+  const prefix = `steps[${index}].`;
+  const newErrors = new Map(validationErrors);
+  // Clear prior field-level errors for this step (built-in CF validators key on
+  // `steps[i].event`, `steps[i].match`, `steps[i].condition`, plus schema fields).
+  const props = (schema.properties ?? {}) as Record<string, unknown>;
+  for (const field of ["event", "match", "condition", "config", ...Object.keys(props)]) {
+    newErrors.delete(`${prefix}${field}`);
+  }
+  // Validate against the effective (empty-stripped) config so synthesized empty
+  // optionals (e.g. `timeout: 0`) don't produce spurious range errors.
+  const effective: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(values)) {
+    if (v === "" || v === null || v === undefined) continue;
+    if (typeof v === "number" && v === 0) continue;
+    if (Array.isArray(v) && v.length === 0) continue;
+    if (typeof v === "object" && !Array.isArray(v) && Object.keys(v as object).length === 0) continue;
+    effective[k] = v;
+  }
+  const configErrors = validateStepConfig(effective, schema);
+  for (const [field, msg] of configErrors) {
+    newErrors.set(`${prefix}${field}`, msg);
+  }
+  onValidationErrorsChange(newErrors);
+}
+
+/** Clears the `steps[i].condition` validation error (used by the if ConditionForm). */
+function clearConditionError(index: number) {
+  const key = `steps[${index}].condition`;
+  if (!validationErrors.has(key)) return;
+  const newErrors = new Map(validationErrors);
+  newErrors.delete(key);
+  onValidationErrorsChange(newErrors);
 }
 </script>
 
@@ -292,31 +357,93 @@ function cfStepConfig(step: StepDraft): Record<string, unknown> {
       {@const stepType = editDraftStep.type ?? selectedStep?.type}
       {@const isCFStep = stepType === "if" || stepType === "case" || stepType === "waitFor" || stepType === "emit"}
       {#if isCFStep}
-        <!-- CF step: JSON editor showing all fields except slug/type -->
+        <!-- Built-in control-flow step: form-based config with a JSON fallback -->
+        {@const cfSchema = builtinConfigSchema(stepType)}
         <div class="flex flex-col flex-1 min-h-0 gap-4">
-          <div class="flex flex-col gap-1.5 flex-1 min-h-0">
-            <label for="step-cf-config" class="text-xs font-medium text-muted-foreground">Configuration (JSON)</label>
-            <textarea
-              id="step-cf-config"
-              class="w-full flex-1 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-              value={JSON.stringify(cfStepConfig(editDraftStep), null, 2)}
-              oninput={(e) => {
-                const raw = (e.target as HTMLTextAreaElement).value;
-                try {
-                  const parsed = JSON.parse(raw);
-                  onUpdateDraftStep(selectedStepIndex, (s) => {
-                    // Remove old CF fields, apply parsed ones
-                    for (const key of Object.keys(s)) {
-                      if (key !== "slug" && key !== "type") delete s[key];
-                    }
-                    Object.assign(s, parsed);
-                  });
-                } catch {
-                  // Invalid JSON - ignore until valid
-                }
+          {#if !editAsJson && stepType === "if"}
+            <!-- `if`: dedicated condition form (nested ref + operator) -->
+            <ConditionForm
+              condition={(editDraftStep.condition as Record<string, unknown>) ?? { ref: "" }}
+              refError={validationErrors.get(`steps[${selectedStepIndex}].condition`)}
+              steps={editDraft?.steps ?? []}
+              currentStepIndex={selectedStepIndex}
+              secretKeys={cachedSecretKeys}
+              {outputSchemas}
+              onchange={(cond) => {
+                onUpdateDraftStep(selectedStepIndex, (s) => { s.condition = cond; });
+                clearConditionError(selectedStepIndex);
               }}
-            ></textarea>
-          </div>
+            />
+            <button
+              type="button"
+              class="text-xs text-muted-foreground underline hover:text-foreground self-start"
+              onclick={() => { onEditAsJsonChange(true); }}
+            >
+              Edit as JSON
+            </button>
+          {:else if !editAsJson && cfSchema}
+            <!-- `waitFor` / `emit` / `case`: schema-driven form on flat fields -->
+            <StepConfigForm
+              schema={cfSchema}
+              values={cfStepConfig(editDraftStep)}
+              onchange={(vals) => {
+                applyCfValues(selectedStepIndex, vals);
+                revalidateCf(selectedStepIndex, vals, cfSchema);
+              }}
+              steps={editDraft?.steps ?? []}
+              currentStepIndex={selectedStepIndex}
+              secretKeys={cachedSecretKeys}
+              {outputSchemas}
+              fieldErrors={(() => {
+                const prefix = `steps[${selectedStepIndex}].`;
+                const m = new Map<string, string>();
+                for (const [k, v] of validationErrors) {
+                  if (k.startsWith(prefix)) {
+                    const field = k.slice(prefix.length);
+                    if (!field.includes(".")) m.set(field, v);
+                  }
+                }
+                return m;
+              })()}
+            />
+            <button
+              type="button"
+              class="text-xs text-muted-foreground underline hover:text-foreground self-start"
+              onclick={() => { onEditAsJsonChange(true); }}
+            >
+              Edit as JSON
+            </button>
+          {:else}
+            <!-- JSON fallback: all fields except slug/type -->
+            <div class="flex flex-col gap-1.5 flex-1 min-h-0">
+              <div class="flex items-center justify-between">
+                <label for="step-cf-config" class="text-xs font-medium text-muted-foreground"
+                  >Configuration (JSON)</label
+                >
+                <button
+                  type="button"
+                  class="text-xs text-muted-foreground underline hover:text-foreground"
+                  onclick={() => { onEditAsJsonChange(false); }}
+                >
+                  Use form editor
+                </button>
+              </div>
+              <textarea
+                id="step-cf-config"
+                class="w-full flex-1 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                value={JSON.stringify(cfStepConfig(editDraftStep), null, 2)}
+                oninput={(e) => {
+                  const raw = (e.target as HTMLTextAreaElement).value;
+                  try {
+                    const parsed = JSON.parse(raw);
+                    applyCfValues(selectedStepIndex, parsed);
+                  } catch {
+                    // Invalid JSON - ignore until valid
+                  }
+                }}
+              ></textarea>
+            </div>
+          {/if}
         </div>
       {:else}
         <!-- Custom step type - schema-driven form or JSON fallback -->
@@ -415,6 +542,52 @@ function cfStepConfig(step: StepDraft): Record<string, unknown> {
             </div>
           {/if}
         </div>
+      {/if}
+    {:else if !editMode && (selectedStep.type === "if" || selectedStep.type === "case" || selectedStep.type === "waitFor" || selectedStep.type === "emit")}
+      <!-- Read-only: built-in control-flow step config -->
+      {@const roCfType = selectedStep.type}
+      {@const roCfSchema = builtinConfigSchema(roCfType)}
+      {#if viewAsJson}
+        <div class="flex flex-col gap-1.5 flex-1 min-h-0">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-medium text-muted-foreground">Configuration (JSON)</span>
+            <button
+              type="button"
+              class="text-xs text-muted-foreground underline hover:text-foreground"
+              onclick={() => { onViewAsJsonChange(false); }}
+            >
+              View as form
+            </button>
+          </div>
+          <pre
+            class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded flex-1 overflow-y-auto"
+          >{JSON.stringify(cfStepConfig(selectedStep as unknown as StepDraft), null, 2)}</pre>
+        </div>
+      {:else if roCfType === "if"}
+        <ConditionForm
+          condition={((selectedStep as unknown as StepDraft).condition as Record<string, unknown>) ?? { ref: "" }}
+          readonly={true}
+        />
+        <button
+          type="button"
+          class="text-xs text-muted-foreground underline hover:text-foreground mt-3 self-start"
+          onclick={() => { onViewAsJsonChange(true); }}
+        >
+          View as JSON
+        </button>
+      {:else if roCfSchema}
+        <StepConfigForm
+          schema={roCfSchema}
+          values={cfStepConfig(selectedStep as unknown as StepDraft)}
+          readonly={true}
+        />
+        <button
+          type="button"
+          class="text-xs text-muted-foreground underline hover:text-foreground mt-3 self-start"
+          onclick={() => { onViewAsJsonChange(true); }}
+        >
+          View as JSON
+        </button>
       {/if}
     {:else if !editMode && selectedStep.type !== "agent"}
       <!-- Read-only: custom step type config -->
