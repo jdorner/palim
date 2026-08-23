@@ -92,8 +92,13 @@ const builtinTypes = [
   { type: "emit", label: "Emit Signal", category: "control-flow" },
 ] as const;
 
+/** Slugs handled by the built-in menu entries above, used to de-duplicate. */
+const builtinTypeSlugs = new Set<string>(builtinTypes.map((t) => t.type));
+
 let controlFlowTypes = $derived(builtinTypes.filter((t) => t.category === "control-flow"));
-let customTypes = $derived(data.customStepTypes ?? []);
+// Exclude custom step types that duplicate a built-in type (e.g. the workflows
+// extension registers "emit", which is already listed under Control Flow).
+let customTypes = $derived((data.customStepTypes ?? []).filter((t) => !builtinTypeSlugs.has(t.type)));
 let agentVisual = $derived(visualForStepType("agent"));
 </script>
 
