@@ -1,13 +1,13 @@
 <script lang="ts">
 import { Handle, Position } from "@xyflow/svelte";
-import { labelForStepType } from "$lib/stepTypes";
+import { type NodeStatus, statusVisual, visualForStepType } from "$lib/nodeVisuals";
 
 interface Props {
   id: string;
   data: {
     slug: string;
     type: string;
-    status?: "waiting" | "active" | "completed" | "failed" | "waiting-signal" | "skipped";
+    status?: NodeStatus;
     selected?: boolean;
     /** Branch labels for source handles (e.g. ["then", "else"] or path keys). */
     branches?: string[];
@@ -16,47 +16,66 @@ interface Props {
 
 let { id, data }: Props = $props();
 
-const statusColors: Record<string, string> = {
-  waiting: "bg-muted border-border",
-  active: "bg-yellow-100 border-yellow-400 dark:bg-yellow-900/30 dark:border-yellow-600",
-  completed: "bg-green-100 border-green-400 dark:bg-green-900/30 dark:border-green-600",
-  failed: "bg-red-100 border-red-400 dark:bg-red-900/30 dark:border-red-600",
-  "waiting-signal": "bg-amber-100 border-amber-400 dark:bg-amber-900/30 dark:border-amber-600",
-  skipped: "bg-muted/50 border-border/50 opacity-50",
-};
+let status = $derived<NodeStatus>(data.status ?? "waiting");
+let isSkipped = $derived(status === "skipped");
 
-let colorClass = $derived(
-  data.selected
-    ? "bg-orange-100 border-orange-400 dark:bg-orange-900/30 dark:border-orange-500"
-    : (statusColors[data.status ?? "waiting"] ?? statusColors.waiting),
-);
-let typeLabel = $derived(labelForStepType(data.type));
-
+let visual = $derived(visualForStepType(data.type));
+let statusInfo = $derived(statusVisual(status));
 let branches = $derived(data.branches ?? []);
+
+// Selection ring takes precedence; otherwise reflect run status. Applied to the
+// rotated diamond face so the accent traces the diamond outline.
+let ringClass = $derived(data.selected ? "ring-2 ring-primary" : `ring-2 ${statusInfo.ringClass}`);
 </script>
 
-<div class="relative flex items-center justify-center" style="width: 100px; height: 100px;">
-  <!-- Diamond shape via CSS rotation -->
+<div
+  class="relative flex items-center justify-center"
+  style="width: 108px; height: 108px;"
+  class:opacity-50={isSkipped}
+>
+  <!-- Diamond face via CSS rotation -->
   <div
-    class="absolute inset-3.5 border-2 shadow-sm {colorClass}"
-    style="transform: rotate(45deg); border-radius: 4px;"
+    class="absolute inset-4 rounded-md border border-sky-400/70 bg-card shadow-sm {ringClass}"
+    style="transform: rotate(45deg);"
   ></div>
-  <!-- Content -->
-  <div class="relative z-10 text-center px-1">
-    <div class="text-[10px] font-medium text-foreground truncate max-w-15">{data.slug}</div>
-    <div class="text-[9px] text-muted-foreground">{typeLabel}</div>
+
+  <!-- Content (upright, centered over the diamond) -->
+  <div class="relative z-10 flex flex-col items-center gap-0.5 px-1 text-center">
+    <div class="flex h-7 w-7 items-center justify-center rounded-md text-white {visual.tileClass}">
+      <visual.icon size={15} weight="bold" aria-hidden="true" />
+    </div>
+    <div class="max-w-16 truncate text-[10px] font-semibold text-foreground">{data.slug}</div>
   </div>
 
+  <!-- Status badge, pinned to the top point of the diamond -->
+  {#if statusInfo.icon}
+    {@const StatusIcon = statusInfo.icon}
+    <div class="absolute right-3 top-3 z-20 rounded-full bg-background">
+      <StatusIcon
+        size={14}
+        weight="fill"
+        class="{statusInfo.colorClass} {statusInfo.spin ? 'animate-spin' : ''}"
+        aria-hidden="true"
+      />
+    </div>
+  {/if}
+
   <!-- Target handle: left point of diamond (center-left) -->
-  <Handle type="target" position={Position.Left} style="left: 0px; top: 50%;" />
+  <Handle
+    type="target"
+    position={Position.Left}
+    style="left: 0px; top: 50%;"
+    class="h-2.5! w-2.5! border-2! border-background! bg-sky-500!"
+  />
 
   {#if branches.length > 0}
-    <!-- Source handles: right side, stacked vertically per branch.
-         Spacing scales down as branch count grows so many-branch case nodes
-         stay compact, but stays wide enough that edges leave from distinct
-         points and do not overlap near the source. -->
+    <!-- Source handles: right side, stacked vertically per branch. Spacing
+         scales down as branch count grows so many-branch case nodes stay
+         compact, but stays wide enough that edges leave from distinct points
+         and do not overlap near the source. Each handle gets a small label pill
+         so branch names (then/else/path keys) are legible. -->
     {#each branches as branch, i}
-      {@const spacing = branches.length > 4 ? 24 : 16}
+      {@const spacing = branches.length > 4 ? 24 : 18}
       {@const totalHeight = (branches.length - 1) * spacing}
       {@const yOffset = branches.length === 1 ? 0 : i * spacing - totalHeight / 2}
       <Handle
@@ -64,9 +83,21 @@ let branches = $derived(data.branches ?? []);
         position={Position.Right}
         id="{id}-{data.type === 'case' && branch !== 'default' ? `path-${branch}` : branch}"
         style="right: 0px; top: calc(50% + {yOffset}px);"
+        class="h-2.5! w-2.5! border-2! border-background! bg-sky-500!"
       />
+      <span
+        class="pointer-events-none absolute z-20 whitespace-nowrap rounded bg-muted px-1 py-px text-[8px] font-medium text-muted-foreground"
+        style="left: calc(100% + 6px); top: calc(50% + {yOffset}px); transform: translateY(-50%);"
+      >
+        {branch}
+      </span>
     {/each}
   {:else}
-    <Handle type="source" position={Position.Right} style="right: 0px; top: 50%;" />
+    <Handle
+      type="source"
+      position={Position.Right}
+      style="right: 0px; top: 50%;"
+      class="h-2.5! w-2.5! border-2! border-background! bg-sky-500!"
+    />
   {/if}
 </div>
