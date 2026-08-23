@@ -16,6 +16,7 @@ import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { extensions } from "$lib/extensionStore";
+import { visualForStepType } from "$lib/nodeVisuals";
 import type { OutputSchemas } from "$lib/templateScope";
 import { aggregateStepStatus, formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
@@ -1069,6 +1070,19 @@ onDestroy(() => {
 });
 </script>
 
+<!--
+  Renders a trigger's icon tile (colored by category) followed by its type text.
+  The icon is resolved by trigger subtype (manual/webhook/schedule/filewatcher)
+  via visualForStepType, matching the graph trigger node.
+-->
+{#snippet triggerChip(triggerType: string)}
+  {@const v = visualForStepType("trigger", { triggerType })}
+  <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-white {v.tileClass}">
+    <v.icon size={11} weight="bold" aria-hidden="true" />
+  </span>
+  {triggerType}
+{/snippet}
+
 {#if loading}
   <LoadingIndicator />
 {:else if error}
@@ -1348,7 +1362,9 @@ onDestroy(() => {
                   {:else}
                     <div class="flex items-center gap-2">
                       <span class="text-xs font-medium text-muted-foreground">Type:</span>
-                      <Badge variant="outline">{workflow.trigger.type}</Badge>
+                      <Badge variant="outline" class="w-fit gap-1.5"
+                        >{@render triggerChip(workflow.trigger.type)}</Badge
+                      >
                     </div>
                     {#if workflow.trigger.ref}
                       <div class="flex items-center gap-2">
