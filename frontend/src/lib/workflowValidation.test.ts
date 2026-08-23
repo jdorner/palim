@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
+  computeOrphanedStepIndices,
+  disconnectedStepError,
   type StepTypeSchema,
   serializeWorkflowDraft,
   validateSlug,
@@ -857,5 +859,69 @@ describe("id-based edges (draft edges reference synthetic step ids)", () => {
       const errors = validateWorkflowDraft(draft([{ from: "node-1", to: "ghost" }]));
       expect(errors.has("edges[0].to")).toBe(true);
     });
+  });
+});
+
+describe("computeOrphanedStepIndices", () => {
+  const draft = (
+    steps: Array<{ id: string; slug: string }>,
+    edges: Array<{ from: string; to: string; branch?: string }>,
+  ): WorkflowDraft => ({
+    name: "wf",
+    description: "",
+    trigger: { type: "manual", ref: "" },
+    enabled: true,
+    steps: steps.map((s) => ({ id: s.id, slug: s.slug, type: "agent", prompt: "x" })),
+    edges,
+  });
+
+  test("returns empty for a single-step workflow with no edges", () => {
+    expect(computeOrphanedStepIndices(draft([{ id: "node-1", slug: "a" }], []))).toEqual([]);
+  });
+
+  test("flags a step touched by no edge", () => {
+    const d = draft(
+      [
+        { id: "node-1", slug: "a" },
+        { id: "node-2", slug: "b" },
+        { id: "node-3", slug: "c" },
+      ],
+      [{ from: "node-1", to: "node-2" }],
+    );
+    expect(computeOrphanedStepIndices(d)).toEqual([2]);
+  });
+
+  test("no orphans once every step is connected as source or target", () => {
+    const d = draft(
+      [
+        { id: "node-1", slug: "a" },
+        { id: "node-2", slug: "b" },
+        { id: "node-3", slug: "c" },
+      ],
+      [
+        { from: "node-1", to: "node-2" },
+        { from: "node-2", to: "node-3" },
+      ],
+    );
+    expect(computeOrphanedStepIndices(d)).toEqual([]);
+  });
+
+  test("drawing an edge to a previously orphaned step clears it", () => {
+    const steps = [
+      { id: "node-6", slug: "step-6" },
+      { id: "node-7", slug: "step-7" },
+    ];
+    // Before: step-7 is disconnected.
+    expect(computeOrphanedStepIndices(draft(steps, []))).toEqual([0, 1]);
+    // After: an edge from step-6 to step-7 connects both.
+    expect(computeOrphanedStepIndices(draft(steps, [{ from: "node-6", to: "node-7" }]))).toEqual([]);
+  });
+});
+
+describe("disconnectedStepError", () => {
+  test("embeds the slug and ends with the connectivity phrase", () => {
+    const msg = disconnectedStepError("step-7");
+    expect(msg).toContain("step-7");
+    expect(msg.endsWith("is not connected to any other step")).toBe(true);
   });
 });

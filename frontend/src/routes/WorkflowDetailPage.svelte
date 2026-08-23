@@ -20,6 +20,8 @@ import type { OutputSchemas } from "$lib/templateScope";
 import { aggregateStepStatus, formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import {
+  computeOrphanedStepIndices,
+  disconnectedStepError,
   type EdgeDraft,
   type StepDraft,
   serializeWorkflowDraft,
@@ -472,6 +474,47 @@ function handleEdgesChange(edges: Edge[]) {
   }
 
   editDraft = { ...editDraft, edges: draftEdges };
+
+  // Connectivity errors are otherwise only recomputed on save, so drawing an
+  // edge that reconnects an orphaned step would leave its stale "not connected"
+  // error (and a disabled Save button) hanging. Reconcile that error class here
+  // against the updated edge set.
+  reconcileConnectivityErrors();
+}
+
+/**
+ * Re-evaluates the "step is not connected" validation errors against the
+ * current draft edges and updates {@link validationErrors} in place.
+ *
+ * Only touches errors whose message is the disconnected-step message, so a
+ * genuine slug-format error sharing the same `steps[i].slug` key is preserved.
+ * Newly-orphaned steps gain the error; reconnected steps lose it.
+ */
+function reconcileConnectivityErrors() {
+  if (!editDraft) return;
+  const orphaned = new Set(computeOrphanedStepIndices(editDraft));
+  const next = new Map(validationErrors);
+
+  for (let i = 0; i < editDraft.steps.length; i++) {
+    const key = `steps[${i}].slug`;
+    const current = next.get(key);
+    // A connectivity error for this key, regardless of the slug embedded in the
+    // message (the slug may have changed since it was set).
+    const isConnectivityError = current?.endsWith("is not connected to any other step");
+
+    if (orphaned.has(i)) {
+      // Add/refresh the connectivity error, but never clobber a genuine
+      // slug-format error already occupying this key.
+      if (current === undefined || isConnectivityError) {
+        next.set(key, disconnectedStepError(editDraft.steps[i]!.slug));
+      }
+    } else if (isConnectivityError) {
+      // Step is connected now and the only error here was connectivity.
+      next.delete(key);
+    }
+  }
+
+  validationErrors = next;
 }
 
 /**

@@ -259,21 +259,51 @@ export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: St
 
   // Flag orphaned steps (no incoming or outgoing edges) when the graph has more
   // than one step. A single-step workflow legitimately has no edges.
-  if (draft.steps.length > 1) {
-    const connected = new Set<string>();
-    for (const edge of edges) {
-      connected.add(edge.from);
-      connected.add(edge.to);
-    }
-    for (let i = 0; i < draft.steps.length; i++) {
-      const step = draft.steps[i]!;
-      if (!connected.has(stepIdentity(step))) {
-        errors.set(`steps[${i}].slug`, `Step "${step.slug}" is not connected to any other step`);
-      }
-    }
+  for (const i of computeOrphanedStepIndices(draft)) {
+    errors.set(`steps[${i}].slug`, disconnectedStepError(draft.steps[i]!.slug));
   }
 
   return errors;
+}
+
+/**
+ * Builds the standard "not connected" validation message for a step. Kept as a
+ * single source of truth so callers that incrementally clear this error (e.g.
+ * after an edge is drawn) can identify it unambiguously.
+ *
+ * @param slug - The step's slug (may be empty mid-edit).
+ * @returns The disconnected-step error message.
+ */
+export function disconnectedStepError(slug: string): string {
+  return `Step "${slug}" is not connected to any other step`;
+}
+
+/**
+ * Returns the indices of steps that are orphaned: not touched by any edge as
+ * either endpoint. Connectivity is keyed by step identity (`id` when present,
+ * else `slug`), matching how draft edges reference steps.
+ *
+ * Only meaningful when the draft has more than one step; a single-step workflow
+ * legitimately has no edges, so this returns an empty array in that case.
+ *
+ * @param draft - The workflow draft to inspect.
+ * @returns Indices (into `draft.steps`) of disconnected steps.
+ */
+export function computeOrphanedStepIndices(draft: WorkflowDraft): number[] {
+  if (draft.steps.length <= 1) return [];
+  const stepIdentity = (s: StepDraft): string => s.id ?? s.slug;
+  const connected = new Set<string>();
+  for (const edge of draft.edges ?? []) {
+    connected.add(edge.from);
+    connected.add(edge.to);
+  }
+  const orphaned: number[] = [];
+  for (let i = 0; i < draft.steps.length; i++) {
+    if (!connected.has(stepIdentity(draft.steps[i]!))) {
+      orphaned.push(i);
+    }
+  }
+  return orphaned;
 }
 
 /**
