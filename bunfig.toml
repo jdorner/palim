@@ -1,0 +1,6 @@
+[test]
+# Backend tests live under src/. Pin the discovery root so a bare `bun test`
+# (CI, a dev, or a cached workflow) never walks into frontend/, whose tests
+# depend on frontend-only packages (@dagrejs/dagre, clsx) that are not
+# installed in the backend dependency tree.
+root = "src"

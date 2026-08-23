@@ -1,0 +1,5 @@
+[test]
+# Frontend tests are co-located under src/. Pinning the root here also stops
+# Bun from inheriting the repo-root bunfig when `bun test` runs from this
+# directory in CI.
+root = "src"
