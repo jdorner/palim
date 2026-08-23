@@ -684,6 +684,35 @@ async function saveWorkflow() {
 
 let saveDisabled = $derived(saving || validationErrors.size > 0);
 
+/**
+ * Slugs of steps that have a template/config warning, derived from the
+ * workflow's `warnings`. Passed to the graph so the offending nodes render a
+ * red error badge. Only meaningful in read-only view mode (warnings are not
+ * produced for the in-progress edit draft).
+ */
+let errorSlugs = $derived(new Set((workflow?.warnings ?? []).map((w) => w.stepSlug)));
+
+/**
+ * Synthetic node ids of draft steps that currently have a validation error,
+ * derived from `validationErrors` in edit mode. Keys are field paths such as
+ * `steps[2].slug` or `steps[2].config.url`; the leading `steps[<index>]`
+ * segment is mapped to that step's stable synthetic id. Matching on the id
+ * (not the slug) is what keeps the badge on the right node when a slug is
+ * empty or duplicated mid-edit. Empty outside edit mode.
+ */
+let errorNodeIds = $derived.by(() => {
+  if (!editMode || !editDraft) return new Set<string>();
+  const ids = new Set<string>();
+  for (const key of validationErrors.keys()) {
+    const match = key.match(/^steps\[(\d+)\]\./);
+    if (!match) continue;
+    const index = Number.parseInt(match[1]!, 10);
+    const id = editDraft.steps[index]?.id;
+    if (id) ids.add(id);
+  }
+  return ids;
+});
+
 const RUNS_PAGE_SIZE = 10;
 
 let runsPage = $state(1);
@@ -1075,6 +1104,8 @@ onDestroy(() => {
                 : undefined}
               triggerSelected={sidebarOpen && triggerSelected}
               {customStepTypes}
+              errorSlugs={editMode ? undefined : errorSlugs}
+              errorNodeIds={editMode ? errorNodeIds : undefined}
               onNodeClick={onStepClick}
               {onTriggerClick}
               onAddStep={addStep}

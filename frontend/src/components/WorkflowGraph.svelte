@@ -68,6 +68,21 @@ interface Props {
    * Used by WorkflowRunPage to overlay execution status onto the full definition graph.
    */
   statusMap?: Record<string, StepStatus>;
+  /**
+   * Set of step slugs that have a configuration/template error. Nodes whose
+   * slug is in this set render a red error badge (circle with exclamation mark)
+   * so the offending step is identifiable directly in the graph. Populated from
+   * the workflow's template `warnings` in the read-only view.
+   */
+  errorSlugs?: Set<string>;
+  /**
+   * Set of synthetic node ids that have a configuration error. Used in edit
+   * mode, where a step's slug may be empty or duplicated mid-edit and is thus
+   * an unreliable key; the synthetic id is stable. Nodes whose id is in this
+   * set render the same red error badge. Populated from the draft's inline
+   * `validationErrors` (keyed by step index -> synthetic id) while editing.
+   */
+  errorNodeIds?: Set<string>;
   onNodeClick?: (step: StepInfo, index: number) => void;
   /** Fired when the trigger node is clicked. */
   onTriggerClick?: () => void;
@@ -96,6 +111,8 @@ let {
   fitViewTrigger = 0,
   customStepTypes = [],
   statusMap,
+  errorSlugs,
+  errorNodeIds,
   onNodeClick,
   onTriggerClick,
   onAddStep,
@@ -188,6 +205,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
     // Node IDs are step slugs in the DAG model. Resolve status/selection by slug.
     const isTerminal = terminalTypes.has(node.data.type as string);
     const slug = node.data.slug as string;
+    const hasError = (errorSlugs?.has(slug) ?? false) || (errorNodeIds?.has(node.id) ?? false);
 
     if (statusMap) {
       const status = statusMap[slug] ?? "waiting";
@@ -198,6 +216,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
           status,
           selected: node.id === selectedStepId,
           terminal: isTerminal,
+          hasError,
         },
       };
     }
@@ -210,6 +229,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
         status: step?.status ?? node.data.status ?? "waiting",
         selected: node.id === selectedStepId,
         terminal: isTerminal,
+        hasError,
       },
     };
   });

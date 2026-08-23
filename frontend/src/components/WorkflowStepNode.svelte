@@ -1,5 +1,6 @@
 <script lang="ts">
 import { Handle, Position } from "@xyflow/svelte";
+import WarningCircleIcon from "phosphor-svelte/lib/WarningCircleIcon";
 import { type NodeStatus, statusVisual, visualForStepType } from "$lib/nodeVisuals";
 import { labelForStepType } from "$lib/stepTypes";
 
@@ -13,6 +14,8 @@ interface Props {
     iconId?: string;
     selected?: boolean;
     terminal?: boolean;
+    /** Whether this step has a configuration/template error (shows red badge). */
+    hasError?: boolean;
   };
 }
 
@@ -76,5 +79,16 @@ let ringClass = $derived(data.selected ? "ring-2 ring-primary" : `ring-2 ${statu
       position={Position.Right}
       class="h-2.5! w-2.5! border-2! border-background! bg-muted-foreground!"
     />
+  {/if}
+
+  <!-- Config/template error badge: red circle with white exclamation mark,
+       pinned to the top-right corner of the card. -->
+  {#if data.hasError}
+    <div
+      class="absolute -right-2 -top-2 z-30 rounded-full bg-white leading-none"
+      title="This step has a configuration error"
+    >
+      <WarningCircleIcon size={18} weight="fill" class="text-red-500" aria-label="Configuration error" />
+    </div>
   {/if}
 </div>
