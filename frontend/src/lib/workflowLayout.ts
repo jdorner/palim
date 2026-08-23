@@ -63,6 +63,16 @@ export interface BranchAddStepInfo {
   parentNodeId: string;
   /** The branch label (e.g. "then", "else", "success", "default"). */
   branch: string;
+  /**
+   * The branch's tail node ID, or null when the branch is empty.
+   *
+   * When set, the branch already has steps and a new step must be appended
+   * sequentially after this tail (edge: tail -> newStep). When null, the branch
+   * is empty and a new step must connect to the CF node via the labeled branch
+   * edge (edge: parentNodeId -> newStep [branch]). Getting this wrong creates a
+   * second edge out of the same branch, corrupting the graph.
+   */
+  lastNodeId: string | null;
 }
 
 /** Result of the layout computation. */
@@ -106,12 +116,15 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
     });
   }
 
-  // Add root add-step node (only if last root step is NOT a CF node, since CF nodes have branch addSteps)
-  const rootNodes = graph.nodes.filter((n) => n.parent === null);
-  const lastRoot = rootNodes[rootNodes.length - 1];
+  // Identify the graph's entry node (no incoming edge) and the tail of the main
+  // (non-branch) flow. In the DAG model "root" membership is defined by edges,
+  // not node.parent: the root add-step must hang off the end of the top-level
+  // chain, never off a node that lives inside a control-flow branch.
+  const firstRootId = findRootNodeId(graph);
+  const lastRoot = firstRootId ? graph.nodes.find((n) => n.id === branchTail(graph, firstRootId)) : undefined;
   const lastRootIsCF = lastRoot && (lastRoot.data.type === "if" || lastRoot.data.type === "case");
   const lastRootIsTerminal = lastRoot && options.terminalTypes?.has(lastRoot.data.type);
-  const showRootAddStep = options.includeAddNode && graph.nodes.length > 0 && !lastRootIsCF && !lastRootIsTerminal;
+  const showRootAddStep = options.includeAddNode && !!lastRoot && !lastRootIsCF && !lastRootIsTerminal;
 
   if (showRootAddStep) {
     g.setNode("__addStep__", { width: ADD_NODE_WIDTH, height: ADD_NODE_HEIGHT });
@@ -130,7 +143,12 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
       }
 
       const addNodeId = `__addStep:${info.parentNodeId}:${info.branch}__`;
-      branchAddSteps.push({ nodeId: addNodeId, parentNodeId: info.parentNodeId, branch: info.branch });
+      branchAddSteps.push({
+        nodeId: addNodeId,
+        parentNodeId: info.parentNodeId,
+        branch: info.branch,
+        lastNodeId: info.lastNodeId,
+      });
       g.setNode(addNodeId, { width: ADD_NODE_WIDTH, height: ADD_NODE_HEIGHT });
 
       // Connect: last step in branch -> addStep, or CF node -> addStep (empty branch)
@@ -142,12 +160,9 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
     }
   }
 
-  // Connect trigger to first root-level node
-  if (options.trigger && graph.nodes.length > 0) {
-    const firstRoot = graph.nodes.find((n) => n.parent === null);
-    if (firstRoot) {
-      g.setEdge("__trigger__", firstRoot.id);
-    }
+  // Connect trigger to the entry node
+  if (options.trigger && firstRootId) {
+    g.setEdge("__trigger__", firstRootId);
   }
 
   // Add workflow edges
@@ -170,28 +185,21 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   for (const node of graph.nodes) {
     if (node.data.type !== "if" && node.data.type !== "case") continue;
 
-    const branchLabels =
-      node.data.type === "if"
-        ? ["then", "else"]
-        : (() => {
-            const pathEdges = graph.edges.filter((e) => e.source === node.id && e.label && e.label !== "default");
-            const labels = [...new Set(pathEdges.map((e) => e.label!))];
-            if (graph.nodes.some((n) => n.parent?.nodeId === node.id && n.parent?.branch === "default")) {
-              labels.push("default");
-            }
-            return labels;
-          })();
+    const branchLabels = branchLabelsFor(node, graph);
 
     if (branchLabels.length < 2) continue;
 
     const cfPos = g.node(node.id);
     if (!cfPos) continue;
 
-    // Collect all node IDs per branch (step nodes + addStep nodes)
+    // Collect the node IDs that are EXCLUSIVE to each branch (+ its addStep node).
+    // Join nodes (reached by more than one edge, e.g. a follow-up node several
+    // branches converge on) are excluded: they belong to no single branch, so
+    // including them would skew a branch's computed center and, worse, cause the
+    // shared node to be shifted once per branch, fighting itself.
+    const joinNodeIds = nodesWithMultipleIncoming(graph);
     const branchNodeIds: string[][] = branchLabels.map((label) => {
-      const stepIds = graph.nodes
-        .filter((n) => n.parent?.nodeId === node.id && n.parent?.branch === label)
-        .map((n) => n.id);
+      const stepIds = branchChainNodeIds(graph, node.id, label).filter((id) => !joinNodeIds.has(id));
       const addStepId = branchAddSteps.find((b) => b.parentNodeId === node.id && b.branch === label)?.nodeId;
       if (addStepId) stepIds.push(addStepId);
       return stepIds;
@@ -234,8 +242,60 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
     }
   }
 
+  // Post-process: vertically align each join node (a follow-up node that several
+  // branches converge on) with the centroid of its feeders. Dagre tends to place
+  // such a node at the median of its many long incoming edges, leaving it far
+  // from the branches that feed it. Centering it on its sources keeps it visually
+  // attached to the cluster it belongs to.
+  const joinIds = nodesWithMultipleIncoming(graph);
+  for (const joinId of joinIds) {
+    const joinPos = g.node(joinId);
+    if (!joinPos) continue;
+    const feederYs = graph.edges
+      .filter((e) => e.target === joinId)
+      .map((e) => g.node(e.source)?.y)
+      .filter((y): y is number => typeof y === "number");
+    if (feederYs.length === 0) continue;
+    joinPos.y = feederYs.reduce((sum, y) => sum + y, 0) / feederYs.length;
+  }
+
+  // Post-process: re-anchor every add-step node next to its resolved source
+  // node. The branch-separation and join-centering passes above move step nodes
+  // AFTER dagre positioned the add-step nodes, so an add-step whose source was
+  // shifted (e.g. a join node recentered on its feeders) is left dangling far
+  // from the node its dashed edge originates from. Pinning each add-step to the
+  // right edge of its source, vertically aligned, keeps the "+" button attached.
+  const reanchorAddStep = (addStepId: string, sourceId: string): void => {
+    const addPos = g.node(addStepId);
+    const srcPos = g.node(sourceId);
+    if (!addPos || !srcPos) return;
+    const srcIsCF = graph.nodes.find((n) => n.id === sourceId)?.data.type;
+    const srcWidth = srcIsCF === "if" || srcIsCF === "case" ? CF_NODE_WIDTH : NODE_WIDTH;
+    // Place the add-step one rank-gap to the right of the source, centered on it.
+    addPos.x = srcPos.x + srcWidth / 2 + LAYOUT_OPTIONS.ranksep! / 2 + ADD_NODE_WIDTH / 2;
+    addPos.y = srcPos.y;
+  };
+
+  if (showRootAddStep && lastRoot) {
+    reanchorAddStep("__addStep__", lastRoot.id);
+  }
+  for (const info of branchAddSteps) {
+    // The add-step's real source is the branch tail, or the CF node for an
+    // empty branch (mirrors the edge-building logic below).
+    const branchChain = branchChainNodeIds(graph, info.parentNodeId, info.branch);
+    const sourceId = branchChain[branchChain.length - 1] ?? info.parentNodeId;
+    reanchorAddStep(info.nodeId, sourceId);
+  }
+
   // Extract positioned nodes
   const svelteNodes: Node[] = [];
+
+  // SvelteFlow positions nodes by their top-left corner (this version does not
+  // honor a per-node `origin`). Dagre gives each node a center point, so we
+  // convert center -> top-left by subtracting half the node's height. Using the
+  // correct per-node half-height is what keeps handle Ys aligned: the tall step
+  // node and the small 32px add-step button must each be offset by their OWN
+  // half-height so both handles land on the same center line (pos.y).
 
   // Trigger node
   if (options.trigger) {
@@ -274,7 +334,6 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   }
 
   // Root add-step node
-  // Root add-step node
   if (showRootAddStep) {
     const pos = g.node("__addStep__");
     svelteNodes.push({
@@ -292,23 +351,20 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
       id: info.nodeId,
       type: "addStep",
       position: { x: pos.x - ADD_NODE_WIDTH / 2, y: pos.y - ADD_NODE_HEIGHT / 2 },
-      data: { parentNodeId: info.parentNodeId, branch: info.branch },
+      data: { parentNodeId: info.parentNodeId, branch: info.branch, lastNodeId: info.lastNodeId },
     });
   }
 
   // Build SvelteFlow edges
   const svelteEdges: Edge[] = [];
 
-  // Trigger -> first node edge
-  if (options.trigger) {
-    const firstRoot = graph.nodes.find((n) => n.parent === null);
-    if (firstRoot) {
-      svelteEdges.push({
-        id: "__trigger__->first",
-        source: "__trigger__",
-        target: firstRoot.id,
-      });
-    }
+  // Trigger -> entry node edge
+  if (options.trigger && firstRootId) {
+    svelteEdges.push({
+      id: "__trigger__->first",
+      source: "__trigger__",
+      target: firstRootId,
+    });
   }
 
   // Workflow edges (skip edges originating from terminal nodes — they have no source handle)
@@ -335,10 +391,11 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
 
   // Branch add-step edges (dashed)
   for (const info of branchAddSteps) {
-    const branchNodes = graph.nodes.filter(
-      (n) => n.parent?.nodeId === info.parentNodeId && n.parent?.branch === info.branch,
-    );
-    const lastInBranch = branchNodes[branchNodes.length - 1];
+    // Resolve the branch's tail node via edges (DAG model). If the branch has
+    // no target, the addStep hangs directly off the CF node (empty branch).
+    const branchChain = branchChainNodeIds(graph, info.parentNodeId, info.branch);
+    const lastInBranchId = branchChain[branchChain.length - 1];
+    const lastInBranch = lastInBranchId ? graph.nodes.find((n) => n.id === lastInBranchId) : undefined;
 
     // Skip edge if the source node is a terminal step type (no outgoing handle)
     if (lastInBranch && options.terminalTypes?.has(lastInBranch.data.type)) continue;
@@ -368,7 +425,15 @@ function nodeTypeForStep(stepType: string): string {
   return "step";
 }
 
-/** Converts a graph edge to a SvelteFlow edge with optional label and handle. */
+/**
+ * Converts a graph edge to a SvelteFlow edge with optional label and handle.
+ *
+ * Edges use the default bezier (curved) renderer. Branch edges carry a
+ * `sourceHandle` so they originate from the correct handle on the CF node.
+ *
+ * @param edge - The flat-graph edge to convert.
+ * @returns A SvelteFlow edge.
+ */
 function toSvelteEdge(edge: GraphEdge): Edge {
   const svelteEdge: Edge = {
     id: edge.id,
@@ -423,62 +488,180 @@ interface BranchDiscovery {
 }
 
 /**
- * Discovers all branches in the graph that should get an addStep node.
- * A branch exists when a CF node has outgoing branch edges, or
- * when a CF node type implies branches (e.g. if always has then/else).
+ * Finds the graph's entry node: the first node that has no incoming edge.
+ *
+ * In the DAG model there is normally a single entry point (the node the trigger
+ * connects to). Falls back to the first declared node if every node has an
+ * incoming edge (e.g. a cyclic draft mid-edit).
+ *
+ * @param graph - The flat graph.
+ * @returns The entry node ID, or undefined for an empty graph.
+ */
+function findRootNodeId(graph: FlatGraph): string | undefined {
+  if (graph.nodes.length === 0) return undefined;
+  const hasIncoming = new Set(graph.edges.map((e) => e.target));
+  const root = graph.nodes.find((n) => !hasIncoming.has(n.id));
+  return (root ?? graph.nodes[0]!).id;
+}
+
+/**
+ * Returns the set of node IDs that are the target of more than one edge.
+ *
+ * These are "join" nodes where multiple branches (or paths) converge. They are
+ * not exclusive to any single branch and must be excluded from per-branch
+ * vertical-separation math so shared nodes are not repositioned repeatedly.
+ *
+ * @param graph - The flat graph.
+ * @returns Set of join node IDs.
+ */
+function nodesWithMultipleIncoming(graph: FlatGraph): Set<string> {
+  const incoming = new Map<string, number>();
+  for (const edge of graph.edges) {
+    incoming.set(edge.target, (incoming.get(edge.target) ?? 0) + 1);
+  }
+  const joins = new Set<string>();
+  for (const [id, count] of incoming) {
+    if (count > 1) joins.add(id);
+  }
+  return joins;
+}
+
+/**
+ * Follows the sequential chain starting at `startId` down non-branch edges and
+ * returns the tail node's ID. Branch (labeled) edges are not followed, since a
+ * CF node encountered along the way owns its own per-branch addStep nodes.
+ *
+ * @param graph - The flat graph.
+ * @param startId - ID of the branch's immediate target node.
+ * @returns The ID of the last node in the linear chain.
+ */
+function branchTail(graph: FlatGraph, startId: string): string {
+  const seen = new Set<string>();
+  let currentId = startId;
+
+  while (!seen.has(currentId)) {
+    seen.add(currentId);
+    // Only follow plain sequential edges (no branch label). If the current
+    // node branches, it is a CF node and owns its own addStep buttons.
+    const outgoing = graph.edges.filter((e) => e.source === currentId && !e.label);
+    if (outgoing.length !== 1) break;
+    currentId = outgoing[0]!.target;
+  }
+
+  return currentId;
+}
+
+/**
+ * Returns the IDs of all nodes in a CF node's branch chain, in order.
+ *
+ * Starts at the branch's labeled edge target and follows sequential (unlabeled)
+ * edges. Stops at a node that branches (a nested CF node), including that node
+ * but not descending into its branches.
+ *
+ * @param graph - The flat graph.
+ * @param cfNodeId - The control-flow node ID.
+ * @param branch - The branch label.
+ * @returns Ordered list of node IDs in the branch chain (empty if no edge).
+ */
+function branchChainNodeIds(graph: FlatGraph, cfNodeId: string, branch: string): string[] {
+  const branchEdge = graph.edges.find((e) => e.source === cfNodeId && e.label === branch);
+  if (!branchEdge) return [];
+
+  const ids: string[] = [];
+  const seen = new Set<string>();
+  let currentId: string | undefined = branchEdge.target;
+
+  while (currentId && !seen.has(currentId)) {
+    seen.add(currentId);
+    ids.push(currentId);
+    const node = graph.nodes.find((n) => n.id === currentId);
+    if (node && (node.data.type === "if" || node.data.type === "case")) break;
+    const outgoing = graph.edges.filter((e) => e.source === currentId && !e.label);
+    if (outgoing.length !== 1) break;
+    currentId = outgoing[0]!.target;
+  }
+
+  return ids;
+}
+
+/**
+ * Discovers all control-flow branches that should get an addStep node.
+ *
+ * In the DAG model, branch membership is expressed through labeled edges from
+ * the CF node (not through `node.parent`). For each branch:
+ * - If the branch has an outgoing labeled edge, follow that chain to its tail;
+ *   the addStep hangs off the tail (unless the tail is a CF or terminal node).
+ * - If the branch has no edge, it is empty and the addStep hangs directly off
+ *   the CF node (`lastNodeId: null`).
+ *
+ * @param graph - The flat graph.
+ * @param terminalTypes - Step types that cannot have an outgoing edge.
+ * @returns One entry per branch that should render an addStep node.
  */
 function discoverBranches(graph: FlatGraph, terminalTypes?: Set<string>): BranchDiscovery[] {
   const branches: BranchDiscovery[] = [];
+  const isBranchingType = (type: string) => type === "if" || type === "case";
+
+  // Track tail nodes that already have an addStep so that branches converging on
+  // a common join node produce a single addStep, not one per incoming branch.
+  const seenTails = new Set<string>();
 
   for (const node of graph.nodes) {
-    if (node.data.type === "if") {
-      for (const branch of ["then", "else"]) {
-        const branchNodes = graph.nodes.filter((n) => n.parent?.nodeId === node.id && n.parent?.branch === branch);
-        const lastNode = branchNodes.length > 0 ? branchNodes[branchNodes.length - 1] : null;
-        // Skip if last node in branch is a CF node (its own branches will have addStep buttons)
-        if (lastNode && (lastNode.data.type === "if" || lastNode.data.type === "case")) continue;
-        // Skip if last node in branch is a terminal step type
-        if (lastNode && terminalTypes?.has(lastNode.data.type)) continue;
-        branches.push({
-          parentNodeId: node.id,
-          branch,
-          lastNodeId: lastNode?.id ?? null,
-        });
-      }
-    } else if (node.data.type === "case") {
-      const pathEdges = graph.edges.filter((e) => e.source === node.id && e.label && e.label !== "default");
-      const pathKeys = new Set(pathEdges.map((e) => e.label!));
+    if (!isBranchingType(node.data.type)) continue;
 
-      for (const pathKey of pathKeys) {
-        const branchNodes = graph.nodes.filter((n) => n.parent?.nodeId === node.id && n.parent?.branch === pathKey);
-        const lastNode = branchNodes.length > 0 ? branchNodes[branchNodes.length - 1] : null;
-        if (lastNode && (lastNode.data.type === "if" || lastNode.data.type === "case")) continue;
-        if (lastNode && terminalTypes?.has(lastNode.data.type)) continue;
-        branches.push({
-          parentNodeId: node.id,
-          branch: pathKey,
-          lastNodeId: lastNode?.id ?? null,
-        });
+    // Determine the set of branch labels this CF node exposes.
+    const branchLabels = branchLabelsFor(node, graph);
+
+    for (const branch of branchLabels) {
+      // The branch's immediate target, resolved via the labeled edge.
+      const branchEdge = graph.edges.find((e) => e.source === node.id && e.label === branch);
+      const tailId = branchEdge ? branchTail(graph, branchEdge.target) : null;
+      const tailNode = tailId ? graph.nodes.find((n) => n.id === tailId) : null;
+
+      // A CF tail owns its own per-branch addSteps; skip adding one here.
+      if (tailNode && isBranchingType(tailNode.data.type)) continue;
+      // A terminal tail has no outgoing handle; no addStep possible.
+      if (tailNode && terminalTypes?.has(tailNode.data.type)) continue;
+
+      // Join node: several branches converge on the same tail. Emit a single
+      // addStep for that tail (keyed by the tail node) instead of one per branch.
+      if (tailId) {
+        if (seenTails.has(tailId)) continue;
+        seenTails.add(tailId);
       }
 
-      const defaultNodes = graph.nodes.filter((n) => n.parent?.nodeId === node.id && n.parent?.branch === "default");
-      const lastDefault = defaultNodes.length > 0 ? defaultNodes[defaultNodes.length - 1] : null;
-      if (!lastDefault || !(lastDefault.data.type === "if" || lastDefault.data.type === "case")) {
-        // Skip if last node in default branch is a terminal step type
-        if (lastDefault && terminalTypes?.has(lastDefault.data.type)) {
-          // no addStep for this branch
-        } else {
-          branches.push({
-            parentNodeId: node.id,
-            branch: "default",
-            lastNodeId: lastDefault?.id ?? null,
-          });
-        }
-      }
+      branches.push({
+        parentNodeId: node.id,
+        branch,
+        lastNodeId: tailId,
+      });
     }
   }
 
   return branches;
+}
+
+/**
+ * Returns the ordered set of branch labels a CF node exposes.
+ * - `if` nodes always expose "then" and "else".
+ * - `case` nodes expose their path keys plus "default" when a default edge exists.
+ *
+ * @param node - The control-flow node.
+ * @param graph - The flat graph.
+ * @returns The branch labels for the node.
+ */
+function branchLabelsFor(node: GraphNode, graph: FlatGraph): string[] {
+  if (node.data.type === "if") {
+    return ["then", "else"];
+  }
+
+  // case node
+  const pathEdges = graph.edges.filter((e) => e.source === node.id && e.label && e.label !== "default");
+  const labels = [...new Set(pathEdges.map((e) => e.label!))];
+  if (graph.edges.some((e) => e.source === node.id && e.label === "default")) {
+    labels.push("default");
+  }
+  return labels;
 }
 
 /**

@@ -93,7 +93,7 @@ let customTypes = $derived(data.customStepTypes ?? []);
 
 <svelte:document onclick={handleClickOutside} />
 
-<div class="relative">
+<div class="relative" style="width: 32px; height: 32px;">
   <button
     type="button"
     bind:this={buttonRef}
@@ -111,7 +111,7 @@ let customTypes = $derived(data.customStepTypes ?? []);
   <div
     use:portal
     bind:this={menuRef}
-    class="fixed z-[9999] min-w-[180px] max-h-[320px] overflow-y-auto rounded-lg border border-border bg-background shadow-lg py-1 text-sm"
+    class="fixed z-9999 min-w-45 max-h-80 overflow-y-auto rounded-lg border border-border bg-background shadow-lg py-1 text-sm"
     style="left: {menuPos.x}px; top: {menuPos.y}px; transform: translateX(-50%);"
   >
     <!-- Execution steps -->

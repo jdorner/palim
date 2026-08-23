@@ -8,29 +8,18 @@ interface Props {
 
 let { fitViewTrigger = 0 }: Props = $props();
 
-const { fitView, getNodes } = useSvelteFlow();
+const { fitView } = useSvelteFlow();
 const nodesInitialized = useNodesInitialized();
 
 let hasFitted = $state(false);
-let lastNodeCount = $state(0);
 let lastTrigger = $state(0);
 let pendingFit = $state(false);
 
 $effect(() => {
   if (nodesInitialized.current && !hasFitted) {
     hasFitted = true;
-    lastNodeCount = getNodes().length;
     lastTrigger = fitViewTrigger;
     requestAnimationFrame(() => fitView());
-  }
-});
-
-$effect(() => {
-  if (!hasFitted) return;
-  const currentCount = getNodes().length;
-  if (currentCount !== lastNodeCount) {
-    lastNodeCount = currentCount;
-    pendingFit = true;
   }
 });
 

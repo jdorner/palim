@@ -12,7 +12,7 @@ import type { WebSocketMessage } from "../../../shared/types";
 export interface RunStep {
   slug: string;
   type: string;
-  status: "waiting" | "active" | "completed" | "failed" | "waiting-signal";
+  status: "waiting" | "active" | "completed" | "failed" | "waiting-signal" | "dead";
   jobId: string;
   /** Signal event name (populated when status is waiting-signal). */
   waitEvent?: string;
@@ -40,6 +40,7 @@ export type WorkflowEvent = Extract<
   | { type: "workflow_started" }
   | { type: "workflow_step_started" }
   | { type: "workflow_step_completed" }
+  | { type: "workflow_step_dead" }
   | { type: "workflow_step_failed" }
   | { type: "workflow_step_waiting" }
   | { type: "workflow_step_resumed" }
@@ -182,6 +183,26 @@ class WorkflowStore {
                     type: "",
                     status: "completed" as const,
                     jobId: message.jobId,
+                  },
+                ],
+          };
+        }
+        break;
+
+      case "workflow_step_dead":
+        if (message.workflowRunId === this.activeRunId) {
+          const existsDead = this.run.steps.some((s) => s.slug === message.stepSlug);
+          this.run = {
+            ...this.run,
+            steps: existsDead
+              ? this.run.steps.map((s) => (s.slug === message.stepSlug ? { ...s, status: "dead" as const } : s))
+              : [
+                  ...this.run.steps,
+                  {
+                    slug: message.stepSlug,
+                    type: "",
+                    status: "dead" as const,
+                    jobId: "",
                   },
                 ],
           };

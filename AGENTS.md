@@ -116,7 +116,7 @@ src/
 │   │   ├── filewatcher/     # Directory watchers emitting domain events
 │   │   ├── scheduler/       # Cron/interval-based job scheduling
 │   │   ├── webhooks/        # Authenticated HTTP endpoints for external events
-│   │   └── workflows/       # Multi-step job pipelines (JSON5)
+│   │   └── workflows/       # DAG job pipelines (JSON5: steps map + edges array)
 │   └── <name>/index.ts      # Optional extensions (see list below)
 ├── secrets/
 │   ├── vault.ts             # SecretVault: SQLite-backed AES-256-GCM encrypted storage with per-row ACL
@@ -188,7 +188,7 @@ WORK_DIR/                       # AGENT_WORK_DIR - the agent's workspace (real d
 ├── outbox/                  # Processed file output
 ├── data/                    # Agent data files (wiki, error reports, etc.)
 ├── tasks.md                 # Task list ([ ] open, [x] done, [p] in progress)
-└── workflows/               # Workflow pipeline definitions (YAML)
+└── workflows/               # Workflow pipeline definitions (JSON5 DAG)
 ```
 
 ## Architecture
@@ -228,6 +228,10 @@ All queues use **bunqueue** (SQLite-backed) via the `ManagedQueue` abstraction. 
 - **Chat** - Conversational interactions (streamed back via WebSocket)
 
 Job logs are persisted to SQLite (`src/queue/logStore.ts`) so they survive restarts. A periodic purge timer removes orphaned log entries every 6 hours.
+
+### Workflows (DAG engine)
+
+Workflows (`src/extensions/core/workflows/`) are directed acyclic graphs: a `steps` map (keyed by slug) plus an `edges` array (`from`, `to`, optional `branch`). The engine dispatches all root steps in parallel, then dispatches each successor once all its incoming edges are resolved (`satisfied` or `dead`, at least one `satisfied` — the join barrier). Control-flow nodes (`if`/`case`) are evaluated inline and mark their branch edges satisfied/dead; dead edges propagate to skip unreachable steps. Any step failure fails the whole run (fail-fast) and cancels in-flight jobs. Per-run edge states, step statuses, and results are persisted in SQLite. The `http-request` and `fail` step types are provided by the `core-wf-steps` extension. Legacy sequential-format files are converted with `bun run migrate-workflows` (`src/tools/migrateWorkflows.ts`).
 
 ### Extension System
 
@@ -344,5 +348,6 @@ bun run dev              # Start agent with file watching
 bun run check            # Lint and format (Biome)
 bun run cli              # Launch sandbox CLI (interactive shell)
 bun run test             # Run tests
+bun run migrate-workflows [dir]  # Convert legacy sequential workflows to DAG format
 cd frontend && bun run build  # Build frontend
 ```

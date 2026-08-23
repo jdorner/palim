@@ -10,8 +10,9 @@ import {
 } from "@xyflow/svelte";
 import "@xyflow/svelte/dist/style.css";
 import { onMount, untrack } from "svelte";
-import { flattenWorkflow, type StepData } from "$lib/workflowGraph";
+import { buildDagGraph, type DagEdge, type StepData } from "$lib/workflowGraph";
 import { computeLayout } from "$lib/workflowLayout";
+import { type GraphStepStatus, isEdgeAnimated } from "$lib/workflowRunStatus";
 import AddStepNode from "./AddStepNode.svelte";
 import ControlFlowNode from "./ControlFlowNode.svelte";
 import FitViewOnInit from "./FitViewOnInit.svelte";
@@ -19,6 +20,12 @@ import WaitForNode from "./WaitForNode.svelte";
 import WorkflowStepNode from "./WorkflowStepNode.svelte";
 
 interface StepInfo {
+  /**
+   * Stable synthetic node identity, independent of the editable slug. Used as
+   * the SvelteFlow node id, selection key, and position-preservation key. Absent
+   * in read-only run views (statusMap path), where identity falls back to slug.
+   */
+  id?: string;
   slug: string;
   type: string;
   status?: "waiting" | "active" | "completed" | "failed" | "waiting-signal" | "skipped";
@@ -36,9 +43,17 @@ interface TriggerInfo {
 
 interface Props {
   steps: StepInfo[];
+  /**
+   * DAG edges connecting steps. In the editor, `from`/`to` are the steps'
+   * synthetic ids (stable across slug edits). In the read-only run view, steps
+   * carry no synthetic id so `from`/`to` are slugs (which equal the node id
+   * there). Either way the endpoints match the resolved node id space.
+   */
+  edges?: DagEdge[];
   trigger?: TriggerInfo;
   editMode?: boolean;
-  selectedStepIndex?: number;
+  /** Synthetic node id of the currently selected step (for highlight). */
+  selectedStepId?: string;
   /** Whether the trigger node is currently selected (shows orange highlight). */
   triggerSelected?: boolean;
   fitViewTrigger?: number;
@@ -52,15 +67,19 @@ interface Props {
   onNodeClick?: (step: StepInfo, index: number) => void;
   /** Fired when the trigger node is clicked. */
   onTriggerClick?: () => void;
-  onAddStep?: (type?: string, branchContext?: { parentNodeId: string; branch: string }) => void;
+  onAddStep?: (
+    type?: string,
+    branchContext?: { parentNodeId: string; branch: string; lastNodeId: string | null },
+  ) => void;
   onEdgesChange?: (edges: Edge[]) => void;
 }
 
 let {
   steps,
+  edges: dagEdges = [],
   trigger,
   editMode,
-  selectedStepIndex = -1,
+  selectedStepId,
   triggerSelected = false,
   fitViewTrigger = 0,
   customStepTypes = [],
@@ -79,9 +98,14 @@ const nodeTypes = { step: WorkflowStepNode, controlFlow: ControlFlowNode, waitFo
 // Layout computation using flatten + dagre
 // ---------------------------------------------------------------------------
 
-/** Compute the full graph layout from current steps. */
+/** Compute the full graph layout from current steps + edges. */
 function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
-  const flatGraph = flattenWorkflow(steps as StepData[]);
+  // Pass steps as an ordered array (never a slug-keyed map) so two steps with
+  // the same or empty slug each keep a distinct node. The editor supplies a
+  // stable synthetic `id`; the read-only run view does not, so fall back to the
+  // slug (always valid/unique in a saved definition) as the node identity there.
+  const stepList: StepData[] = steps.map((s) => ({ ...s, id: s.id ?? s.slug }) as StepData);
+  const flatGraph = buildDagGraph(stepList, dagEdges);
 
   // Derive the set of terminal step types from extension metadata
   const terminalTypes = new Set(customStepTypes.filter((st) => st.terminal).map((st) => st.type));
@@ -102,7 +126,11 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
     if (node.id === "__addStep__" || node.id.startsWith("__addStep:")) {
       const branchContext =
         node.data.parentNodeId && node.data.branch
-          ? { parentNodeId: node.data.parentNodeId as string, branch: node.data.branch as string }
+          ? {
+              parentNodeId: node.data.parentNodeId as string,
+              branch: node.data.branch as string,
+              lastNodeId: (node.data.lastNodeId as string | null | undefined) ?? null,
+            }
           : undefined;
 
       return {
@@ -115,102 +143,46 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
       };
     }
 
-    // Find the corresponding step for status overlay.
-    // If a statusMap is provided (run page), resolve status by slug lookup.
-    // Otherwise fall back to index-based lookup (detail/edit page).
+    // Node IDs are step slugs in the DAG model. Resolve status/selection by slug.
     const isTerminal = terminalTypes.has(node.data.type as string);
+    const slug = node.data.slug as string;
 
     if (statusMap) {
-      const slug = node.data.slug as string;
       const status = statusMap[slug] ?? "waiting";
       return {
         ...node,
         data: {
           ...node.data,
           status,
-          selected: false,
+          selected: node.id === selectedStepId,
           terminal: isTerminal,
         },
       };
     }
 
-    // Root-level nodes have IDs like "step-0", "step-1", etc.
-    // Branch nodes have IDs like "step-0.then-0", "step-1.path-create-0", etc.
-    const rootIndex = parseRootIndex(node.id);
-    const step = rootIndex !== null ? steps[rootIndex] : undefined;
-    // Mark as selected if this node belongs to the currently selected top-level step
-    const isSelected = rootIndex !== null && rootIndex === selectedStepIndex;
-
+    const step = steps.find((s) => s.slug === slug);
     return {
       ...node,
       data: {
         ...node.data,
         status: step?.status ?? node.data.status ?? "waiting",
-        selected: isSelected,
+        selected: node.id === selectedStepId,
         terminal: isTerminal,
       },
     };
   });
 
-  // Animate edges to active nodes
-  const edgesWithAnimation = layout.edges.map((edge) => {
-    const targetNode = nodesWithStatus.find((n) => n.id === edge.target);
-    const isActive = (targetNode?.data as Record<string, unknown> | undefined)?.status === "active";
-    return { ...edge, animated: isActive || edge.animated };
-  });
+  // Animate edges whose target node is active (incl. the trigger -> first-step edge)
+  const statusNodes = nodesWithStatus.map((n) => ({
+    id: n.id,
+    status: (n.data as Record<string, unknown> | undefined)?.status as GraphStepStatus | undefined,
+  }));
+  const edgesWithAnimation = layout.edges.map((edge) => ({
+    ...edge,
+    animated: isEdgeAnimated({ source: edge.source, target: edge.target, animated: edge.animated }, statusNodes),
+  }));
 
   return { nodes: nodesWithStatus, edges: edgesWithAnimation };
-}
-
-/**
- * Extracts the root-level step index from a node ID.
- * - "step-2" -> 2
- * - "step-1.then-0" -> 1 (the parent CF node index)
- * - "__trigger__" -> null
- */
-function parseRootIndex(nodeId: string): number | null {
-  if (!nodeId.startsWith("step-")) return null;
-  const match = nodeId.match(/^step-(\d+)/);
-  return match ? Number.parseInt(match[1], 10) : null;
-}
-
-/**
- * Recursively searches the step tree for a step with the given slug.
- * Returns a StepInfo-compatible object or undefined if not found.
- */
-function findStepBySlug(stepsArray: StepInfo[], slug: string): StepInfo | undefined {
-  for (const step of stepsArray) {
-    if (step.slug === slug) return step;
-    // Search in if branches
-    if (step.type === "if") {
-      const thenSteps = (step as { then?: StepInfo[] }).then;
-      if (thenSteps) {
-        const found = findStepBySlug(thenSteps, slug);
-        if (found) return found;
-      }
-      const elseSteps = (step as { else?: StepInfo[] }).else;
-      if (elseSteps) {
-        const found = findStepBySlug(elseSteps, slug);
-        if (found) return found;
-      }
-    }
-    // Search in case branches
-    if (step.type === "case") {
-      const paths = (step as { paths?: Record<string, StepInfo[]> }).paths;
-      if (paths) {
-        for (const pathSteps of Object.values(paths)) {
-          const found = findStepBySlug(pathSteps, slug);
-          if (found) return found;
-        }
-      }
-      const defaultSteps = (step as { default?: StepInfo[] }).default;
-      if (defaultSteps) {
-        const found = findStepBySlug(defaultSteps, slug);
-        if (found) return found;
-      }
-    }
-  }
-  return undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -218,58 +190,77 @@ function findStepBySlug(stepsArray: StepInfo[], slug: string): StepInfo | undefi
 // ---------------------------------------------------------------------------
 
 let derivedLayout = $derived(computeGraphLayout());
-let derivedNodes = $derived<Node[]>(derivedLayout.nodes);
-let derivedEdges = $derived<Edge[]>(derivedLayout.edges);
 
 // ---------------------------------------------------------------------------
-// Edit mode: mutable state seeded from layout
+// SvelteFlow state
+//
+// SvelteFlow manages its own internal nodes/edges store seeded from these
+// bound arrays. It does NOT repaint when only nested `data` (status/animated)
+// values change behind a new array identity, so we cannot hand it a plain
+// $derived. Instead we own `nodes`/`edges` as $state and sync the derived
+// layout into them via an $effect (view mode) while preserving user-dragged
+// positions in edit mode. Reassigning the arrays here is what makes live
+// status/animation updates (e.g. WebSocket-driven run progress) repaint.
 // ---------------------------------------------------------------------------
 
-let editableNodes = $state<Node[]>([]);
-let editableEdges = $state<Edge[]>([]);
+let nodes = $state<Node[]>([]);
+let edges = $state<Edge[]>([]);
 
 let prevEditMode = $state(false);
-let prevNodeCount = $state(0);
+let prevNodeIds = $state<string>("");
 
-// Seed editable state when entering edit mode or when the graph structure changes.
+/**
+ * Builds a stable structural fingerprint from the computed layout: the sorted
+ * set of node IDs PLUS the sorted set of edges (source, target, handle). Node
+ * IDs alone are insufficient because connecting a branch tail to a shared join
+ * node re-anchors an existing add-step node (same ID, new position and source
+ * edge) without changing the node-ID set. Folding edges into the fingerprint
+ * makes that re-anchoring register as a structural change so the effect takes
+ * the full-reseed path and drops the stale add-step position.
+ */
+function layoutFingerprint(layout: { nodes: Node[]; edges: Edge[] }): string {
+  const nodeIds = layout.nodes.map((n) => n.id).sort();
+  const edgeKeys = layout.edges.map((e) => `${e.source}>${e.target}>${e.sourceHandle ?? ""}`).sort();
+  return `${nodeIds.join(" ")}||${edgeKeys.join(" ")}`;
+}
+
 $effect(() => {
-  // Compute full layout to detect structural changes including addStep node presence
-  const layout = computeGraphLayout();
-  const currentNodeCount = layout.nodes.length;
+  const layout = derivedLayout;
+  const currentNodeIds = layoutFingerprint(layout);
 
   const enteringEditMode = editMode && !prevEditMode;
-  const structureChanged = editMode && currentNodeCount !== prevNodeCount;
+  const structureChanged = editMode && currentNodeIds !== prevNodeIds;
 
-  if (enteringEditMode || structureChanged) {
-    // Recompute layout but preserve existing positions for user-dragged nodes
-    const existingPositions = new Map(untrack(() => editableNodes).map((n) => [n.id, n.position]));
-
-    editableNodes = layout.nodes.map((node) => {
+  if (editMode && !enteringEditMode && !structureChanged) {
+    // Edit mode, stable structure: data-only update that preserves the
+    // positions of user-dragged nodes.
+    const layoutDataMap = new Map(layout.nodes.map((n) => [n.id, n.data]));
+    nodes = untrack(() => nodes).map((node) => {
+      const newData = layoutDataMap.get(node.id);
+      return newData ? { ...node, data: newData } : node;
+    });
+  } else if (editMode) {
+    // Entering edit mode or structure changed: reseed, preserving positions.
+    const existingPositions = new Map(untrack(() => nodes).map((n) => [n.id, n.position]));
+    nodes = layout.nodes.map((node) => {
       // Always use fresh positions for addStep nodes (they move as branches grow)
       if (node.id.startsWith("__addStep")) return node;
       const existing = existingPositions.get(node.id);
       return existing ? { ...node, position: existing } : node;
     });
-    editableEdges = [...layout.edges];
-  } else if (editMode) {
-    // Data-only update: sync slug/type/status/selected without touching positions
-    const layoutDataMap = new Map(layout.nodes.map((n) => [n.id, n.data]));
-
-    editableNodes = untrack(() => editableNodes).map((node) => {
-      const newData = layoutDataMap.get(node.id);
-      return newData ? { ...node, data: newData } : node;
-    });
+    edges = [...layout.edges];
+  } else {
+    // View mode (e.g. run page): always take the freshly computed layout so
+    // live status and edge-animation changes repaint.
+    nodes = layout.nodes;
+    edges = layout.edges;
   }
 
   prevEditMode = !!editMode;
   if (editMode) {
-    prevNodeCount = currentNodeCount;
+    prevNodeIds = currentNodeIds;
   }
 });
-
-// The state passed to SvelteFlow
-let nodes = $derived<Node[]>(editMode ? editableNodes : derivedNodes);
-let edges = $derived<Edge[]>(editMode ? editableEdges : derivedEdges);
 
 // ---------------------------------------------------------------------------
 // Node drag
@@ -278,7 +269,7 @@ let edges = $derived<Edge[]>(editMode ? editableEdges : derivedEdges);
 function handleNodeDragStop(ev: { event: MouseEvent | TouchEvent; targetNode: Node | null; nodes: Node[] }) {
   const { targetNode } = ev;
   if (!targetNode) return;
-  editableNodes = editableNodes.map((n) => (n.id === targetNode.id ? { ...n, position: targetNode.position } : n));
+  nodes = nodes.map((n) => (n.id === targetNode.id ? { ...n, position: targetNode.position } : n));
 }
 
 // ---------------------------------------------------------------------------
@@ -286,47 +277,90 @@ function handleNodeDragStop(ev: { event: MouseEvent | TouchEvent; targetNode: No
 // ---------------------------------------------------------------------------
 
 function isValidConnection({ source, target }: { source: string; target: string }): boolean {
-  if (source === target) return false;
-  const currentEdges = editMode ? editableEdges : derivedEdges;
-  if (currentEdges.some((e) => e.target === target && e.source !== source)) return false;
-  return true;
+  // Only reject self-loops. Fan-in (multiple incoming edges to a join node) is
+  // valid in the DAG model; cycle prevention is enforced by backend validation.
+  return source !== target;
 }
 
 function handleConnect(connection: Connection) {
-  const { source, target } = connection;
+  const { source, target, sourceHandle } = connection;
   if (!source || !target) return;
 
-  const newEdge: Edge = {
-    id: `${source}-${target}`,
+  const branch = branchFromHandle(source, sourceHandle);
+  const edgeId = branch ? `${source}->${target}:${branch}` : `${source}->${target}`;
+
+  // SvelteFlow inserts the new edge into the bound `edges` store BEFORE invoking
+  // this handler, so the connection is already present (typically with an
+  // auto-generated id and no label/metadata). We must therefore NOT bail out on
+  // "already exists" -- that would skip the onEdgesChange notification and the
+  // connection would never round-trip into the persisted workflow definition
+  // (leaving the source node's add-step button visible). Instead, normalize the
+  // matching edge in place (stable id + branch label) and always notify.
+  const matchIndex = edges.findIndex(
+    (e) => e.source === source && e.target === target && (e.sourceHandle ?? null) === (sourceHandle ?? null),
+  );
+
+  const normalized: Edge = {
+    id: edgeId,
     source,
     target,
+    ...(sourceHandle ? { sourceHandle } : {}),
+    ...(branch ? { label: branch } : {}),
     animated: false,
   };
 
-  editableEdges = [...editableEdges, newEdge];
-  onEdgesChange?.(editableEdges);
+  if (matchIndex >= 0) {
+    // SvelteFlow already added it (or a duplicate exists): replace in place so
+    // the edge carries our stable id and branch metadata, then dedupe any extra
+    // copies sharing the same source/target/handle.
+    edges = edges
+      .map((e, i) => (i === matchIndex ? normalized : e))
+      .filter(
+        (e, i) =>
+          i === matchIndex ||
+          !(e.source === source && e.target === target && (e.sourceHandle ?? null) === (sourceHandle ?? null)),
+      );
+  } else {
+    edges = [...edges, normalized];
+  }
+
+  onEdgesChange?.(edges);
+}
+
+/**
+ * Extracts the branch label from a CF node's source handle ID. Handle ids are
+ * prefixed with the synthetic source node id (see ControlFlowNode.svelte, which
+ * builds `<Handle id>` from the node id):
+ *  - case path:  `${sourceId}-path-${key}` -> key
+ *  - if / default: `${sourceId}-${branch}` -> branch
+ * Returns undefined for non-CF edges (no handle).
+ */
+function branchFromHandle(sourceId: string, sourceHandle: string | null | undefined): string | undefined {
+  if (!sourceHandle) return undefined;
+  const pathPrefix = `${sourceId}-path-`;
+  if (sourceHandle.startsWith(pathPrefix)) return sourceHandle.slice(pathPrefix.length);
+  const prefix = `${sourceId}-`;
+  if (sourceHandle.startsWith(prefix)) return sourceHandle.slice(prefix.length);
+  return undefined;
 }
 
 function handleDelete({ edges: deletedEdges }: { nodes: Node[]; edges: Edge[] }) {
   if (deletedEdges.length === 0) return;
 
   const deletedIds = new Set(deletedEdges.map((e) => e.id));
-  editableEdges = editableEdges.filter((e) => !deletedIds.has(e.id));
-  onEdgesChange?.(editableEdges);
+  edges = edges.filter((e) => !deletedIds.has(e.id));
+  onEdgesChange?.(edges);
 }
 
 function handleBeforeReconnect(newEdge: Edge, _oldEdge: Edge): Edge | null {
-  const edgesWithoutOld = editableEdges.filter((e) => e.id !== _oldEdge.id);
-
-  const targetHasIncoming = edgesWithoutOld.some((e) => e.target === newEdge.target && e.source !== newEdge.source);
-  if (targetHasIncoming) return null;
-
+  // Reject self-loops; fan-in is allowed in the DAG model.
+  if (newEdge.source === newEdge.target) return null;
   return newEdge;
 }
 
 function handleReconnect(newEdge: Edge) {
-  editableEdges = editableEdges.map((e) => (e.id === newEdge.id ? newEdge : e));
-  onEdgesChange?.(editableEdges);
+  edges = edges.map((e) => (e.id === newEdge.id ? newEdge : e));
+  onEdgesChange?.(edges);
 }
 
 // ---------------------------------------------------------------------------
@@ -343,21 +377,16 @@ function handleNodeClick(ev: { event: MouseEvent | TouchEvent; node: Node }) {
     return;
   }
 
-  // When statusMap is provided (run page), resolve by slug for all nodes
-  if (statusMap && onNodeClick) {
-    const slug = ev.node.data?.slug as string | undefined;
-    if (!slug) return;
-    // Find a matching step in the steps array (may be nested for branch steps)
-    const matchingStep = findStepBySlug(steps, slug);
-    if (matchingStep) onNodeClick(matchingStep, -1);
-    return;
+  // Resolve the clicked step by its stable synthetic node id (falling back to
+  // the slug for the read-only run view, where nodes carry no synthetic id).
+  // Keying on the node id -- not the slug -- means a step whose slug is
+  // temporarily empty or duplicated mid-edit is still selectable.
+  if (!onNodeClick) return;
+  const nodeId = ev.node.id;
+  const index = steps.findIndex((s) => (s.id ?? s.slug) === nodeId);
+  if (index >= 0) {
+    onNodeClick(steps[index], index);
   }
-
-  const rootIndex = parseRootIndex(ev.node.id);
-  if (rootIndex === null) return;
-
-  const step = steps[rootIndex];
-  if (step && onNodeClick) onNodeClick(step, rootIndex);
 }
 
 // ---------------------------------------------------------------------------
@@ -377,8 +406,8 @@ onMount(() => {
 
 <div class="w-full h-full border rounded-lg overflow-hidden bg-background">
   <SvelteFlow
-    {nodes}
-    {edges}
+    bind:nodes
+    bind:edges
     {nodeTypes}
     {colorMode}
     nodesDraggable={editMode}

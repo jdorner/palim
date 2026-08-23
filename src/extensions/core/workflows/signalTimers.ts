@@ -15,7 +15,7 @@
 
 import type { Logger } from "@ext/types";
 import type { WorkflowWebSocketEvent } from "@shared/workflows";
-import * as runStore from "./runStore";
+import * as runStore from "./dagRunStore";
 import * as signalStore from "./signalStore";
 
 /** Dependencies for arming a signal timeout. */
@@ -68,8 +68,11 @@ export function arm(
     // Mark signal as timed out
     signalStore.markTimedOut(signalId);
 
-    // Fail the run
+    // Fail the run and mark the waitFor step failed. Without the step update the
+    // node would linger in "waiting-signal" after the run is already failed,
+    // since this path does not route through the coordinator's fail-fast sweep.
     const reason = `Signal "${event}" timed out while waiting`;
+    runStore.updateStepStatus(runId, stepSlug, "failed");
     runStore.updateStatus(runId, "failed", reason);
 
     // Broadcast step failure

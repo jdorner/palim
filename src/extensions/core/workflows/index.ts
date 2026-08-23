@@ -1,19 +1,19 @@
 /**
- * Workflows extension - enables multi-step job pipelines defined in JSON5.
+ * Workflows extension - enables DAG job pipelines defined in JSON5.
  *
  * Exposes:
  * - `GET    /ext/workflows`              - list loaded workflow definitions
  * - `GET    /ext/workflows/:name`        - get a single workflow definition
- * - `POST   /ext/workflows`              - create a new workflow definition
  * - `PUT    /ext/workflows/:name`        - update an existing workflow definition
  * - `POST   /ext/workflows/run/:name`    - trigger a workflow run
  * - `GET    /ext/workflows/runs/:runId`  - get run status with per-step states
  * - `GET    /ext/workflows/runs/:runId/logs` - get per-step execution logs
+ * - `POST   /ext/workflows/runs/:runId/signal/:event` - deliver a signal to a waiting run
  * - `DELETE /ext/workflows/runs/:runId`  - cancel all steps of a workflow run
  * - `DELETE /ext/workflows/:name`        - delete a workflow definition (removes JSON5 file)
  *
  * Workflow definitions are loaded from `WORK_DIR/workflows/*.json5` at startup.
- * Steps execute sequentially via bunqueue's {@link FlowProducer.addChain}.
+ * Steps execute as a DAG: fan-out (parallel) and join (convergence) are supported.
  *
  * State is encapsulated in a factory function so each call to
  * {@link createExtension} produces an isolated instance.
@@ -28,36 +28,38 @@ import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { setWorkflowDispatchFn } from "@src/extensions/engine/extensionContext";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
-import { handleStepCompletion } from "./completionHandler";
-import { recoverFromCrash } from "./crashRecovery";
-import { createEmitHandler } from "./emitHandler";
-import type { SessionFactory } from "./engine";
-import { dispatchWorkflow } from "./engine";
-import { loadWorkflows } from "./loader";
-import * as runStore from "./runStore";
-import { initRunStore } from "./runStore";
-import type { AgentStep, OutputSchema, WorkflowDefinition } from "./schemas";
-import { validateTerminalStepSuccessors, WorkflowDefinitionSchema } from "./schemas";
-import { dispatchBranchSteps, dispatchNextSegment, failRun } from "./segmentDispatcher";
+import {
+  type DagCoordinatorDeps,
+  evaluateInlineRoot,
+  handleDagStepCompletion,
+  handleDagStepFailure,
+  resumeWaitForNode,
+} from "./dagCoordinator";
+import { createDagEmitHandler } from "./dagEmitHandler";
+import { type DagStepJobData, dispatchDagWorkflow, type SessionFactory } from "./dagEngine";
+import { loadDagWorkflows } from "./dagLoader";
+import * as dagRunStore from "./dagRunStore";
+import { initDagRunStore } from "./dagRunStore";
+import { type TemplateWarning, validateDagWorkflowTemplates } from "./dagTemplateValidation";
+import { validateCfEdges, validateDag } from "./dagValidation";
+import { createDagStepProcessor } from "./dagWorker";
+import type { DagWorkflowDefinition, OutputSchema } from "./schemas";
+import { DagWorkflowDefinitionSchema } from "./schemas";
 import * as signalStore from "./signalStore";
 import { initSignalStore } from "./signalStore";
 import * as signalTimers from "./signalTimers";
 import type { TemplateSecretResolver } from "./template";
-import type { TemplateWarning } from "./templateValidation";
-import { validateWorkflowTemplates } from "./templateValidation";
 import { resolveTriggerOutputSchema } from "./triggerSchemas";
-import { BRANCH_CONTINUATION_KEY, type WorkflowStepJobData } from "./types";
-import { createStepProcessor, type StepResult } from "./worker";
 
-/** Extract workflow step data from a queue job. */
+/** Extract DAG workflow step data from a queue job. */
 function stepData(job: {
   id: string;
   data: unknown;
   state: string;
   timestamp?: number;
   finishedOn?: number;
-}): WorkflowStepJobData & { id: string; state: string; timestamp?: number; finishedOn?: number } {
-  const data = job.data as WorkflowStepJobData;
+}): DagStepJobData & { id: string; state: string; timestamp?: number; finishedOn?: number } {
+  const data = job.data as DagStepJobData;
   return { ...data, id: job.id, state: job.state, timestamp: job.timestamp, finishedOn: job.finishedOn };
 }
 
@@ -65,9 +67,32 @@ function stepData(job: {
 function runJobs(
   allJobs: { id: string; data: unknown; state: string; timestamp?: number; finishedOn?: number }[],
   runId: string,
-): (WorkflowStepJobData & { id: string; state: string; timestamp?: number; finishedOn?: number })[] {
+): (DagStepJobData & { id: string; state: string; timestamp?: number; finishedOn?: number })[] {
   return allJobs.map(stepData).filter((d) => d.workflowRunId === runId);
 }
+
+/**
+ * Builds a map from step slug to its real queue job ID for a run.
+ *
+ * The run ID is not a job ID, so per-step log retrieval (GET
+ * /api/jobs/:jobId/logs) needs the actual job ID that executed each step. Steps
+ * that never produced a job (control-flow nodes, dead branches) are absent from
+ * the map. When a slug has multiple jobs (e.g. retries), the last one wins so
+ * the freshest job's logs are surfaced.
+ *
+ * @param jobs - Queue jobs already filtered to a single run (see {@link runJobs}).
+ * @returns A map of step slug to job ID.
+ */
+export function buildStepJobIdMap(jobs: { stepSlug: string; id: string }[]): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const job of jobs) {
+    map.set(job.stepSlug, job.id);
+  }
+  return map;
+}
+
+/** Built-in step types handled directly by the workflow engine. */
+const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "waitFor"]);
 
 /** Result of validating tool and skill availability for a workflow. */
 export interface WorkflowValidationResult {
@@ -81,15 +106,14 @@ export interface WorkflowValidationResult {
 
 /**
  * Validates that all tools and skills referenced by a workflow's agent steps
- * are currently available. Checks tool names against both extension-registered
- * tools and sandbox tools, and skill names against the skill registry.
+ * are currently available.
  *
- * @param definition - The workflow definition to validate
+ * @param definition - The DAG workflow definition to validate
  * @param ctx - Extension context for querying available tools and skills
  * @returns Validation result with lists of missing tools and skills
  */
 export function validateWorkflowDependencies(
-  definition: WorkflowDefinition,
+  definition: DagWorkflowDefinition,
   ctx: ExtensionContext,
 ): WorkflowValidationResult {
   const availableTools = new Set([...ctx.tools.names(), ...SANDBOX_TOOL_NAMES]);
@@ -98,17 +122,15 @@ export function validateWorkflowDependencies(
   const missingTools = new Set<string>();
   const missingSkills = new Set<string>();
 
-  for (const step of definition.steps) {
-    if (step.type !== "agent") continue;
-
-    const agentStep = step as AgentStep;
+  for (const stepDef of Object.values(definition.steps)) {
+    if (stepDef.type !== "agent") continue;
+    const agentStep = stepDef as { tools?: string[]; skills?: string[] };
 
     if (agentStep.tools) {
       for (const tool of agentStep.tools) {
         if (!availableTools.has(tool)) missingTools.add(tool);
       }
     }
-
     if (agentStep.skills) {
       for (const skill of agentStep.skills) {
         if (!availableSkills.has(skill)) missingSkills.add(skill);
@@ -123,104 +145,56 @@ export function validateWorkflowDependencies(
   };
 }
 
-/** Built-in step types handled directly by the workflow engine. */
-const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "waitFor"]);
-
 /**
  * Produces per-step warnings for dependencies that are not currently available.
- * Checks:
- * - Agent steps: tools and skills that are not registered
- * - Custom step types: whether the extension providing the step handler is active
  *
- * Returns an array compatible with {@link TemplateWarning} so results can be
- * merged with template validation warnings.
- *
- * @param definition - The workflow definition to check
+ * @param definition - The DAG workflow definition to check
  * @param ctx - Extension context for querying available tools, skills, and step handlers
  * @returns Array of per-step warnings (empty if all dependencies are satisfied)
  */
-function getDependencyWarnings(definition: WorkflowDefinition, ctx: ExtensionContext): TemplateWarning[] {
+function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: ExtensionContext): TemplateWarning[] {
   const availableTools = new Set([...ctx.tools.names(), ...SANDBOX_TOOL_NAMES]);
   const availableSkills = new Set(ctx.skills.names());
   const warnings: TemplateWarning[] = [];
 
-  for (const step of definition.steps) {
+  for (const [slug, stepDef] of Object.entries(definition.steps)) {
     // Check custom (extension-registered) step types are available
-    if (!BUILTIN_STEP_TYPES.has(step.type)) {
-      const handler = ctx.stepTypes.get(step.type);
+    if (!BUILTIN_STEP_TYPES.has(stepDef.type)) {
+      const handler = ctx.stepTypes.get(stepDef.type);
       if (!handler) {
         warnings.push({
-          stepSlug: step.slug,
+          stepSlug: slug,
           field: "type",
-          message: `Step type "${step.type}" is not available (extension disabled or not installed)`,
+          message: `Step type "${stepDef.type}" is not available (extension disabled or not installed)`,
         });
       }
       continue;
     }
 
-    if (step.type !== "agent") continue;
-    const agentStep = step as AgentStep;
+    if (stepDef.type !== "agent") continue;
+    const agentStep = stepDef as { tools?: string[]; skills?: string[] };
 
     if (agentStep.tools) {
       for (const tool of agentStep.tools) {
         if (!availableTools.has(tool)) {
           warnings.push({
-            stepSlug: step.slug,
+            stepSlug: slug,
             field: "tools",
             message: `Tool "${tool}" is not available (not registered or extension disabled)`,
           });
         }
       }
     }
-
     if (agentStep.skills) {
       for (const skill of agentStep.skills) {
         if (!availableSkills.has(skill)) {
           warnings.push({
-            stepSlug: step.slug,
+            stepSlug: slug,
             field: "skills",
             message: `Skill "${skill}" is not available (not found or extension disabled)`,
           });
         }
       }
-    }
-  }
-
-  // Check for unreachable steps after terminal step types.
-  // Collect all unique custom step types from the entire definition tree.
-  const terminalTypes = new Set<string>();
-  const collectTerminalTypes = (steps: WorkflowDefinition["steps"]): void => {
-    for (const step of steps) {
-      if (!BUILTIN_STEP_TYPES.has(step.type) && !terminalTypes.has(step.type)) {
-        const handler = ctx.stepTypes.get(step.type);
-        if (handler?.terminal) terminalTypes.add(step.type);
-      }
-      if (step.type === "if") {
-        const ifStep = step as { then: WorkflowDefinition["steps"]; else?: WorkflowDefinition["steps"] };
-        collectTerminalTypes(ifStep.then);
-        if (ifStep.else) collectTerminalTypes(ifStep.else);
-      } else if (step.type === "case") {
-        const caseStep = step as {
-          paths: Record<string, WorkflowDefinition["steps"]>;
-          default?: WorkflowDefinition["steps"];
-        };
-        for (const pathSteps of Object.values(caseStep.paths)) {
-          collectTerminalTypes(pathSteps);
-        }
-        if (caseStep.default) collectTerminalTypes(caseStep.default);
-      }
-    }
-  };
-  collectTerminalTypes(definition.steps);
-
-  if (terminalTypes.size > 0) {
-    const terminalWarnings = validateTerminalStepSuccessors(definition.steps, terminalTypes);
-    for (const tw of terminalWarnings) {
-      warnings.push({
-        stepSlug: tw.terminalSlug,
-        field: "type",
-        message: `Terminal step "${tw.terminalSlug}" has unreachable successors: ${tw.unreachableSlugs.join(", ")}`,
-      });
     }
   }
 
@@ -234,7 +208,7 @@ function getDependencyWarnings(definition: WorkflowDefinition, ctx: ExtensionCon
 const manifest = {
   name: "workflows",
   version: "1.0.0",
-  description: "Multi-step job pipelines defined in JSON5",
+  description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
   ui: {
@@ -259,20 +233,18 @@ const manifest = {
 export function createExtension(): Extension {
   let logger: Logger;
 
-  /** Loaded workflow definitions, keyed by name. */
-  const store = new Map<string, WorkflowDefinition>();
+  /** Loaded DAG workflow definitions, keyed by name. */
+  const store = new Map<string, DagWorkflowDefinition>();
 
   /** Mutable extension state. */
   const state: {
     watcher: FSWatcher | null;
     reloadTimer: ReturnType<typeof setTimeout> | null;
     workflowsDir: string;
-    recoveryCleanup: (() => void) | null;
   } = {
     watcher: null,
     reloadTimer: null,
     workflowsDir: "",
-    recoveryCleanup: null,
   };
 
   /**
@@ -283,7 +255,7 @@ export function createExtension(): Extension {
     state.reloadTimer = setTimeout(async () => {
       state.reloadTimer = null;
       try {
-        const loaded = await loadWorkflows(state.workflowsDir, logger);
+        const loaded = await loadDagWorkflows(state.workflowsDir, logger);
         store.clear();
         for (const [k, v] of loaded) store.set(k, v);
         logger.info(`Reloaded ${store.size} workflow definition(s)`);
@@ -303,100 +275,24 @@ export function createExtension(): Extension {
       const sessionFactory: SessionFactory = { create: (opts) => ctx.sessions.create(opts) };
 
       // Initialize data stores with the shared database instance
-      initRunStore(ctx.db);
+      initDagRunStore(ctx.db);
       initSignalStore(ctx.db);
-
-      // Recover interrupted runs from previous process crash
-      const recovery = recoverFromCrash({
-        log: logger,
-        broadcast: (event) => ctx.messaging.broadcast(event),
-      });
-      state.recoveryCleanup = recovery.cleanup;
 
       // Load workflow definitions
       state.workflowsDir = path.join(ctx.paths.work, "workflows");
       await mkdir(state.workflowsDir, { recursive: true });
 
-      const loaded = await loadWorkflows(state.workflowsDir, logger);
+      const loaded = await loadDagWorkflows(state.workflowsDir, logger);
       store.clear();
       for (const [k, v] of loaded) store.set(k, v);
       logger.info(`Loaded ${store.size} workflow definition(s)`);
 
-      // Register the emit step type handler so it's processed by the queue worker
-      ctx.stepTypes.register(
-        "emit",
-        createEmitHandler({
-          flowProducer,
-          sessionFactory,
-          log: logger,
-          broadcast: (event) => ctx.messaging.broadcast(event),
-          getWorkflowDefinition: (name) => {
-            const wf = store.get(name);
-            return wf ? { steps: wf.steps } : undefined;
-          },
-        }),
-      );
-
-      // Register the dispatch function so all extension contexts can use ctx.workflows.dispatch()
-      setWorkflowDispatchFn(async (name, payload) => {
-        const wf = store.get(name);
-        if (!wf) {
-          throw new Error(`Workflow not found: ${name}`);
-        }
-        if (wf.enabled === false) {
-          throw new Error(`Workflow is disabled: ${name}`);
-        }
-        const result = await dispatchWorkflow(flowProducer, wf, payload ?? null, logger, sessionFactory);
-        ctx.messaging.broadcast({
-          type: "workflow_started",
-          workflowRunId: result.workflowRunId,
-          workflowName: wf.name,
-          steps: wf.steps.map((s, i) => ({
-            slug: s.slug,
-            type: s.type,
-            jobId: result.jobIds[i],
-          })),
-        });
-
-        // When the first segment is a control flow node, the engine returns
-        // empty jobIds. Kick off inline evaluation via the segment dispatcher.
-        if (result.jobIds.length === 0) {
-          const allStepDefs: Record<string, unknown> = {};
-          for (const s of wf.steps) allStepDefs[s.slug] = s;
-          await dispatchNextSegment(result.workflowRunId, 0, {
-            steps: wf.steps,
-            allStepDefs,
-            flowProducer,
-            sessionFactory,
-            log: logger,
-            broadcast: (event) => ctx.messaging.broadcast(event),
-          });
-        }
-
-        return result;
-      });
-
-      // Watch for file changes and hot-reload
-      try {
-        state.watcher = watch(state.workflowsDir, (_event, filename) => {
-          if (filename?.endsWith(".json5")) {
-            logger.debug(`Workflow file changed: ${filename}`);
-            scheduleReload(ctx);
-          }
-        });
-        state.watcher.on("error", (err) => logger.error("Workflow watcher error:", err));
-        logger.info(`Watching ${state.workflowsDir} for workflow changes`);
-      } catch (err) {
-        logger.warn("Could not start workflow file watcher:", err);
-      }
-
-      // Create the steps queue
-      const stepsQueue = ctx.queues.create<WorkflowStepJobData>(
+      // Create the steps queue (declared before coordinatorDeps so cancelJob can reference it).
+      const stepsQueue = ctx.queues.create<DagStepJobData>(
         "steps",
-        createStepProcessor({
+        createDagStepProcessor({
           ctx,
-          flowProducer,
-          emitEvent: (event: AgentEvent, jobId: string, jobData: WorkflowStepJobData) => {
+          emitEvent: (event: AgentEvent, jobId: string, jobData: DagStepJobData) => {
             ctx.events.emit({
               ...event,
               context: {
@@ -420,7 +316,79 @@ export function createExtension(): Extension {
         },
       );
 
-      // Wire queue events -> WebSocket broadcasts
+      // Build the coordinator dependencies (shared by completion, failure, resume, emit).
+      const coordinatorDeps: DagCoordinatorDeps = {
+        flowProducer,
+        sessionFactory,
+        log: logger,
+        broadcast: (event) => ctx.messaging.broadcast(event),
+        getWorkflowDefinition: (name) => store.get(name),
+        cancelJob: async (jobId) => {
+          await stepsQueue.cancelJob(jobId);
+        },
+      };
+
+      // Register the DAG emit step type handler
+      ctx.stepTypes.register("emit", createDagEmitHandler({ coordinatorDeps }));
+
+      /**
+       * Shared DAG dispatch helper. Dispatches a workflow, broadcasts the
+       * `workflow_started` event, and kicks off inline root nodes if any.
+       */
+      async function dispatchAndAnnounce(
+        wf: DagWorkflowDefinition,
+        payload: unknown,
+      ): Promise<{ workflowRunId: string; jobIds: string[] }> {
+        const result = await dispatchDagWorkflow(
+          flowProducer,
+          wf,
+          payload ?? null,
+          logger,
+          sessionFactory,
+          async (runId, rootSlugs) => {
+            for (const slug of rootSlugs) {
+              await evaluateInlineRoot(runId, slug, coordinatorDeps);
+            }
+          },
+        );
+
+        ctx.messaging.broadcast({
+          type: "workflow_started",
+          workflowRunId: result.workflowRunId,
+          workflowName: wf.name,
+          steps: Object.entries(wf.steps).map(([slug, s]) => ({ slug, type: s.type })),
+        });
+
+        return result;
+      }
+
+      // Register the dispatch function so all extension contexts can use ctx.workflows.dispatch()
+      setWorkflowDispatchFn(async (name, payload) => {
+        const wf = store.get(name);
+        if (!wf) {
+          throw new Error(`Workflow not found: ${name}`);
+        }
+        if (wf.enabled === false) {
+          throw new Error(`Workflow is disabled: ${name}`);
+        }
+        return dispatchAndAnnounce(wf, payload);
+      });
+
+      // Watch for file changes and hot-reload
+      try {
+        state.watcher = watch(state.workflowsDir, (_event, filename) => {
+          if (filename?.endsWith(".json5")) {
+            logger.debug(`Workflow file changed: ${filename}`);
+            scheduleReload(ctx);
+          }
+        });
+        state.watcher.on("error", (err) => logger.error("Workflow watcher error:", err));
+        logger.info(`Watching ${state.workflowsDir} for workflow changes`);
+      } catch (err) {
+        logger.warn("Could not start workflow file watcher:", err);
+      }
+
+      // Wire queue events -> DAG coordinator + WebSocket broadcasts
       stepsQueue.onEvent("active", ({ job }) => {
         if (!job) return;
         const d = stepData(job);
@@ -431,28 +399,17 @@ export function createExtension(): Extension {
           jobId: d.id,
         });
       });
+
       stepsQueue.onEvent("completed", async ({ job }) => {
         if (!job) return;
         const d = stepData(job);
-        const jobResult = job.returnvalue as StepResult | undefined;
-
-        await handleStepCompletion(
-          { id: d.id, data: d, returnvalue: jobResult },
-          {
-            flowProducer,
-            sessionFactory,
-            log: logger,
-            broadcast: (event) => ctx.messaging.broadcast(event),
-            getWorkflowDefinition: (name) => {
-              const def = store.get(name);
-              return def ? { steps: def.steps } : undefined;
-            },
-          },
-        );
+        await handleDagStepCompletion(d.workflowRunId, d.stepSlug, job.returnvalue, d.id, coordinatorDeps);
       });
-      stepsQueue.onEvent("failed", ({ jobId, failedReason, job }) => {
+
+      stepsQueue.onEvent("failed", async ({ jobId, failedReason, job }) => {
         if (!job) return;
         const d = stepData(job);
+
         ctx.messaging.broadcast({
           type: "workflow_step_failed",
           workflowRunId: d.workflowRunId,
@@ -460,23 +417,17 @@ export function createExtension(): Extension {
           jobId: d.id,
           error: failedReason,
         });
-        ctx.messaging.broadcast({
-          type: "workflow_failed",
-          workflowRunId: d.workflowRunId,
-          failedStep: d.stepSlug,
-          error: failedReason,
-        });
 
-        // Persist failed status in Run Store
-        try {
-          runStore.updateStatus(d.workflowRunId, "failed", failedReason);
-        } catch {
-          // best effort
-        }
-
-        // Emit domain event for cross-extension consumption (e.g. error-analyzer)
-        // Only emit after the job failed permanently (not just delayed because of retry attempts)
+        // Only fail the run permanently once the job is truly failed (not a retry delay)
         if (d.state === "failed") {
+          // Collect in-flight jobs to cancel for fail-fast
+          const inFlight = runJobs(await stepsQueue.getAllJobs(), d.workflowRunId)
+            .filter((s) => s.id !== d.id && (s.state === "active" || s.state === "waiting" || s.state === "delayed"))
+            .map((s) => s.id);
+
+          await handleDagStepFailure(d.workflowRunId, d.stepSlug, failedReason, coordinatorDeps, inFlight);
+
+          // Emit domain event for cross-extension consumption (e.g. error-analyzer)
           ctx.events.emit({
             type: "workflow:step_failed",
             context: {
@@ -496,13 +447,12 @@ export function createExtension(): Extension {
 
       /**
        * Matches a trigger event against loaded workflow definitions and dispatches
-       * any matching workflows. Used by all three event subscriptions (webhook,
-       * filewatcher, scheduler) to avoid duplicated handler logic.
+       * any matching workflows.
        *
-       * @param triggerType - The workflow trigger type to match (e.g. "webhook", "filewatcher", "schedule")
+       * @param triggerType - The workflow trigger type to match
        * @param slug - The event slug to match against workflow `trigger.ref`
-       * @param payload - The trigger payload passed to the workflow as `triggerPayload`
-       * @param sourceLabel - Human-readable label for log messages (e.g. "Webhook", "File watcher", "Schedule")
+       * @param payload - The trigger payload
+       * @param sourceLabel - Human-readable label for log messages
        */
       async function matchAndDispatch(
         triggerType: string,
@@ -513,32 +463,7 @@ export function createExtension(): Extension {
         for (const wf of store.values()) {
           if (wf.trigger.type === triggerType && wf.trigger.ref === slug && (wf.enabled ?? true)) {
             try {
-              const result = await dispatchWorkflow(flowProducer, wf, payload, logger, sessionFactory);
-              ctx.messaging.broadcast({
-                type: "workflow_started",
-                workflowRunId: result.workflowRunId,
-                workflowName: wf.name,
-                steps: wf.steps.map((s, i) => ({
-                  slug: s.slug,
-                  type: s.type,
-                  jobId: result.jobIds[i],
-                })),
-              });
-
-              // When the first segment is a control flow node, kick off inline evaluation.
-              if (result.jobIds.length === 0) {
-                const allStepDefs: Record<string, unknown> = {};
-                for (const s of wf.steps) allStepDefs[s.slug] = s;
-                await dispatchNextSegment(result.workflowRunId, 0, {
-                  steps: wf.steps,
-                  allStepDefs,
-                  flowProducer,
-                  sessionFactory,
-                  log: logger,
-                  broadcast: (event) => ctx.messaging.broadcast(event),
-                });
-              }
-
+              const result = await dispatchAndAnnounce(wf, payload);
               logger.info(`${sourceLabel} "${slug}" triggered workflow "${wf.name}" -> run ${result.workflowRunId}`);
             } catch (err) {
               logger.error(`Failed to dispatch workflow "${wf.name}" for ${sourceLabel.toLowerCase()} "${slug}":`, err);
@@ -547,21 +472,18 @@ export function createExtension(): Extension {
         }
       }
 
-      // --- Subscribe to webhook events for trigger matching ---
       ctx.events.on("webhook:received", async (event) => {
         const slug = event.context?.slug as string | undefined;
         if (!slug) return;
         await matchAndDispatch("webhook", slug, event.context?.payload, "Webhook");
       });
 
-      // --- Subscribe to file watcher events for trigger matching ---
       ctx.events.on("filewatcher:detected", async (event) => {
         const slug = event.context?.slug as string | undefined;
         if (!slug) return;
         await matchAndDispatch("filewatcher", slug, event.context, "File watcher");
       });
 
-      // --- Subscribe to scheduler events for trigger matching ---
       ctx.events.on("scheduler:fired", async (event) => {
         const slug = event.context?.slug as string | undefined;
         if (!slug) return;
@@ -581,25 +503,18 @@ export function createExtension(): Extension {
         : undefined;
 
       ctx.routes.register("GET", "/meta/tools", async () => {
-        const names = ctx.tools.names().sort();
-        return Response.json(names);
+        return Response.json(ctx.tools.names().sort());
       });
 
       ctx.routes.register("GET", "/meta/skills", async () => {
-        const names = ctx.skills.names().sort();
-        return Response.json(names);
+        return Response.json(ctx.skills.names().sort());
       });
 
       /**
        * Returns available trigger refs grouped by trigger type.
-       * Used by the frontend to populate a dropdown when editing trigger.ref.
-       * Queries sibling extensions via their REST APIs to maintain isolation.
-       *
-       * @returns `{ webhook: string[], schedule: string[], filewatcher: string[] }`
        */
       ctx.routes.register("GET", "/meta/triggers", async () => {
         const origin = ctx.urls.origin;
-
         const [webhookSlugs, schedulerIds, filewatcherSlugs] = await Promise.all([
           ctx
             .fetch(`${origin}/ext/webhooks`)
@@ -628,8 +543,7 @@ export function createExtension(): Extension {
       ctx.routes.register("GET", "/", async () => {
         const list = await Promise.all(
           [...store.values()].map(async (w) => {
-            // Query Run Store for per-workflow run counts
-            const allRuns = runStore.getByWorkflowName(w.name);
+            const allRuns = dagRunStore.getByWorkflowName(w.name);
             let activeRuns = 0;
             let completedRuns = 0;
             let failedRuns = 0;
@@ -650,7 +564,7 @@ export function createExtension(): Extension {
               }
             }
 
-            const templateWarnings = await validateWorkflowTemplates(w, {
+            const templateWarnings = await validateDagWorkflowTemplates(w, {
               workflowName: w.name,
               secretStore: secretResolver,
             });
@@ -660,9 +574,10 @@ export function createExtension(): Extension {
               name: w.name,
               description: w.description,
               trigger: w.trigger,
-              stepCount: w.steps.length,
+              stepCount: Object.keys(w.steps).length,
               enabled: w.enabled ?? true,
-              steps: w.steps.map((s) => ({ slug: s.slug, type: s.type })),
+              steps: Object.entries(w.steps).map(([slug, s]) => ({ slug, type: s.type })),
+              edges: w.edges,
               activeRuns,
               completedRuns,
               failedRuns,
@@ -678,101 +593,27 @@ export function createExtension(): Extension {
         const wf = store.get(name ?? "");
         if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
 
-        const allJobs = await stepsQueue.getAllJobs();
-
-        const runMap = new Map<
-          string,
-          {
-            status: string;
-            startedAt: number;
-            completedAt?: number;
-            steps: Array<{ slug: string; status: string; jobId: string; stepIndex: number; finishedOn?: number }>;
-          }
-        >();
-        for (const d of allJobs.map(stepData)) {
-          if (d.workflowName !== name) continue;
-          if (!runMap.has(d.workflowRunId))
-            runMap.set(d.workflowRunId, { status: "running", startedAt: d.timestamp ?? Date.now(), steps: [] });
-          const run = runMap.get(d.workflowRunId)!;
-          run.steps.push({
-            slug: d.stepSlug,
-            status: d.state,
-            jobId: d.id,
-            stepIndex: d.stepIndex,
-            finishedOn: d.finishedOn,
-          });
-        }
-
-        // Sort steps within each run by their original definition order
-        // and enrich status from Run Store
-        for (const [runId, run] of runMap.entries()) {
-          run.steps.sort((a, b) => a.stepIndex - b.stepIndex);
-
-          // Read authoritative status from Run Store
-          const persistedRun = runStore.get(runId);
-          run.status = persistedRun?.status ?? "running";
-
-          if (persistedRun?.status === "waiting-signal") {
-            const waitingSignals = signalStore.getAllWaiting().filter((s) => s.runId === runId);
-            const activeSignal = waitingSignals[0] ?? null;
-            if (activeSignal) {
-              const existing = run.steps.find((s) => s.slug === activeSignal.stepSlug);
-              if (existing) {
-                existing.status = "waiting-signal";
-              } else {
-                // Inject the waitFor step at its correct position
-                const stepIndex = persistedRun.fullStepOrder.indexOf(activeSignal.stepSlug);
-                run.steps.push({
-                  slug: activeSignal.stepSlug,
-                  status: "waiting-signal",
-                  jobId: runId,
-                  stepIndex: stepIndex >= 0 ? stepIndex : run.steps.length,
-                  finishedOn: undefined,
-                });
-                run.steps.sort((a, b) => a.stepIndex - b.stepIndex);
-              }
-            }
-          } else if (persistedRun) {
-            // Inject completed waitFor steps that have results but no queue job
-            const mappedSlugs = new Set(run.steps.map((s) => s.slug));
-            for (const slug of persistedRun.fullStepOrder) {
-              if (mappedSlugs.has(slug)) continue;
-              if (persistedRun.stepResults && slug in persistedRun.stepResults && !slug.startsWith("__")) {
-                const stepDef = wf?.steps.find((s: { slug: string }) => s.slug === slug);
-                if (stepDef && (stepDef.type === "waitFor" || stepDef.type === "if" || stepDef.type === "case")) {
-                  const stepIndex = persistedRun.fullStepOrder.indexOf(slug);
-                  run.steps.push({
-                    slug,
-                    status: "completed",
-                    jobId: runId,
-                    stepIndex: stepIndex >= 0 ? stepIndex : run.steps.length,
-                    finishedOn: undefined,
-                  });
-                }
-              }
-            }
-            run.steps.sort((a, b) => a.stepIndex - b.stepIndex);
-          }
-
-          // Derive completedAt as the latest finishedOn among all steps (only if run is terminal)
-          if (run.status === "completed" || run.status === "failed") {
-            const finishedTimes = run.steps.map((s) => s.finishedOn).filter((t): t is number => t != null);
-            if (finishedTimes.length > 0) {
-              run.completedAt = Math.max(...finishedTimes);
-            }
-          }
-        }
-
-        const runs = [...runMap.entries()]
-          .map(([runId, run]) => ({
-            runId,
-            ...run,
-            steps: run.steps.map(({ stepIndex: _, finishedOn: __, ...rest }) => rest),
+        // Build run summaries from the DAG Run Store (authoritative for DAG runs).
+        // Run and step statuses are persisted directly, including "waiting-signal"
+        // for a run/step paused on a waitFor node, so no display derivation is
+        // needed here.
+        const allRuns = dagRunStore.getByWorkflowName(name!);
+        const runs = allRuns
+          .map((run) => ({
+            runId: run.id,
+            status: run.status,
+            startedAt: run.createdAt,
+            completedAt: run.status === "completed" || run.status === "failed" ? run.updatedAt : undefined,
+            steps: Object.entries(run.stepStatuses).map(([slug, status]) => ({
+              slug,
+              status,
+              jobId: run.id,
+            })),
           }))
           .sort((a, b) => b.startedAt - a.startedAt)
           .slice(0, 20);
 
-        const templateWarnings = await validateWorkflowTemplates(wf, {
+        const templateWarnings = await validateDagWorkflowTemplates(wf, {
           workflowName: wf.name,
           secretStore: secretResolver,
         });
@@ -784,11 +625,9 @@ export function createExtension(): Extension {
           wf.trigger.outputSchema as OutputSchema | undefined,
         );
         const stepOutputSchemas: Record<string, OutputSchema> = {};
-        for (const step of wf.steps) {
-          const schema = (step as { outputSchema?: OutputSchema }).outputSchema;
-          if (schema) {
-            stepOutputSchemas[step.slug] = schema;
-          }
+        for (const [slug, stepDef] of Object.entries(wf.steps)) {
+          const schema = (stepDef as { outputSchema?: OutputSchema }).outputSchema;
+          if (schema) stepOutputSchemas[slug] = schema;
         }
 
         return Response.json({
@@ -802,198 +641,79 @@ export function createExtension(): Extension {
         });
       });
 
-      /**
-       * Creates a new workflow definition on disk and makes it immediately available.
-       *
-       * @returns `{ ok: true, name: "<name>" }` on success (201), or an error response (400/409/500)
-       */
-      ctx.routes.register("POST", "/", async (_reqCtx) => {
-        return Response.json({ error: "Function not available" }, { status: 500 });
-
-        /*const body = reqCtx.body;
-
-        // Validate body against schema
-        if (!Value.Check(WorkflowDefinitionSchema, body)) {
-          const errors = [...Value.Errors(WorkflowDefinitionSchema, body)];
-          return Response.json(
-            { error: "Validation failed", details: errors.map((e) => `${e.path}: ${e.message}`).join(", ") },
-            { status: 400 },
-          );
-        }
-
-        // Manual triggers must not include a ref
-        if (body.trigger.type === "manual" && body.trigger.ref) {
-          return Response.json({ error: "Manual triggers do not support a ref value" }, { status: 400 });
-        }
-
-        // Explicit name pattern check for a more specific error message
-        if (!/^[a-z][a-z0-9-]*$/.test(body.name)) {
-          return Response.json({ error: "Name must match pattern ^[a-z][a-z0-9-]*$" }, { status: 400 });
-        }
-
-        // Check for duplicate step slugs
-        const slugs = body.steps.map((s: { slug: string }) => s.slug);
-        const duplicates = slugs.filter((s: string, i: number) => slugs.indexOf(s) !== i);
-        if (duplicates.length > 0) {
-          return Response.json({ error: `Duplicate step slug: ${duplicates[0]}` }, { status: 400 });
-        }
-
-        // Check for name conflicts in the in-memory store
-        if (store.has(body.name)) {
-          return Response.json({ error: `Workflow '${body.name}' already exists` }, { status: 409 });
-        }
-
-        // Write new workflow definition to disk
-        const filePath = path.join(state.workflowsDir, `${body.name}.json5`);
-        try {
-          await Bun.write(filePath, JSON.stringify(body, null, 2));
-        } catch (err) {
-          logger.error(`Failed to write workflow file "${filePath}":`, err);
-          return Response.json({ error: "Failed to write workflow file" }, { status: 500 });
-        }
-
-        // Update in-memory store immediately so subsequent reads return fresh data
-        store.set(body.name, body);
-        // Also schedule a full reload for any side effects (file watcher coalescing)
-        scheduleReload(ctx);
-        return Response.json({ ok: true, name: body.name }, { status: 201 });*/
-      });
-
       ctx.routes.register("POST", "/run/:name", async (reqCtx) => {
         const name = (reqCtx.params as Record<string, string>).name;
         const wf = store.get(name ?? "");
         if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
 
         const payload = reqCtx.body ?? null;
-        const result = await dispatchWorkflow(flowProducer, wf, payload, logger, sessionFactory);
-        ctx.messaging.broadcast({
-          type: "workflow_started",
-          workflowRunId: result.workflowRunId,
-          workflowName: wf.name,
-          steps: wf.steps.map((s, i) => ({
-            slug: s.slug,
-            type: s.type,
-            jobId: result.jobIds[i],
-          })),
-        });
-
-        // When the first segment is a control flow node, kick off inline evaluation.
-        if (result.jobIds.length === 0) {
-          const allStepDefs: Record<string, unknown> = {};
-          for (const s of wf.steps) allStepDefs[s.slug] = s;
-          await dispatchNextSegment(result.workflowRunId, 0, {
-            steps: wf.steps,
-            allStepDefs,
-            flowProducer,
-            sessionFactory,
-            log: logger,
-            broadcast: (event) => ctx.messaging.broadcast(event),
-          });
-        }
-
+        const result = await dispatchAndAnnounce(wf, payload);
         return Response.json({ ok: true, workflowRunId: result.workflowRunId, jobIds: result.jobIds }, { status: 202 });
       });
 
       ctx.routes.register("GET", "/runs/:runId", async (reqCtx) => {
         const runId = (reqCtx.params as Record<string, string>).runId;
         if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
-        const steps = runJobs(await stepsQueue.getAllJobs(), runId);
-        if (steps.length === 0) return Response.json({ error: "Run not found" }, { status: 404 });
-        const sorted = [...steps].sort((a, b) => a.stepIndex - b.stepIndex);
-        const workflowName = sorted[0]!.workflowName;
-        const wf = store.get(workflowName);
 
-        // Check Run Store for waiting-signal status and enrich step data
-        const run = runStore.get(runId);
-        // If run is waiting-signal, find the actual waiting signal record
-        let activeSignal: signalStore.SignalRecord | null = null;
-        if (run?.status === "waiting-signal") {
-          const allWaiting = signalStore.getAllWaiting().filter((s) => s.runId === runId);
-          activeSignal = allWaiting[0] ?? null;
+        const run = dagRunStore.get(runId);
+        if (!run) return Response.json({ error: "Run not found" }, { status: 404 });
+
+        const wf = store.get(run.workflowName);
+
+        // Waiting signal records keyed by step slug, used to enrich paused
+        // waitFor steps with their event name and input schema. A run may have
+        // more than one step paused concurrently.
+        const waitingSignalsByStep = new Map<string, signalStore.SignalRecord>();
+        for (const signal of signalStore.getAllWaiting()) {
+          if (signal.runId === runId) waitingSignalsByStep.set(signal.stepSlug, signal);
         }
-
-        const runStatus = run?.status ?? "running";
 
         // Extract chosenBranch info from step results for CF nodes
         const chosenBranches: Record<string, string> = {};
-        if (run?.stepResults) {
-          for (const [slug, result] of Object.entries(run.stepResults)) {
-            if (slug.startsWith("__")) continue;
-            if (result && typeof result === "object" && "chosenBranch" in result) {
-              chosenBranches[slug] = (result as { chosenBranch: string }).chosenBranch;
-            } else if (result && typeof result === "object" && "matched" in result) {
-              chosenBranches[slug] = (result as { matched: string }).matched;
-            }
+        for (const [slug, result] of Object.entries(run.stepResults)) {
+          if (result && typeof result === "object" && "chosenBranch" in result) {
+            chosenBranches[slug] = (result as { chosenBranch: string }).chosenBranch;
+          } else if (result && typeof result === "object" && "matched" in result) {
+            chosenBranches[slug] = (result as { matched: string }).matched;
           }
         }
 
+        // Map each step slug to the real queue job ID so the UI can fetch that
+        // step's logs (via GET /api/jobs/:jobId/logs). The run ID is NOT a job
+        // ID; steps that never produced a job (e.g. dead branches, control-flow
+        // nodes) simply have no entry and get an empty jobId below.
+        const stepJobIds = buildStepJobIdMap(runJobs(await stepsQueue.getAllJobs(), runId));
+
+        const steps = Object.entries(run.stepStatuses).map(([slug, status]) => {
+          const stepDef = wf?.steps[slug];
+          const entry: {
+            slug: string;
+            type: string;
+            status: string;
+            jobId: string;
+            waitEvent?: string;
+            waitInputSchema?: Record<string, unknown> | null;
+          } = {
+            slug,
+            type: stepDef?.type ?? "unknown",
+            status,
+            jobId: stepJobIds.get(slug) ?? "",
+          };
+          const signal = waitingSignalsByStep.get(slug);
+          if (signal) {
+            entry.waitEvent = signal.event;
+            entry.waitInputSchema = signal.inputSchema as Record<string, unknown> | null;
+          }
+          return entry;
+        });
+
         return Response.json({
           runId,
-          workflowName,
-          status: runStatus,
+          workflowName: run.workflowName,
+          status: run.status,
           trigger: wf?.trigger ?? null,
           chosenBranches,
-          steps: (() => {
-            const mapped: Array<{
-              slug: string;
-              type: string;
-              status: string;
-              jobId: string;
-              waitEvent?: string;
-              waitInputSchema?: Record<string, unknown> | null;
-            }> = sorted.map((d) => ({
-              slug: d.stepSlug,
-              type: d.stepDef.type,
-              status: d.state,
-              jobId: d.id,
-            }));
-
-            // waitFor steps are handled inline (no queue job) — inject them.
-            // When actively waiting: inject with waiting-signal status.
-            // When completed/failed: inject as completed (signal was received).
-            if (activeSignal) {
-              const exists = mapped.some((s) => s.slug === activeSignal.stepSlug);
-              if (!exists) {
-                const stepDef = wf?.steps.find((s: { slug: string }) => s.slug === activeSignal.stepSlug);
-                mapped.push({
-                  slug: activeSignal.stepSlug,
-                  type: stepDef?.type ?? "waitFor",
-                  status: "waiting-signal",
-                  jobId: runId,
-                  waitEvent: activeSignal.event,
-                  waitInputSchema: activeSignal.inputSchema as Record<string, unknown> | null,
-                });
-              } else {
-                const entry = mapped.find((s) => s.slug === activeSignal.stepSlug);
-                if (entry) {
-                  entry.status = "waiting-signal";
-                  entry.waitEvent = activeSignal.event;
-                  entry.waitInputSchema = activeSignal.inputSchema as Record<string, unknown> | null;
-                }
-              }
-            } else if (run) {
-              // No active signal — inject completed inline steps from stepResults.
-              // Control flow nodes (if, case, waitFor) are handled inline without queue jobs.
-              const mappedSlugs = new Set(mapped.map((s) => s.slug));
-              for (const slug of run.fullStepOrder) {
-                if (mappedSlugs.has(slug)) continue;
-                // Check if this slug has a result in stepResults (meaning it executed)
-                if (run.stepResults && slug in run.stepResults && !slug.startsWith("__")) {
-                  const stepDef = wf?.steps.find((s: { slug: string }) => s.slug === slug);
-                  if (stepDef && (stepDef.type === "waitFor" || stepDef.type === "if" || stepDef.type === "case")) {
-                    mapped.push({
-                      slug,
-                      type: stepDef.type,
-                      status: "completed",
-                      jobId: runId,
-                    });
-                  }
-                }
-              }
-            }
-
-            return mapped;
-          })(),
+          steps,
         });
       });
 
@@ -1002,7 +722,6 @@ export function createExtension(): Extension {
         if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
         const stepJobs = runJobs(await stepsQueue.getAllJobs(), runId);
         if (stepJobs.length === 0) return Response.json({ error: "Run not found" }, { status: 404 });
-        stepJobs.sort((a, b) => a.stepIndex - b.stepIndex);
 
         const stepsWithLogs = await Promise.all(
           stepJobs.map(async (s) => {
@@ -1019,54 +738,8 @@ export function createExtension(): Extension {
         return Response.json({ runId, steps: stepsWithLogs });
       });
 
-      ctx.routes.register("POST", "/runs/:runId/retry", async (reqCtx) => {
-        const runId = (reqCtx.params as Record<string, string>).runId;
-        if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
-        const steps = runJobs(await stepsQueue.getAllJobs(), runId);
-        if (steps.length === 0) return Response.json({ error: "Run not found" }, { status: 404 });
-        const sorted = [...steps].sort((a, b) => a.stepIndex - b.stepIndex);
-        const persistedRunState = runStore.get(runId);
-        if (persistedRunState?.status !== "failed") {
-          return Response.json({ error: "Only failed runs can be retried" }, { status: 409 });
-        }
-
-        // Retry all failed steps via the DLQ mechanism (child-first order so
-        // parent steps unblock once their children are re-queued).
-        const retried: string[] = [];
-        for (const step of sorted) {
-          if (step.state === "failed") {
-            const ok = await stepsQueue.retryJob(step.id);
-            if (ok) retried.push(step.id);
-          }
-        }
-
-        if (retried.length === 0) {
-          return Response.json({ error: "No failed steps could be retried" }, { status: 500 });
-        }
-
-        ctx.messaging.broadcast({
-          type: "workflow_started",
-          workflowRunId: runId,
-          workflowName: sorted[0]!.workflowName,
-          steps: sorted.map((s) => ({
-            slug: s.stepSlug,
-            type: s.stepDef.type,
-            jobId: s.id,
-          })),
-        });
-        logger.info(`Retried workflow run ${runId} (${retried.length} failed step(s) re-queued)`);
-        return Response.json({ ok: true, workflowRunId: runId, retriedSteps: retried }, { status: 202 });
-      });
-
       /**
        * Signal delivery endpoint - resumes a waiting workflow run.
-       *
-       * Validates: run exists, run is waiting-signal for the specified event,
-       * payload size <= 1MB, inputSchema validation (if defined).
-       * Atomically marks signal received, stores payload, transitions run
-       * to running, dispatches next segment, and broadcasts resumed event.
-       *
-       * @returns `{ accepted: true, runId, event, runStatus: "running" }` on success (200)
        */
       ctx.routes.register(
         "POST",
@@ -1076,13 +749,11 @@ export function createExtension(): Extension {
           const event = (reqCtx.params as Record<string, string>).event;
           if (!runId || !event) return Response.json({ error: "Missing runId or event" }, { status: 400 });
 
-          // Read raw body and enforce 1MB size limit
           const rawBody = await reqCtx.request.text();
           if (rawBody.length > 1_000_000) {
             return Response.json({ error: "Payload too large" }, { status: 413 });
           }
 
-          // Parse JSON payload
           let payload: unknown = null;
           if (rawBody.length > 0) {
             try {
@@ -1092,11 +763,9 @@ export function createExtension(): Extension {
             }
           }
 
-          // Check run exists
-          const run = runStore.get(runId);
+          const run = dagRunStore.get(runId);
           if (!run) return Response.json({ error: "Run not found" }, { status: 404 });
 
-          // Check run is in waiting-signal status
           if (run.status !== "waiting-signal") {
             return Response.json(
               { error: `Run is not awaiting a signal (current status: "${run.status}")` },
@@ -1104,7 +773,6 @@ export function createExtension(): Extension {
             );
           }
 
-          // Check a waiting signal record exists for this event
           const signal = signalStore.getWaiting(runId, event);
           if (!signal) {
             return Response.json({ error: `Run is not awaiting signal "${event}"` }, { status: 409 });
@@ -1116,45 +784,21 @@ export function createExtension(): Extension {
             if (!Value.Check(schema, payload)) {
               const errors = [...Value.Errors(schema, payload)];
               return Response.json(
-                {
-                  error: "Validation failed",
-                  details: errors.map((e) => ({ path: e.path, message: e.message })),
-                },
+                { error: "Validation failed", details: errors.map((e) => ({ path: e.path, message: e.message })) },
                 { status: 422 },
               );
             }
           }
 
-          // Atomically mark signal as received
+          // Atomically mark signal received
           signalStore.markReceived(signal.id, payload);
-
-          // Cancel the timeout timer to prevent it from firing after delivery
           signalTimers.cancel(signal.id);
 
-          // Verify the mark succeeded (race protection)
           const stillWaiting = signalStore.getWaiting(runId, event);
           if (stillWaiting) {
-            // The mark did not take effect (race condition or concurrent delivery)
             return Response.json({ error: "Signal has already been delivered" }, { status: 409 });
           }
 
-          // Store payload as the waitFor step result in Run Store
-          try {
-            runStore.updateStepResult(runId, signal.stepSlug, payload);
-          } catch (err) {
-            logger.error(`Failed to store signal payload for run ${runId}, step ${signal.stepSlug}:`, err);
-            return Response.json({ error: "Internal error" }, { status: 500 });
-          }
-
-          // Transition run status to running
-          try {
-            runStore.updateStatus(runId, "running");
-          } catch (err) {
-            logger.error(`Failed to transition run ${runId} to running:`, err);
-            return Response.json({ error: "Internal error" }, { status: 500 });
-          }
-
-          // Broadcast workflow_step_resumed
           ctx.messaging.broadcast({
             type: "workflow_step_resumed",
             workflowRunId: runId,
@@ -1162,81 +806,10 @@ export function createExtension(): Extension {
             signalEvent: event,
           });
 
-          // Dispatch next segment asynchronously
-          const wf = store.get(run.workflowName);
-          if (wf) {
-            // Check for branch continuation (waitFor was inside a branch)
-            const branchCont = run.stepResults[BRANCH_CONTINUATION_KEY] as
-              | { remainingSteps: import("./schemas").WorkflowStep[]; resumeStepIndex: number }
-              | undefined;
-
-            if (branchCont && branchCont.remainingSteps.length > 0) {
-              // Clear the branch continuation marker
-              try {
-                runStore.updateStepResult(runId, BRANCH_CONTINUATION_KEY, null);
-              } catch {
-                // best effort
-              }
-
-              // Resume with remaining branch steps
-              const updatedRun = runStore.get(runId);
-              if (updatedRun) {
-                dispatchBranchSteps(
-                  runId,
-                  branchCont.remainingSteps,
-                  branchCont.resumeStepIndex,
-                  signal.stepSlug,
-                  updatedRun,
-                  {
-                    steps: wf.steps,
-                    allStepDefs: Object.fromEntries(wf.steps.map((s) => [s.slug, s])),
-                    flowProducer,
-                    sessionFactory,
-                    log: logger,
-                    broadcast: (evt) => ctx.messaging.broadcast(evt),
-                    getWorkflowDefinition: (name) => {
-                      const def = store.get(name);
-                      return def ? { steps: def.steps } : undefined;
-                    },
-                  },
-                ).catch((err) => {
-                  logger.error(`Failed to dispatch branch continuation after signal for run ${runId}:`, err);
-                  failRun(
-                    runId,
-                    signal.stepSlug,
-                    `Branch continuation failed: ${err instanceof Error ? err.message : String(err)}`,
-                    { log: logger, broadcast: (evt) => ctx.messaging.broadcast(evt) },
-                  );
-                });
-              }
-            } else {
-              // Normal main-flow resume
-              const nextStepIndex = run.currentStepIndex + 1;
-              dispatchNextSegment(runId, nextStepIndex, {
-                steps: wf.steps,
-                allStepDefs: Object.fromEntries(wf.steps.map((s) => [s.slug, s])),
-                flowProducer,
-                sessionFactory,
-                log: logger,
-                broadcast: (evt) => ctx.messaging.broadcast(evt),
-              }).catch((err) => {
-                logger.error(`Failed to dispatch next segment after signal delivery for run ${runId}:`, err);
-                failRun(
-                  runId,
-                  signal.stepSlug,
-                  `Segment dispatch failed after signal: ${err instanceof Error ? err.message : String(err)}`,
-                  { log: logger, broadcast: (evt) => ctx.messaging.broadcast(evt) },
-                );
-              });
-            }
-          } else {
-            // Workflow definition no longer loaded - fail the run
-            logger.error(`Workflow definition "${run.workflowName}" not found for signal delivery on run ${runId}`);
-            failRun(runId, signal.stepSlug, `Workflow definition "${run.workflowName}" not found`, {
-              log: logger,
-              broadcast: (evt) => ctx.messaging.broadcast(evt),
-            });
-          }
+          // Resume the run via the DAG coordinator
+          resumeWaitForNode(runId, signal.stepSlug, payload, coordinatorDeps).catch((err) => {
+            logger.error(`Failed to resume run ${runId} after signal delivery:`, err);
+          });
 
           return Response.json({ accepted: true, runId, event, runStatus: "running" });
         },
@@ -1247,7 +820,8 @@ export function createExtension(): Extension {
         const runId = (reqCtx.params as Record<string, string>).runId;
         if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
         const stepJobs = runJobs(await stepsQueue.getAllJobs(), runId);
-        if (stepJobs.length === 0) {
+        const run = dagRunStore.get(runId);
+        if (stepJobs.length === 0 && !run) {
           return Response.json({ error: "Run not found" }, { status: 404 });
         }
 
@@ -1257,11 +831,9 @@ export function createExtension(): Extension {
           if (removed) cancelled.push(d.id);
         }
 
-        // Clean up Run Store and Signal Store records
         signalStore.deleteByRunIds([runId]);
-        runStore.deleteByIds([runId]);
+        dagRunStore.deleteByIds([runId]);
 
-        // Notify frontend clients about removed jobs
         for (const jobId of cancelled) {
           ctx.messaging.broadcast({ type: "job_removed", jobId });
         }
@@ -1272,39 +844,49 @@ export function createExtension(): Extension {
 
       /**
        * Updates an existing workflow definition on disk and reloads the in-memory store.
-       *
-       * @returns `{ ok: true }` on success, or an error response (400/404/500)
        */
       ctx.routes.register("PUT", "/:name", async (reqCtx) => {
         const name = (reqCtx.params as Record<string, string>).name;
         const body = reqCtx.body;
 
-        // Validate body against schema
-        if (!Value.Check(WorkflowDefinitionSchema, body)) {
-          const errors = [...Value.Errors(WorkflowDefinitionSchema, body)];
+        // Validate body against DAG schema
+        if (!Value.Check(DagWorkflowDefinitionSchema, body)) {
+          const errors = [...Value.Errors(DagWorkflowDefinitionSchema, body)];
           return Response.json(
             { error: "Validation failed", details: errors.map((e) => `${e.path}: ${e.message}`).join(", ") },
             { status: 400 },
           );
         }
 
+        const def = body as DagWorkflowDefinition;
+
+        // Structural DAG validation
+        const dagErrors = validateDag(def);
+        const cfErrors = validateCfEdges(def);
+        const structuralErrors = [...dagErrors, ...cfErrors];
+        if (structuralErrors.length > 0) {
+          return Response.json(
+            { error: "DAG validation failed", details: structuralErrors.map((e) => e.message).join("; ") },
+            { status: 400 },
+          );
+        }
+
         // Manual triggers must not include a ref
-        if (body.trigger.type === "manual" && body.trigger.ref) {
+        if (def.trigger.type === "manual" && def.trigger.ref) {
           return Response.json({ error: "Manual triggers do not support a ref value" }, { status: 400 });
         }
 
         // Non-manual triggers require a ref
-        if (body.trigger.type !== "manual" && !body.trigger.ref) {
-          return Response.json({ error: `Trigger type "${body.trigger.type}" requires a ref value` }, { status: 400 });
+        if (def.trigger.type !== "manual" && !def.trigger.ref) {
+          return Response.json({ error: `Trigger type "${def.trigger.type}" requires a ref value` }, { status: 400 });
         }
 
         // Validate that trigger.ref exists for the given trigger type
-        if (body.trigger.type !== "manual" && body.trigger.ref) {
-          const triggerType = body.trigger.type;
-          const ref = body.trigger.ref;
+        if (def.trigger.type !== "manual" && def.trigger.ref) {
+          const triggerType = def.trigger.type;
+          const ref = def.trigger.ref;
           const origin = ctx.urls.origin;
           let refExists = false;
-
           try {
             if (triggerType === "webhook") {
               const res = await ctx.fetch(`${origin}/ext/webhooks/${encodeURIComponent(ref)}`);
@@ -1323,10 +905,8 @@ export function createExtension(): Extension {
               }
             }
           } catch {
-            // If sibling extension is unavailable, skip validation
             refExists = true;
           }
-
           if (!refExists) {
             return Response.json(
               { error: `Trigger ref "${ref}" does not exist for type "${triggerType}"` },
@@ -1335,12 +915,10 @@ export function createExtension(): Extension {
           }
         }
 
-        // Ensure body name matches URL parameter
-        if (body.name !== name) {
+        if (def.name !== name) {
           return Response.json({ error: "Name in body does not match URL parameter" }, { status: 400 });
         }
 
-        // Check workflow exists in store
         if (!store.has(name!)) {
           return Response.json({ error: "Workflow not found" }, { status: 404 });
         }
@@ -1363,17 +941,14 @@ export function createExtension(): Extension {
 
         if (!targetFile) return Response.json({ error: "Workflow not found" }, { status: 404 });
 
-        // Write updated definition to disk
         try {
-          await Bun.write(targetFile, JSON.stringify(body, null, 2));
+          await Bun.write(targetFile, JSON.stringify(def, null, 2));
         } catch (err) {
           logger.error(`Failed to write workflow file "${targetFile}":`, err);
           return Response.json({ error: "Failed to write workflow file" }, { status: 500 });
         }
 
-        // Update in-memory store immediately so subsequent reads return fresh data
-        store.set(body.name, body);
-        // Also schedule a full reload for any side effects (file watcher coalescing)
+        store.set(def.name, def);
         scheduleReload(ctx);
         return Response.json({ ok: true });
       });
@@ -1383,7 +958,6 @@ export function createExtension(): Extension {
         const wf = store.get(name ?? "");
         if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
 
-        // Find the JSON5 file that contains this workflow
         const glob = new Bun.Glob("*.json5");
         let targetFile: string | null = null;
         for (const entry of glob.scanSync({ cwd: state.workflowsDir, absolute: false })) {
@@ -1410,10 +984,6 @@ export function createExtension(): Extension {
     },
 
     async shutdown() {
-      if (state.recoveryCleanup) {
-        state.recoveryCleanup();
-        state.recoveryCleanup = null;
-      }
       if (state.watcher) {
         state.watcher.close();
         state.watcher = null;
@@ -1429,4 +999,3 @@ export function createExtension(): Extension {
 
 const defaultInstance = createExtension();
 export default defaultInstance;
-export { dispatchWorkflow };

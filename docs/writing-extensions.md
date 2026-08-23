@@ -823,9 +823,8 @@ Add an `outputSchema` field to a trigger or step. Values are either type-hint st
       sender: { login: "string" }
     }
   },
-  steps: [
-    {
-      slug: "fetch-data",
+  steps: {
+    "fetch-data": {
       type: "agent",
       prompt: "Fetch data for {{trigger.payload.repository.name}}",
       tools: ["exec"],
@@ -836,7 +835,8 @@ Add an `outputSchema` field to a trigger or step. Values are either type-hint st
         metadata: { source: "string", timestamp: "string" }
       }
     }
-  ]
+  },
+  edges: []
 }
 ```
 
@@ -971,9 +971,8 @@ Workflow JSON5 definitions use the registered type name directly:
 {
   name: "scan-to-excel",
   trigger: { type: "filewatcher", ref: "inbox-scans" },
-  steps: [
-    {
-      slug: "extract",
+  steps: {
+    "extract": {
       type: "agent",
       prompt: [
         "Extract data from the document.",
@@ -983,8 +982,7 @@ Workflow JSON5 definitions use the registered type name directly:
       tools: ["exec"],
       skills: ["converter"]
     },
-    {
-      slug: "append-row",
+    "append-row": {
       type: "excel",
       mode: "append",
       path: "data/reports",
@@ -999,6 +997,9 @@ Workflow JSON5 definitions use the registered type name directly:
         data: "{{steps.extract.result}}"
       }]
     }
+  },
+  edges: [
+    { from: "extract", to: "append-row" }
   ]
 }
 ```

@@ -14,6 +14,7 @@ let props: Props = $props();
 </script>
 
 <button
+  id={props.id}
   type="button"
   role="switch"
   aria-checked={props.checked ? "true" : "false"}

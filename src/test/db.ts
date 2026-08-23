@@ -25,8 +25,8 @@ import {
 } from "@src/db/schema";
 import { fileWatchers as extFilewatcherWatchers } from "@src/extensions/core/filewatcher/schema";
 import { webhooks as extWebhooksRegistrations } from "@src/extensions/core/webhooks/schema";
+import { initDagRunStore } from "@src/extensions/core/workflows/dagRunStore";
 import { workflowRuns as extWorkflowRuns } from "@src/extensions/core/workflows/runSchema";
-import { initRunStore } from "@src/extensions/core/workflows/runStore";
 import { initSignalStore } from "@src/extensions/core/workflows/signalStore";
 import { mcpServers as extMcpServers } from "@src/extensions/mcp/schema";
 import { wikiEmbeddings as extWikiEmbeddings } from "@src/extensions/wiki/schema";
@@ -70,12 +70,12 @@ export function createTestDb(): ReturnType<typeof drizzle<typeof schema>> {
 /**
  * Creates a test DB with workflow-specific store initialization.
  *
- * Calls `initRunStore` and `initSignalStore` so that the workflow modules
+ * Calls `initDagRunStore` and `initSignalStore` so that the workflow modules
  * use this database instance for their queries.
  */
 export function createWorkflowTestDb(): ReturnType<typeof drizzle<typeof schema>> {
   const db = createTestDb();
-  initRunStore(db);
+  initDagRunStore(db);
   initSignalStore(db);
   return db;
 }

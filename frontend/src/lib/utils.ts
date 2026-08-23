@@ -174,16 +174,62 @@ export function isRunCancellable(status: string): boolean {
 }
 
 /**
+ * Normalizes a single step status into the canonical vocabulary used by
+ * {@link aggregateStepStatus} and the status indicators (`StatusDot`).
+ *
+ * Step statuses reach the frontend in two vocabularies:
+ * - Backend DAG runs (serialized from the run store) report
+ *   "pending" | "running" | "completed" | "failed" | "dead".
+ * - The graph renderer / WS store use
+ *   "waiting" | "active" | "completed" | "failed" | "waiting-signal" | "skipped".
+ *
+ * This maps both onto a single set so aggregation and dot coloring behave the
+ * same regardless of the source (e.g. the run list feeds raw DAG statuses,
+ * where a live step is "running", not "active").
+ *
+ * @param status - Raw step status string.
+ * @returns Canonical status string.
+ */
+function canonicalStepStatus(status: string): string {
+  switch (status) {
+    case "running":
+      return "active";
+    case "pending":
+      return "waiting";
+    case "dead":
+      return "skipped";
+    default:
+      return status;
+  }
+}
+
+/**
  * Computes an aggregate status from an array of step statuses.
- * Priority: failed > waiting-signal > active > waiting/delayed > completed
+ *
+ * Priority: failed > waiting-signal > active > waiting/delayed > completed.
+ *
+ * Handles both status vocabularies (backend DAG "running"/"pending"/"dead" and
+ * the graph "active"/"waiting"/"skipped") by normalizing each step first, so a
+ * running run aggregates to "active" (blinking blue dot) and a finished run
+ * that took a branch aggregates to "completed" (green dot).
+ *
+ * Steps that are "dead"/"skipped" (branches that were not taken in a
+ * control-flow workflow) are ignored: they neither block completion nor count
+ * as active work. A run is "completed" when every non-dead/non-skipped step is
+ * completed, which mirrors the backend's run-completion rule where dead
+ * branches do not prevent a run from finishing.
+ *
  * @param steps - Array of step statuses
  * @returns Aggregated status string
  */
 export function aggregateStepStatus(steps: Array<{ status: string }>): string {
-  if (steps.some((s) => s.status === "failed")) return "failed";
-  if (steps.some((s) => s.status === "waiting-signal")) return "waiting-signal";
-  if (steps.some((s) => s.status === "active")) return "active";
-  if (steps.some((s) => s.status === "waiting" || s.status === "delayed")) return "waiting";
-  if (steps.every((s) => s.status === "completed")) return "completed";
+  const statuses = steps.map((s) => canonicalStepStatus(s.status));
+  if (statuses.some((s) => s === "failed")) return "failed";
+  if (statuses.some((s) => s === "waiting-signal")) return "waiting-signal";
+  if (statuses.some((s) => s === "active")) return "active";
+  if (statuses.some((s) => s === "waiting" || s === "delayed")) return "waiting";
+  // Dead/skipped steps (not-taken branches) do not block completion.
+  const liveSteps = statuses.filter((s) => s !== "skipped");
+  if (liveSteps.length > 0 && liveSteps.every((s) => s === "completed")) return "completed";
   return "unknown";
 }

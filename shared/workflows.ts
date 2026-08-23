@@ -17,6 +17,7 @@ export type WorkflowWebSocketEvent =
   | { type: "workflow_started"; workflowRunId: string; workflowName: string; steps: WorkflowStepSummary[] }
   | { type: "workflow_step_started"; workflowRunId: string; stepSlug: string; jobId: string }
   | { type: "workflow_step_completed"; workflowRunId: string; stepSlug: string; jobId: string; chosenBranch?: string }
+  | { type: "workflow_step_dead"; workflowRunId: string; stepSlug: string }
   | { type: "workflow_step_failed"; workflowRunId: string; stepSlug: string; jobId: string; error: string }
   | {
       type: "workflow_step_waiting";

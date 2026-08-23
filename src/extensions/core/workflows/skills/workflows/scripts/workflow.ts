@@ -14,8 +14,9 @@ import {
 } from "@ext/sdk";
 import { Value } from "@sinclair/typebox/value";
 import type { CommandContext, ExecResult, IFileSystem } from "just-bash";
-import { normalizePrompt, type WorkflowDefinition, WorkflowDefinitionSchema } from "../../../schemas";
-import { validateWorkflowTemplates } from "../../../templateValidation";
+import { validateDagWorkflowTemplates } from "../../../dagTemplateValidation";
+import { validateCfEdges, validateDag } from "../../../dagValidation";
+import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePrompt } from "../../../schemas";
 
 /** Relative path to the workflows directory within the agent's working directory. */
 const WORKFLOWS_DIR = "workflows";
@@ -186,7 +187,10 @@ function buildListHandler() {
         const content = await fs.readFile(fs.resolvePath(dir, entry));
         const parsed = Bun.JSON5.parse(content) as Record<string, unknown>;
         const name = (parsed?.name as string) ?? "(unnamed)";
-        const stepCount = Array.isArray(parsed?.steps) ? (parsed.steps as unknown[]).length : 0;
+        const stepCount =
+          parsed?.steps && typeof parsed.steps === "object" && !Array.isArray(parsed.steps)
+            ? Object.keys(parsed.steps as Record<string, unknown>).length
+            : 0;
         const trigger = (parsed?.trigger as Record<string, unknown>)?.type ?? "?";
         const enabled = parsed?.enabled !== false;
         lines.push(`  ${name} (${entry}) - ${stepCount} steps, trigger: ${trigger}${enabled ? "" : " [disabled]"}`);
@@ -233,34 +237,35 @@ function buildWriteHandler(scriptCtx: SkillScriptContext) {
     }
 
     // Normalize prompt arrays for validation
-    if (Array.isArray(parsed.steps)) {
-      for (const step of parsed.steps as Array<Record<string, unknown>>) {
+    if (parsed.steps && typeof parsed.steps === "object" && !Array.isArray(parsed.steps)) {
+      for (const step of Object.values(parsed.steps as Record<string, Record<string, unknown>>)) {
         if (step.type === "agent" && Array.isArray(step.prompt)) {
           step.prompt = normalizePrompt(step.prompt as string[]);
         }
       }
     }
 
-    if (!Value.Check(WorkflowDefinitionSchema, parsed)) {
+    if (!Value.Check(DagWorkflowDefinitionSchema, parsed)) {
       return {
         exitCode: 1,
         stdout: "",
-        stderr: `Validation failed:\n${formatValidationErrors(WorkflowDefinitionSchema, parsed, "\n")}`,
+        stderr: `Validation failed:\n${formatValidationErrors(DagWorkflowDefinitionSchema, parsed, "\n")}`,
       };
     }
 
-    // Check for duplicate step slugs
-    const slugs = new Set<string>();
-    for (const step of (parsed as { steps: { slug: string }[] }).steps) {
-      if (slugs.has(step.slug)) {
-        return { exitCode: 1, stdout: "", stderr: `Validation failed: duplicate step slug "${step.slug}"` };
-      }
-      slugs.add(step.slug);
+    // Structural DAG validation (cycles, connectivity, CF-edge rules)
+    const definition = parsed as unknown as DagWorkflowDefinition;
+    const structuralErrors = [...validateDag(definition), ...validateCfEdges(definition)];
+    if (structuralErrors.length > 0) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `DAG validation failed:\n${structuralErrors.map((e) => `  ${e.message}`).join("\n")}`,
+      };
     }
 
     // Template expression validation (local check, then try server-side for secret validation)
-    const definition = parsed as unknown as WorkflowDefinition;
-    const localWarnings = await validateWorkflowTemplates(definition, { workflowName: definition.name });
+    const localWarnings = await validateDagWorkflowTemplates(definition, { workflowName: definition.name });
 
     const dir = getWorkflowsDir(fs, cwd);
     const filePath = fs.resolvePath(dir, `${name}.json5`);
@@ -301,38 +306,39 @@ function buildValidateHandler(scriptCtx: SkillScriptContext) {
     }
 
     // Normalize prompt arrays for validation
-    if (Array.isArray(parsed.steps)) {
-      for (const step of parsed.steps as Array<Record<string, unknown>>) {
+    if (parsed.steps && typeof parsed.steps === "object" && !Array.isArray(parsed.steps)) {
+      for (const step of Object.values(parsed.steps as Record<string, Record<string, unknown>>)) {
         if (step.type === "agent" && Array.isArray(step.prompt)) {
           step.prompt = normalizePrompt(step.prompt as string[]);
         }
       }
     }
 
-    if (!Value.Check(WorkflowDefinitionSchema, parsed)) {
+    if (!Value.Check(DagWorkflowDefinitionSchema, parsed)) {
       return {
         exitCode: 1,
         stdout: "",
-        stderr: `Schema validation failed:\n${formatValidationErrors(WorkflowDefinitionSchema, parsed, "\n")}`,
+        stderr: `Schema validation failed:\n${formatValidationErrors(DagWorkflowDefinitionSchema, parsed, "\n")}`,
       };
     }
 
-    // Check duplicate slugs
-    const slugs = new Set<string>();
-    for (const step of (parsed as { steps: { slug: string }[] }).steps) {
-      if (slugs.has(step.slug)) {
-        return { exitCode: 1, stdout: "", stderr: `Validation warning: duplicate step slug "${step.slug}"` };
-      }
-      slugs.add(step.slug);
+    // Structural DAG validation
+    const definition = parsed as unknown as DagWorkflowDefinition;
+    const structuralErrors = [...validateDag(definition), ...validateCfEdges(definition)];
+    if (structuralErrors.length > 0) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `DAG validation failed:\n${structuralErrors.map((e) => `  ${e.message}`).join("\n")}`,
+      };
     }
 
     // Template expression validation (try server-side first for secret checks, fallback to local)
-    const definition = parsed as unknown as WorkflowDefinition;
     const serverWarnings = await fetchServerWarnings(scriptCtx, definition.name);
-    const localWarnings = await validateWorkflowTemplates(definition, { workflowName: definition.name });
+    const localWarnings = await validateDagWorkflowTemplates(definition, { workflowName: definition.name });
     const warnings = serverWarnings ?? localWarnings;
 
-    const stepCount = (parsed as { steps: unknown[] }).steps.length;
+    const stepCount = Object.keys(definition.steps).length;
     const warningOutput = formatWarnings(warnings);
     if (warningOutput) {
       return {
