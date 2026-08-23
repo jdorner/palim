@@ -189,7 +189,7 @@ describe("Wiki semantic search integration", () => {
 
     // Creating an index without embeddings should still work
     wikiFile("test", "# Hello\n\nWorld.");
-    const index = await createWikiIndex(tmpDir, logger, "");
+    const index = await createWikiIndex(tmpDir, "", logger);
     const results = await search(index, { term: "World", properties: ["title", "content"] });
     expect(results.hits.length).toBeGreaterThanOrEqual(1);
   });

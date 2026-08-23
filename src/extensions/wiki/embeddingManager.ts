@@ -12,7 +12,7 @@ import type { Logger } from "logging";
 import type { EmbeddingCache } from "./embeddingCache";
 import { computeContentHash } from "./embeddingCache";
 import type { EmbeddingService } from "./embeddings";
-import type { WikiDocument } from "./index";
+import type { WikiDocument } from "./indexing";
 
 // ---------------------------------------------------------------------------
 // Types

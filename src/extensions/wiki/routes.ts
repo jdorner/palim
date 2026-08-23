@@ -11,8 +11,8 @@ import { Value } from "@sinclair/typebox/value";
 import type { Context } from "elysia";
 import type { Logger } from "logging";
 import type { EmbeddingManager } from "./embeddingManager";
-import type { WikiIndex } from "./index";
-import { listMarkdownFiles } from "./index";
+import type { WikiIndex } from "./indexing";
+import { listMarkdownFiles } from "./indexing";
 
 /** TypeBox schema for wiki POST search body. */
 const SearchPayloadSchema = Type.Object(
