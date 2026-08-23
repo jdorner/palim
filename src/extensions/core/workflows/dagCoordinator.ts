@@ -496,7 +496,7 @@ async function dispatchStep(
       jobId: result.job.id,
     });
 
-    log.info(`DAG coordinator: dispatched step "${slug}" for run ${runId} (job ${result.job.id})`);
+    log.debug(`DAG coordinator: dispatched step "${slug}" for run ${runId} (job ${result.job.id})`);
   } catch (err) {
     log.error(`DAG coordinator: failed to dispatch step "${slug}" for run ${runId}:`, err);
     failRun(runId, slug, `Failed to dispatch step: ${err instanceof Error ? err.message : String(err)}`, deps);
