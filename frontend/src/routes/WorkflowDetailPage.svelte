@@ -700,16 +700,26 @@ let warningsExpanded = $state(false);
 let errorSlugs = $derived(new Set((workflow?.warnings ?? []).map((w) => w.stepSlug)));
 
 /**
- * Synthetic node ids of draft steps that currently have a validation error,
- * derived from `validationErrors` in edit mode. Keys are field paths such as
- * `steps[2].slug` or `steps[2].config.url`; the leading `steps[<index>]`
- * segment is mapped to that step's stable synthetic id. Matching on the id
- * (not the slug) is what keeps the badge on the right node when a slug is
- * empty or duplicated mid-edit. Empty outside edit mode.
+ * Synthetic node ids of draft steps that should render an error badge in edit
+ * mode. Combines two sources:
+ *
+ *  1. Live draft `validationErrors` (keys like `steps[2].slug` or
+ *     `steps[2].config.url`); the `steps[<index>]` segment maps to that step's
+ *     synthetic id. These update as the user types.
+ *  2. The backend template `warnings` carried over from the loaded workflow,
+ *     mapped from their `stepSlug` to the matching draft step's synthetic id so
+ *     the same badges shown in view mode persist into edit mode (they don't
+ *     vanish just because editing started). A warning whose slug no longer
+ *     matches any draft step (e.g. the step was renamed) is simply dropped.
+ *
+ * Matching on the id (not the slug) keeps the badge on the right node even when
+ * a slug is temporarily empty or duplicated mid-edit. Empty outside edit mode.
  */
 let errorNodeIds = $derived.by(() => {
   if (!editMode || !editDraft) return new Set<string>();
   const ids = new Set<string>();
+
+  // 1. Live draft validation errors, keyed by step index -> synthetic id.
   for (const key of validationErrors.keys()) {
     const match = key.match(/^steps\[(\d+)\]\./);
     if (!match) continue;
@@ -717,6 +727,14 @@ let errorNodeIds = $derived.by(() => {
     const id = editDraft.steps[index]?.id;
     if (id) ids.add(id);
   }
+
+  // 2. Backend template warnings, mapped slug -> synthetic id.
+  const slugToId = new Map(editDraft.steps.map((s) => [s.slug, s.id]));
+  for (const w of workflow?.warnings ?? []) {
+    const id = slugToId.get(w.stepSlug);
+    if (id) ids.add(id);
+  }
+
   return ids;
 });
 
