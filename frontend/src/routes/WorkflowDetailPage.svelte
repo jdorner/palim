@@ -272,14 +272,25 @@ function toStepDraft(s: StepDef | Record<string, unknown>): StepDraft {
     return result;
   }
 
-  // Control flow: waitFor
+  // Control flow: waitFor - preserve event + optional timeout / inputSchema
   if (type === "waitFor") {
-    return { id, slug, type, event: raw.event as string };
+    const result: StepDraft = { id, slug, type, event: raw.event as string };
+    if (typeof raw.timeout === "number") {
+      result.timeout = raw.timeout;
+    }
+    if (raw.inputSchema && typeof raw.inputSchema === "object") {
+      result.inputSchema = JSON.parse(JSON.stringify(raw.inputSchema));
+    }
+    return result;
   }
 
-  // Control flow: emit
+  // Control flow: emit - preserve event + optional payload
   if (type === "emit") {
-    return { id, slug, type, event: raw.event as string };
+    const result: StepDraft = { id, slug, type, event: raw.event as string };
+    if (raw.payload !== undefined) {
+      result.payload = raw.payload;
+    }
+    return result;
   }
 
   // Custom extension step types: rebuild config from non-standard fields
