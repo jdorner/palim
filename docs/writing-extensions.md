@@ -49,10 +49,10 @@ Extensions are self-contained modules that hook into the agent system. Each exte
   - [Template Expressions Available](#template-expressions-available)
   - [Using Custom Steps in Workflows](#using-custom-steps-in-workflows)
   - [Frontend Rendering](#frontend-rendering)
-  - [Error Handling](#error-handling-1)
+  - [Step Type Error Handling](#step-type-error-handling)
   - [Constraints](#constraints)
 - [Lifecycle Summary](#lifecycle-summary)
-  - [Enable / Disable (Runtime)](#enable-disable-runtime)
+  - [Enable / Disable (Runtime)](#enable--disable-runtime)
   - [Unload (Extension Removal)](#unload-extension-removal)
   - [Core Extensions](#core-extensions)
 
@@ -811,7 +811,7 @@ const handler: StepTypeHandler = {
     rowCount: Type.Number({ description: "Number of data rows written." }),
   }),
   label: "Excel Writer",
-  icon: "📊",
+  icon: "TableIcon", // a StepIconName from the frontend icon registry
 
   async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext) {
     // Strip the engine-managed fields (slug, type) and the passthrough
@@ -850,11 +850,13 @@ export default extension;
 | --- | --- | --- |
 | `schema` | `TObject` | TypeBox schema for validating the step config (excluding `slug` and `type`) |
 | `label` | `string` | Human-readable label shown in the workflow editor dropdown and graph nodes |
-| `icon` | `string?` | Optional emoji for visual identification in the UI |
+| `icon` | `StepIconName?` | Optional icon identifier - one of the `StepIconName` keys in the frontend icon registry (`frontend/src/lib/iconRegistry.ts`), e.g. `"TableIcon"`. NOT an emoji or arbitrary string. Omitting it falls back to a generic gear icon. |
 | `inputSchema` | `TSchema?` | Optional TypeBox schema describing the expected input data from the preceding step. Used for automatic validation and agent repair. |
 | `outputSchema` | `TSchema?` | Optional TypeBox schema describing the shape of the result this step produces. Serialized to JSON Schema by the registry and surfaced to the editor for deep `{{steps.<slug>.result.<path>}}` autocomplete and path validation. Omitting it has no runtime effect. See [Declaring Output Schemas](#declaring-output-schemas). |
 | `validateInput` | `(output, stepDef) => StepInputValidation \| Promise<StepInputValidation>` | Optional method for domain-specific input validation beyond what `inputSchema` can express. Takes precedence over `inputSchema` when both are present. |
 | `execute` | `(stepDef, ctx) => Promise<unknown>` | The execution logic; receives the full step definition and a scoped context |
+
+> **Icon names:** `icon` must be one of the `StepIconName` values defined in `shared/extensions.ts` (`STEP_ICON_NAMES`), each mapping to a `phosphor-svelte` component in `frontend/src/lib/iconRegistry.ts` (e.g. `"TableIcon"`, `"TerminalWindowIcon"`, `"GlobeIcon"`, `"RobotIcon"`). Using a name outside that set fails the frontend type-check. To add a new icon, add the name to `STEP_ICON_NAMES` and register the matching component.
 
 ### Declaring Output Schemas
 
@@ -1180,7 +1182,7 @@ const handler: StepTypeHandler = {
     ),
   }),
   label: "Sandbox Command",
-  icon: "💻",
+  icon: "TerminalWindowIcon", // a StepIconName from the frontend icon registry
   async execute(stepDef, ctx) { /* ... */ },
 };
 ```
@@ -1204,7 +1206,7 @@ async initialize(ctx) {
 
 Any step type (from any extension) can reference this provider in its schema. Providers are global — one extension can register a provider that another extension's step type schema references.
 
-### Error Handling
+### Step Type Error Handling
 
 If the extension providing a step type is disabled or unloaded, workflows using that type will fail with a clear error logged to the job:
 
