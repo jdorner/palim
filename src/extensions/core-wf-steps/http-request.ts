@@ -96,6 +96,12 @@ interface HttpRequestResult {
 export function createHttpRequestHandler(): StepTypeHandler {
   return {
     schema: HttpRequestStepConfigSchema,
+    outputSchema: Type.Object({
+      status: Type.Number({ description: "HTTP status code of the response." }),
+      body: Type.Unknown({
+        description: "Response body (parsed JSON when responseFormat is 'json', else text).",
+      }),
+    }),
     label: "HTTP Request",
     icon: "GlobeIcon",
 

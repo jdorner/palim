@@ -71,6 +71,10 @@ export type TelegramSendFn = (message: string, chatId?: string) => Promise<strin
 export function createNotifyStepHandler(send: TelegramSendFn): StepTypeHandler {
   return {
     schema: NotifyStepConfigSchema,
+    outputSchema: Type.Object({
+      sent: Type.Boolean({ description: "Always true when the message was delivered." }),
+      chatId: Type.String({ description: "The chat ID the message was delivered to." }),
+    }),
     label: "Notify (Telegram)",
     icon: "PaperPlaneTiltIcon",
 

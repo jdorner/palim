@@ -28,6 +28,14 @@ describe("createFailHandler", () => {
     });
   });
 
+  describe("outputSchema", () => {
+    test("declares no properties (terminal step returns no result fields)", () => {
+      expect(handler.outputSchema).toBeDefined();
+      const properties = (handler.outputSchema as { properties?: Record<string, unknown> }).properties ?? {};
+      expect(Object.keys(properties).length).toBe(0);
+    });
+  });
+
   describe("execute", () => {
     test("throws with default message when no message is provided", async () => {
       const ctx = createFakeContext();
