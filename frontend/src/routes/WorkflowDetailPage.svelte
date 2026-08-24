@@ -18,6 +18,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/component
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { extensions } from "$lib/extensionStore";
 import { visualForStepType } from "$lib/nodeVisuals";
+import { buildInitialValues } from "$lib/schemaForm";
 import type { OutputSchemas } from "$lib/templateScope";
 import { aggregateStepStatus, formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
@@ -462,9 +463,17 @@ function stepTemplate(type: string): StepDraft {
       return { id, slug: "", type: "waitFor", event: "" };
     case "emit":
       return { id, slug: "", type: "emit", event: "" };
-    default:
-      // Custom extension step type
+    default: {
+      // Custom extension step type. Seed the config with all supported
+      // properties (schema defaults or type-appropriate empty values) so the
+      // JSON editor shows the full property set immediately, instead of an
+      // empty object until the user first edits a field in the form view.
+      const configSchema = customStepTypes.find((st) => st.type === type)?.configSchema;
+      if (configSchema) {
+        return { id, slug: "", type, config: buildInitialValues(configSchema, undefined) };
+      }
       return { id, slug: "", type };
+    }
   }
 }
 
