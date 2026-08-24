@@ -822,6 +822,21 @@ let errorNodeIds = $derived.by(() => {
   return ids;
 });
 
+/**
+ * Whether the trigger node should render an error badge. In edit mode this
+ * reflects live draft `validationErrors` for the trigger (keys `trigger.type`
+ * or `trigger.ref`). In read-only view mode it reflects backend template
+ * `warnings` targeting the trigger (identified by the reserved `__trigger__`
+ * stepSlug). Keeps the trigger node visually consistent with step nodes, which
+ * already show a badge for their own config errors.
+ */
+let triggerHasError = $derived.by(() => {
+  if (editMode) {
+    return validationErrors.has("trigger.type") || validationErrors.has("trigger.ref");
+  }
+  return (workflow?.warnings ?? []).some((w) => w.stepSlug === "__trigger__");
+});
+
 const RUNS_PAGE_SIZE = 10;
 
 let runsPage = $state(1);
@@ -1250,6 +1265,7 @@ onDestroy(() => {
               {customStepTypes}
               errorSlugs={editMode ? undefined : errorSlugs}
               errorNodeIds={editMode ? errorNodeIds : undefined}
+              {triggerHasError}
               onNodeClick={onStepClick}
               {onTriggerClick}
               onAddStep={addStep}

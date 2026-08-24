@@ -83,6 +83,12 @@ interface Props {
    * `validationErrors` (keyed by step index -> synthetic id) while editing.
    */
   errorNodeIds?: Set<string>;
+  /**
+   * Whether the trigger node has a configuration error (e.g. a missing/invalid
+   * ref). When true the trigger node renders the same red error badge as step
+   * nodes so trigger misconfiguration is visible directly on the canvas.
+   */
+  triggerHasError?: boolean;
   onNodeClick?: (step: StepInfo, index: number) => void;
   /** Fired when the trigger node is clicked. */
   onTriggerClick?: () => void;
@@ -113,6 +119,7 @@ let {
   statusMap,
   errorSlugs,
   errorNodeIds,
+  triggerHasError = false,
   onNodeClick,
   onTriggerClick,
   onAddStep,
@@ -176,7 +183,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
   // Merge runtime status and selection state into node data
   const nodesWithStatus = layout.nodes.map((node) => {
     if (node.id === "__trigger__") {
-      return { ...node, data: { ...node.data, selected: triggerSelected } };
+      return { ...node, data: { ...node.data, selected: triggerSelected, hasError: triggerHasError } };
     }
 
     // Inject addStep node callbacks and custom types (root + branch)
