@@ -9,6 +9,8 @@
  * LLM outputs) can exfiltrate sensitive env vars through chained step results.
  */
 
+import { DEFAULT_ENV_ALLOWLIST } from "@shared/workflows";
+
 /**
  * Minimal interface for secret resolution within templates.
  */
@@ -17,18 +19,17 @@ export interface TemplateSecretResolver {
 }
 
 /**
- * Environment variables that workflow templates are allowed to read.
- *
- * This allowlist prevents template injection attacks: if attacker-controlled
+ * The env allowlist prevents template injection attacks: if attacker-controlled
  * data (e.g. a webhook payload) is echoed by the LLM into a step result, and
  * a subsequent step uses `{{steps.<slug>.result}}`, the template engine would
  * resolve any `{{env.*}}` expressions found in that result. Without an
  * allowlist, this enables exfiltration of sensitive env vars like API keys.
  *
- * To add new vars, append them here or set the `WORKFLOW_ENV_ALLOWLIST`
- * environment variable to a comma-separated list of additional var names.
+ * The default names come from the shared `DEFAULT_ENV_ALLOWLIST` so that this
+ * resolver, the backend DAG validator, and the frontend template scope agree.
+ * To add extra vars, set the `WORKFLOW_ENV_ALLOWLIST` environment variable to a
+ * comma-separated list of additional var names.
  */
-const DEFAULT_ENV_ALLOWLIST = new Set<string>(["WEB_HOST", "WEB_PORT", "AGENT_WORK_DIR", "NODE_ENV"]);
 
 /** Lazily computed full allowlist (defaults + user-configured additions). */
 let _envAllowlist: Set<string> | undefined;

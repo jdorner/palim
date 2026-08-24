@@ -6,21 +6,17 @@
  * No Svelte or DOM dependencies.
  */
 
-/**
- * Recursive output schema type matching the backend definition.
- * Keys are property names, values are type hints (terminal) or nested schemas (non-terminal).
- */
-export type OutputSchema = { [key: string]: string | OutputSchema };
+import {
+  DEFAULT_ENV_ALLOWLIST,
+  isObjectSchemaNode,
+  type OutputSchema,
+  type OutputSchemas,
+  walkSchemaPath,
+} from "../../../shared/workflows";
+import { getEnumOptions, isEnum } from "./schemaForm";
 
-/**
- * Output schemas resolved for the current workflow.
- */
-export interface OutputSchemas {
-  /** Resolved trigger output schema (built-in or user-defined), or null if unavailable */
-  trigger: OutputSchema | null;
-  /** Step output schemas keyed by step slug */
-  steps: Record<string, OutputSchema>;
-}
+export type { OutputSchema, OutputSchemas };
+export { DEFAULT_ENV_ALLOWLIST };
 
 /**
  * A single autocomplete suggestion with classification metadata.
@@ -32,6 +28,12 @@ export interface Suggestion {
   terminal: boolean;
   /** Optional description for display */
   description?: string;
+  /** JSON Schema `type` of the property, when declared. */
+  schemaType?: string;
+  /** Allowed values, when the property declares an enum. */
+  enumValues?: string[];
+  /** Declared default value, when present. */
+  defaultValue?: unknown;
 }
 
 /**
@@ -45,15 +47,10 @@ export interface ScopeConfig {
   /** Prefetched secret key names */
   secretKeys: string[];
   /** Environment variable allowlist (defaults to built-in set) */
-  envAllowlist?: string[];
+  envAllowlist?: readonly string[];
   /** Resolved output schemas from the workflow API */
   outputSchemas?: OutputSchemas;
 }
-
-/**
- * Default environment variable allowlist matching backend.
- */
-export const DEFAULT_ENV_ALLOWLIST: string[] = ["AGENT_WORK_DIR", "NODE_ENV", "WEB_HOST", "WEB_PORT"];
 
 /** Fixed set of top-level namespace names. */
 const TOP_LEVEL_NAMESPACES = ["trigger", "steps", "env", "secret"] as const;
@@ -101,7 +98,7 @@ export function getStepSlugs(steps: Array<{ slug: string }>, currentStepIndex: n
  * @param prefix - The currently typed text used for filtering
  * @returns Array of matching env variable suggestions, sorted alphabetically
  */
-export function getEnvSuggestions(envAllowlist: string[], prefix: string): Suggestion[] {
+export function getEnvSuggestions(envAllowlist: readonly string[], prefix: string): Suggestion[] {
   const lowerPrefix = prefix.toLowerCase();
   return envAllowlist
     .filter((name) => name.toLowerCase().includes(lowerPrefix))
@@ -133,35 +130,110 @@ export function getSecretSuggestions(secretKeys: string[], prefix: string): Sugg
 
 /**
  * Returns suggestions from an output schema at a given sub-path.
- * Navigates into nested schemas and returns property names at the target depth.
  *
- * @param schema - The output schema to traverse
+ * Walks the canonical JSON Schema via `walkSchemaPath` to resolve the sub-path,
+ * then offers the resolved node's immediate `properties` keys as suggestions.
+ * A path that hits a leaf node or a missing key yields no suggestions. Each
+ * suggestion carries schema metadata (`schemaType`, `description`, `enumValues`,
+ * `defaultValue`) verbatim when declared, omitting any absent field. Child
+ * properties are non-terminal when they are object nodes and terminal otherwise
+ * (primitive, enum-only, or unconstrained `{}` leaf nodes).
+ *
+ * @param schema - The canonical JSON Schema to traverse
  * @param subPath - Path segments below the schema root (e.g. ["metadata"] for trigger.payload.metadata.)
- * @param prefix - The currently typed text used for filtering
- * @returns Array of matching suggestions derived from schema keys
+ * @param prefix - The currently typed text used for filtering (case-sensitive)
+ * @returns Array of matching suggestions derived from schema `properties`
  */
 export function getOutputSchemaSuggestions(schema: OutputSchema, subPath: string[], prefix: string): Suggestion[] {
-  let current: OutputSchema = schema;
-
-  // Navigate into nested schemas following the sub-path
-  for (const segment of subPath) {
-    const value = current[segment];
-    if (value === undefined || typeof value === "string") {
-      // Path segment points to a terminal (type hint string) or doesn't exist
-      return [];
-    }
-    current = value;
+  const resolved = walkSchemaPath(schema, subPath);
+  // A path that fails to resolve, or resolves to a leaf/non-object node (no
+  // children), offers no further suggestions.
+  if (!resolved.resolved || resolved.node === undefined || resolved.children.length === 0) {
+    return [];
   }
 
-  // Return keys at the current level
-  return Object.entries(current)
-    .filter(([key]) => key.startsWith(prefix))
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => ({
-      label: key,
-      terminal: typeof value === "string",
-      description: typeof value === "string" ? value : undefined,
-    }));
+  const properties = resolved.node.properties as Record<string, unknown> | undefined;
+  if (properties === undefined) {
+    return [];
+  }
+
+  return resolved.children
+    .filter((key) => key.startsWith(prefix))
+    .sort((a, b) => a.localeCompare(b))
+    .map((key) => {
+      const childNode = properties[key] as Record<string, unknown> | undefined;
+      return buildSchemaSuggestion(key, childNode);
+    });
+}
+
+/**
+ * Builds a single suggestion from a child JSON Schema node, deriving
+ * terminal-ness from the shared node classification and attaching declared
+ * metadata verbatim (absent fields omitted).
+ *
+ * The child is non-terminal exactly when {@link isObjectSchemaNode} classifies
+ * it as an object node -- the identical rule {@link walkSchemaPath} uses to
+ * decide whether to descend. Reusing that one predicate (rather than a private
+ * object-detection check) means the completion engine and the backend template
+ * validator classify the same node the same way by construction, so completion
+ * and diagnostics cannot diverge.
+ *
+ * @param key - The child property name (used as the suggestion label)
+ * @param childNode - The child JSON Schema node, when present
+ * @returns The suggestion with metadata populated from the child node
+ */
+function buildSchemaSuggestion(key: string, childNode: Record<string, unknown> | undefined): Suggestion {
+  const suggestion: Suggestion = {
+    label: key,
+    terminal: childNode === undefined || !isObjectSchemaNode(childNode),
+  };
+
+  if (childNode === undefined) {
+    return suggestion;
+  }
+
+  if (typeof childNode.type === "string") {
+    suggestion.schemaType = childNode.type;
+  }
+
+  if (typeof childNode.description === "string") {
+    suggestion.description = childNode.description;
+  }
+
+  const enumValues = extractEnumValues(childNode);
+  if (enumValues !== undefined) {
+    suggestion.enumValues = enumValues;
+  }
+
+  if ("default" in childNode) {
+    suggestion.defaultValue = childNode.default;
+  }
+
+  return suggestion;
+}
+
+/**
+ * Extracts declared enum values from a JSON Schema node.
+ *
+ * Supports the `anyOf`-of-`const` form via the shared `schemaForm` helpers and a
+ * direct `enum` array fallback. Every declared value is included (none absent).
+ *
+ * @param childNode - The child JSON Schema node to inspect
+ * @returns The enum values as strings, or `undefined` when the node declares none
+ */
+function extractEnumValues(childNode: Record<string, unknown>): string[] | undefined {
+  if (isEnum(childNode)) {
+    const options = getEnumOptions(childNode);
+    if (options.length > 0) {
+      return options;
+    }
+  }
+
+  if (Array.isArray(childNode.enum) && childNode.enum.length > 0) {
+    return childNode.enum.map((value) => String(value));
+  }
+
+  return undefined;
 }
 
 /** Step definition keys excluded from config suggestions (internal/structural). */

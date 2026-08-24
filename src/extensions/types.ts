@@ -354,6 +354,16 @@ export interface StepTypeHandler {
   inputSchema?: TSchema;
 
   /**
+   * Optional TypeBox schema describing the shape of the result this step
+   * produces. Serialized to JSON Schema by the registry and surfaced through
+   * {@link StepTypeInfo.outputSchema} so the editor can complete and validate
+   * `{{steps.<slug>.result.<path>}}` references. When omitted, the step type
+   * is treated as having no declared output schema, with no runtime effect
+   * (the step produces the same runtime result and step status as before).
+   */
+  outputSchema?: TSchema;
+
+  /**
    * Validate that data produced by the preceding step conforms to semantic
    * expectations of this step.
    *

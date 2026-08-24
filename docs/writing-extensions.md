@@ -2,6 +2,60 @@
 
 Extensions are self-contained modules that hook into the agent system. Each extension can register tools, HTTP routes, job queues, and agent event subscriptions through the `ExtensionContext` interface.
 
+## Table of Contents
+
+- [Import Rules](#import-rules)
+- [Getting Started](#getting-started)
+  - [Minimal Extension](#minimal-extension)
+- [External Extensions](#external-extensions)
+  - [How It Works](#how-it-works)
+  - [package.json](#packagejson)
+  - [Generated tsconfig.json](#generated-tsconfigjson)
+  - [Runtime Resolution](#runtime-resolution)
+  - [Discovery and Loading](#discovery-and-loading)
+  - [Error Handling](#error-handling)
+- [ExtensionContext API](#extensioncontext-api)
+  - [Top-Level Properties](#top-level-properties)
+  - [Tools (`ctx.tools`)](#tools-ctxtools)
+  - [Routes (`ctx.routes`)](#routes-ctxroutes)
+  - [Route Naming Convention](#route-naming-convention)
+  - [Queues (`ctx.queues`)](#queues-ctxqueues)
+  - [Events (`ctx.events`)](#events-ctxevents)
+  - [Messaging (`ctx.messaging`)](#messaging-ctxmessaging)
+  - [Workflows (`ctx.workflows`)](#workflows-ctxworkflows)
+  - [Agent Execution (`ctx.agent`)](#agent-execution-ctxagent)
+  - [Config (`ctx.config`)](#config-ctxconfig)
+  - [Secrets (`ctx.secrets`)](#secrets-ctxsecrets)
+  - [Skills (`ctx.skills`)](#skills-ctxskills)
+  - [Step Types (`ctx.stepTypes`)](#step-types-ctxsteptypes)
+  - [Dynamic Items (`ctx.dynamicItems`)](#dynamic-items-ctxdynamicitems)
+  - [State](#state)
+  - [Internal (Core Extensions Only)](#internal-core-extensions-only)
+- [Configuration](#configuration)
+  - [Settings Schema](#settings-schema)
+- [Logging](#logging)
+- [Registering Tools](#registering-tools)
+- [Running Sub-Agents](#running-sub-agents)
+- [Database Access](#database-access)
+- [Skills](#skills)
+  - [Using `ctx.registerProgram`](#using-ctxregisterprogram)
+- [Dependencies](#dependencies)
+- [Custom Workflow Step Types](#custom-workflow-step-types)
+  - [Registering a Step Type](#registering-a-step-type)
+  - [StepTypeHandler Interface](#steptypehandler-interface)
+  - [Declaring Output Schemas](#declaring-output-schemas)
+  - [Input Validation (Pre-Transition Checks)](#input-validation-pre-transition-checks)
+  - [StepExecutionContext](#stepexecutioncontext)
+  - [Template Expressions Available](#template-expressions-available)
+  - [Using Custom Steps in Workflows](#using-custom-steps-in-workflows)
+  - [Frontend Rendering](#frontend-rendering)
+  - [Step Type Error Handling](#step-type-error-handling)
+  - [Constraints](#constraints)
+- [Lifecycle Summary](#lifecycle-summary)
+  - [Enable / Disable (Runtime)](#enable--disable-runtime)
+  - [Unload (Extension Removal)](#unload-extension-removal)
+  - [Core Extensions](#core-extensions)
+
 ## Import Rules
 
 Extensions must **not** import from `@src/` paths. This boundary is enforced by a Biome lint rule.
@@ -743,24 +797,36 @@ import { Type } from "@sinclair/typebox";
 import type { Extension, StepTypeHandler, StepExecutionContext } from "@ext/types";
 
 const handler: StepTypeHandler = {
+  // Validates the step's config (the fields other than `slug` and `type`).
   schema: Type.Object({
     mode: Type.Union([Type.Literal("create"), Type.Literal("append")]),
     path: Type.String({ minLength: 1 }),
     filename: Type.String({ minLength: 1 }),
   }),
+  // Describes the shape of the value `execute` returns. Declare exactly the
+  // top-level properties your result object has - the editor uses this for
+  // deep `{{steps.<slug>.result.<path>}}` autocomplete and validation.
+  outputSchema: Type.Object({
+    filePath: Type.String({ description: "Absolute path to the written file." }),
+    rowCount: Type.Number({ description: "Number of data rows written." }),
+  }),
   label: "Excel Writer",
-  icon: "📊",
+  icon: "TableIcon", // a StepIconName from the frontend icon registry
 
   async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext) {
-    const { mode, path, filename } = stepDef;
+    // Strip the engine-managed fields (slug, type) and the passthrough
+    // outputSchema before reading config values.
+    const { slug: _slug, type: _type, outputSchema: _os, ...config } = stepDef;
+    const { path, filename } = config as { path: string; filename: string };
 
     // Resolve template expressions in config fields
-    const { resolved: resolvedPath } = await ctx.resolveTemplate(path as string);
+    const { resolved: resolvedPath } = await ctx.resolveTemplate(path);
 
     // Do the work...
     await ctx.jobLog(`Writing to ${resolvedPath}/${filename}`);
 
-    // Return value becomes available as {{steps.<slug>.result}}
+    // Return value becomes available as {{steps.<slug>.result}}.
+    // Its keys must match the outputSchema above.
     return { filePath: `${resolvedPath}/${filename}`, rowCount: 42 };
   },
 };
@@ -784,14 +850,58 @@ export default extension;
 | --- | --- | --- |
 | `schema` | `TObject` | TypeBox schema for validating the step config (excluding `slug` and `type`) |
 | `label` | `string` | Human-readable label shown in the workflow editor dropdown and graph nodes |
-| `icon` | `string?` | Optional emoji for visual identification in the UI |
+| `icon` | `StepIconName?` | Optional icon identifier - one of the `StepIconName` keys in the frontend icon registry (`frontend/src/lib/iconRegistry.ts`), e.g. `"TableIcon"`. NOT an emoji or arbitrary string. Omitting it falls back to a generic gear icon. |
 | `inputSchema` | `TSchema?` | Optional TypeBox schema describing the expected input data from the preceding step. Used for automatic validation and agent repair. |
+| `outputSchema` | `TSchema?` | Optional TypeBox schema describing the shape of the result this step produces. Serialized to JSON Schema by the registry and surfaced to the editor for deep `{{steps.<slug>.result.<path>}}` autocomplete and path validation. Omitting it has no runtime effect. See [Declaring Output Schemas](#declaring-output-schemas). |
 | `validateInput` | `(output, stepDef) => StepInputValidation \| Promise<StepInputValidation>` | Optional method for domain-specific input validation beyond what `inputSchema` can express. Takes precedence over `inputSchema` when both are present. |
 | `execute` | `(stepDef, ctx) => Promise<unknown>` | The execution logic; receives the full step definition and a scoped context |
 
-### Output Schema (Autocomplete Support)
+> **Icon names:** `icon` must be one of the `StepIconName` values defined in `shared/extensions.ts` (`STEP_ICON_NAMES`), each mapping to a `phosphor-svelte` component in `frontend/src/lib/iconRegistry.ts` (e.g. `"TableIcon"`, `"TerminalWindowIcon"`, `"GlobeIcon"`, `"RobotIcon"`). Using a name outside that set fails the frontend type-check. To add a new icon, add the name to `STEP_ICON_NAMES` and register the matching component.
 
-Steps and triggers can declare an `outputSchema` in the workflow definition to enable deep property path autocomplete in the editor. The schema describes the shape of the value produced by the node, allowing the autocomplete to suggest property names beyond `result` or `payload`.
+### Declaring Output Schemas
+
+An **output schema** describes the shape of the value a node produces, so the editor can offer deep property-path autocomplete and non-fatal path validation for `{{steps.<slug>.result.<path>}}` (and `{{trigger.payload.<path>}}`) expressions. Without one, autocomplete stops at `result` / `payload`.
+
+There are two ways an output schema is provided, resolved in this precedence order:
+
+1. **A hand-authored `outputSchema` in the workflow JSON5** (on the trigger or the individual step). This always wins for that node.
+2. **The step-type handler's declared `outputSchema`** (the `TSchema?` field on `StepTypeHandler`). Used automatically for any step of that type when the definition does not hand-author one.
+
+If neither is present, the node contributes no output completions.
+
+Regardless of source, the schema reaches the editor as JSON Schema: handler TypeBox schemas are serialized by the registry, and the friendly JSON5 type-hint shorthand is compiled to JSON Schema when the workflow-detail payload is assembled. Both representations produce the same autocomplete behavior.
+
+#### Handler-declared output schemas (recommended for custom step types)
+
+Declare `outputSchema` on your `StepTypeHandler` as a TypeBox schema whose top-level properties are exactly the keys your `execute` returns. This gives every workflow that uses your step type autocomplete and validation for free - no per-workflow authoring required.
+
+```typescript
+import { Type } from "@sinclair/typebox";
+import type { StepTypeHandler } from "@ext/types";
+
+const handler: StepTypeHandler = {
+  schema: Type.Object({ /* config fields */ }),
+  outputSchema: Type.Object({
+    exitCode: Type.Number({ description: "The command's exit code." }),
+    stdout: Type.String({ description: "Standard output from the command." }),
+    stderr: Type.String({ description: "Standard error output from the command." }),
+  }),
+  label: "Sandbox Command",
+  async execute(stepDef, ctx) {
+    // ...
+    return { exitCode, stdout, stderr }; // keys match outputSchema
+  },
+};
+```
+
+Guidance:
+
+- Declare every top-level property your result object has, and none it does not. This keeps completion and validation honest.
+- For fields that are only sometimes present, wrap them in `Type.Optional(...)` - they still appear in autocomplete.
+- Use `description`, `enum` (`Type.Union([Type.Literal(...)])`), and `default` annotations; the editor surfaces them as dropdown metadata.
+- For a terminal step that never returns a result (it throws), declare `Type.Object({})`.
+- The `outputSchema` field is passed through the step definition at execution time, so strip it alongside `slug` and `type` when reading config: `const { slug: _s, type: _t, outputSchema: _os, ...config } = stepDef;`.
+- Declaring `outputSchema` has **no runtime effect** - it is metadata only. A step whose handler omits it produces the identical result and status.
 
 #### Built-in trigger schemas
 
@@ -802,9 +912,9 @@ Filewatcher and scheduler triggers have built-in output schemas derived from the
 
 Webhook and manual triggers have no built-in schema since their payload is user-defined.
 
-#### Declaring output schemas in workflow definitions
+#### Hand-authored output schemas in workflow definitions
 
-Add an `outputSchema` field to a trigger or step. Values are either type-hint strings (terminal) or nested objects (non-terminal):
+For `agent` and `trigger` nodes (which have no handler to declare a schema), or to override a handler's declared schema for one specific step, add an `outputSchema` field directly to a trigger or step in the JSON5. This uses the friendly **type-hint shorthand**: values are either type-hint strings (terminal) or nested objects (non-terminal). The engine compiles this shorthand to JSON Schema when building the editor payload:
 
 ```json5
 {
@@ -1072,7 +1182,7 @@ const handler: StepTypeHandler = {
     ),
   }),
   label: "Sandbox Command",
-  icon: "💻",
+  icon: "TerminalWindowIcon", // a StepIconName from the frontend icon registry
   async execute(stepDef, ctx) { /* ... */ },
 };
 ```
@@ -1096,7 +1206,7 @@ async initialize(ctx) {
 
 Any step type (from any extension) can reference this provider in its schema. Providers are global — one extension can register a provider that another extension's step type schema references.
 
-### Error Handling
+### Step Type Error Handling
 
 If the extension providing a step type is disabled or unloaded, workflows using that type will fail with a clear error logged to the job:
 

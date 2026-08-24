@@ -28,6 +28,17 @@ function createRecordingSend(deliveredChatId = "999"): {
 }
 
 describe("createNotifyStepHandler", () => {
+  describe("outputSchema", () => {
+    test("declares exactly the sent and chatId top-level properties (matching NotifyStepResult)", () => {
+      const { send } = createRecordingSend();
+      const handler = createNotifyStepHandler(send);
+
+      expect(handler.outputSchema).toBeDefined();
+      const properties = (handler.outputSchema as { properties?: Record<string, unknown> }).properties ?? {};
+      expect(Object.keys(properties).sort()).toEqual(["chatId", "sent"]);
+    });
+  });
+
   describe("configuration validation", () => {
     test("throws when message is missing", async () => {
       const { send } = createRecordingSend();

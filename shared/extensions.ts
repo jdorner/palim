@@ -90,6 +90,13 @@ export interface StepTypeInfo {
   terminal?: boolean;
   /** JSON Schema describing the step's configuration fields (derived from the handler's TypeBox schema). */
   configSchema?: Record<string, unknown>;
+  /**
+   * JSON Schema describing the step's result (its output shape), when the
+   * handler declares one. Distinct from `configSchema`, which describes the
+   * step's input configuration fields. Undefined when the handler does not
+   * declare an output schema.
+   */
+  outputSchema?: Record<string, unknown>;
 }
 
 /** A single secret schema entry declared in an extension manifest. */

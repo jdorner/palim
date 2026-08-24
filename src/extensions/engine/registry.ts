@@ -528,6 +528,12 @@ export class ExtensionRegistry {
             configSchema: st.handler.schema
               ? enrichSchemaWithDynamicItems(JSON.parse(JSON.stringify(st.handler.schema)))
               : undefined,
+            // Serialize the handler's output schema to JSON Schema, kept distinct from
+            // configSchema. Dynamic-item enrichment is a config-input concern and is
+            // deliberately not applied here (output schemas describe produced data).
+            outputSchema: st.handler.outputSchema
+              ? (JSON.parse(JSON.stringify(st.handler.outputSchema)) as Record<string, unknown>)
+              : undefined,
           }));
           if (!manifestUi && registeredStepTypes.length === 0) return null;
           return {

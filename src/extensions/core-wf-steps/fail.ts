@@ -35,6 +35,7 @@ const DEFAULT_MESSAGE = "Workflow aborted by fail step";
 export function createFailHandler(): StepTypeHandler {
   return {
     schema: FailStepConfigSchema,
+    outputSchema: Type.Object({}),
     label: "Fail",
     icon: "ProhibitIcon",
     terminal: true,

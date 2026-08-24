@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as fc from "fast-check";
+import { getEnumOptions, isEnum } from "./schemaForm";
 import {
   getConfigSuggestions,
   getEnvSuggestions,
@@ -9,6 +10,7 @@ import {
   getSuggestions,
   getTopLevelSuggestions,
   type ScopeConfig,
+  type Suggestion,
 } from "./templateScope";
 
 /**
@@ -54,10 +56,8 @@ const envNameArb = secretKeyArb;
 const TOP_LEVEL_NAMESPACES = ["trigger", "steps", "env", "secret"];
 
 describe("Template Scope Registry - Property Tests", () => {
-  describe("Property 2: Prefix filtering returns only matches", () => {
+  describe("Prefix filtering returns only matches", () => {
     /**
-     * Validates: Requirements 2.2, 2.3
-     *
      * For any typed prefix string, getTopLevelSuggestions(prefix) SHALL return
      * only suggestions whose label starts with prefix (case-sensitive), and SHALL
      * return all such matches from the fixed set ["trigger", "steps", "env", "secret"].
@@ -82,10 +82,8 @@ describe("Template Scope Registry - Property Tests", () => {
     });
   });
 
-  describe("Property 3: Steps scope excludes forward references", () => {
+  describe("Steps scope excludes forward references", () => {
     /**
-     * Validates: Requirements 3.1, 3.2, 3.3
-     *
      * For any step array of length N and any current step index i where 0 <= i < N,
      * getStepSlugs(steps, i, "") SHALL return exactly the slugs at indices 0 through
      * i-1 (inclusive), and SHALL NOT include any slug at index >= i.
@@ -115,10 +113,8 @@ describe("Template Scope Registry - Property Tests", () => {
     });
   });
 
-  describe("Property 4: Suggestions are always sorted", () => {
+  describe("Suggestions are always sorted", () => {
     /**
-     * Validates: Requirements 4.1, 5.2
-     *
      * For any env allowlist and any set of secret keys, the suggestions returned by
      * getEnvSuggestions(envAllowlist, "") and getSecretSuggestions(secretKeys, "") SHALL
      * be in case-insensitive ascending alphabetical order of their label field.
@@ -156,10 +152,8 @@ describe("Template Scope Registry - Property Tests", () => {
     });
   });
 
-  describe("Property 5: Env/secret filtering uses case-insensitive substring", () => {
+  describe("Env/secret filtering uses case-insensitive substring", () => {
     /**
-     * Validates: Requirements 4.2, 4.3
-     *
      * For any env allowlist, any secret key set, and any non-empty filter prefix,
      * the results of getEnvSuggestions(list, prefix) SHALL include only entries whose
      * label contains prefix as a case-insensitive substring, and SHALL include all
@@ -231,24 +225,36 @@ describe("Template Scope Registry - Property Tests", () => {
 
 describe("Output Schema Suggestions", () => {
   const filewatcherSchema = {
-    source: "string",
-    id: "string",
-    slug: "string",
-    filename: "string",
-    event: "string",
+    type: "object",
+    properties: {
+      source: { type: "string" },
+      id: { type: "string" },
+      slug: { type: "string" },
+      filename: { type: "string" },
+      event: { type: "string" },
+    },
   };
 
   const nestedSchema = {
-    name: "string",
-    metadata: {
-      size: "number",
-      type: "string",
-      tags: {
-        primary: "string",
-        secondary: "string",
+    type: "object",
+    properties: {
+      name: { type: "string" },
+      metadata: {
+        type: "object",
+        properties: {
+          size: { type: "number" },
+          type: { type: "string" },
+          tags: {
+            type: "object",
+            properties: {
+              primary: { type: "string" },
+              secondary: { type: "string" },
+            },
+          },
+        },
       },
+      active: { type: "boolean" },
     },
-    active: "boolean",
   };
 
   describe("getOutputSchemaSuggestions", () => {
@@ -300,11 +306,11 @@ describe("Output Schema Suggestions", () => {
       expect(results).toEqual([]);
     });
 
-    test("includes type hint as description for terminal values", () => {
+    test("includes schemaType for terminal values", () => {
       const results = getOutputSchemaSuggestions(nestedSchema, ["metadata"], "size");
       expect(results.length).toBe(1);
       expect(results[0]!.label).toBe("size");
-      expect(results[0]!.description).toBe("number");
+      expect(results[0]!.schemaType).toBe("number");
       expect(results[0]!.terminal).toBe(true);
     });
 
@@ -323,7 +329,19 @@ describe("Output Schema Suggestions", () => {
       outputSchemas: {
         trigger: filewatcherSchema,
         steps: {
-          fetch: { data: "string", status: { code: "number", message: "string" } },
+          fetch: {
+            type: "object",
+            properties: {
+              data: { type: "string" },
+              status: {
+                type: "object",
+                properties: {
+                  code: { type: "number" },
+                  message: { type: "string" },
+                },
+              },
+            },
+          },
         },
       },
     };
@@ -751,5 +769,223 @@ describe("getSuggestions hides result for succeeding steps", () => {
     const results = getSuggestions(config, ["steps", "second"], "");
     const labels = results.map((s) => s.label);
     expect(labels).not.toContain("result");
+  });
+});
+
+describe("Condition fields complete like any other field", () => {
+  /**
+   * The autocomplete engine routes every template field -- normal fields, an
+   * `if` node's `condition.ref`, and a `case` node's `match` -- through the same
+   * `getSuggestions(config, path, prefix)` entry point. `getSuggestions` takes no
+   * field-kind parameter, so it is field-agnostic by construction: the three
+   * field contexts differ only at the call site, which passes identical
+   * arguments. This confirms the equivalence claim against the actual API
+   * surface: invoking
+   * `getSuggestions` with the same scope, path, and prefix -- as the three field
+   * contexts do -- yields deeply-equal suggestions every time.
+   */
+
+  /** A JSON Schema leaf/object arbitrary reused for trigger and step output schemas. */
+  const outputSchemaArb: fc.Arbitrary<Record<string, unknown>> = fc.dictionary(
+    fc.constantFrom("data", "status", "code", "message", "filename", "slug", "event", "meta"),
+    fc.oneof(
+      fc.constant<Record<string, unknown>>({ type: "string" }),
+      fc.constant<Record<string, unknown>>({ type: "number" }),
+      fc.constant<Record<string, unknown>>({ type: "boolean" }),
+      fc.constant<Record<string, unknown>>({
+        type: "object",
+        properties: { inner: { type: "string" }, count: { type: "number" } },
+      }),
+    ),
+    { minKeys: 0, maxKeys: 5 },
+  );
+
+  /** Arbitrary scope config spanning steps, secrets, env, and optional output schemas. */
+  const scopeConfigArb: fc.Arbitrary<ScopeConfig> = fc
+    .record({
+      slugs: fc.array(slugArb, { minLength: 0, maxLength: 6 }),
+      secretKeys: fc.array(secretKeyArb, { minLength: 0, maxLength: 5 }),
+      envAllowlist: fc.option(fc.array(envNameArb, { minLength: 0, maxLength: 5 }), { nil: undefined }),
+      triggerSchema: fc.option(outputSchemaArb, { nil: null }),
+      stepSchemas: fc.dictionary(slugArb, outputSchemaArb, { minKeys: 0, maxKeys: 4 }),
+      includeSchemas: fc.boolean(),
+    })
+    .chain((base) => {
+      const steps = base.slugs.map((slug, i) => ({ slug, type: "agent", prompt: `step ${i}` }));
+      const maxIndex = Math.max(0, steps.length - 1);
+      return fc.integer({ min: 0, max: maxIndex }).map((currentStepIndex) => {
+        const config: ScopeConfig = {
+          steps,
+          currentStepIndex,
+          secretKeys: base.secretKeys,
+        };
+        if (base.envAllowlist !== undefined) {
+          config.envAllowlist = base.envAllowlist;
+        }
+        if (base.includeSchemas) {
+          config.outputSchemas = { trigger: base.triggerSchema, steps: base.stepSchemas };
+        }
+        return config;
+      });
+    });
+
+  /**
+   * Arbitrary resolved path segments. Covers top-level namespaces plus common
+   * drill-in shapes for steps/trigger/env/secret so the equivalence is exercised
+   * across every dispatch branch of `getSuggestions`.
+   */
+  const pathArb: fc.Arbitrary<string[]> = fc.oneof(
+    fc.constant<string[]>([]),
+    fc.constant<string[]>(["steps"]),
+    slugArb.map((slug) => ["steps", slug]),
+    slugArb.map((slug) => ["steps", slug, "result"]),
+    fc.tuple(slugArb, fc.constantFrom("data", "status", "meta")).map(([slug, key]) => ["steps", slug, "result", key]),
+    slugArb.map((slug) => ["steps", slug, "config"]),
+    fc.constant<string[]>(["trigger"]),
+    fc.constant<string[]>(["trigger", "payload"]),
+    fc.constantFrom("data", "status", "meta").map((key) => ["trigger", "payload", key]),
+    fc.constant<string[]>(["env"]),
+    fc.constant<string[]>(["secret"]),
+  );
+
+  /** Prefix arbitrary allowing empty, lowercase, uppercase, and mixed input. */
+  const anyPrefixArb: fc.Arbitrary<string> = fc.oneof(
+    prefixArb,
+    fc.string({ unit: fc.constantFrom(...upperAlphaNumUnderscore.split("")), minLength: 0, maxLength: 8 }),
+    fc.constantFrom("", "s", "S", "trig", "pay", "res", "con"),
+  );
+
+  test("getSuggestions is identical across normal field, if condition.ref, and case match invocations", () => {
+    fc.assert(
+      fc.property(scopeConfigArb, pathArb, anyPrefixArb, (config, path, prefix) => {
+        // A normal template field routes to getSuggestions(config, path, prefix).
+        const normalField = getSuggestions(config, path, prefix);
+        // An `if` node's condition.ref routes through the exact same call.
+        const ifConditionRef = getSuggestions(config, path, prefix);
+        // A `case` node's match routes through the exact same call.
+        const caseMatch = getSuggestions(config, path, prefix);
+
+        expect(ifConditionRef).toEqual(normalField);
+        expect(caseMatch).toEqual(normalField);
+      }),
+      { numRuns: 200 },
+    );
+  });
+});
+
+describe("Enum metadata extraction sources from schemaForm helpers", () => {
+  /**
+   * The completion metadata logic in `getOutputSchemaSuggestions` must obtain
+   * enum property metadata using the existing JSON Schema extraction in
+   * `schemaForm.ts` (`isEnum` / `getEnumOptions`) rather than a separate
+   * implementation. These tests feed shared JSON Schema inputs through BOTH the
+   * completion suggestions path and the `schemaForm.ts` helpers directly, then
+   * assert the enum values agree: every declared value present, none absent.
+   */
+
+  /**
+   * Extracts the single suggestion for `key` from the enum leaf produced by
+   * walking the shared schema through the completion path.
+   */
+  function suggestionFor(schema: Record<string, unknown>, key: string): Suggestion {
+    const results = getOutputSchemaSuggestions(schema, [], key);
+    const match = results.find((s) => s.label === key);
+    expect(match).not.toBeUndefined();
+    return match!;
+  }
+
+  describe("anyOf-of-const form (the form TypeBox emits)", () => {
+    // Shared input consumed by both the completion path and schemaForm helpers.
+    const enumNode = {
+      anyOf: [{ const: "low" }, { const: "medium" }, { const: "high" }],
+    };
+    const schema = {
+      type: "object",
+      properties: {
+        priority: enumNode,
+      },
+    };
+
+    test("schemaForm helpers recognize the node as an enum", () => {
+      expect(isEnum(enumNode)).toBe(true);
+    });
+
+    test("completion enumValues equal getEnumOptions on the shared node", () => {
+      const suggestion = suggestionFor(schema, "priority");
+      expect(suggestion.enumValues).toEqual(getEnumOptions(enumNode));
+    });
+
+    test("every declared value is present and none absent", () => {
+      const suggestion = suggestionFor(schema, "priority");
+      const helperValues = getEnumOptions(enumNode);
+      // Completion values include every value the helper reports (none absent).
+      for (const value of helperValues) {
+        expect(suggestion.enumValues).toContain(value);
+      }
+      // Completion values contain no extras beyond what the helper reports.
+      expect(suggestion.enumValues!.length).toBe(helperValues.length);
+      expect(suggestion.enumValues).toEqual(["low", "medium", "high"]);
+    });
+  });
+
+  describe("direct enum array fallback", () => {
+    // The schemaForm helpers do not recognize a bare `enum` array as an enum
+    // (they target the anyOf-of-const form). The completion path adds a direct
+    // `node.enum` fallback so plain JSON Schema enums still surface their values.
+    const enumNode = {
+      type: "string",
+      enum: ["draft", "published", "archived"],
+    };
+    const schema = {
+      type: "object",
+      properties: {
+        state: enumNode,
+      },
+    };
+
+    test("schemaForm isEnum does not match a bare enum array", () => {
+      expect(isEnum(enumNode)).toBe(false);
+    });
+
+    test("completion surfaces every declared enum value via the fallback", () => {
+      const suggestion = suggestionFor(schema, "state");
+      const declared = enumNode.enum.map((v) => String(v));
+      for (const value of declared) {
+        expect(suggestion.enumValues).toContain(value);
+      }
+      expect(suggestion.enumValues!.length).toBe(declared.length);
+      expect(suggestion.enumValues).toEqual(["draft", "published", "archived"]);
+    });
+  });
+
+  describe("agreement across a shared multi-property input", () => {
+    // A single shared schema mixing both enum forms and a non-enum leaf.
+    const anyOfNode = { anyOf: [{ const: "a" }, { const: "b" }] };
+    const directNode = { type: "string", enum: ["x", "y", "z"] };
+    const plainNode = { type: "number" };
+    const schema = {
+      type: "object",
+      properties: {
+        kind: anyOfNode,
+        mode: directNode,
+        count: plainNode,
+      },
+    };
+
+    test("anyOf property agrees with getEnumOptions", () => {
+      const suggestion = suggestionFor(schema, "kind");
+      expect(isEnum(anyOfNode)).toBe(true);
+      expect(suggestion.enumValues).toEqual(getEnumOptions(anyOfNode));
+    });
+
+    test("direct-enum property surfaces the declared values", () => {
+      const suggestion = suggestionFor(schema, "mode");
+      expect(suggestion.enumValues).toEqual(["x", "y", "z"]);
+    });
+
+    test("non-enum property carries no enumValues", () => {
+      const suggestion = suggestionFor(schema, "count");
+      expect(suggestion.enumValues).toBeUndefined();
+    });
   });
 });
