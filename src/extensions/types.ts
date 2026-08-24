@@ -761,6 +761,17 @@ export interface ExtensionContext {
      * @throws {Error} If the workflows extension has not initialized yet ("Workflows extension not initialized")
      */
     dispatch(name: string, payload?: unknown): Promise<WorkflowDispatchResult>;
+
+    /**
+     * List the names of all currently loaded workflow definitions.
+     *
+     * Reflects the in-memory workflow store, so it stays current across
+     * hot-reloads. Returns an empty array if the workflows extension has not
+     * initialized yet. The list is not sorted - callers should sort if needed.
+     *
+     * @returns The names of all loaded workflow definitions
+     */
+    names(): string[];
   };
 
   // -------------------------------------------------------------------------

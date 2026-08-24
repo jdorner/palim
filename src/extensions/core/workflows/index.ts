@@ -27,7 +27,7 @@ import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import type { OutputSchema, OutputSchemas } from "@shared/workflows";
 import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { setWorkflowDispatchFn } from "@src/extensions/engine/extensionContext";
+import { setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import {
   type DagCoordinatorDeps,
@@ -470,6 +470,11 @@ export function createExtension(): Extension {
         }
         return dispatchAndAnnounce(wf, payload);
       });
+
+      // Expose the loaded workflow names so other extensions (e.g. core-wf-steps)
+      // can populate editor dropdowns and validate workflow references. Reads the
+      // live in-memory store, so it stays current across hot-reloads.
+      setWorkflowNamesFn(() => [...store.keys()]);
 
       // Watch for file changes and hot-reload
       try {

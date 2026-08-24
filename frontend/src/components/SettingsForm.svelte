@@ -10,7 +10,7 @@ import { Value } from "typebox/value";
 import { authFetch } from "$lib/auth";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import { Button } from "$lib/components/ui/button";
-import { getEmptyValue, getEnumOptions, getInputType, getLabel } from "$lib/schemaForm";
+import { getAvailableItems, getEmptyValue, getEnumOptions, getInputType, getLabel } from "$lib/schemaForm";
 import MultiSelect from "./MultiSelect.svelte";
 
 interface Props {
@@ -349,6 +349,29 @@ function handleKeydown(event: KeyboardEvent) {
           value={String(formValues[key] ?? "")}
           oninput={(e) => updateValue(key, e.currentTarget.value)}
         ></textarea>
+      {:else if inputType === "select"}
+        <span class="inline-flex items-center gap-1.5">
+          <label class="text-sm font-medium" for="settings-{key}">{label}</label>
+          {#if description}
+            {@render infoTip(description)}
+          {/if}
+        </span>
+        <input
+          id="settings-{key}"
+          type="text"
+          list="settings-{key}-options"
+          class="block w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring
+            {error ? 'border-destructive' : ''}"
+          value={String(formValues[key] ?? "")}
+          minlength={prop.minLength as number | undefined}
+          maxlength={prop.maxLength as number | undefined}
+          oninput={(e) => updateValue(key, e.currentTarget.value)}
+        >
+        <datalist id="settings-{key}-options">
+          {#each getAvailableItems(prop) as option (option)}
+            <option value={option}></option>
+          {/each}
+        </datalist>
       {:else if inputType === "text"}
         <span class="inline-flex items-center gap-1.5">
           <label class="text-sm font-medium" for="settings-{key}">{label}</label>

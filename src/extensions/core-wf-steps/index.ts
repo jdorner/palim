@@ -7,6 +7,8 @@
  *   headers, body, timeout, and response format handling.
  * - `fail` - Immediately aborts the workflow run with a configurable error
  *   message. Useful in control-flow branches to signal unexpected states.
+ * - `start-workflow` - Dispatches another named workflow in a fire-and-forget
+ *   fashion (no join, no result propagation, independent lifecycle).
  *
  * This extension is marked `core: true` and cannot be disabled since these
  * step types are fundamental workflow building blocks.
@@ -15,6 +17,7 @@
 import type { Extension, ExtensionContext, ExtensionManifest } from "@ext/types";
 import { createFailHandler } from "./fail";
 import { createHttpRequestHandler } from "./http-request";
+import { createStartWorkflowHandler, WORKFLOW_NAMES_PROVIDER } from "./start-workflow";
 
 const manifest = {
   name: "core-wf-steps",
@@ -30,6 +33,18 @@ const extension: Extension = {
   async initialize(ctx: ExtensionContext) {
     ctx.stepTypes.register("http-request", createHttpRequestHandler());
     ctx.stepTypes.register("fail", createFailHandler());
+
+    // Populate the start-workflow step's "Workflow Name" dropdown in the editor
+    // with the current set of loaded workflow names, resolved at request time.
+    ctx.dynamicItems.register(WORKFLOW_NAMES_PROVIDER, () => ctx.workflows.names().slice().sort());
+
+    ctx.stepTypes.register(
+      "start-workflow",
+      createStartWorkflowHandler(
+        (name, payload) => ctx.workflows.dispatch(name, payload),
+        () => ctx.workflows.names(),
+      ),
+    );
   },
 
   async shutdown() {
