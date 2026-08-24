@@ -115,7 +115,7 @@ function expectedChildren(schema: OutputSchema, path: string[]): { key: string; 
 
 describe("getOutputSchemaSuggestions", () => {
   describe("completion soundness", () => {
-    test("Feature: workflow-schema-dataflow, Property 8: Completion soundness over the resolved schema", () => {
+    test("Completion soundness over the resolved schema", () => {
       fc.assert(
         fc.property(schemaTreeArb, (schema) => {
           const paths = collectSchemaPaths(schema);
@@ -150,7 +150,7 @@ describe("getOutputSchemaSuggestions", () => {
       );
     });
 
-    test("Feature: workflow-schema-dataflow, Property 8: empty when the schema is null (via dispatcher)", () => {
+    test("empty when the schema is null (via dispatcher)", () => {
       fc.assert(
         fc.property(
           // Arbitrary suffix path after `trigger.payload` / `steps.slug.result`.
@@ -185,7 +185,7 @@ describe("getOutputSchemaSuggestions", () => {
 });
 
 describe("getOutputSchemaSuggestions metadata", () => {
-  // Arbitraries scoped to Property 9. A single property node is generated with an
+  // A single property node is generated with an
   // independently-toggled set of declared metadata fields; the suggestion for it
   // must reflect exactly the declared fields, carried verbatim.
 
@@ -225,7 +225,7 @@ describe("getOutputSchemaSuggestions metadata", () => {
       .map((values) => ({ kind: "anyOf" as const, values })),
   );
 
-  test("Feature: workflow-schema-dataflow, Property 9: Metadata fidelity", () => {
+  test("Metadata fidelity", () => {
     fc.assert(
       fc.property(
         propertyKeyArb,
@@ -298,7 +298,7 @@ describe("getOutputSchemaSuggestions metadata", () => {
 });
 
 describe("expression-service consistency", () => {
-  // Property 14 models the two independent callers of the shared walker:
+  // This models the two independent callers of the shared walker:
   //   - the completion engine (getOutputSchemaSuggestions), which offers the
   //     resolved node's children, and
   //   - the backend template validator (dagTemplateValidation.ts), whose
@@ -323,7 +323,7 @@ describe("expression-service consistency", () => {
     return !walkSchemaPath(schema, path).resolved;
   }
 
-  test("Feature: workflow-schema-dataflow, Property 14: Expression-service consistency", () => {
+  test("Expression-service consistency", () => {
     fc.assert(
       fc.property(
         schemaTreeArb,

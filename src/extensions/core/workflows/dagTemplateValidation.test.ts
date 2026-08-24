@@ -203,9 +203,9 @@ function schemaWithPathsArb(depth: number): fc.Arbitrary<SchemaWithPaths> {
 
 describe("validateDagWorkflowTemplates (properties)", () => {
   // -------------------------------------------------------------------------
-  // Property 3: New validation and compilation are non-fatal
+  // New validation and compilation are non-fatal
   // -------------------------------------------------------------------------
-  test("Feature: workflow-schema-dataflow, Property 3: New validation and compilation are non-fatal", async () => {
+  test("New validation and compilation are non-fatal", async () => {
     // Arbitrary, possibly-malformed workflow definitions with arbitrary
     // template expressions. The validator must always resolve to an array and
     // never throw/reject, regardless of unknown paths, malformed schemas, or
@@ -260,9 +260,9 @@ describe("validateDagWorkflowTemplates (properties)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Property 10: Path-existence diagnostic soundness
+  // Path-existence diagnostic soundness
   // -------------------------------------------------------------------------
-  describe("Property 10: Path-existence diagnostic soundness", () => {
+  describe("Path-existence diagnostic soundness", () => {
     /**
      * Builds a linear a -> b workflow where b references
      * `{{steps.a.result.<path>}}`. Making a an ancestor AND dominator of b
@@ -280,7 +280,7 @@ describe("validateDagWorkflowTemplates (properties)", () => {
       );
     }
 
-    test("Feature: workflow-schema-dataflow, Property 10: resolvable dot-path yields no path-existence warning", async () => {
+    test("resolvable dot-path yields no path-existence warning", async () => {
       await fc.assert(
         fc.asyncProperty(schemaWithPathsArb(3), async ({ schema, resolvablePaths }) => {
           // Only paths with at least one segment reach the path-existence check
@@ -299,7 +299,7 @@ describe("validateDagWorkflowTemplates (properties)", () => {
       );
     });
 
-    test("Feature: workflow-schema-dataflow, Property 10: unresolvable dot-path yields exactly one warning identifying slug, field and path", async () => {
+    test("unresolvable dot-path yields exactly one warning identifying slug, field and path", async () => {
       await fc.assert(
         fc.asyncProperty(schemaWithPathsArb(3), identifierArb, async ({ schema, resolvablePaths }, badSegment) => {
           // Append a segment guaranteed not to exist as a child on some
@@ -324,7 +324,7 @@ describe("validateDagWorkflowTemplates (properties)", () => {
       );
     });
 
-    test("Feature: workflow-schema-dataflow, Property 10: null/undefined schema yields no path-existence warning", async () => {
+    test("null/undefined schema yields no path-existence warning", async () => {
       await fc.assert(
         fc.asyncProperty(
           fc.array(identifierArb, { minLength: 1, maxLength: 4 }),
@@ -342,7 +342,7 @@ describe("validateDagWorkflowTemplates (properties)", () => {
       );
     });
 
-    test("Feature: workflow-schema-dataflow, Property 10: present-but-malformed schema is not suppressed", async () => {
+    test("present-but-malformed schema is not suppressed", async () => {
       // A malformed schema (properties is not an object) has no known children,
       // so a deeper path is reported unknown - malformed is NOT treated as
       // absent. Contrast with null (no warning, checked above).
@@ -371,9 +371,9 @@ describe("validateDagWorkflowTemplates (properties)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Property 11: Schema-independent warnings are preserved
+  // Schema-independent warnings are preserved
   // -------------------------------------------------------------------------
-  test("Feature: workflow-schema-dataflow, Property 11: schema-independent warnings identical with and without schemas", async () => {
+  test("schema-independent warnings identical with and without schemas", async () => {
     // A workflow mixing schema-independent issues (unknown prefix, non-ancestor
     // reference, incomplete expression, invalid accessor, env allowlist, secret)
     // with a resolvable-schema-dependent path reference. Running with null
@@ -437,9 +437,9 @@ describe("validateDagWorkflowTemplates (properties)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // Property 13: Condition fields are diagnosed like any other field
+  // Condition fields are diagnosed like any other field
   // -------------------------------------------------------------------------
-  test("Feature: workflow-schema-dataflow, Property 13: condition fields diagnosed identically modulo field name", async () => {
+  test("condition fields diagnosed identically modulo field name", async () => {
     // For the same unresolvable expression referencing an ancestor+dominator
     // step, the path-existence warning for an `if` node's condition.ref and a
     // `case` node's match must equal that of a normal agent-step field, differing

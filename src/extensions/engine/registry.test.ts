@@ -5,8 +5,6 @@
  * a handler that declares an `outputSchema` yields a serialized, distinct
  * `StepTypeInfo.outputSchema`; a handler that omits it leaves the field
  * `undefined`.
- *
- * Validates: Requirements 3.1, 3.2
  */
 
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";

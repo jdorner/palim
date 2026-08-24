@@ -4,13 +4,13 @@
  *
  * Two invariants are covered:
  *
- * Part A (Requirements 6.1, 6.2, 6.4): an existing hand-authored
+ * Part A: an existing hand-authored
  * Type_Hint_Shorthand output schema still loads without error, and the set of
  * completable property paths derived from compiling that shorthand to JSON
  * Schema is a superset of the paths completable by the pre-change legacy
  * shorthand walker, with matching terminal/non-terminal classification.
  *
- * Part B (Requirements 1.3, 6.3): declaring an `outputSchema` on the built-in
+ * Part B: declaring an `outputSchema` on the built-in
  * step handlers is purely declarative metadata and does not alter runtime
  * behavior. The handlers' `execute` functions produce the same result/status
  * regardless of the `outputSchema` field, which is never consumed on the
@@ -208,7 +208,7 @@ describe("backward compatibility: existing JSON5 hand-authored output schemas", 
     });
   });
 
-  describe("completion superset (Requirements 6.2, 6.4)", () => {
+  describe("completion superset", () => {
     test("every legacy-completable key is completable via the compiled JSON Schema with matching classification", () => {
       const compiled = compileOutputSchema(legacyShorthand);
       const paths = collectShorthandPaths(legacyShorthand);

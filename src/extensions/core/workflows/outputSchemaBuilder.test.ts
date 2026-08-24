@@ -82,7 +82,7 @@ function noHandler(): TSchema | undefined {
 
 describe("buildOutputSchemas", () => {
   describe("source precedence", () => {
-    test("Feature: workflow-schema-dataflow, Property 1: Output-schema source precedence", () => {
+    test("Output-schema source precedence", () => {
       fc.assert(
         fc.property(
           slugArb,
@@ -131,7 +131,7 @@ describe("buildOutputSchemas", () => {
   });
 
   describe("canonical JSON Schema output", () => {
-    test("Feature: workflow-schema-dataflow, Property 2: Every emitted schema is canonical JSON Schema", () => {
+    test("Every emitted schema is canonical JSON Schema", () => {
       // A step arbitrary that may carry a hand-authored shorthand and a type that
       // may or may not resolve to a handler schema.
       const stepArb = fc.record({
@@ -171,7 +171,7 @@ describe("buildOutputSchemas", () => {
   });
 
   describe("non-fatal resolution", () => {
-    test("Feature: workflow-schema-dataflow, Property 3: New validation and compilation are non-fatal", () => {
+    test("New validation and compilation are non-fatal", () => {
       fc.assert(
         fc.property(fc.uniqueArray(slugArb, { minLength: 1, maxLength: 5 }), fc.integer(), (slugs, throwIndexSeed) => {
           // Pick one slug whose handler resolution will throw; every other slug

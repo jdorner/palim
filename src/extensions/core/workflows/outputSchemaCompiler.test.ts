@@ -39,8 +39,8 @@ const recognizedShorthandArb: fc.Arbitrary<OutputSchemaShorthand> = fc.letrec<{
 
 /**
  * Builds a shorthand arbitrary that may include unrecognized leaves alongside
- * recognized leaves and nested maps. Used for Property 2 (canonical form holds
- * regardless of hint recognition).
+ * recognized leaves and nested maps. Used to check the canonical form holds
+ * regardless of hint recognition.
  */
 const mixedShorthandArb: fc.Arbitrary<OutputSchemaShorthand> = fc.letrec<{
   node: string | OutputSchemaShorthand;
@@ -151,7 +151,7 @@ function collectShorthandPaths(shorthand: OutputSchemaShorthand, prefix: string[
 
 describe("compileOutputSchema", () => {
   describe("canonical JSON Schema output", () => {
-    test("Feature: workflow-schema-dataflow, Property 2: Every emitted schema is canonical JSON Schema", () => {
+    test("Every emitted schema is canonical JSON Schema", () => {
       fc.assert(
         fc.property(mixedShorthandArb, (shorthand) => {
           const compiled = compileOutputSchema(shorthand);
@@ -188,7 +188,7 @@ describe("compileOutputSchema", () => {
   });
 
   describe("hierarchy preservation", () => {
-    test("Feature: workflow-schema-dataflow, Property 4: Shorthand hierarchy is preserved under compilation", () => {
+    test("Shorthand hierarchy is preserved under compilation", () => {
       /**
        * Recursively asserts that at each level the compiled node is an object
        * node whose `properties` keys equal the source-map keys, nested maps
@@ -231,7 +231,7 @@ describe("compileOutputSchema", () => {
   });
 
   describe("unrecognized type hints", () => {
-    test("Feature: workflow-schema-dataflow, Property 5: Unrecognized type hints compile to unconstrained nodes with a warning", () => {
+    test("Unrecognized type hints compile to unconstrained nodes with a warning", () => {
       fc.assert(
         fc.property(propertyKeyArb, unrecognizedLeafArb, (key, hint) => {
           const warnings: string[] = [];
@@ -260,7 +260,7 @@ describe("compileOutputSchema", () => {
   });
 
   describe("backward-compatible completion", () => {
-    test("Feature: workflow-schema-dataflow, Property 6: Backward-compatible completion superset", () => {
+    test("Backward-compatible completion superset", () => {
       fc.assert(
         fc.property(recognizedShorthandArb, (shorthand) => {
           const compiled = compileOutputSchema(shorthand);

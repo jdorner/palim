@@ -8,7 +8,7 @@
  *   - frontend `templateScope.ts` (DEFAULT_ENV_ALLOWLIST export)
  *
  * The frontend copy is asserted for same-members equality with the shared
- * source (this remains true once task 2.1 rewires it to a literal import).
+ * source (this remains true now that it is a literal import).
  * The two backend modules keep `getEnvAllowlist()` private, so their sourcing
  * is verified behaviorally: with no `WORKFLOW_ENV_ALLOWLIST` env var set, an
  * `{{env.NAME}}` reference for every shared name must produce no allowlist
@@ -67,7 +67,7 @@ describe("env allowlist single source", () => {
 
   test("frontend templateScope derives the same default members as the shared source", () => {
     // Same-members (order-independent) equality. This is what "import-equality"
-    // reduces to and stays true after task 2.1 makes the frontend a literal import.
+    // reduces to, with the frontend using a literal import.
     expect(sorted(FRONTEND_DEFAULT_ENV_ALLOWLIST)).toEqual(sorted(DEFAULT_ENV_ALLOWLIST));
   });
 

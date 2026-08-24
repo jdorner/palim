@@ -56,10 +56,8 @@ const envNameArb = secretKeyArb;
 const TOP_LEVEL_NAMESPACES = ["trigger", "steps", "env", "secret"];
 
 describe("Template Scope Registry - Property Tests", () => {
-  describe("Property 2: Prefix filtering returns only matches", () => {
+  describe("Prefix filtering returns only matches", () => {
     /**
-     * Validates: Requirements 2.2, 2.3
-     *
      * For any typed prefix string, getTopLevelSuggestions(prefix) SHALL return
      * only suggestions whose label starts with prefix (case-sensitive), and SHALL
      * return all such matches from the fixed set ["trigger", "steps", "env", "secret"].
@@ -84,10 +82,8 @@ describe("Template Scope Registry - Property Tests", () => {
     });
   });
 
-  describe("Property 3: Steps scope excludes forward references", () => {
+  describe("Steps scope excludes forward references", () => {
     /**
-     * Validates: Requirements 3.1, 3.2, 3.3
-     *
      * For any step array of length N and any current step index i where 0 <= i < N,
      * getStepSlugs(steps, i, "") SHALL return exactly the slugs at indices 0 through
      * i-1 (inclusive), and SHALL NOT include any slug at index >= i.
@@ -117,10 +113,8 @@ describe("Template Scope Registry - Property Tests", () => {
     });
   });
 
-  describe("Property 4: Suggestions are always sorted", () => {
+  describe("Suggestions are always sorted", () => {
     /**
-     * Validates: Requirements 4.1, 5.2
-     *
      * For any env allowlist and any set of secret keys, the suggestions returned by
      * getEnvSuggestions(envAllowlist, "") and getSecretSuggestions(secretKeys, "") SHALL
      * be in case-insensitive ascending alphabetical order of their label field.
@@ -158,10 +152,8 @@ describe("Template Scope Registry - Property Tests", () => {
     });
   });
 
-  describe("Property 5: Env/secret filtering uses case-insensitive substring", () => {
+  describe("Env/secret filtering uses case-insensitive substring", () => {
     /**
-     * Validates: Requirements 4.2, 4.3
-     *
      * For any env allowlist, any secret key set, and any non-empty filter prefix,
      * the results of getEnvSuggestions(list, prefix) SHALL include only entries whose
      * label contains prefix as a case-insensitive substring, and SHALL include all
@@ -780,16 +772,15 @@ describe("getSuggestions hides result for succeeding steps", () => {
   });
 });
 
-// Feature: workflow-schema-dataflow, Property 12: Condition fields complete like any other field
-describe("Property 12: Condition fields complete like any other field", () => {
+describe("Condition fields complete like any other field", () => {
   /**
    * The autocomplete engine routes every template field -- normal fields, an
    * `if` node's `condition.ref`, and a `case` node's `match` -- through the same
    * `getSuggestions(config, path, prefix)` entry point. `getSuggestions` takes no
    * field-kind parameter, so it is field-agnostic by construction: the three
    * field contexts differ only at the call site, which passes identical
-   * arguments. This property confirms the equivalence claim from design section 7
-   * (Requirements 12.1, 12.2) against the actual API surface: invoking
+   * arguments. This confirms the equivalence claim against the actual API
+   * surface: invoking
    * `getSuggestions` with the same scope, path, and prefix -- as the three field
    * contexts do -- yields deeply-equal suggestions every time.
    */
@@ -882,11 +873,8 @@ describe("Property 12: Condition fields complete like any other field", () => {
   });
 });
 
-// Feature: workflow-schema-dataflow, Task 6.5: metadata extraction sourcing
 describe("Enum metadata extraction sources from schemaForm helpers", () => {
   /**
-   * Validates: Requirement 10.6
-   *
    * The completion metadata logic in `getOutputSchemaSuggestions` must obtain
    * enum property metadata using the existing JSON Schema extraction in
    * `schemaForm.ts` (`isEnum` / `getEnumOptions`) rather than a separate
