@@ -8,6 +8,7 @@
 
 import {
   DEFAULT_ENV_ALLOWLIST,
+  isObjectSchemaNode,
   type OutputSchema,
   type OutputSchemas,
   walkSchemaPath,
@@ -166,21 +167,25 @@ export function getOutputSchemaSuggestions(schema: OutputSchema, subPath: string
 }
 
 /**
- * Builds a single suggestion from a child JSON Schema node, computing
- * terminal-ness and attaching declared metadata verbatim (absent fields omitted).
+ * Builds a single suggestion from a child JSON Schema node, deriving
+ * terminal-ness from the shared node classification and attaching declared
+ * metadata verbatim (absent fields omitted).
+ *
+ * The child is non-terminal exactly when {@link isObjectSchemaNode} classifies
+ * it as an object node -- the identical rule {@link walkSchemaPath} uses to
+ * decide whether to descend. Reusing that one predicate (rather than a private
+ * object-detection check) means the completion engine and the backend template
+ * validator classify the same node the same way by construction, so completion
+ * and diagnostics cannot diverge.
  *
  * @param key - The child property name (used as the suggestion label)
  * @param childNode - The child JSON Schema node, when present
  * @returns The suggestion with metadata populated from the child node
  */
 function buildSchemaSuggestion(key: string, childNode: Record<string, unknown> | undefined): Suggestion {
-  const isObjectNode =
-    childNode !== undefined &&
-    (childNode.type === "object" || (childNode.properties !== null && typeof childNode.properties === "object"));
-
   const suggestion: Suggestion = {
     label: key,
-    terminal: !isObjectNode,
+    terminal: childNode === undefined || !isObjectSchemaNode(childNode),
   };
 
   if (childNode === undefined) {

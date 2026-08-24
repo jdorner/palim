@@ -296,3 +296,81 @@ describe("getOutputSchemaSuggestions metadata", () => {
     );
   });
 });
+
+describe("expression-service consistency", () => {
+  // Property 14 models the two independent callers of the shared walker:
+  //   - the completion engine (getOutputSchemaSuggestions), which offers the
+  //     resolved node's children, and
+  //   - the backend template validator (dagTemplateValidation.ts), whose
+  //     unknown-path decision is exactly `!walkSchemaPath(schema, path).resolved`.
+  // Both derive from the identical `walkSchemaPath(schema, path)` resolved
+  // result, so they cannot diverge. The helper below mirrors the validator's
+  // decision verbatim.
+
+  /**
+   * Mirrors the backend validator's unknown-path decision for a dot-path.
+   *
+   * The validator (dagTemplateValidation.ts) emits an "unknown path" warning for
+   * `{{trigger.payload.<path>}}` / `{{steps.<slug>.result.<path>}}` exactly when
+   * `walkSchemaPath(schema, path).resolved` is false. This helper reproduces that
+   * decision from the same shared resolved result.
+   *
+   * @param schema - The canonical JSON Schema the reference resolves against
+   * @param path - The dot-path segments below the schema root
+   * @returns True when the validator would emit an unknown-path warning
+   */
+  function validatorEmitsUnknownPathWarning(schema: OutputSchema, path: string[]): boolean {
+    return !walkSchemaPath(schema, path).resolved;
+  }
+
+  test("Feature: workflow-schema-dataflow, Property 14: Expression-service consistency", () => {
+    fc.assert(
+      fc.property(
+        schemaTreeArb,
+        // Arbitrary dot-path: mix resolvable paths (enumerated from the tree)
+        // and free-form segment arrays (mostly unresolvable) to exercise both
+        // the resolved and unresolved branches of the shared walker.
+        fc.oneof(
+          fc.array(propertyKeyArb, { minLength: 0, maxLength: 5 }),
+          fc.array(fc.stringMatching(/^[a-z][a-zA-Z0-9_]{0,7}$/), { minLength: 0, maxLength: 5 }),
+        ),
+        (schema, path) => {
+          // Single shared resolution consumed by both callers.
+          const resolved = walkSchemaPath(schema, path);
+
+          // Completion caller: offers children/terminal for this path.
+          const suggestions = getOutputSchemaSuggestions(schema, path, "");
+          const completionOffersChildren = suggestions.length > 0;
+          const completionResolvesTerminal = resolved.resolved && resolved.children.length === 0;
+
+          // Validator caller: emits an unknown-path warning iff unresolved.
+          const validatorWarns = validatorEmitsUnknownPathWarning(schema, path);
+
+          // Core equivalence: the validator warns exactly when the path is
+          // unresolved, i.e. exactly when completion neither offers children nor
+          // classifies the path as a resolved terminal node.
+          const completionAccepts = completionOffersChildren || completionResolvesTerminal;
+          expect(validatorWarns).toBe(!completionAccepts);
+          expect(validatorWarns).toBe(!resolved.resolved);
+
+          // Completion offers children IFF the shared result resolves to a node
+          // with children (an object node). When it offers children, the
+          // validator must NOT warn (path is resolved).
+          expect(completionOffersChildren).toBe(resolved.resolved && resolved.children.length > 0);
+          if (completionOffersChildren) {
+            expect(validatorWarns).toBe(false);
+          }
+
+          // When the path resolves to a terminal (leaf) node, completion offers
+          // no children yet the validator still must NOT warn: a resolved leaf is
+          // a valid path, just with nothing further to complete.
+          if (completionResolvesTerminal) {
+            expect(completionOffersChildren).toBe(false);
+            expect(validatorWarns).toBe(false);
+          }
+        },
+      ),
+      { numRuns: 200 },
+    );
+  });
+});

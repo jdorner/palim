@@ -103,11 +103,32 @@ export function walkSchemaPath(schema: OutputSchema | null, path: string[]): Res
 }
 
 /**
- * Extracts the `properties` map from a schema node when the node is an object.
+ * Reports whether a schema node is an object node (i.e. it can have children).
  *
  * A node counts as an object when its `type` is `"object"` or when it exposes a
- * `properties` map (regardless of `type`). Returns `null` for leaf/primitive,
- * unconstrained, or malformed nodes.
+ * `properties` map (regardless of `type`). Leaf/primitive nodes, unconstrained
+ * `{}` nodes, and malformed nodes are not object nodes.
+ *
+ * This is the single classification rule shared by {@link walkSchemaPath} (to
+ * decide whether to descend) and by the frontend autocomplete engine (to decide
+ * whether a completion is terminal). Anchoring both on this one predicate keeps
+ * completion and diagnostics from diverging.
+ *
+ * @param node - The schema node to inspect.
+ * @returns True when the node is an object node, false for leaf/malformed nodes.
+ */
+export function isObjectSchemaNode(node: OutputSchema): boolean {
+  const properties = node.properties;
+  const hasPropertiesMap = properties !== null && typeof properties === "object";
+  return node.type === "object" || hasPropertiesMap;
+}
+
+/**
+ * Extracts the `properties` map from a schema node when the node is an object.
+ *
+ * A node counts as an object per {@link isObjectSchemaNode}. Returns `null` for
+ * leaf/primitive, unconstrained, or malformed nodes, or when an object node
+ * exposes no readable `properties` map.
  *
  * @param node - The schema node to inspect.
  * @returns The `properties` map, or `null` when the node is not an object.
@@ -115,8 +136,7 @@ export function walkSchemaPath(schema: OutputSchema | null, path: string[]): Res
 function getProperties(node: OutputSchema): Record<string, unknown> | null {
   const properties = node.properties;
   const hasPropertiesMap = properties !== null && typeof properties === "object";
-  const isObjectNode = node.type === "object" || hasPropertiesMap;
-  if (!isObjectNode || !hasPropertiesMap) {
+  if (!isObjectSchemaNode(node) || !hasPropertiesMap) {
     return null;
   }
   return properties as Record<string, unknown>;
