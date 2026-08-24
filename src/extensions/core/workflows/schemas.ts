@@ -30,8 +30,17 @@ export const OutputSchemaSchema: ReturnType<typeof Type.Recursive> = Type.Recurs
   { $id: "OutputSchema" },
 );
 
-/** TypeScript type for a node output schema definition. */
-export type OutputSchema = { [key: string]: string | OutputSchema };
+/**
+ * TypeScript type for the legacy type-hint shorthand used to author a node's
+ * output shape in JSON5 workflow definitions.
+ *
+ * Keys are property names; values are either a type-hint string (leaf/terminal,
+ * e.g. "string", "number") or a nested shorthand map (non-terminal). This is the
+ * authoring format validated by {@link OutputSchemaSchema}; it is distinct from
+ * the canonical JSON Schema `OutputSchema` type defined in `shared/workflows.ts`,
+ * which is what the shorthand compiles to.
+ */
+export type OutputSchemaShorthand = { [key: string]: string | OutputSchemaShorthand };
 
 /** Trigger configuration - how a workflow is started. */
 export const TriggerSchema = Type.Object(
@@ -466,7 +475,7 @@ export interface DagAgentStep {
   prompt: string | string[];
   tools?: string[];
   skills?: string[];
-  outputSchema?: OutputSchema;
+  outputSchema?: OutputSchemaShorthand;
 }
 
 /** TypeScript type for a DAG generic step. */

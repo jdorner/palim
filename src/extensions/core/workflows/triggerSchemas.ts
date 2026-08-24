@@ -8,7 +8,7 @@
  * trigger source extension (filewatcher, webhooks, scheduler).
  */
 
-import type { OutputSchema } from "./schemas";
+import type { OutputSchemaShorthand } from "./schemas";
 
 /**
  * Output schema for filewatcher triggers.
@@ -16,7 +16,7 @@ import type { OutputSchema } from "./schemas";
  * The workflow engine passes the full `filewatcher:detected` event context
  * as `triggerPayload`. Shape: `{ source, id, slug, filename, event }`.
  */
-export const FILEWATCHER_TRIGGER_SCHEMA: OutputSchema = {
+export const FILEWATCHER_TRIGGER_SCHEMA: OutputSchemaShorthand = {
   source: "string",
   id: "string",
   slug: "string",
@@ -30,7 +30,7 @@ export const FILEWATCHER_TRIGGER_SCHEMA: OutputSchema = {
  * The workflow engine passes the full `scheduler:fired` event context
  * as `triggerPayload`. Shape: `{ source, id, slug, description, label }`.
  */
-export const SCHEDULER_TRIGGER_SCHEMA: OutputSchema = {
+export const SCHEDULER_TRIGGER_SCHEMA: OutputSchemaShorthand = {
   source: "string",
   id: "string",
   slug: "string",
@@ -45,7 +45,7 @@ export const SCHEDULER_TRIGGER_SCHEMA: OutputSchema = {
  * payload shape is user-defined (arbitrary JSON body or manual input).
  * Users can still declare a custom `outputSchema` on those triggers.
  */
-export const BUILTIN_TRIGGER_SCHEMAS: Partial<Record<string, OutputSchema>> = {
+export const BUILTIN_TRIGGER_SCHEMAS: Partial<Record<string, OutputSchemaShorthand>> = {
   filewatcher: FILEWATCHER_TRIGGER_SCHEMA,
   schedule: SCHEDULER_TRIGGER_SCHEMA,
 };
@@ -60,7 +60,7 @@ export const BUILTIN_TRIGGER_SCHEMAS: Partial<Record<string, OutputSchema>> = {
  */
 export function resolveTriggerOutputSchema(
   triggerType: string,
-  explicitSchema?: OutputSchema,
-): OutputSchema | undefined {
+  explicitSchema?: OutputSchemaShorthand,
+): OutputSchemaShorthand | undefined {
   return explicitSchema ?? BUILTIN_TRIGGER_SCHEMAS[triggerType];
 }

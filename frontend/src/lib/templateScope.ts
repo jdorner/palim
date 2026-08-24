@@ -6,21 +6,10 @@
  * No Svelte or DOM dependencies.
  */
 
-/**
- * Recursive output schema type matching the backend definition.
- * Keys are property names, values are type hints (terminal) or nested schemas (non-terminal).
- */
-export type OutputSchema = { [key: string]: string | OutputSchema };
+import { DEFAULT_ENV_ALLOWLIST, type OutputSchema, type OutputSchemas } from "../../../shared/workflows";
 
-/**
- * Output schemas resolved for the current workflow.
- */
-export interface OutputSchemas {
-  /** Resolved trigger output schema (built-in or user-defined), or null if unavailable */
-  trigger: OutputSchema | null;
-  /** Step output schemas keyed by step slug */
-  steps: Record<string, OutputSchema>;
-}
+export type { OutputSchema, OutputSchemas };
+export { DEFAULT_ENV_ALLOWLIST };
 
 /**
  * A single autocomplete suggestion with classification metadata.
@@ -45,15 +34,10 @@ export interface ScopeConfig {
   /** Prefetched secret key names */
   secretKeys: string[];
   /** Environment variable allowlist (defaults to built-in set) */
-  envAllowlist?: string[];
+  envAllowlist?: readonly string[];
   /** Resolved output schemas from the workflow API */
   outputSchemas?: OutputSchemas;
 }
-
-/**
- * Default environment variable allowlist matching backend.
- */
-export const DEFAULT_ENV_ALLOWLIST: string[] = ["AGENT_WORK_DIR", "NODE_ENV", "WEB_HOST", "WEB_PORT"];
 
 /** Fixed set of top-level namespace names. */
 const TOP_LEVEL_NAMESPACES = ["trigger", "steps", "env", "secret"] as const;
@@ -101,7 +85,7 @@ export function getStepSlugs(steps: Array<{ slug: string }>, currentStepIndex: n
  * @param prefix - The currently typed text used for filtering
  * @returns Array of matching env variable suggestions, sorted alphabetically
  */
-export function getEnvSuggestions(envAllowlist: string[], prefix: string): Suggestion[] {
+export function getEnvSuggestions(envAllowlist: readonly string[], prefix: string): Suggestion[] {
   const lowerPrefix = prefix.toLowerCase();
   return envAllowlist
     .filter((name) => name.toLowerCase().includes(lowerPrefix))
@@ -141,7 +125,13 @@ export function getSecretSuggestions(secretKeys: string[], prefix: string): Sugg
  * @returns Array of matching suggestions derived from schema keys
  */
 export function getOutputSchemaSuggestions(schema: OutputSchema, subPath: string[], prefix: string): Suggestion[] {
-  let current: OutputSchema = schema;
+  // TEMPORARY SHIM (removed in task 6.2): the shared OutputSchema is now the
+  // canonical JSON Schema type (Record<string, unknown>). This function still
+  // uses the legacy type-hint-shorthand walking logic, so it narrows nodes to
+  // the legacy shorthand shape locally to keep compiling. Task 6.2 redesigns
+  // this walker to descend JSON Schema `properties` via walkSchemaPath.
+  type ShorthandNode = { [key: string]: string | ShorthandNode };
+  let current = schema as ShorthandNode;
 
   // Navigate into nested schemas following the sub-path
   for (const segment of subPath) {

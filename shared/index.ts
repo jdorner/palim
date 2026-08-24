@@ -27,4 +27,5 @@ export type {
   PushMessageEvent,
   WebSocketMessage,
 } from "./websocket";
-export type { WorkflowStepSummary, WorkflowWebSocketEvent } from "./workflows";
+export type { OutputSchema, OutputSchemas, WorkflowStepSummary, WorkflowWebSocketEvent } from "./workflows";
+export { DEFAULT_ENV_ALLOWLIST } from "./workflows";

@@ -13,6 +13,7 @@
  * @module
  */
 
+import { DEFAULT_ENV_ALLOWLIST } from "@shared/workflows";
 import type { DagStepDef, DagWorkflowDefinition } from "./schemas";
 import type { TemplateSecretResolver } from "./template";
 
@@ -48,7 +49,7 @@ let _envAllowlist: Set<string> | undefined;
 
 function getEnvAllowlist(): Set<string> {
   if (_envAllowlist) return _envAllowlist;
-  _envAllowlist = new Set(["WEB_HOST", "WEB_PORT", "AGENT_WORK_DIR", "NODE_ENV"]);
+  _envAllowlist = new Set(DEFAULT_ENV_ALLOWLIST);
   const extra = process.env.WORKFLOW_ENV_ALLOWLIST;
   if (extra) {
     for (const name of extra.split(",")) {
