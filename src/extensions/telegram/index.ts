@@ -9,7 +9,7 @@
 
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import { Type } from "@sinclair/typebox";
-import TelegramBot from "node-telegram-bot-api";
+import { Bot } from "node-telegram-bot-api";
 import { createNotifyStepHandler } from "./notifyStep";
 
 const CHAT_ACTION_DELAY_MS = 3000;
@@ -38,7 +38,7 @@ const manifest = {
  */
 export function createExtension(): Extension {
   let logger: Logger;
-  let bot: TelegramBot | null = null;
+  let bot: Bot | null = null;
   let defaultChatId: string | undefined;
 
   // Per-chat typing indicator intervals
@@ -47,10 +47,10 @@ export function createExtension(): Extension {
   function startTyping(chatId: number): void {
     if (typingIntervals.has(chatId)) return; // already running for this chat
 
-    bot?.sendChatAction(chatId, "typing");
+    bot?.api.sendChatAction({ chat_id: chatId, action: "typing" });
     typingIntervals.set(
       chatId,
-      setInterval(() => bot?.sendChatAction(chatId, "typing"), CHAT_ACTION_DELAY_MS),
+      setInterval(() => bot?.api.sendChatAction({ chat_id: chatId, action: "typing" }), CHAT_ACTION_DELAY_MS),
     );
   }
 
@@ -77,17 +77,21 @@ export function createExtension(): Extension {
       defaultChatId =
         typeof chatIdCfg === "string" ? chatIdCfg : chatIdCfg !== undefined ? String(chatIdCfg) : undefined;
 
-      bot = new TelegramBot(botToken, { polling: true });
+      bot = new Bot(botToken);
 
-      bot.on("polling_error", (err) => {
-        logger.error("Telegram polling error:", err);
+      // v2 routes all handler/polling errors to the error boundary instead of a
+      // `polling_error` event. The default boundary logs and continues; we keep
+      // that continue-on-error behavior but log through our own logger.
+      bot.catch((err) => {
+        logger.error("Telegram bot error:", err);
       });
 
       // Enqueue incoming messages with a server-side session.
       // The user message is appended to the session before enqueuing so the
       // agent processor sees it when loading session history.
-      bot.on("message", async (msg) => {
-        if (!msg.text) return;
+      bot.on("message", async (msgCtx) => {
+        const msg = msgCtx.message;
+        if (!msg?.text) return;
 
         try {
           const chatId = msg.chat.id;
@@ -115,6 +119,12 @@ export function createExtension(): Extension {
           logger.error(`Failed to queue message from chat ${msg.chat.id}:`, err);
         }
       });
+
+      // Start the long-poll pump. This returns a promise that resolves when the
+      // bot is stopped; it must not be awaited here or it would block init.
+      // Handler/polling errors are routed to the `catch` boundary above, so this
+      // promise only rejects if that boundary itself throws.
+      void bot.startPolling();
 
       // Route agent responses back to the originating Telegram chat.
       // Uses agent_end (not message_end) to avoid re-sending historical
@@ -152,7 +162,7 @@ export function createExtension(): Extension {
         if (!finalText) return;
 
         try {
-          await bot!.sendMessage(chatId, finalText);
+          await bot!.api.sendMessage({ chat_id: chatId, text: finalText });
           logger.info(`Sent response to chat ${chatId}`);
         } catch (err) {
           logger.error(`Failed to send response to chat ${chatId}:`, err);
@@ -181,7 +191,7 @@ export function createExtension(): Extension {
           throw new Error("Telegram bot is not connected (missing or invalid bot token).");
         }
 
-        await bot.sendMessage(Number(targetChatId), message);
+        await bot.api.sendMessage({ chat_id: Number(targetChatId), text: message });
 
         // Persist the sent message in the session so the agent has context
         // when the user replies later.
@@ -270,8 +280,7 @@ export function createExtension(): Extension {
           logger.info("Bot token deleted, stopping Telegram bot");
           if (bot) {
             try {
-              await bot.stopPolling({ cancel: true });
-              await bot.close();
+              bot.stop();
             } catch (err) {
               logger.error("Error stopping Telegram bot after token deletion:", err);
             }
@@ -290,17 +299,17 @@ export function createExtension(): Extension {
         logger.info("Bot token updated, reconnecting Telegram bot");
         if (bot) {
           try {
-            await bot.stopPolling({ cancel: true });
-            await bot.close();
+            bot.stop();
           } catch (err) {
             logger.error("Error stopping old Telegram bot instance:", err);
           }
         }
 
-        bot = new TelegramBot(newToken, { polling: true });
-        bot.on("polling_error", (err) => {
-          logger.error("Telegram polling error:", err);
+        bot = new Bot(newToken);
+        bot.catch((err) => {
+          logger.error("Telegram bot error:", err);
         });
+        void bot.startPolling();
 
         logger.info("Telegram bot reconnected with new token");
       });
@@ -317,8 +326,7 @@ export function createExtension(): Extension {
             typingIntervals.delete(chatId);
           });
 
-          await bot.stopPolling({ cancel: true });
-          bot.close();
+          bot.stop();
         } catch (err) {
           logger.error("Error stopping Telegram bot:", err);
         }
