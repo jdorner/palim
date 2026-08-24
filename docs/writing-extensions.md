@@ -322,8 +322,11 @@ Avoid unnecessary prefixes like `/admin/` - all extension routes are already beh
 | Method | Description |
 | --- | --- |
 | `ctx.workflows.dispatch(name, payload?)` | Trigger a named workflow run and return the run ID + step job IDs |
+| `ctx.workflows.names()` | List the names of all currently loaded workflow definitions |
 
 Dispatch a workflow programmatically without HTTP self-calls. The method looks up the workflow definition by name, validates it is enabled, creates a run with the provided payload as trigger data, and broadcasts a `workflow_started` WebSocket event.
+
+`ctx.workflows.names()` returns the names of all loaded workflow definitions from the live in-memory store, so it stays current across hot-reloads. It returns an empty array if the workflows extension has not initialized yet. This is handy for populating editor dropdowns (via a dynamic item provider) or validating workflow references. The `core-wf-steps` `start-workflow` step uses it for both.
 
 ```typescript
 async initialize(ctx) {

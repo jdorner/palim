@@ -14,6 +14,7 @@ export type SchemaInputType =
   | "number"
   | "boolean"
   | "enum"
+  | "select"
   | "password"
   | "multiselect"
   | "tags"
@@ -47,6 +48,22 @@ export function getEnumOptions(prop: SchemaProperty): string[] {
 }
 
 /**
+ * Extract the `availableItems` option values from a schema property.
+ *
+ * Populated at request time from a `dynamicItems` provider (or declared
+ * statically). Used to offer suggestions for single-string `select` fields and
+ * options for array `multiselect` fields.
+ *
+ * @param prop - The property schema object
+ * @returns Array of string option values (empty when none are declared)
+ */
+export function getAvailableItems(prop: SchemaProperty): string[] {
+  const items = prop.availableItems;
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => String(item));
+}
+
+/**
  * Get a display label for a schema property.
  * Uses the `title` annotation if available, otherwise capitalizes the property key.
  *
@@ -73,6 +90,10 @@ export function getInputType(prop: SchemaProperty): SchemaInputType {
   if (prop.type === "boolean") return "boolean";
   if (prop.type === "number" || prop.type === "integer") return "number";
   if (prop.type === "string" && prop.multiline === true) return "textarea";
+  // A single-string field with a suggestion list renders as a datalist-backed
+  // input: it offers the known options as a dropdown while still accepting free
+  // text (e.g. {{template}} expressions).
+  if (prop.type === "string" && Array.isArray(prop.availableItems) && prop.availableItems.length > 0) return "select";
   if (prop.type === "string") return "text";
   return "unsupported";
 }

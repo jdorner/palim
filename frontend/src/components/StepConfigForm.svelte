@@ -12,7 +12,14 @@
 import { Tooltip } from "bits-ui";
 import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
-import { buildInitialValues, getEnumOptions, getInputType, getLabel, getProperties } from "$lib/schemaForm";
+import {
+  buildInitialValues,
+  getAvailableItems,
+  getEnumOptions,
+  getInputType,
+  getLabel,
+  getProperties,
+} from "$lib/schemaForm";
 import type { OutputSchemas } from "$lib/templateScope";
 import MultiSelect from "./MultiSelect.svelte";
 import TemplateAutocomplete from "./TemplateAutocomplete.svelte";
@@ -218,6 +225,34 @@ function updateValue(key: string, value: unknown) {
           value={String(formValues[key] ?? "")}
           oninput={(e) => updateValue(key, (e.target as HTMLTextAreaElement).value)}
         ></textarea>
+        {#if autocompleteEnabled}
+          <TemplateAutocomplete
+            targetElement={fieldRefs[key] ?? null}
+            steps={steps ?? []}
+            currentStepIndex={currentStepIndex ?? 0}
+            secretKeys={secretKeys ?? []}
+            {outputSchemas}
+            onChange={(newValue) => updateValue(key, newValue)}
+          />
+        {/if}
+      {:else if inputType === "select"}
+        {@render fieldLabel(key, label, description)}
+        <input
+          id="step-config-{key}"
+          bind:this={fieldRefs[key]}
+          type="text"
+          list="step-config-{key}-options"
+          class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+          value={String(formValues[key] ?? "")}
+          minlength={prop.minLength as number | undefined}
+          maxlength={prop.maxLength as number | undefined}
+          oninput={(e) => updateValue(key, (e.target as HTMLInputElement).value)}
+        >
+        <datalist id="step-config-{key}-options">
+          {#each getAvailableItems(prop) as option (option)}
+            <option value={option}></option>
+          {/each}
+        </datalist>
         {#if autocompleteEnabled}
           <TemplateAutocomplete
             targetElement={fieldRefs[key] ?? null}

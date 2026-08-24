@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import type { WorkflowDispatchResult } from "@ext/types";
 import { EventBus } from "./eventBus";
-import { createExtensionContext, setWorkflowDispatchFn } from "./extensionContext";
+import { createExtensionContext, setWorkflowDispatchFn, setWorkflowNamesFn } from "./extensionContext";
 
 /** Creates minimal deps for createExtensionContext (only what workflows.dispatch needs). */
 function createMinimalDeps() {
@@ -117,5 +117,38 @@ describe("ctx.workflows.dispatch", () => {
 
       expect(capturedPayload).toBeUndefined();
     });
+  });
+});
+
+describe("ctx.workflows.names", () => {
+  test("returns an empty array when the names function has not been set", () => {
+    // Simulate the pre-initialization state by unsetting the accessor.
+    setWorkflowNamesFn(null as any);
+
+    const deps = createMinimalDeps();
+    const { context } = createExtensionContext(deps);
+
+    expect(context.workflows.names()).toEqual([]);
+  });
+
+  test("returns the names provided by the accessor after it is set", () => {
+    setWorkflowNamesFn(() => ["cleanup", "invoice-process"]);
+
+    const deps = createMinimalDeps();
+    const { context } = createExtensionContext(deps);
+
+    expect(context.workflows.names()).toEqual(["cleanup", "invoice-process"]);
+  });
+
+  test("reflects the current accessor result on each call (stays live)", () => {
+    let names = ["a"];
+    setWorkflowNamesFn(() => names);
+
+    const deps = createMinimalDeps();
+    const { context } = createExtensionContext(deps);
+
+    expect(context.workflows.names()).toEqual(["a"]);
+    names = ["a", "b"];
+    expect(context.workflows.names()).toEqual(["a", "b"]);
   });
 });

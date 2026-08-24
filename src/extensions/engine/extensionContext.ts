@@ -54,6 +54,12 @@ const logger = createLogger("ExtensionContext");
 let workflowDispatchFn: ((name: string, payload?: unknown) => Promise<WorkflowDispatchResult>) | undefined;
 
 /**
+ * Module-level workflow names accessor set by the workflows core extension
+ * during its initialization. Shared across all extension contexts via closure.
+ */
+let workflowNamesFn: (() => string[]) | undefined;
+
+/**
  * Registers the workflow dispatch implementation. Called once by the workflows
  * core extension during its `initialize()` phase.
  *
@@ -61,6 +67,16 @@ let workflowDispatchFn: ((name: string, payload?: unknown) => Promise<WorkflowDi
  */
 export function setWorkflowDispatchFn(fn: (name: string, payload?: unknown) => Promise<WorkflowDispatchResult>): void {
   workflowDispatchFn = fn;
+}
+
+/**
+ * Registers the workflow names accessor. Called once by the workflows core
+ * extension during its `initialize()` phase.
+ *
+ * @param fn - Function returning the names of all currently loaded workflow definitions
+ */
+export function setWorkflowNamesFn(fn: () => string[]): void {
+  workflowNamesFn = fn;
 }
 
 /**
@@ -609,6 +625,9 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
           throw new Error("Workflows extension not initialized");
         }
         return workflowDispatchFn(name, payload);
+      },
+      names(): string[] {
+        return workflowNamesFn ? workflowNamesFn() : [];
       },
     },
     db: database,
