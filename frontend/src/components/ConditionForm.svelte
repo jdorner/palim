@@ -8,6 +8,8 @@
   an operator selector, and an operator-appropriate value input.
 -->
 <script lang="ts">
+import { Tooltip } from "bits-ui";
+import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import type { OutputSchemas } from "$lib/templateScope";
 import TemplateAutocomplete from "./TemplateAutocomplete.svelte";
@@ -120,10 +122,33 @@ function inAsText(): string {
 }
 </script>
 
+{#snippet infoTip(description: string)}
+  <Tooltip.Root delayDuration={0}>
+    <Tooltip.Trigger
+      class="inline-flex items-center pointer-events-auto cursor-help text-muted-foreground/60 hover:text-muted-foreground"
+    >
+      <InfoIcon class="w-4 h-4" />
+    </Tooltip.Trigger>
+    <Tooltip.Portal>
+      <Tooltip.Content
+        class="z-50 max-w-64 rounded-md border border-border px-3 py-2 text-xs text-foreground shadow-md"
+        style="background: hsl(var(--popover));"
+        sideOffset={4}
+        side="top"
+      >
+        {description}
+      </Tooltip.Content>
+    </Tooltip.Portal>
+  </Tooltip.Root>
+{/snippet}
+
 <div class="space-y-3">
   <!-- Ref -->
   <div class="space-y-1">
-    <label class="text-xs font-medium text-muted-foreground" for="condition-ref">Ref</label>
+    <span class="inline-flex items-center gap-1">
+      <label class="text-xs font-medium text-muted-foreground" for="condition-ref">Ref</label>
+      {@render infoTip("Template expression resolving to the value to test.")}
+    </span>
     <input
       id="condition-ref"
       bind:this={refEl}
@@ -147,7 +172,6 @@ function inAsText(): string {
     {#if refError}
       <span class="text-xs text-destructive">{refError}</span>
     {/if}
-    <p class="text-xs text-muted-foreground">Template expression resolving to the value to test.</p>
   </div>
 
   <!-- Operator -->
@@ -180,7 +204,10 @@ function inAsText(): string {
         <label class="text-xs font-medium" for="condition-value">Value must be truthy</label>
       </div>
     {:else if activeOperator === "in"}
-      <label class="text-xs font-medium text-muted-foreground" for="condition-value">Values</label>
+      <span class="inline-flex items-center gap-1">
+        <label class="text-xs font-medium text-muted-foreground" for="condition-value">Values</label>
+        {@render infoTip("Comma-separated list; matches if the resolved value is one of these.")}
+      </span>
       <input
         id="condition-value"
         type="text"
@@ -193,7 +220,6 @@ function inAsText(): string {
           updateValue(items);
         }}
       >
-      <p class="text-xs text-muted-foreground">Comma-separated list; matches if the resolved value is one of these.</p>
     {:else}
       <label class="text-xs font-medium text-muted-foreground" for="condition-value">Value</label>
       <input
