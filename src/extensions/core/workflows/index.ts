@@ -661,9 +661,20 @@ export function createExtension(): Extension {
               }
             }
 
+            // Resolve output schemas so path-existence diagnostics in the list
+            // view use the SAME resolution as the detail route (buildOutputSchemas
+            // + handler precedence). The list route does not ship outputSchemas to
+            // the client, but merges the compiler warnings for parity.
+            const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(
+              w,
+              (type) => ctx.stepTypes.get(type)?.outputSchema,
+            );
+
             const templateWarnings = await validateDagWorkflowTemplates(w, {
               workflowName: w.name,
               secretStore: secretResolver,
+              resolveStepOutputSchema: (slug) => outputSchemas.steps[slug] ?? null,
+              resolveTriggerOutputSchema: () => outputSchemas.trigger,
             });
             const depWarnings = getDependencyWarnings(w, ctx);
 
@@ -678,7 +689,7 @@ export function createExtension(): Extension {
               activeRuns,
               completedRuns,
               failedRuns,
-              warnings: [...templateWarnings, ...depWarnings],
+              warnings: [...templateWarnings, ...depWarnings, ...schemaWarnings],
             };
           }),
         );
@@ -710,19 +721,24 @@ export function createExtension(): Extension {
           .sort((a, b) => b.startedAt - a.startedAt)
           .slice(0, 20);
 
-        const templateWarnings = await validateDagWorkflowTemplates(wf, {
-          workflowName: wf.name,
-          secretStore: secretResolver,
-        });
-        const depWarnings = getDependencyWarnings(wf, ctx);
-
         // Build resolved output schemas (canonical JSON Schema) for the editor's
         // autocomplete and diagnostics, applying source precedence and per-step
         // resilience. Compiler warnings merge into the same warnings stream.
+        // This must run BEFORE template validation so the same resolved schemas
+        // can be injected into the validator: the validator and the detail API
+        // then share one resolution and cannot diverge.
         const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(
           wf,
           (type) => ctx.stepTypes.get(type)?.outputSchema,
         );
+
+        const templateWarnings = await validateDagWorkflowTemplates(wf, {
+          workflowName: wf.name,
+          secretStore: secretResolver,
+          resolveStepOutputSchema: (slug) => outputSchemas.steps[slug] ?? null,
+          resolveTriggerOutputSchema: () => outputSchemas.trigger,
+        });
+        const depWarnings = getDependencyWarnings(wf, ctx);
 
         return Response.json({
           ...wf,

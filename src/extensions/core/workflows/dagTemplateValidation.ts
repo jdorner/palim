@@ -13,7 +13,7 @@
  * @module
  */
 
-import { DEFAULT_ENV_ALLOWLIST } from "@shared/workflows";
+import { DEFAULT_ENV_ALLOWLIST, type OutputSchema, walkSchemaPath } from "@shared/workflows";
 import type { DagStepDef, DagWorkflowDefinition } from "./schemas";
 import type { TemplateSecretResolver } from "./template";
 
@@ -37,6 +37,18 @@ export interface TemplateValidationOptions {
   secretStore?: TemplateSecretResolver;
   /** The workflow name used as consumer identity for secret resolution. */
   workflowName?: string;
+  /**
+   * Resolves the canonical (JSON Schema) Output_Schema for a step slug in the
+   * current workflow scope, or null when the step has no resolvable schema.
+   * Injected so the validator and the detail API share one resolution.
+   */
+  resolveStepOutputSchema?: (slug: string) => OutputSchema | null;
+  /**
+   * Resolves the canonical (JSON Schema) Output_Schema for the trigger in the
+   * current workflow scope, or null when the trigger has no resolvable schema.
+   * Injected so the validator and the detail API share one resolution.
+   */
+  resolveTriggerOutputSchema?: () => OutputSchema | null;
 }
 
 /** Regex matching `{{...}}` template expressions. */
@@ -217,7 +229,7 @@ export async function validateDagWorkflowTemplates(
   options: TemplateValidationOptions = {},
 ): Promise<TemplateWarning[]> {
   const warnings: TemplateWarning[] = [];
-  const { secretStore, workflowName } = options;
+  const { secretStore, workflowName, resolveStepOutputSchema, resolveTriggerOutputSchema } = options;
 
   const slugs = new Set(Object.keys(definition.steps));
   const ancestors = computeAncestors(definition);
@@ -254,6 +266,25 @@ export async function validateDagWorkflowTemplates(
               field: fieldName,
               message: `Invalid trigger expression "{{${expr}}}" - expected "trigger.payload" or "trigger.payload.<path>"`,
             });
+            continue;
+          }
+
+          // Path-existence check: `{{trigger.payload.<path>}}`. Additive and
+          // schema-dependent; suppressed when no resolver is provided or it
+          // returns null/undefined. A present-but-malformed schema is NOT
+          // treated as absent - the walker decides whether the path resolves.
+          if (parts.length > 2 && resolveTriggerOutputSchema) {
+            const schema = resolveTriggerOutputSchema();
+            if (schema !== null && schema !== undefined) {
+              const dotPath = parts.slice(2);
+              if (!walkSchemaPath(schema, dotPath).resolved) {
+                warnings.push({
+                  stepSlug: slug,
+                  field: fieldName,
+                  message: `Reference to unknown payload path "${dotPath.join(".")}" on the trigger in "{{${expr}}}"`,
+                });
+              }
+            }
           }
           continue;
         }
@@ -316,6 +347,27 @@ export async function validateDagWorkflowTemplates(
               field: fieldName,
               message: `Invalid step accessor "${accessor}" in "{{${expr}}}" - only "result" and "config" are supported`,
             });
+            continue;
+          }
+
+          // Path-existence check: `{{steps.<slug>.result.<path>}}`. Runs only
+          // after the ancestor/dominator checks above pass (they `continue` on
+          // failure, so we never reach here for those). Additive and
+          // schema-dependent; suppressed when no resolver is provided or it
+          // returns null/undefined. A present-but-malformed schema is NOT
+          // treated as absent - the walker decides whether the path resolves.
+          if (accessor === "result" && parts.length > 3 && resolveStepOutputSchema) {
+            const schema = resolveStepOutputSchema(referencedSlug);
+            if (schema !== null && schema !== undefined) {
+              const dotPath = parts.slice(3);
+              if (!walkSchemaPath(schema, dotPath).resolved) {
+                warnings.push({
+                  stepSlug: slug,
+                  field: fieldName,
+                  message: `Reference to unknown result path "${dotPath.join(".")}" on step "${referencedSlug}" in "{{${expr}}}"`,
+                });
+              }
+            }
           }
           continue;
         }
