@@ -19,7 +19,7 @@ describe("createFailHandler", () => {
 
   describe("metadata", () => {
     test("has correct label and icon", () => {
-      expect(handler.label).toBe("Fail");
+      expect(handler.label).toBe("Fail Workflow");
       expect(handler.icon).toBe("ProhibitIcon");
     });
 
