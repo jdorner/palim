@@ -36,7 +36,7 @@ export function createFailHandler(): StepTypeHandler {
   return {
     schema: FailStepConfigSchema,
     outputSchema: Type.Object({}),
-    label: "Fail",
+    label: "Fail Workflow",
     icon: "ProhibitIcon",
     terminal: true,
 
