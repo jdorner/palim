@@ -38,6 +38,101 @@ export interface OutputSchemas {
  */
 export const DEFAULT_ENV_ALLOWLIST: readonly string[] = ["WEB_HOST", "WEB_PORT", "AGENT_WORK_DIR", "NODE_ENV"];
 
+/**
+ * The node a dot-path resolves to within an {@link OutputSchema}, plus what is
+ * reachable from it.
+ *
+ * Returned by {@link walkSchemaPath}. Used by the frontend autocomplete engine
+ * (to derive suggestions from `children` and metadata from `node`) and by the
+ * backend template validator (to decide path existence from `resolved`), so both
+ * callers share a single resolution.
+ */
+export interface ResolvedExpression {
+  /** Whether the path resolves to a node in the schema. */
+  resolved: boolean;
+  /** The resolved JSON Schema node, when resolved. */
+  node?: OutputSchema;
+  /** Immediate child property names, when the resolved node is an object. */
+  children: string[];
+}
+
+/**
+ * Resolves a dot-path against a canonical {@link OutputSchema}.
+ *
+ * Descends object nodes segment by segment via their `properties` map. A node is
+ * treated as an object when its `type` is `"object"` or when it exposes a
+ * `properties` map. Leaf/primitive nodes, unconstrained `{}` nodes, and malformed
+ * nodes have no known children.
+ *
+ * Behavior:
+ * - A `null` schema yields `{ resolved: false, children: [] }`.
+ * - A segment that is not present under the current node's `properties` yields
+ *   `resolved: false` with no children.
+ * - When the whole path lands on a node (object or leaf), it resolves
+ *   (`resolved: true`). For object nodes, `children` lists the immediate
+ *   `properties` keys; for leaf nodes, `children` is empty.
+ *
+ * This function is pure and dependency-free so both the frontend autocomplete
+ * engine and the backend template validator can import the single implementation.
+ *
+ * @param schema - The canonical JSON Schema to walk, or `null` when unavailable.
+ * @param path - The dot-path segments to descend, in order.
+ * @returns The resolution result: whether the path resolved, the resolved node,
+ *   and the immediate child property names.
+ */
+export function walkSchemaPath(schema: OutputSchema | null, path: string[]): ResolvedExpression {
+  if (schema === null || typeof schema !== "object") {
+    return { resolved: false, children: [] };
+  }
+
+  let node: OutputSchema = schema;
+
+  for (const segment of path) {
+    const properties = getProperties(node);
+    if (properties === null) {
+      return { resolved: false, children: [] };
+    }
+    const next = properties[segment];
+    if (next === undefined || next === null || typeof next !== "object") {
+      return { resolved: false, children: [] };
+    }
+    node = next as OutputSchema;
+  }
+
+  return { resolved: true, node, children: listChildren(node) };
+}
+
+/**
+ * Extracts the `properties` map from a schema node when the node is an object.
+ *
+ * A node counts as an object when its `type` is `"object"` or when it exposes a
+ * `properties` map (regardless of `type`). Returns `null` for leaf/primitive,
+ * unconstrained, or malformed nodes.
+ *
+ * @param node - The schema node to inspect.
+ * @returns The `properties` map, or `null` when the node is not an object.
+ */
+function getProperties(node: OutputSchema): Record<string, unknown> | null {
+  const properties = node.properties;
+  const hasPropertiesMap = properties !== null && typeof properties === "object";
+  const isObjectNode = node.type === "object" || hasPropertiesMap;
+  if (!isObjectNode || !hasPropertiesMap) {
+    return null;
+  }
+  return properties as Record<string, unknown>;
+}
+
+/**
+ * Lists the immediate child property names of a schema node.
+ *
+ * @param node - The resolved schema node.
+ * @returns The `properties` keys when the node is an object, otherwise an empty array.
+ */
+function listChildren(node: OutputSchema): string[] {
+  const properties = getProperties(node);
+  return properties === null ? [] : Object.keys(properties);
+}
+
 /** Step summary included in workflow WebSocket events. */
 export interface WorkflowStepSummary {
   slug: string;

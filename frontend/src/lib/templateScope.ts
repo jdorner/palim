@@ -6,7 +6,13 @@
  * No Svelte or DOM dependencies.
  */
 
-import { DEFAULT_ENV_ALLOWLIST, type OutputSchema, type OutputSchemas } from "../../../shared/workflows";
+import {
+  DEFAULT_ENV_ALLOWLIST,
+  type OutputSchema,
+  type OutputSchemas,
+  walkSchemaPath,
+} from "../../../shared/workflows";
+import { getEnumOptions, isEnum } from "./schemaForm";
 
 export type { OutputSchema, OutputSchemas };
 export { DEFAULT_ENV_ALLOWLIST };
@@ -21,6 +27,12 @@ export interface Suggestion {
   terminal: boolean;
   /** Optional description for display */
   description?: string;
+  /** JSON Schema `type` of the property, when declared. */
+  schemaType?: string;
+  /** Allowed values, when the property declares an enum. */
+  enumValues?: string[];
+  /** Declared default value, when present. */
+  defaultValue?: unknown;
 }
 
 /**
@@ -117,41 +129,106 @@ export function getSecretSuggestions(secretKeys: string[], prefix: string): Sugg
 
 /**
  * Returns suggestions from an output schema at a given sub-path.
- * Navigates into nested schemas and returns property names at the target depth.
  *
- * @param schema - The output schema to traverse
+ * Walks the canonical JSON Schema via `walkSchemaPath` to resolve the sub-path,
+ * then offers the resolved node's immediate `properties` keys as suggestions.
+ * A path that hits a leaf node or a missing key yields no suggestions. Each
+ * suggestion carries schema metadata (`schemaType`, `description`, `enumValues`,
+ * `defaultValue`) verbatim when declared, omitting any absent field. Child
+ * properties are non-terminal when they are object nodes and terminal otherwise
+ * (primitive, enum-only, or unconstrained `{}` leaf nodes).
+ *
+ * @param schema - The canonical JSON Schema to traverse
  * @param subPath - Path segments below the schema root (e.g. ["metadata"] for trigger.payload.metadata.)
- * @param prefix - The currently typed text used for filtering
- * @returns Array of matching suggestions derived from schema keys
+ * @param prefix - The currently typed text used for filtering (case-sensitive)
+ * @returns Array of matching suggestions derived from schema `properties`
  */
 export function getOutputSchemaSuggestions(schema: OutputSchema, subPath: string[], prefix: string): Suggestion[] {
-  // TEMPORARY SHIM (removed in task 6.2): the shared OutputSchema is now the
-  // canonical JSON Schema type (Record<string, unknown>). This function still
-  // uses the legacy type-hint-shorthand walking logic, so it narrows nodes to
-  // the legacy shorthand shape locally to keep compiling. Task 6.2 redesigns
-  // this walker to descend JSON Schema `properties` via walkSchemaPath.
-  type ShorthandNode = { [key: string]: string | ShorthandNode };
-  let current = schema as ShorthandNode;
-
-  // Navigate into nested schemas following the sub-path
-  for (const segment of subPath) {
-    const value = current[segment];
-    if (value === undefined || typeof value === "string") {
-      // Path segment points to a terminal (type hint string) or doesn't exist
-      return [];
-    }
-    current = value;
+  const resolved = walkSchemaPath(schema, subPath);
+  // A path that fails to resolve, or resolves to a leaf/non-object node (no
+  // children), offers no further suggestions.
+  if (!resolved.resolved || resolved.node === undefined || resolved.children.length === 0) {
+    return [];
   }
 
-  // Return keys at the current level
-  return Object.entries(current)
-    .filter(([key]) => key.startsWith(prefix))
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([key, value]) => ({
-      label: key,
-      terminal: typeof value === "string",
-      description: typeof value === "string" ? value : undefined,
-    }));
+  const properties = resolved.node.properties as Record<string, unknown> | undefined;
+  if (properties === undefined) {
+    return [];
+  }
+
+  return resolved.children
+    .filter((key) => key.startsWith(prefix))
+    .sort((a, b) => a.localeCompare(b))
+    .map((key) => {
+      const childNode = properties[key] as Record<string, unknown> | undefined;
+      return buildSchemaSuggestion(key, childNode);
+    });
+}
+
+/**
+ * Builds a single suggestion from a child JSON Schema node, computing
+ * terminal-ness and attaching declared metadata verbatim (absent fields omitted).
+ *
+ * @param key - The child property name (used as the suggestion label)
+ * @param childNode - The child JSON Schema node, when present
+ * @returns The suggestion with metadata populated from the child node
+ */
+function buildSchemaSuggestion(key: string, childNode: Record<string, unknown> | undefined): Suggestion {
+  const isObjectNode =
+    childNode !== undefined &&
+    (childNode.type === "object" || (childNode.properties !== null && typeof childNode.properties === "object"));
+
+  const suggestion: Suggestion = {
+    label: key,
+    terminal: !isObjectNode,
+  };
+
+  if (childNode === undefined) {
+    return suggestion;
+  }
+
+  if (typeof childNode.type === "string") {
+    suggestion.schemaType = childNode.type;
+  }
+
+  if (typeof childNode.description === "string") {
+    suggestion.description = childNode.description;
+  }
+
+  const enumValues = extractEnumValues(childNode);
+  if (enumValues !== undefined) {
+    suggestion.enumValues = enumValues;
+  }
+
+  if ("default" in childNode) {
+    suggestion.defaultValue = childNode.default;
+  }
+
+  return suggestion;
+}
+
+/**
+ * Extracts declared enum values from a JSON Schema node.
+ *
+ * Supports the `anyOf`-of-`const` form via the shared `schemaForm` helpers and a
+ * direct `enum` array fallback. Every declared value is included (none absent).
+ *
+ * @param childNode - The child JSON Schema node to inspect
+ * @returns The enum values as strings, or `undefined` when the node declares none
+ */
+function extractEnumValues(childNode: Record<string, unknown>): string[] | undefined {
+  if (isEnum(childNode)) {
+    const options = getEnumOptions(childNode);
+    if (options.length > 0) {
+      return options;
+    }
+  }
+
+  if (Array.isArray(childNode.enum) && childNode.enum.length > 0) {
+    return childNode.enum.map((value) => String(value));
+  }
+
+  return undefined;
 }
 
 /** Step definition keys excluded from config suggestions (internal/structural). */
