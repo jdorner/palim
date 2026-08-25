@@ -687,6 +687,14 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
   .markdown li {
     padding-top: 0.25rem;
   }
+  .markdown table {
+    border-collapse: separate;
+    border-spacing: 0;
+    border: 1px solid hsl(var(--muted-foreground) / 0.3);
+    border-radius: 0.375rem;
+    overflow: hidden;
+    margin: 0.5rem 0;
+  }
   .markdown table thead th,
   .markdown table tfoot th {
     color: hsl(var(--muted-foreground));
@@ -695,7 +703,15 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
   .markdown table thead th,
   .markdown table td {
     padding: 0.4em;
-    border: 1px solid hsl(var(--muted-foreground) / 0.3);
+    border-bottom: 1px solid hsl(var(--muted-foreground) / 0.3);
+    border-right: 1px solid hsl(var(--muted-foreground) / 0.3);
+  }
+  .markdown table thead th:last-child,
+  .markdown table td:last-child {
+    border-right: 0;
+  }
+  .markdown table tbody tr:last-child td {
+    border-bottom: 0;
   }
   .markdown hr {
     border-color: hsl(var(--muted-foreground));
