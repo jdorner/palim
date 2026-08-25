@@ -7,16 +7,15 @@ import CaretRightIcon from "phosphor-svelte/lib/CaretRightIcon";
 import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import SpinnerGapIcon from "phosphor-svelte/lib/SpinnerGapIcon";
 import TerminalIcon from "phosphor-svelte/lib/TerminalIcon";
-import ThumbsDownIcon from "phosphor-svelte/lib/ThumbsDownIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import WrenchIcon from "phosphor-svelte/lib/WrenchIcon";
-import { tick } from "svelte";
+import { onMount, tick } from "svelte";
 import { authFetch } from "$lib/auth";
 import type { Message } from "$lib/chatStore";
 import { updateMessageContent } from "$lib/chatStore";
 import type { StreamSegment } from "$lib/chatStreamStore.svelte";
 import { settings } from "$lib/settingsStore.svelte";
-import { renderMarkdown } from "$lib/utils";
+import ChatMarkdown from "./ChatMarkdown.svelte";
 import ContextGauge from "./ContextGauge.svelte";
 import PushSegment from "./PushSegment.svelte";
 
@@ -82,9 +81,27 @@ function isNearBottom(): boolean {
   return container.scrollTop + container.clientHeight >= container.scrollHeight - 40;
 }
 
-/** Handles user scroll events to toggle auto-scroll behavior. */
+// Auto-scroll is toggled by scroll DIRECTION, not a time window: pins/content
+// growth only move scrollTop down, so an upward delta means the user scrolled
+// up. This works during rapid streaming, where a suppression window would never
+// close and would trap the user at the bottom.
+let lastScrollTop = 0;
+
+function pinToBottom() {
+  if (!container) return;
+  container.scrollTop = container.scrollHeight;
+  lastScrollTop = container.scrollTop;
+}
+
 function handleScroll() {
-  userAtBottom = isNearBottom();
+  if (!container) return;
+  const current = container.scrollTop;
+  if (current < lastScrollTop - 1) {
+    userAtBottom = false;
+  } else if (isNearBottom()) {
+    userAtBottom = true;
+  }
+  lastScrollTop = current;
 }
 
 function toggleThinking(key: string) {
@@ -105,9 +122,44 @@ function isThinkingExpanded(key: string): boolean {
 
 function scrollToBottom() {
   if (container && userAtBottom) {
-    container.scrollTop = container.scrollHeight;
+    pinToBottom();
+    // Markdown (comark + rangi) renders asynchronously, so a single sync scroll
+    // lands short. Re-pin over the next frames once that layout flushes; the
+    // ResizeObserver below covers slower growth (e.g. lazy Mermaid).
+    requestAnimationFrame(() => {
+      if (container && userAtBottom) {
+        pinToBottom();
+        requestAnimationFrame(() => {
+          if (container && userAtBottom) pinToBottom();
+        });
+      }
+    });
   }
 }
+
+// Re-pin when content grows after the reactive tick (async markdown, lazy
+// Mermaid, images). The observer is re-subscribed to the current children below
+// since `{#each}` adds/removes elements.
+let contentObserver: ResizeObserver | undefined;
+
+onMount(() => {
+  contentObserver = new ResizeObserver(() => {
+    if (container && userAtBottom) {
+      pinToBottom();
+    }
+  });
+  return () => contentObserver?.disconnect();
+});
+
+$effect(() => {
+  messages;
+  streamSegments;
+  if (!container || !contentObserver) return;
+  contentObserver.disconnect();
+  for (const child of Array.from(container.children)) {
+    contentObserver.observe(child);
+  }
+});
 
 /** Re-engage auto-scroll when a new streaming response starts. */
 $effect(() => {
@@ -332,7 +384,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
               <div
                 class="rounded-lg px-4 py-2 text-sm bg-muted text-foreground prose prose-sm dark:prose-invert max-w-none"
               >
-                <span class="markdown">{@html renderMarkdown(seg.content)}</span>
+                <ChatMarkdown content={seg.content} />
               </div>
             </div>
           {:else if seg.type === "thinking"}
@@ -357,7 +409,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
                   <div
                     class="mt-1 rounded-lg px-4 py-2 text-sm border border-border/50 bg-muted/30 text-muted-foreground prose prose-sm dark:prose-invert max-w-none italic"
                   >
-                    <span class="markdown">{@html renderMarkdown(seg.content)}</span>
+                    <ChatMarkdown content={seg.content} />
                   </div>
                 {/if}
               </div>
@@ -423,18 +475,6 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
               Regenerate
             </button>
           {/if}
-          <!-- {#if onDownvote && !feedbackConversation}
-            <button
-              type="button"
-              class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-orange-500 hover:bg-orange-500/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
-              onclick={() => startDownvote(msg)}
-              {disabled}
-              aria-label="Downvote response"
-            >
-              <ThumbsDownIcon class="w-3 h-3" aria-hidden="true" />
-              Downvote
-            </button>
-          {/if} -->
           {#if onDeleteMessage && msgIndex < messages.length - 1}
             <button
               type="button"
@@ -492,7 +532,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
           <div
             class="rounded-lg px-4 py-2 text-sm bg-muted text-foreground prose prose-sm dark:prose-invert max-w-none"
           >
-            <span class="markdown">{@html renderMarkdown(seg.content)}</span>
+            <ChatMarkdown content={seg.content} streaming={i === streamSegments.length - 1} />
           </div>
         </div>
       {:else if seg.type === "thinking"}
@@ -518,7 +558,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
               <div
                 class="mt-1 rounded-lg px-4 py-2 text-sm border border-border/50 bg-muted/30 text-muted-foreground prose prose-sm dark:prose-invert max-w-none italic"
               >
-                <span class="markdown">{@html renderMarkdown(seg.content)}</span>
+                <ChatMarkdown content={seg.content} streaming={isActiveThinking} />
               </div>
             {/if}
           </div>

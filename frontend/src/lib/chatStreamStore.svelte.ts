@@ -112,6 +112,9 @@ class ChatStreamStore {
   conversations = $state<Conversation[]>([]);
   /** Currently selected conversation ID. */
   activeConversationId = $state<string | null>(null);
+
+  /** Conversation whose messages are currently being loaded (dedupes redundant selects). */
+  private loadingConversationId: string | null = null;
   /** Messages for the active conversation. */
   messages = $state<Message[]>([]);
   /** Last error message, if any. */
@@ -195,6 +198,16 @@ class ChatStreamStore {
    * @param id - Conversation ID to select.
    */
   async selectConversation(id: string): Promise<void> {
+    // Guard against redundant selects for the same conversation. The UI can
+    // trigger this twice for one switch: `onSelect` calls it directly AND then
+    // navigates, and the route `$effect` reacts to the param change. Without
+    // this guard the second call clears + reloads `messages`, tearing down and
+    // remounting every message (a fresh comark/rangi parse of each code block)
+    // — the visible multi-flicker.
+    if (id === this.loadingConversationId) return;
+    if (id === this.activeConversationId && this.messages.length > 0) return;
+
+    this.loadingConversationId = id;
     this.activeConversationId = id;
     this.error = null;
     readState.markRead(id);
@@ -219,14 +232,24 @@ class ChatStreamStore {
     }
 
     try {
-      this.messages = await getMessages(id);
+      const loaded = await getMessages(id);
+      // A newer switch may have started while this load was in flight; only
+      // apply if we are still loading this conversation.
+      if (this.loadingConversationId !== id) return;
+      this.messages = loaded;
       // Restore persisted server-side session ID
       const conv = this.conversations.find((c) => c.id === id);
       this.currentSessionId = conv?.sessionId ?? null;
     } catch (err) {
       console.error("Failed to load messages:", err);
-      this.messages = [];
-      this.currentSessionId = null;
+      if (this.loadingConversationId === id) {
+        this.messages = [];
+        this.currentSessionId = null;
+      }
+    } finally {
+      if (this.loadingConversationId === id) {
+        this.loadingConversationId = null;
+      }
     }
   }
 
@@ -541,7 +564,9 @@ class ChatStreamStore {
     const stream = this.streams.get(chatId);
     const jobId = stream?.jobId ?? null;
 
-    this.preservePartialAndFinalize(chatId);
+    // Finalize first; this removes the stream synchronously so events arriving
+    // after the backend stops the job are ignored, not rendered as a second copy.
+    await this.preservePartialAndFinalize(chatId);
 
     if (jobId) {
       try {
@@ -767,18 +792,23 @@ class ChatStreamStore {
     const stream = this.streams.get(chatId);
     if (!stream) return;
 
+    // Remove synchronously before the async persist so a concurrent finalize
+    // (e.g. a cancel racing this `done`) can't pass the guard and duplicate.
     const targetConvId = stream.conversationId;
+    const segments = this.buildPersistedSegments(stream.segments);
+    const doneJobId = stream.doneJobId;
+    const doneUsage = stream.doneUsage;
+    this.removeStream(chatId);
 
     try {
-      const segments = this.buildPersistedSegments(stream.segments);
       const assistantMsg = await addMessage({
         conversationId: targetConvId,
         role: "assistant",
         content,
         createdAt: Date.now(),
-        ...(stream.doneJobId ? { jobId: stream.doneJobId } : {}),
+        ...(doneJobId ? { jobId: doneJobId } : {}),
         ...(segments ? { segments } : {}),
-        ...(stream.doneUsage ? { usage: stream.doneUsage } : {}),
+        ...(doneUsage ? { usage: doneUsage } : {}),
       });
       if (this.activeConversationId === targetConvId) {
         this.messages = [...this.messages, assistantMsg];
@@ -791,7 +821,6 @@ class ChatStreamStore {
       console.error("Failed to persist assistant message:", err);
     }
 
-    this.removeStream(chatId);
     // Refresh conversation list so updatedAt changes are reflected (triggers unread styling)
     await this.loadConversations();
   }
@@ -804,14 +833,20 @@ class ChatStreamStore {
     const stream = this.streams.get(chatId);
     if (!stream) return;
 
+    // Snapshot, then remove the stream SYNCHRONOUSLY before the async persist:
+    // otherwise a late `done`/`text_delta` arriving during `await addMessage`
+    // would find the stream still present and persist a duplicate.
     const targetConvId = stream.conversationId;
-    if (stream.content && targetConvId) {
+    const content = stream.content;
+    const segments = this.buildPersistedSegments(stream.segments);
+    this.removeStream(chatId);
+
+    if (content && targetConvId) {
       try {
-        const segments = this.buildPersistedSegments(stream.segments);
         const partialMsg = await addMessage({
           conversationId: targetConvId,
           role: "assistant",
-          content: stream.content,
+          content,
           createdAt: Date.now(),
           ...(segments ? { segments } : {}),
         });
@@ -822,7 +857,6 @@ class ChatStreamStore {
         console.error("Failed to persist partial assistant message:", err);
       }
     }
-    this.removeStream(chatId);
   }
 
   /**

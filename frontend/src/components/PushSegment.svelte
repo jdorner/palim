@@ -1,6 +1,6 @@
 <script lang="ts">
 import ArrowSquareInIcon from "phosphor-svelte/lib/ArrowSquareInIcon";
-import { renderMarkdown } from "$lib/utils";
+import ChatMarkdown from "./ChatMarkdown.svelte";
 
 interface Props {
   content: string;
@@ -20,7 +20,7 @@ let { content, contentType }: Props = $props();
     </div>
     {#if contentType === "text/markdown"}
       <div class="prose prose-sm dark:prose-invert max-w-none">
-        <span class="markdown">{@html renderMarkdown(content)}</span>
+        <ChatMarkdown {content} />
       </div>
     {:else}
       <pre class="whitespace-pre-wrap text-sm font-mono">{content}</pre>

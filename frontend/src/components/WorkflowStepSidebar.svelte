@@ -7,9 +7,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/component
 import { visualForStepType } from "$lib/nodeVisuals";
 import { iconIdForType, labelForStepType } from "$lib/stepTypes";
 import type { OutputSchemas } from "$lib/templateScope";
-import { renderMarkdown } from "$lib/utils";
 import type { StepDraft, WorkflowDraft } from "$lib/workflowValidation";
 import { validateStepConfig } from "$lib/workflowValidation";
+import ChatMarkdown from "./ChatMarkdown.svelte";
 import ConditionForm from "./ConditionForm.svelte";
 import MultiSelect from "./MultiSelect.svelte";
 import StepConfigForm from "./StepConfigForm.svelte";
@@ -385,9 +385,9 @@ function clearConditionError(index: number) {
 
         <div>
           <span class="text-xs font-medium text-muted-foreground">Prompt:</span>
-          <pre
-            class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded mt-1"
-          >{@html renderMarkdown(selectedStep.prompt)}</pre>
+          <div class="text-xs whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded mt-1">
+            <ChatMarkdown content={selectedStep.prompt} />
+          </div>
         </div>
       </div>
     {:else if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) !== "agent"}
