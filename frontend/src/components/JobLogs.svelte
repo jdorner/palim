@@ -4,8 +4,9 @@ import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Button } from "$lib/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "$lib/components/ui/card";
-import { formatTimestamp, renderMarkdown } from "$lib/utils";
+import { formatTimestamp } from "$lib/utils";
 import type { JobEntry, LogEntry } from "../../../shared/types";
+import ChatMarkdown from "./ChatMarkdown.svelte";
 
 let { job, onClose }: { job?: JobEntry; onClose: () => void } = $props();
 
@@ -86,13 +87,14 @@ onMount(() => {
                   {/if}
                   {#if log.message.startsWith("***Thinking:***")}
                     <span
-                      class="thinking-log flex-1 pt-0.5 wrap-break-words text-xs font-sans whitespace-pre-line text-muted-foreground"
-                      >{@html renderMarkdown(log.message)}</span
+                      class="thinking-log flex-1 min-w-0 pt-0.5 pr-4 wrap-break-words text-xs font-sans whitespace-pre-line text-muted-foreground"
                     >
+                      <ChatMarkdown content={log.message} />
+                    </span>
                   {:else}
-                    <span class="flex-1 pt-0.5 wrap-break-words text-xs font-sans whitespace-pre-line"
-                      >{@html renderMarkdown(log.message)}</span
-                    >
+                    <span class="flex-1 min-w-0 pt-0.5 pr-4 wrap-break-words text-xs font-sans whitespace-pre-line">
+                      <ChatMarkdown content={log.message} />
+                    </span>
                   {/if}
                 </div>
               {/each}

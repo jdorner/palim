@@ -6,9 +6,10 @@ import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
-import { formatTimestamp, isRunCancellable, renderMarkdown, statusVariant } from "$lib/utils";
+import { formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import { buildStatusMap, type GraphStepStatus } from "$lib/workflowRunStatus";
 import { type RunStep, workflowStore } from "$lib/workflowRunStore.svelte";
+import ChatMarkdown from "../components/ChatMarkdown.svelte";
 import SignalDeliveryForm from "../components/SignalDeliveryForm.svelte";
 import WorkflowGraph from "../components/WorkflowGraph.svelte";
 import { navigate, route } from "../router";
@@ -272,7 +273,7 @@ onDestroy(() => {
                       {#if log.timestamp}
                         <span class="text-muted-foreground text-[10px]">{formatTimestamp(log.timestamp)}</span>
                       {/if}
-                      <pre class="whitespace-pre-wrap wrap-break-word">{@html renderMarkdown(log.message)}</pre>
+                      <div class="whitespace-pre-wrap wrap-break-word"><ChatMarkdown content={log.message} /></div>
                     </div>
                   {/each}
                 </div>

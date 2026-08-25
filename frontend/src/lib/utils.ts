@@ -22,26 +22,7 @@ export function uuid(): string {
   );
 }
 
-import DOMPurify from "dompurify";
-import { marked } from "marked";
-
 export const formatter = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeStyle: "medium" });
-
-/**
- * Renders a markdown string to sanitized HTML.
- * @param text - Raw markdown text
- * @returns Sanitized HTML string
- */
-export function renderMarkdown(text: string): string {
-  try {
-    const trimmed = text.trim();
-    const html = marked.parse(trimmed, { breaks: true, gfm: true }) as string;
-    return DOMPurify.sanitize(html);
-  } catch (e) {
-    console.error("Markdown render error:", e);
-    return text;
-  }
-}
 
 /**
  * Formats a Unix timestamp to a localized date/time string.
