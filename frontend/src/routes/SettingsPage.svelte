@@ -17,6 +17,7 @@ import { modelStore } from "$lib/modelStore.svelte";
 import { settings } from "$lib/settingsStore.svelte";
 import type { AvailableModel, ExtensionInfo, ModelIntent } from "../../../shared/types";
 import GlobalSecretForm from "../components/GlobalSecretForm.svelte";
+import GlobalVariableForm from "../components/GlobalVariableForm.svelte";
 import IntentModelSelector from "../components/IntentModelSelector.svelte";
 import ModelSelector from "../components/ModelSelector.svelte";
 import SecretForm from "../components/SecretForm.svelte";
@@ -218,6 +219,12 @@ $effect(() => {
       Extensions
     </Tabs.Trigger>
     <Tabs.Trigger
+      value="variables"
+      class="px-3 py-1.5 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px"
+    >
+      Variables
+    </Tabs.Trigger>
+    <Tabs.Trigger
       value="secrets"
       class="px-3 py-1.5 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px"
     >
@@ -408,6 +415,10 @@ $effect(() => {
         </Table>
       </div>
     {/if}
+  </Tabs.Content>
+
+  <Tabs.Content value="variables" class="space-y-3">
+    <GlobalVariableForm />
   </Tabs.Content>
 
   <Tabs.Content value="secrets" class="space-y-3">

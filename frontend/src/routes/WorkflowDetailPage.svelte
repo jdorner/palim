@@ -170,6 +170,9 @@ let metaLoading = $state(false);
 // Cached secret keys for template autocomplete
 let cachedSecretKeys = $state<string[]>([]);
 
+// Cached variable keys for template autocomplete
+let cachedVariableKeys = $state<string[]>([]);
+
 /** Selectable workflow trigger types (subtypes of the built-in "trigger" node). */
 const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
 
@@ -211,6 +214,21 @@ async function fetchSecretKeys(): Promise<void> {
     }
   } catch {
     cachedSecretKeys = [];
+  }
+}
+
+/** Prefetch variable keys for template autocomplete. Fails silently. */
+async function fetchVariableKeys(): Promise<void> {
+  try {
+    const res = await authFetch("/api/variables");
+    if (res.ok) {
+      const data: { variables: Array<{ key: string }> } = await res.json();
+      cachedVariableKeys = data.variables.map((v) => v.key);
+    } else {
+      cachedVariableKeys = [];
+    }
+  } catch {
+    cachedVariableKeys = [];
   }
 }
 
@@ -322,6 +340,7 @@ function enterEditMode() {
   fitViewTrigger++;
   fetchMeta();
   fetchSecretKeys();
+  fetchVariableKeys();
 }
 
 /** Cancel edit mode, discard changes. */
@@ -1305,6 +1324,7 @@ onDestroy(() => {
                 {availableSkills}
                 {metaLoading}
                 {cachedSecretKeys}
+                {cachedVariableKeys}
                 {customStepTypes}
                 outputSchemas={workflow?.outputSchemas}
                 onclose={closeSidebar}

@@ -62,6 +62,8 @@ interface Props {
   metaLoading: boolean;
   /** Cached secret keys for template autocomplete. */
   cachedSecretKeys: string[];
+  /** Cached variable keys for template autocomplete. */
+  cachedVariableKeys: string[];
   /** Custom step types from extensions. */
   customStepTypes: StepTypeInfo[];
   /** Output schemas for template autocomplete. */
@@ -97,6 +99,7 @@ let {
   availableSkills,
   metaLoading,
   cachedSecretKeys,
+  cachedVariableKeys,
   customStepTypes,
   outputSchemas,
   onclose,
@@ -354,6 +357,7 @@ function clearConditionError(index: number) {
             steps={editDraft?.steps ?? []}
             currentStepIndex={selectedStepIndex}
             secretKeys={cachedSecretKeys}
+            variableKeys={cachedVariableKeys}
             {outputSchemas}
             onChange={(newValue) => onUpdateDraftStep(selectedStepIndex, (s) => { s.prompt = newValue; })}
           />
@@ -406,6 +410,7 @@ function clearConditionError(index: number) {
               steps={editDraft?.steps ?? []}
               currentStepIndex={selectedStepIndex}
               secretKeys={cachedSecretKeys}
+              variableKeys={cachedVariableKeys}
               {outputSchemas}
               onchange={(cond) => {
                 onUpdateDraftStep(selectedStepIndex, (s) => { s.condition = cond; });
@@ -478,6 +483,7 @@ function clearConditionError(index: number) {
               steps={editDraft?.steps ?? []}
               currentStepIndex={selectedStepIndex}
               secretKeys={cachedSecretKeys}
+              variableKeys={cachedVariableKeys}
               {outputSchemas}
               fieldErrors={(() => {
                 const prefix = `steps[${selectedStepIndex}].`;
@@ -557,6 +563,7 @@ function clearConditionError(index: number) {
               steps={editDraft?.steps ?? []}
               currentStepIndex={selectedStepIndex}
               secretKeys={cachedSecretKeys}
+              variableKeys={cachedVariableKeys}
               {outputSchemas}
               itemOptions={{ skills: availableSkills }}
               fieldErrors={(() => {

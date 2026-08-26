@@ -14,6 +14,7 @@ export type {
   ExtensionInfo,
   ExtensionLifecycleEvent,
   ExtensionUiContribution,
+  GlobalVariableEntry,
   JobEntry,
   LogEntry,
   ModelIntent,
