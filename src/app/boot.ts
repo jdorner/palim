@@ -357,6 +357,7 @@ export class AppBootstrap {
       sessionStore: getSessionStore(getDb()),
       pushMessageFn: pushMessage,
       secretVault,
+      variableStore,
     };
 
     return new AppBootstrap(registry, agentQueue, chatQueue, monitoring, elysiaApp, registryInitDeps);

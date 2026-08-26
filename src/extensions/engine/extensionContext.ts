@@ -17,6 +17,7 @@ import type { SecretVault } from "@src/secrets/vault";
 import type { SessionStorePort } from "@src/session";
 import type { SkillEntry } from "@src/tools/sandbox";
 import { authenticatedFetch } from "@src/utils/fetch";
+import type { TemplateVariableResolver } from "@src/variables";
 import { registerDynamicItemProvider as registerProviderFn } from "@src/web/dynamicItemProviders";
 import type { FlowProducer } from "bunqueue/client";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
@@ -173,6 +174,11 @@ export interface ExtensionContextDeps
     ExtContextLifecycle {
   /** The SQLite-backed encrypted secret vault (optional - replaces secretStore for extension secrets). */
   secretVault?: SecretVault;
+  /**
+   * The SQLite-backed plaintext variable store (optional). Exposed to core
+   * extensions via `ctx.internal.variables` for workflow template resolution.
+   */
+  variableStore?: TemplateVariableResolver;
   /** The extension's settingsSchema (TypeBox TObject), if declared. */
   settingsSchema?: Record<string, unknown>;
 }
@@ -208,6 +214,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     pushMessageFn,
     isExtensionEnabledFn,
     secretVault,
+    variableStore,
     rescanSkillsFn,
     getSkillNamesFn,
     settingsSchema,
@@ -546,6 +553,31 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
   }
 
   /**
+   * Resolve a global variable value for workflow template substitution.
+   * Returns null when no variable store is configured or the key is absent.
+   */
+  function resolveVariable(key: string): string | null {
+    if (!variableStore) {
+      logger.warn(
+        `Extension "${extensionName}" called internal.variables.resolve() but no variable store is configured`,
+      );
+      return null;
+    }
+    return variableStore.resolve(key);
+  }
+
+  /**
+   * Report whether a global variable exists (used by the load-time validator).
+   * Returns false when no variable store is configured.
+   */
+  function hasVariable(key: string): boolean {
+    if (!variableStore) {
+      return false;
+    }
+    return variableStore.has(key);
+  }
+
+  /**
    * Store a secret value with scoped consumer identity.
    * Writes to the SQLite-backed SecretVault when available.
    * Rejects the operation when the vault is not configured.
@@ -647,6 +679,10 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     internal: {
       secrets: {
         resolveAs: resolveSecretAs,
+      },
+      variables: {
+        resolve: resolveVariable,
+        has: hasVariable,
       },
     },
   };

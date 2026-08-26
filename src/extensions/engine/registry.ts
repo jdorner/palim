@@ -19,6 +19,7 @@ import {
   loadSkillScripts as loadSkillScriptsFn,
 } from "@src/skills/loader";
 import type { SkillEntry } from "@src/tools/sandbox";
+import type { TemplateVariableResolver } from "@src/variables";
 import { enrichSchemaWithDynamicItems } from "@src/web/dynamicItemProviders";
 import { FlowProducer } from "bunqueue/client";
 import { eq } from "drizzle-orm";
@@ -64,6 +65,8 @@ export interface RegistryInitDeps {
   pushMessageFn?: PushMessageFn;
   /** The SQLite-backed encrypted secret vault (optional - disabled when no master key is configured). */
   secretVault?: SecretVault;
+  /** The SQLite-backed plaintext variable store (optional - always available in practice, no master key needed). */
+  variableStore?: TemplateVariableResolver;
 }
 
 export interface ExtensionRegistryConfig {
@@ -832,6 +835,7 @@ export class ExtensionRegistry {
         pushMessageFn: deps.pushMessageFn,
         isExtensionEnabledFn: (n) => this.isExtensionEnabled(n),
         secretVault: deps.secretVault,
+        variableStore: deps.variableStore,
         routeRegistry: deps.routeRegistry,
         rescanSkillsFn: () => this.discoverAndLoadSkills(),
         getSkillNamesFn: () => this.getSkillNames(),
