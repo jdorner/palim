@@ -6,9 +6,10 @@
  *
  * 1. Step slug references exist in the workflow
  * 2. Steps only reference results from ancestor steps (no forward/non-ancestor references)
- * 3. Expression syntax matches known prefixes (trigger, steps, env, secret)
+ * 3. Expression syntax matches known prefixes (trigger, steps, env, secret, var)
  * 4. Environment variable names are on the allowlist
  * 5. Secret keys exist in the vault (optional, only if resolver provided)
+ * 6. Variable keys exist in the variable store (optional, only if resolver provided)
  *
  * @module
  */
@@ -37,6 +38,8 @@ export interface TemplateValidationOptions {
   secretStore?: TemplateSecretResolver;
   /** The workflow name used as consumer identity for secret resolution. */
   workflowName?: string;
+  /** Variable resolver for existence checks. If omitted, variable-existence checks are skipped. */
+  variableStore?: { has(key: string): boolean };
   /**
    * Resolves the canonical (JSON Schema) Output_Schema for a step slug in the
    * current workflow scope, or null when the step has no resolvable schema.
@@ -55,7 +58,7 @@ export interface TemplateValidationOptions {
 const TEMPLATE_PATTERN = /\{\{([^}]+)\}\}/g;
 
 /** Known expression prefixes. */
-const KNOWN_PREFIXES = new Set(["trigger", "steps", "env", "secret"]);
+const KNOWN_PREFIXES = new Set(["trigger", "steps", "env", "secret", "var"]);
 
 let _envAllowlist: Set<string> | undefined;
 
@@ -229,7 +232,7 @@ export async function validateDagWorkflowTemplates(
   options: TemplateValidationOptions = {},
 ): Promise<TemplateWarning[]> {
   const warnings: TemplateWarning[] = [];
-  const { secretStore, workflowName, resolveStepOutputSchema, resolveTriggerOutputSchema } = options;
+  const { secretStore, workflowName, variableStore, resolveStepOutputSchema, resolveTriggerOutputSchema } = options;
 
   const slugs = new Set(Object.keys(definition.steps));
   const ancestors = computeAncestors(definition);
@@ -416,6 +419,29 @@ export async function validateDagWorkflowTemplates(
                 stepSlug: slug,
                 field: fieldName,
                 message: `Secret "${secretKey}" not found in vault`,
+              });
+            }
+          }
+          continue;
+        }
+
+        if (prefix === "var") {
+          if (parts.length !== 2 || !parts[1]) {
+            warnings.push({
+              stepSlug: slug,
+              field: fieldName,
+              message: `Invalid variable expression "{{${expr}}}" - expected "var.<KEY>"`,
+            });
+            continue;
+          }
+
+          if (variableStore) {
+            const variableKey = parts[1];
+            if (!variableStore.has(variableKey)) {
+              warnings.push({
+                stepSlug: slug,
+                field: fieldName,
+                message: `Variable "${variableKey}" not found`,
               });
             }
           }

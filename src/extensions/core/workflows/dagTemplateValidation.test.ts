@@ -501,3 +501,175 @@ describe("validateDagWorkflowTemplates (properties)", () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Variable-reference validation (var namespace)
+// ---------------------------------------------------------------------------
+
+/**
+ * Builds a fake variable store backed by a set of known keys.
+ * Mirrors the `{ has(key): boolean }` shape of `TemplateValidationOptions.variableStore`.
+ */
+function fakeVariableStore(keys: Iterable<string>): { has(key: string): boolean } {
+  const set = new Set(keys);
+  return { has: (k: string) => set.has(k) };
+}
+
+/** Wraps a variable key into a `{{var.KEY}}` template expression. */
+function varExpr(key: string): string {
+  return `{{var.${key}}}`;
+}
+
+/** Filters warnings down to those about a missing variable. */
+function missingVarWarnings(warnings: TemplateWarning[]): TemplateWarning[] {
+  return warnings.filter((w) => w.message.includes("not found"));
+}
+
+/** Filters warnings down to those about a malformed var expression. */
+function malformedVarWarnings(warnings: TemplateWarning[]): TemplateWarning[] {
+  return warnings.filter((w) => w.message.includes('expected "var.<KEY>"'));
+}
+
+describe("validateDagWorkflowTemplates (var undefined-reference properties)", () => {
+  // Feature: global-variables, Property 8: Validator emits exactly one warning
+  // per undefined reference.
+  // Validates: Requirements 6.2, 6.3, 6.6
+  //
+  // For any workflow definition and any variable store, the validator emits
+  // exactly one warning (carrying step slug, field, and the missing key) for
+  // each distinct {{var.KEY}} reference whose key is absent from the store, and
+  // no warning for references whose key exists.
+
+  /** Valid variable key generator (UPPER_SNAKE_CASE, 1-64 chars). */
+  const keyArb = fc.stringMatching(/^[A-Z][A-Z0-9_]{0,10}$/).filter((s) => /^[A-Z][A-Z0-9_]{0,63}$/.test(s));
+
+  test("Property 8: one warning per distinct absent key, none for present keys", async () => {
+    await fc.assert(
+      fc.asyncProperty(
+        // A set of distinct referenced keys, and for each a flag: is it in the store?
+        fc.uniqueArray(keyArb, { minLength: 1, maxLength: 8 }),
+        fc.array(fc.boolean(), { minLength: 8, maxLength: 8 }),
+        async (keys, presentFlags) => {
+          const present: string[] = [];
+          const absent: string[] = [];
+          keys.forEach((key, i) => {
+            if (presentFlags[i] ?? false) present.push(key);
+            else absent.push(key);
+          });
+
+          // A prompt embedding one reference per distinct key (each appears once).
+          const prompt = keys.map(varExpr).join(" and ");
+          const def = wf({ a: { type: "agent", prompt } }, []);
+          const store = fakeVariableStore(present);
+
+          const warnings = await validateDagWorkflowTemplates(def, { variableStore: store });
+          const missing = missingVarWarnings(warnings);
+
+          // Exactly one warning per distinct absent key.
+          expect(missing.length).toBe(absent.length);
+
+          // Each warning carries the step slug, the field, and the missing key.
+          const warnedKeys = new Set<string>();
+          for (const w of missing) {
+            expect(w.stepSlug).toBe("a");
+            expect(w.field).toBe("prompt");
+            const matched = absent.find((k) => w.message.includes(`"${k}"`));
+            expect(matched).not.toBeUndefined();
+            warnedKeys.add(matched!);
+          }
+          // One distinct warned key per absent key (no duplicates, no misses).
+          expect(warnedKeys.size).toBe(absent.length);
+          for (const k of absent) expect(warnedKeys.has(k)).toBe(true);
+
+          // No missing-var warning names a present key.
+          for (const k of present) {
+            expect(missing.some((w) => w.message.includes(`"${k}"`))).toBe(false);
+          }
+        },
+      ),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  test("Property 8: duplicate references to one absent key still warn once (per-field de-dup)", async () => {
+    await fc.assert(
+      fc.asyncProperty(keyArb, fc.integer({ min: 2, max: 5 }), async (key, repeats) => {
+        const prompt = Array.from({ length: repeats }, () => varExpr(key)).join(" ");
+        const def = wf({ a: { type: "agent", prompt } }, []);
+        const store = fakeVariableStore([]); // key absent
+
+        const warnings = await validateDagWorkflowTemplates(def, { variableStore: store });
+        const missing = missingVarWarnings(warnings);
+        expect(missing.length).toBe(1);
+        expect(missing[0]!.message).toContain(`"${key}"`);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
+
+describe("validateDagWorkflowTemplates (malformed var-expression properties)", () => {
+  // Feature: global-variables, Property 9: Validator flags malformed var
+  // expressions.
+  // Validates: Requirements 6.4, 6.5
+  //
+  // For any var-prefixed expression that is not exactly the prefix followed by
+  // a single key segment (e.g. {{var}}, {{var.A.B}}, {{var.}}), the validator
+  // emits exactly one warning describing the expected {{var.<KEY>}} form,
+  // regardless of whether a variable store is provided.
+
+  /** Generates a malformed var expression body (the text inside {{ }}). */
+  const malformedBodyArb = fc.oneof(
+    // Bare prefix: "var" (parts.length === 1).
+    fc.constant("var"),
+    // Trailing dot / empty key: "var." (parts = ["var", ""]).
+    fc.constant("var."),
+    // Deep path: "var.A.B", "var.A.B.C" (parts.length > 2).
+    fc
+      .array(fc.stringMatching(/^[A-Z][A-Z0-9_]{0,5}$/), { minLength: 2, maxLength: 4 })
+      .map((segs) => `var.${segs.join(".")}`),
+    // Prefix + empty deeper segment: "var.KEY." (parts = ["var","KEY",""]).
+    fc.stringMatching(/^[A-Z][A-Z0-9_]{0,5}$/).map((k) => `var.${k}.`),
+  );
+
+  test("Property 9: exactly one malformed-expression warning, with or without a store", async () => {
+    await fc.assert(
+      fc.asyncProperty(malformedBodyArb, fc.boolean(), async (body, provideStore) => {
+        const def = wf({ a: { type: "agent", prompt: `{{${body}}}` } }, []);
+        const options = provideStore ? { variableStore: fakeVariableStore(["ANY_KEY"]) } : {};
+
+        const warnings = await validateDagWorkflowTemplates(def, options);
+        const malformed = malformedVarWarnings(warnings);
+
+        // Exactly one malformed-var warning regardless of store presence.
+        expect(malformed.length).toBe(1);
+        const w = malformed[0]!;
+        expect(w.stepSlug).toBe("a");
+        expect(w.field).toBe("prompt");
+        // The message describes the expected form.
+        expect(w.message).toContain("var.<KEY>");
+        // A malformed expression is never also reported as a missing-variable.
+        expect(missingVarWarnings(warnings).length).toBe(0);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+
+  test("Property 9: malformed count is store-independent for a given expression", async () => {
+    await fc.assert(
+      fc.asyncProperty(malformedBodyArb, async (body) => {
+        const def = wf({ a: { type: "agent", prompt: `{{${body}}}` } }, []);
+
+        const withStore = malformedVarWarnings(
+          await validateDagWorkflowTemplates(def, { variableStore: fakeVariableStore(["ANY_KEY"]) }),
+        );
+        const withoutStore = malformedVarWarnings(await validateDagWorkflowTemplates(def, {}));
+
+        expect(withStore.length).toBe(1);
+        expect(withoutStore.length).toBe(1);
+        expect(withStore[0]!.message).toBe(withoutStore[0]!.message);
+      }),
+      { numRuns: NUM_RUNS },
+    );
+  });
+});
