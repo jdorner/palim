@@ -198,7 +198,7 @@ export function createForEachHandler(deps: ForEachHandlerDeps): StepTypeHandler 
       failed: Type.Number({ description: "Number of iterations that failed." }),
     }),
     label: "For Each",
-    icon: "FlowArrowIcon",
+    icon: "RepeatIcon",
     category: "control-flow",
 
     async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<unknown> {

@@ -51,7 +51,7 @@ describe("createForEachHandler", () => {
 
     test("has correct label and icon", () => {
       expect(handler.label).toBe("For Each");
-      expect(handler.icon).toBe("FlowArrowIcon");
+      expect(handler.icon).toBe("RepeatIcon");
     });
 
     test("schema defines required items field", () => {

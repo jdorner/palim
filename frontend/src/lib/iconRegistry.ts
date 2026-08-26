@@ -13,6 +13,7 @@ import PaperPlaneTiltIcon from "phosphor-svelte/lib/PaperPlaneTiltIcon";
 import PlugIcon from "phosphor-svelte/lib/PlugIcon";
 import ProhibitIcon from "phosphor-svelte/lib/ProhibitIcon";
 import ReceiptIcon from "phosphor-svelte/lib/ReceiptIcon";
+import RepeatIcon from "phosphor-svelte/lib/RepeatIcon";
 import RobotIcon from "phosphor-svelte/lib/RobotIcon";
 import TableIcon from "phosphor-svelte/lib/TableIcon";
 import TerminalWindowIcon from "phosphor-svelte/lib/TerminalWindowIcon";
@@ -48,6 +49,7 @@ export const iconRegistry: Record<StepIconName, Component> & Record<string, Comp
   PlugIcon,
   ProhibitIcon,
   ReceiptIcon,
+  RepeatIcon,
   RobotIcon,
   TableIcon,
   TerminalWindowIcon,
