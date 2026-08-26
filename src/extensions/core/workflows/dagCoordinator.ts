@@ -420,7 +420,12 @@ async function evaluateIteratorNode(
     const { resolved } = await resolveTemplates(stepDef.items, templateCtx);
     itemsJson = resolved;
   } catch (err) {
-    failRun(runId, stepSlug, `Iterator items template resolution failed: ${err instanceof Error ? err.message : String(err)}`, deps);
+    failRun(
+      runId,
+      stepSlug,
+      `Iterator items template resolution failed: ${err instanceof Error ? err.message : String(err)}`,
+      deps,
+    );
     return;
   }
 
@@ -434,7 +439,12 @@ async function evaluateIteratorNode(
     }
     items = parsed;
   } catch (err) {
-    failRun(runId, stepSlug, `Iterator items is not valid JSON: ${err instanceof Error ? err.message : String(err)}`, deps);
+    failRun(
+      runId,
+      stepSlug,
+      `Iterator items is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      deps,
+    );
     return;
   }
 

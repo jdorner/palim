@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { Value } from "@sinclair/typebox/value";
-import { computeRootSteps, computeTerminalSteps, validateCfEdges, validateDag, validateIteratorPairing } from "./dagValidation";
+import {
+  computeRootSteps,
+  computeTerminalSteps,
+  validateCfEdges,
+  validateDag,
+  validateIteratorPairing,
+} from "./dagValidation";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema } from "./schemas";
 
 /** Helper to create a minimal valid DAG definition for testing. */
