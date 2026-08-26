@@ -57,6 +57,13 @@
       "when": 1785050000000,
       "tag": "0008_add-workflow-signals",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "6",
+      "when": 1785100000000,
+      "tag": "0009_add-global-variables",
+      "breakpoints": true
     }
   ]
 }

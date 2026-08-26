@@ -46,6 +46,8 @@ export interface ScopeConfig {
   currentStepIndex: number;
   /** Prefetched secret key names */
   secretKeys: string[];
+  /** Prefetched variable key names */
+  variableKeys: string[];
   /** Environment variable allowlist (defaults to built-in set) */
   envAllowlist?: readonly string[];
   /** Resolved output schemas from the workflow API */
@@ -53,11 +55,11 @@ export interface ScopeConfig {
 }
 
 /** Fixed set of top-level namespace names. */
-const TOP_LEVEL_NAMESPACES = ["trigger", "steps", "env", "secret"] as const;
+const TOP_LEVEL_NAMESPACES = ["trigger", "steps", "env", "secret", "var"] as const;
 
 /**
  * Returns top-level namespace suggestions, filtered by prefix.
- * Always returns from: ["trigger", "steps", "env", "secret"].
+ * Always returns from: ["trigger", "steps", "env", "secret", "var"].
  * Uses case-sensitive startsWith matching. All are non-terminal.
  *
  * @param prefix - The currently typed text used for filtering
@@ -120,6 +122,25 @@ export function getEnvSuggestions(envAllowlist: readonly string[], prefix: strin
 export function getSecretSuggestions(secretKeys: string[], prefix: string): Suggestion[] {
   const lowerPrefix = prefix.toLowerCase();
   return secretKeys
+    .filter((key) => key.toLowerCase().includes(lowerPrefix))
+    .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
+    .map((key) => ({
+      label: key,
+      terminal: true,
+    }));
+}
+
+/**
+ * Returns variable key suggestions filtered by case-insensitive substring match.
+ * Results are sorted alphabetically (case-insensitive). All are terminal.
+ *
+ * @param variableKeys - List of available variable key names
+ * @param prefix - The currently typed text used for filtering
+ * @returns Array of matching variable key suggestions, sorted alphabetically
+ */
+export function getVariableSuggestions(variableKeys: string[], prefix: string): Suggestion[] {
+  const lowerPrefix = prefix.toLowerCase();
+  return variableKeys
     .filter((key) => key.toLowerCase().includes(lowerPrefix))
     .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()))
     .map((key) => ({
@@ -312,7 +333,7 @@ export function getConfigSuggestions(
  * Computes autocomplete suggestions for a given path and typed prefix.
  * Dispatches to the correct sub-function based on path segments.
  *
- * @param config - Scope configuration (steps, current index, secrets, env)
+ * @param config - Scope configuration (steps, current index, secrets, variables, env)
  * @param path - Resolved path segments so far (e.g. ["steps", "fetch"])
  * @param prefix - The currently typed text after the last `.` (used for filtering)
  * @returns Array of matching suggestions, sorted appropriately
@@ -324,6 +345,7 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
     return getTopLevelSuggestions(prefix).filter((s) => {
       if (s.label === "steps" && config.steps.length <= 1) return false;
       if (s.label === "secret" && config.secretKeys.length === 0) return false;
+      if (s.label === "var" && config.variableKeys.length === 0) return false;
       return true;
     });
   }
@@ -415,6 +437,14 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
     if (path.length === 1) {
       // path=["secret"] -> show secret keys
       return getSecretSuggestions(config.secretKeys, prefix);
+    }
+    return [];
+  }
+
+  if (namespace === "var") {
+    if (path.length === 1) {
+      // path=["var"] -> show variable keys
+      return getVariableSuggestions(config.variableKeys, prefix);
     }
     return [];
   }

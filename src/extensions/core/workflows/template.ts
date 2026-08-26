@@ -2,7 +2,9 @@
  * Template resolution engine for workflow step fields.
  *
  * Resolves `{{trigger.payload}}`, `{{steps.<slug>.result}}`,
- * `{{env.<VAR>}}`, and `{{secret.<KEY>}}` expressions with dot-path traversal.
+ * `{{env.<VAR>}}`, `{{secret.<KEY>}}`, and `{{var.<KEY>}}` expressions with
+ * dot-path traversal. The `{{var.<KEY>}}` namespace substitutes a plaintext
+ * global variable value with no decryption or ACL check.
  *
  * Environment variable access is restricted to an explicit allowlist to prevent
  * template injection attacks where attacker-controlled data (webhook payloads,
@@ -10,6 +12,7 @@
  */
 
 import { DEFAULT_ENV_ALLOWLIST } from "@shared/workflows";
+import type { TemplateVariableResolver } from "@src/variables";
 
 /**
  * Minimal interface for secret resolution within templates.
@@ -64,6 +67,8 @@ export interface TemplateContext {
   workflowName?: string;
   /** The secret resolver instance (optional - secret templates ignored if not provided). */
   secretStore?: TemplateSecretResolver;
+  /** Variable resolver (optional - {{var.KEY}} left literal if absent). */
+  variableStore?: TemplateVariableResolver;
 }
 
 /**
@@ -107,6 +112,7 @@ function stringify(value: unknown): string {
  * - `{{steps.<slug>.config.field}}` - dot-path into step config
  * - `{{env.<VAR>}}` - environment variable
  * - `{{secret.<KEY>}}` - encrypted secret (decrypted at access, ACL-checked)
+ * - `{{var.<KEY>}}` - plaintext global variable (no ACL, no decryption)
  *
  * @param template - The template string with `{{...}}` expressions
  * @param ctx - The resolution context (trigger payload + step results + step configs)
@@ -164,6 +170,24 @@ export async function resolveTemplates(
       } else {
         resolved += result.value;
       }
+      continue;
+    }
+
+    // {{var.<KEY>}} - plaintext global variable (no decryption, no ACL)
+    if (parts[0] === "var" && parts.length === 2) {
+      const key = parts[1]!;
+      if (!ctx.variableStore) {
+        warnings.push(`Variable store not available for template: ${trimmed}`);
+        resolved += `{{${trimmed}}}`;
+        continue;
+      }
+      const value = ctx.variableStore.resolve(key);
+      if (value === null) {
+        warnings.push(`Variable "${key}" not found`);
+        resolved += `{{${trimmed}}}`;
+        continue;
+      }
+      resolved += value;
       continue;
     }
 

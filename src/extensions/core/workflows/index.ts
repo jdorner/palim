@@ -29,6 +29,7 @@ import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
+import type { TemplateVariableResolver } from "@src/variables";
 import {
   type DagCoordinatorDeps,
   evaluateInlineRoot,
@@ -604,6 +605,16 @@ export function createExtension(): Extension {
           }
         : undefined;
 
+      // Adapter: wrap ctx.internal.variables into a TemplateVariableResolver for
+      // load-time validation (existence checks). Undefined when the variable
+      // store is not exposed, in which case var-existence checks are skipped.
+      const variableResolver: TemplateVariableResolver | undefined = ctx.internal?.variables
+        ? {
+            resolve: (key: string) => ctx.internal!.variables.resolve(key),
+            has: (key: string) => ctx.internal!.variables.has(key),
+          }
+        : undefined;
+
       ctx.routes.register("GET", "/meta/tools", async () => {
         return Response.json(ctx.tools.names().sort());
       });
@@ -678,6 +689,7 @@ export function createExtension(): Extension {
             const templateWarnings = await validateDagWorkflowTemplates(w, {
               workflowName: w.name,
               secretStore: secretResolver,
+              variableStore: variableResolver,
               resolveStepOutputSchema: (slug) => outputSchemas.steps[slug] ?? null,
               resolveTriggerOutputSchema: () => outputSchemas.trigger,
             });
@@ -740,6 +752,7 @@ export function createExtension(): Extension {
         const templateWarnings = await validateDagWorkflowTemplates(wf, {
           workflowName: wf.name,
           secretStore: secretResolver,
+          variableStore: variableResolver,
           resolveStepOutputSchema: (slug) => outputSchemas.steps[slug] ?? null,
           resolveTriggerOutputSchema: () => outputSchemas.trigger,
         });

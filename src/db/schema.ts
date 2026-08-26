@@ -147,3 +147,4 @@ export { wikiEmbeddings as extWikiEmbeddings } from "@src/extensions/wiki/schema
 // Re-export extension-owned tables so drizzle-kit sees the complete schema.
 export { secretAuditLog } from "@src/secrets/audit";
 export { secretsVault } from "@src/secrets/vaultSchema";
+export { globalVariables } from "@src/variables/variablesSchema";

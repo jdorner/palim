@@ -48,6 +48,8 @@ interface Props {
   currentStepIndex?: number;
   /** Prefetched secret keys for template autocomplete. */
   secretKeys?: string[];
+  /** Prefetched variable keys for template autocomplete. */
+  variableKeys?: string[];
   /** Resolved output schemas for deep property autocomplete. */
   outputSchemas?: OutputSchemas;
 }
@@ -60,6 +62,7 @@ let {
   steps,
   currentStepIndex,
   secretKeys,
+  variableKeys,
   outputSchemas,
 }: Props = $props();
 
@@ -165,6 +168,7 @@ function inAsText(): string {
         steps={steps ?? []}
         currentStepIndex={currentStepIndex ?? 0}
         secretKeys={secretKeys ?? []}
+        variableKeys={variableKeys ?? []}
         {outputSchemas}
         onChange={(newValue) => updateRef(newValue)}
       />

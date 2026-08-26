@@ -11,6 +11,7 @@ import { createPushService } from "@src/push";
 import type { ManagedQueuePort } from "@src/queue";
 import type { SecretVault } from "@src/secrets/vault";
 import { mainLogger as log } from "@src/utils/logger";
+import type { VariableStore } from "@src/variables/store";
 import { type AnyElysia, Elysia } from "elysia";
 import { rateLimit } from "elysia-rate-limit";
 import { authEnabled, extractBearerToken, validateToken } from "./auth";
@@ -20,6 +21,7 @@ import { authRoutes } from "./routes/auth";
 import { chatRoutes } from "./routes/chat";
 import { extensionRoutes } from "./routes/extensions";
 import { globalSecretRoutes } from "./routes/globalSecrets";
+import { globalVariableRoutes } from "./routes/globalVariables";
 import { jobRoutes } from "./routes/jobs";
 import { modelRoutes } from "./routes/models";
 import { pushRoutes } from "./routes/push";
@@ -39,6 +41,8 @@ interface WebServerDeps {
   getRegistry: () => ExtensionRegistry | undefined;
   /** Optional SecretVault instance (undefined when no master key is configured). */
   secretVault?: SecretVault;
+  /** VariableStore instance for plaintext global variables (always available). */
+  variableStore?: VariableStore;
 }
 
 /** Options for starting the web server. */
@@ -116,6 +120,7 @@ export async function createWebServer(deps: WebServerDeps) {
     .use(pushRoutes(pushService.pushMessage))
     .use(secretRoutes(getRegistry, () => deps.secretVault))
     .use(globalSecretRoutes(() => deps.secretVault))
+    .use(globalVariableRoutes(() => deps.variableStore))
     // --- WebSocket ---
     .ws("/ws", {
       async open(ws) {

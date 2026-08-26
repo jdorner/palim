@@ -48,6 +48,7 @@ import type { SkillEntry } from "@src/tools/sandbox";
 import { createShell } from "@src/tools/sandbox";
 import { isLLMConnectionError } from "@src/utils/error";
 import { mainLogger as log } from "@src/utils/logger";
+import { VariableStore } from "@src/variables/store";
 import { mapAgentEventToChatEvent } from "@src/web/chatEvents";
 import type { QueueMonitor } from "@src/web/monitor";
 import { createWebServer, startWebServer } from "@src/web/server";
@@ -229,6 +230,11 @@ export class AppBootstrap {
       log.warn("Extension web secret storage will be unavailable");
     }
 
+    // ---------------------------------------------------------------------------
+    // Initialize variable store (plaintext, always available - no master key)
+    // ---------------------------------------------------------------------------
+    const variableStore = new VariableStore(getDb());
+
     // Core queue lookup for extensions
     const coreQueues = new Map<CoreQueueName, ManagedQueuePort>();
 
@@ -316,6 +322,7 @@ export class AppBootstrap {
       chatQueue,
       getRegistry: () => registry,
       secretVault,
+      variableStore,
     });
 
     // Route registry that wraps Elysia for extension route wiring.
@@ -350,6 +357,7 @@ export class AppBootstrap {
       sessionStore: getSessionStore(getDb()),
       pushMessageFn: pushMessage,
       secretVault,
+      variableStore,
     };
 
     return new AppBootstrap(registry, agentQueue, chatQueue, monitoring, elysiaApp, registryInitDeps);

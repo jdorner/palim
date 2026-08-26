@@ -39,6 +39,8 @@ interface Props {
   currentStepIndex?: number;
   /** Prefetched secret keys for template autocomplete. */
   secretKeys?: string[];
+  /** Prefetched variable keys for template autocomplete. */
+  variableKeys?: string[];
   /** Resolved output schemas for deep property autocomplete. */
   outputSchemas?: OutputSchemas;
   /** Per-field available items for multiselect rendering (key = property name, value = options). */
@@ -55,6 +57,7 @@ let {
   steps,
   currentStepIndex,
   secretKeys,
+  variableKeys,
   outputSchemas,
   itemOptions,
   fieldErrors,
@@ -231,6 +234,7 @@ function updateValue(key: string, value: unknown) {
             steps={steps ?? []}
             currentStepIndex={currentStepIndex ?? 0}
             secretKeys={secretKeys ?? []}
+            variableKeys={variableKeys ?? []}
             {outputSchemas}
             onChange={(newValue) => updateValue(key, newValue)}
           />
@@ -259,6 +263,7 @@ function updateValue(key: string, value: unknown) {
             steps={steps ?? []}
             currentStepIndex={currentStepIndex ?? 0}
             secretKeys={secretKeys ?? []}
+            variableKeys={variableKeys ?? []}
             {outputSchemas}
             onChange={(newValue) => updateValue(key, newValue)}
           />
@@ -281,6 +286,7 @@ function updateValue(key: string, value: unknown) {
             steps={steps ?? []}
             currentStepIndex={currentStepIndex ?? 0}
             secretKeys={secretKeys ?? []}
+            variableKeys={variableKeys ?? []}
             {outputSchemas}
             onChange={(newValue) => updateValue(key, newValue)}
           />

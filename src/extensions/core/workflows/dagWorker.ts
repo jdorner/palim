@@ -10,6 +10,7 @@
 import type { ExtensionContext, Logger, QueueJob, StepTypeHandler } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
+import type { TemplateVariableResolver } from "@src/variables";
 import type { DagStepJobData } from "./dagEngine";
 import * as dagRunStore from "./dagRunStore";
 import { normalizePrompt } from "./schemas";
@@ -55,7 +56,17 @@ async function buildDagTemplateContext(data: DagStepJobData, deps: DagStepWorker
     },
   };
 
-  return { triggerPayload, stepResults, stepConfigs: data.allStepDefs, workflowName, secretStore };
+  // Build a variable resolver from the injected variable store (non-sensitive,
+  // no ACL). Left undefined when the store is not available, in which case
+  // {{var.KEY}} expressions are left literal with a warning by the engine.
+  const variableStore: TemplateVariableResolver | undefined = deps.ctx.internal?.variables
+    ? {
+        resolve: (key: string) => deps.ctx.internal!.variables.resolve(key),
+        has: (key: string) => deps.ctx.internal!.variables.has(key),
+      }
+    : undefined;
+
+  return { triggerPayload, stepResults, stepConfigs: data.allStepDefs, workflowName, secretStore, variableStore };
 }
 
 /**

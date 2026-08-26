@@ -881,6 +881,23 @@ export interface ExtensionContext {
        */
       resolveAs(key: string, consumer: string): Promise<string | null>;
     };
+    /** Global variable resolution for workflow templates (non-sensitive, no ACL). */
+    variables: {
+      /**
+       * Resolve a global variable value for template substitution.
+       *
+       * @param key - The variable key to look up.
+       * @returns The plaintext value, or null when the key does not exist.
+       */
+      resolve(key: string): string | null;
+      /**
+       * Report whether a global variable exists (used by the load-time validator).
+       *
+       * @param key - The variable key to look up.
+       * @returns True when the key exists.
+       */
+      has(key: string): boolean;
+    };
   };
 }
 
