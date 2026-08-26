@@ -9,8 +9,6 @@
  *   message. Useful in control-flow branches to signal unexpected states.
  * - `start-workflow` - Dispatches another named workflow in a fire-and-forget
  *   fashion (no join, no result propagation, independent lifecycle).
- * - `for-each` - Iterates over an array and executes a sub-DAG of steps for
- *   each element (supports concurrency and configurable failure strategies).
  *
  * This extension is marked `core: true` and cannot be disabled since these
  * step types are fundamental workflow building blocks.
@@ -18,7 +16,6 @@
 
 import type { Extension, ExtensionContext, ExtensionManifest } from "@ext/types";
 import { createFailHandler } from "./fail";
-import { createForEachHandler } from "./for-each";
 import { createHttpRequestHandler } from "./http-request";
 import { createStartWorkflowHandler, WORKFLOW_NAMES_PROVIDER } from "./start-workflow";
 
@@ -47,13 +44,6 @@ const extension: Extension = {
         (name, payload) => ctx.workflows.dispatch(name, payload),
         () => ctx.workflows.names(),
       ),
-    );
-
-    ctx.stepTypes.register(
-      "for-each",
-      createForEachHandler({
-        getStepHandler: (type) => ctx.stepTypes.get(type),
-      }),
     );
   },
 
