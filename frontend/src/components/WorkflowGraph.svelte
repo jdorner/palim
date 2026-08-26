@@ -61,7 +61,7 @@ interface Props {
   /** Whether the trigger node is currently selected (shows orange highlight). */
   triggerSelected?: boolean;
   fitViewTrigger?: number;
-  customStepTypes?: Array<{ type: string; label: string; icon?: string; terminal?: boolean }>;
+  customStepTypes?: Array<{ type: string; label: string; icon?: string; terminal?: boolean; category?: string }>;
   /**
    * Optional slug-based status map for runtime status overlay.
    * When provided, node status is resolved by slug lookup instead of by array index.
@@ -138,8 +138,9 @@ const nodeTypes = { step: WorkflowStepNode, controlFlow: ControlFlowNode, waitFo
 function miniMapNodeColor(node: Node): string {
   const type = (node.data as { type?: string } | undefined)?.type;
   const triggerType = (node.data as { triggerType?: string } | undefined)?.triggerType;
+  const stepCategory = (node.data as { category?: string } | undefined)?.category;
   if (node.id.startsWith("__addStep")) return "#94a3b8";
-  const { category } = visualForStepType(type ?? "", { triggerType });
+  const { category } = visualForStepType(type ?? "", { triggerType, category: stepCategory });
   switch (category) {
     case "trigger":
       return "#10b981";
@@ -173,6 +174,12 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
   // workflow JSON step itself never carries an icon; it comes from the
   // extension metadata keyed by step type.
   const iconIdByType = new Map(customStepTypes.filter((st) => st.icon).map((st) => [st.type, st.icon as string]));
+
+  // Map each custom step type to its declared palette category so the step node
+  // resolves the matching accent color (control-flow -> sky, action -> amber).
+  const categoryByType = new Map(
+    customStepTypes.filter((st) => st.category).map((st) => [st.type, st.category as string]),
+  );
 
   const layout = computeLayout(flatGraph, {
     trigger,
@@ -220,6 +227,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
     const slug = node.data.slug as string;
     const hasError = (errorSlugs?.has(slug) ?? false) || (errorNodeIds?.has(node.id) ?? false);
     const iconId = iconIdByType.get(node.data.type as string);
+    const category = categoryByType.get(node.data.type as string);
 
     if (statusMap) {
       const status = statusMap[slug] ?? "waiting";
@@ -232,6 +240,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
           terminal: isTerminal,
           hasError,
           iconId,
+          category,
         },
       };
     }
@@ -246,6 +255,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
         terminal: isTerminal,
         hasError,
         iconId,
+        category,
       },
     };
   });

@@ -74,7 +74,10 @@ const TRIGGER_ICONS: Record<string, Component> = {
  *   `iconId` for a custom extension icon registry lookup.
  * @returns The resolved node visual descriptor.
  */
-export function visualForStepType(type: string, opts: { triggerType?: string; iconId?: string } = {}): NodeVisual {
+export function visualForStepType(
+  type: string,
+  opts: { triggerType?: string; iconId?: string; category?: string } = {},
+): NodeVisual {
   if (type === "trigger") {
     const icon = (opts.triggerType && TRIGGER_ICONS[opts.triggerType]) || LightningIcon;
     return { icon, tileClass: CATEGORY_TILE_CLASS.trigger, category: "trigger" };
@@ -85,12 +88,16 @@ export function visualForStepType(type: string, opts: { triggerType?: string; ic
     return { icon: builtin.icon, tileClass: CATEGORY_TILE_CLASS[builtin.category], category: builtin.category };
   }
 
-  // Custom extension step type: use its registered icon when available.
+  // Custom extension step type: use its registered icon when available. The
+  // accent color follows the declared palette category - control-flow types
+  // (e.g. for-each) share the "logic" (sky) accent with built-in CF nodes,
+  // while the default action group stays amber.
   const customIcon = opts.iconId ? resolveIcon(opts.iconId) : null;
+  const category: NodeCategory = opts.category === "control-flow" ? "logic" : "action";
   return {
     icon: customIcon ?? GearIcon,
-    tileClass: CATEGORY_TILE_CLASS.action,
-    category: "action",
+    tileClass: CATEGORY_TILE_CLASS[category],
+    category,
   };
 }
 

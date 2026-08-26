@@ -343,6 +343,17 @@ export interface StepTypeHandler {
   terminal?: boolean;
 
   /**
+   * Optional palette category hint for the workflow editor's "Add Step" menu.
+   *
+   * This is a UI-only grouping and does NOT affect engine execution semantics
+   * (it is independent of the engine's inline-evaluated control-flow nodes like
+   * `if`/`case`). When set to `"control-flow"`, the editor lists this step type
+   * under the "Control Flow" section instead of the default action group. When
+   * omitted, the step type appears in the default (action) group.
+   */
+  category?: StepTypeCategory;
+
+  /**
    * Optional TypeBox schema describing the expected shape of input data from
    * the preceding step. Used by the workflow engine to validate the preceding
    * step's output BEFORE the transition occurs, enabling agent self-repair.
@@ -393,6 +404,15 @@ export interface StepTypeHandler {
 }
 
 /**
+ * Palette category hint for a custom workflow step type. A UI-only grouping
+ * used by the editor's "Add Step" menu; it has no effect on engine execution.
+ *
+ * - `"action"` - default group (work-producing steps like http-request)
+ * - `"control-flow"` - grouped with if/case/waitFor/emit in the editor
+ */
+export type StepTypeCategory = "action" | "control-flow";
+
+/**
  * Metadata about a registered custom step type, surfaced to the frontend
  * for workflow editor UI rendering.
  */
@@ -408,6 +428,11 @@ export interface StepTypeInfo {
   icon?: StepIconName;
   /** Name of the extension that registered this step type. */
   extensionName: string;
+  /**
+   * Optional palette category hint for the "Add Step" menu grouping.
+   * UI-only; does not affect engine execution. Defaults to the action group.
+   */
+  category?: StepTypeCategory;
 }
 
 // ---------------------------------------------------------------------------

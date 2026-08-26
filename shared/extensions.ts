@@ -97,7 +97,24 @@ export interface StepTypeInfo {
    * declare an output schema.
    */
   outputSchema?: Record<string, unknown>;
+  /**
+   * Optional palette category hint for the workflow editor's "Add Step" menu.
+   *
+   * UI-only grouping; does not affect engine execution semantics. When set to
+   * `"control-flow"`, the editor lists this step type under the "Control Flow"
+   * section. When omitted, the step type appears in the default action group.
+   */
+  category?: StepTypeCategory;
 }
+
+/**
+ * Palette category hint for a custom workflow step type. A UI-only grouping
+ * used by the editor's "Add Step" menu; it has no effect on engine execution.
+ *
+ * - `"action"` - default group (work-producing steps like http-request)
+ * - `"control-flow"` - grouped with if/case/waitFor/emit in the editor
+ */
+export type StepTypeCategory = "action" | "control-flow";
 
 /** A single secret schema entry declared in an extension manifest. */
 export interface SecretSchemaEntry {

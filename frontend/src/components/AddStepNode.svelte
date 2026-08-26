@@ -9,7 +9,7 @@ interface Props extends NodeProps {
     /** Callback when a step type is selected from the menu. */
     onSelectType?: (type: string) => void;
     /** Custom step types from extensions (passed from parent). */
-    customStepTypes?: Array<{ type: string; label: string; icon?: string }>;
+    customStepTypes?: Array<{ type: string; label: string; icon?: string; category?: string }>;
   };
 }
 
@@ -99,6 +99,10 @@ let controlFlowTypes = $derived(builtinTypes.filter((t) => t.category === "contr
 // Exclude custom step types that duplicate a built-in type (e.g. the workflows
 // extension registers "emit", which is already listed under Control Flow).
 let customTypes = $derived((data.customStepTypes ?? []).filter((t) => !builtinTypeSlugs.has(t.type)));
+// Custom step types that opt into the control-flow palette group (e.g. for-each)
+// render under the "Control Flow" section; the rest stay in the default group.
+let customActionTypes = $derived(customTypes.filter((t) => t.category !== "control-flow"));
+let customControlFlowTypes = $derived(customTypes.filter((t) => t.category === "control-flow"));
 let agentVisual = $derived(visualForStepType("agent"));
 </script>
 
@@ -137,8 +141,8 @@ let agentVisual = $derived(visualForStepType("agent"));
       </span>
       <span class="font-medium text-foreground">Agent</span>
     </button>
-    {#each customTypes as ct}
-      {@const ctVisual = visualForStepType(ct.type, { iconId: ct.icon })}
+    {#each customActionTypes as ct}
+      {@const ctVisual = visualForStepType(ct.type, { iconId: ct.icon, category: ct.category })}
       <button
         type="button"
         class="w-full text-left px-2 py-1.5 rounded-lg hover:bg-muted/60 transition-colors flex items-center gap-2.5"
@@ -158,6 +162,19 @@ let agentVisual = $derived(visualForStepType("agent"));
     </div>
     {#each controlFlowTypes as cf}
       {@const cfVisual = visualForStepType(cf.type)}
+      <button
+        type="button"
+        class="w-full text-left px-2 py-1.5 rounded-lg hover:bg-muted/60 transition-colors flex items-center gap-2.5"
+        onclick={() => selectType(cf.type)}
+      >
+        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white {cfVisual.tileClass}">
+          <cfVisual.icon size={15} weight="bold" aria-hidden="true" />
+        </span>
+        <span class="font-medium text-foreground">{cf.label}</span>
+      </button>
+    {/each}
+    {#each customControlFlowTypes as cf}
+      {@const cfVisual = visualForStepType(cf.type, { iconId: cf.icon, category: cf.category })}
       <button
         type="button"
         class="w-full text-left px-2 py-1.5 rounded-lg hover:bg-muted/60 transition-colors flex items-center gap-2.5"

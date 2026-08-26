@@ -12,6 +12,8 @@ interface Props {
     triggerType?: string;
     /** Optional custom-extension icon id for the shared icon registry. */
     iconId?: string;
+    /** Optional custom-extension palette category (drives the accent color). */
+    category?: string;
     selected?: boolean;
     terminal?: boolean;
     /** Whether this step has a configuration/template error (shows red badge). */
@@ -26,7 +28,9 @@ let isTerminal = $derived(data.terminal === true);
 let status = $derived<NodeStatus>(data.status ?? "waiting");
 let isSkipped = $derived(status === "skipped");
 
-let visual = $derived(visualForStepType(data.type, { triggerType: data.triggerType, iconId: data.iconId }));
+let visual = $derived(
+  visualForStepType(data.type, { triggerType: data.triggerType, iconId: data.iconId, category: data.category }),
+);
 let statusInfo = $derived(statusVisual(status));
 
 // Plain-text type label for the card subtitle; the icon tile conveys the

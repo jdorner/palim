@@ -199,6 +199,7 @@ export function createForEachHandler(deps: ForEachHandlerDeps): StepTypeHandler 
     }),
     label: "For Each",
     icon: "FlowArrowIcon",
+    category: "control-flow",
 
     async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<unknown> {
       const { slug: _slug, type: _type, outputSchema: _os, ...configFields } = stepDef;

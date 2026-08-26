@@ -5,7 +5,7 @@ import { builtinConfigSchema } from "$lib/builtinStepSchemas";
 import { Badge } from "$lib/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/components/ui/select";
 import { visualForStepType } from "$lib/nodeVisuals";
-import { iconIdForType, labelForStepType } from "$lib/stepTypes";
+import { categoryForType, iconIdForType, labelForStepType } from "$lib/stepTypes";
 import type { OutputSchemas } from "$lib/templateScope";
 import type { StepDraft, WorkflowDraft } from "$lib/workflowValidation";
 import { validateStepConfig } from "$lib/workflowValidation";
@@ -204,7 +204,7 @@ function clearConditionError(index: number) {
   built-in types resolve their icon directly in visualForStepType.
 -->
 {#snippet stepTypeChip(type: string, size: number)}
-  {@const v = visualForStepType(type, { iconId: iconIdForType(type) })}
+  {@const v = visualForStepType(type, { iconId: iconIdForType(type), category: categoryForType(type) })}
   <span
     class="flex shrink-0 items-center justify-center rounded text-white {v.tileClass}"
     style="width: {size}px; height: {size}px;"
