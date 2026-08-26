@@ -26,7 +26,6 @@ interface Props {
   activeTool?: string | null;
   streamSegments?: StreamSegment[];
   error?: string | null;
-  feedbackConversation?: boolean;
   /** Context window size of the selected model (in tokens), for percentage display. */
   contextWindow?: number | null;
   /** Whether server-bound actions should be disabled (e.g. no connection). */
@@ -37,7 +36,6 @@ interface Props {
   onRegenerate?: (msg: Message) => void;
   onDeleteMessage?: (msg: Message) => void;
   onEditMessage?: (msg: Message, newContent: string) => void;
-  onDownvote?: (msg: Message, comment: string) => void;
 }
 
 let {
@@ -47,7 +45,6 @@ let {
   activeTool = null,
   streamSegments = [],
   error = null,
-  feedbackConversation = false,
   contextWindow = null,
   disabled = false,
   disconnected = false,
@@ -55,16 +52,12 @@ let {
   onRegenerate,
   onDeleteMessage,
   onEditMessage,
-  onDownvote,
 }: Props = $props();
 
 let container = $state<HTMLDivElement | undefined>(undefined);
 let editingId = $state<string | null>(null);
 let editValue = $state("");
 let editTextareaEl = $state<HTMLTextAreaElement | undefined>(undefined);
-let downvotingId = $state<string | null>(null);
-let downvoteComment = $state("");
-let downvoteInputEl = $state<HTMLInputElement | undefined>(undefined);
 
 /** Tracks which thinking blocks have been toggled from their default state. */
 let expandedThinking = $state<Set<string>>(new Set());
@@ -214,32 +207,6 @@ function handleEditKeydown(e: KeyboardEvent, msg: Message) {
     if (!disabled) commitEdit(msg);
   } else if (e.key === "Escape") {
     cancelEdit();
-  }
-}
-
-function startDownvote(msg: Message) {
-  downvotingId = msg.id;
-  downvoteComment = "";
-  tick().then(() => downvoteInputEl?.focus());
-}
-
-function cancelDownvote() {
-  downvotingId = null;
-  downvoteComment = "";
-}
-
-function submitDownvote(msg: Message) {
-  onDownvote?.(msg, downvoteComment.trim());
-  downvotingId = null;
-  downvoteComment = "";
-}
-
-function handleDownvoteKeydown(e: KeyboardEvent, msg: Message) {
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    submitDownvote(msg);
-  } else if (e.key === "Escape") {
-    cancelDownvote();
   }
 }
 
@@ -491,35 +458,6 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
             <ContextGauge usedTokens={msg.usage.totalTokens} maxTokens={contextWindow} />
           {/if}
         </div>
-        {#if downvotingId === msg.id}
-          <div class="flex justify-start pl-1 mt-1">
-            <div class="flex items-center gap-1.5 rounded-lg border border-border bg-muted/50 px-2 py-1.5 max-w-[80%]">
-              <input
-                bind:this={downvoteInputEl}
-                bind:value={downvoteComment}
-                onkeydown={(e) => handleDownvoteKeydown(e, msg)}
-                type="text"
-                placeholder="What went wrong? (optional)"
-                class="flex-1 min-w-0 bg-transparent text-sm text-foreground placeholder:text-muted-foreground focus:outline-none"
-                aria-label="Feedback comment"
-              >
-              <button
-                type="button"
-                class="px-2 py-0.5 text-xs rounded bg-primary text-primary-foreground hover:bg-primary/90 transition-colors"
-                onclick={() => submitDownvote(msg)}
-              >
-                Send
-              </button>
-              <button
-                type="button"
-                class="px-2 py-0.5 text-xs rounded text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                onclick={() => cancelDownvote()}
-              >
-                Cancel
-              </button>
-            </div>
-          </div>
-        {/if}
       {/if}
     {/if}
   {/each}

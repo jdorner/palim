@@ -143,7 +143,7 @@ src/
 shared/
 └── types.ts                 # Types shared between backend and frontend
                              # (JobEntry, LogEntry, WebSocketMessage, ChatWebSocketEvent,
-                             #  WorkflowWebSocketEvent, FeedbackReportEvent, ApprovalRequestEvent,
+                             #  WorkflowWebSocketEvent, ApprovalRequestEvent,
                              #  ExtensionLifecycleEvent, PushMessageEvent, TokenUsage,
                              #  ScheduleEntry, NavigationEntry, ExtensionUiContribution,
                              #  ExtensionInfo, AvailableModel, SelectedModelResponse)

@@ -10,17 +10,6 @@ import type { JobEntry, LogEntry } from "./jobs";
 import type { ScheduleEntry } from "./schedules";
 import type { WorkflowWebSocketEvent } from "./workflows";
 
-/** WebSocket event broadcast when a feedback analysis report is ready. */
-export interface FeedbackReportEvent {
-  type: "feedback_report";
-  /** Markdown content of the feedback analysis report. */
-  report: string;
-  /** The conversation ID that the feedback was submitted from. */
-  originalChatId: string;
-  /** Flag indicating this should create a feedback conversation. */
-  feedbackConversation: true;
-}
-
 /** WebSocket event broadcast when an extension requires user approval to install. */
 export interface ApprovalRequestEvent {
   type: "approval_request";
@@ -62,7 +51,6 @@ export type WebSocketMessage =
   | { type: "filewatcher_reload" }
   | ChatWebSocketEvent
   | WorkflowWebSocketEvent
-  | FeedbackReportEvent
   | ApprovalRequestEvent
   | ExtensionLifecycleEvent
   | PushMessageEvent;

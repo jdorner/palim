@@ -70,9 +70,6 @@ function handleMessage(message: WebSocketMessage) {
     case "chat_event":
       chatStream.handleChatEvent(message);
       break;
-    case "feedback_report":
-      chatStream.handleFeedbackReport(message);
-      break;
     case "approval_request":
       chatStream.handleApprovalRequest(message);
       break;
