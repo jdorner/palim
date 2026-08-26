@@ -63,6 +63,7 @@ export function buildDagStepJob(
     allStepDefs: Record<string, unknown>;
     sessionFactory: SessionFactory;
     triggerPayload?: unknown;
+    iteratorSlug?: string;
   },
 ): FlowJob<DagStepJobData> {
   const session = opts.sessionFactory.create({
@@ -82,6 +83,7 @@ export function buildDagStepJob(
     allStepDefs: opts.allStepDefs,
     sessionId: session.id,
     triggerPayload: opts.triggerPayload,
+    iteratorSlug: opts.iteratorSlug,
   };
 
   return {

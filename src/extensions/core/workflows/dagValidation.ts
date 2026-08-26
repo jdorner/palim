@@ -29,7 +29,12 @@ export interface DagValidationError {
     | "non_cf_edge_has_branch"
     | "invalid_if_branch"
     | "invalid_case_branch"
-    | "cf_node_unconditional_edge";
+    | "invalid_iterator_branch"
+    | "cf_node_unconditional_edge"
+    | "iterator_missing_aggregator"
+    | "aggregator_missing_iterator"
+    | "iterator_aggregator_mismatch"
+    | "aggregator_unreachable";
   /** Human-readable error message. */
   message: string;
 }
@@ -212,6 +217,16 @@ export function validateCfEdges(definition: DagWorkflowDefinition): DagValidatio
             });
           }
         }
+      } else if (stepDef.type === "iterator") {
+        const validBranches = new Set(["each"]);
+        for (const edge of outEdges) {
+          if (edge.branch && !validBranches.has(edge.branch)) {
+            errors.push({
+              code: "invalid_iterator_branch",
+              message: `Iterator node "${slug}" has edge to "${edge.to}" with invalid branch "${edge.branch}" (must be "each")`,
+            });
+          }
+        }
       }
     } else {
       // Non-CF nodes must not have branch-labeled edges
@@ -306,4 +321,130 @@ export function computeTerminalSteps(definition: DagWorkflowDefinition): string[
     outgoing.add(edge.from);
   }
   return Object.keys(definition.steps).filter((slug) => !outgoing.has(slug));
+}
+
+/**
+ * Validates iterator/aggregator pairing rules.
+ *
+ * Checks:
+ * - Every iterator references an existing aggregator slug
+ * - Every aggregator references an existing iterator slug
+ * - Mutual references are consistent (iterator.aggregator == aggregator slug AND aggregator.iterator == iterator slug)
+ * - The aggregator is reachable from the iterator's `each` branch (connected via body path)
+ *
+ * @param definition - The parsed DAG workflow definition
+ * @returns Array of pairing validation errors (empty means valid)
+ */
+export function validateIteratorPairing(definition: DagWorkflowDefinition): DagValidationError[] {
+  const errors: DagValidationError[] = [];
+  const { steps, edges } = definition;
+
+  // Build forward adjacency for reachability checks
+  const adjacency = new Map<string, string[]>();
+  for (const slug of Object.keys(steps)) {
+    adjacency.set(slug, []);
+  }
+  for (const edge of edges) {
+    if (adjacency.has(edge.from)) {
+      adjacency.get(edge.from)!.push(edge.to);
+    }
+  }
+
+  // Collect iterators and aggregators
+  const iterators = new Map<string, { aggregator: string }>();
+  const aggregators = new Map<string, { iterator: string }>();
+
+  for (const [slug, stepDef] of Object.entries(steps)) {
+    if (stepDef.type === "iterator") {
+      const iter = stepDef as { type: "iterator"; aggregator: string };
+      iterators.set(slug, { aggregator: iter.aggregator });
+    } else if (stepDef.type === "aggregator") {
+      const agg = stepDef as { type: "aggregator"; iterator: string };
+      aggregators.set(slug, { iterator: agg.iterator });
+    }
+  }
+
+  // Validate each iterator
+  for (const [iterSlug, iterDef] of iterators) {
+    const aggSlug = iterDef.aggregator;
+
+    // Aggregator must exist
+    if (!steps[aggSlug]) {
+      errors.push({
+        code: "iterator_missing_aggregator",
+        message: `Iterator "${iterSlug}" references aggregator "${aggSlug}" which does not exist`,
+      });
+      continue;
+    }
+
+    // Must be an aggregator type
+    if (steps[aggSlug]!.type !== "aggregator") {
+      errors.push({
+        code: "iterator_missing_aggregator",
+        message: `Iterator "${iterSlug}" references "${aggSlug}" which is not an aggregator (type: ${steps[aggSlug]!.type})`,
+      });
+      continue;
+    }
+
+    // Mutual reference check
+    const aggDef = aggregators.get(aggSlug);
+    if (!aggDef || aggDef.iterator !== iterSlug) {
+      errors.push({
+        code: "iterator_aggregator_mismatch",
+        message: `Iterator "${iterSlug}" references aggregator "${aggSlug}" but the aggregator's iterator field points to "${aggDef?.iterator ?? "(none)"}"`,
+      });
+    }
+
+    // Reachability: aggregator must be reachable from iterator via forward edges
+    const reachable = new Set<string>();
+    const queue = [iterSlug];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      for (const neighbor of adjacency.get(current) ?? []) {
+        if (!reachable.has(neighbor)) {
+          reachable.add(neighbor);
+          queue.push(neighbor);
+        }
+      }
+    }
+
+    if (!reachable.has(aggSlug)) {
+      errors.push({
+        code: "aggregator_unreachable",
+        message: `Aggregator "${aggSlug}" is not reachable from its paired iterator "${iterSlug}"`,
+      });
+    }
+  }
+
+  // Validate each aggregator references a valid iterator
+  for (const [aggSlug, aggDef] of aggregators) {
+    const iterSlug = aggDef.iterator;
+
+    if (!steps[iterSlug]) {
+      errors.push({
+        code: "aggregator_missing_iterator",
+        message: `Aggregator "${aggSlug}" references iterator "${iterSlug}" which does not exist`,
+      });
+      continue;
+    }
+
+    if (steps[iterSlug]!.type !== "iterator") {
+      errors.push({
+        code: "aggregator_missing_iterator",
+        message: `Aggregator "${aggSlug}" references "${iterSlug}" which is not an iterator (type: ${steps[iterSlug]!.type})`,
+      });
+      continue;
+    }
+
+    // Check if this aggregator is referenced by its iterator (orphan detection)
+    const iterDef = iterators.get(iterSlug);
+    if (!iterDef || iterDef.aggregator !== aggSlug) {
+      errors.push({
+        code: "iterator_aggregator_mismatch",
+        message: `Aggregator "${aggSlug}" references iterator "${iterSlug}" but the iterator's aggregator field points to "${iterDef?.aggregator ?? "(none)"}"`,
+      });
+    }
+  }
+
+  return errors;
 }

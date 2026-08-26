@@ -66,7 +66,30 @@ async function buildDagTemplateContext(data: DagStepJobData, deps: DagStepWorker
       }
     : undefined;
 
-  return { triggerPayload, stepResults, stepConfigs: data.allStepDefs, workflowName, secretStore, variableStore };
+  // Build iteration context if this step is inside an iterator body
+  let iterationContext: TemplateContext["iterationContext"];
+  if (data.iteratorSlug && run) {
+    const iterState = run.stepResults[data.iteratorSlug] as
+      | { items: unknown[]; cursor: number; as: string }
+      | undefined;
+    if (iterState && Array.isArray(iterState.items)) {
+      iterationContext = {
+        item: iterState.items[iterState.cursor],
+        itemIndex: iterState.cursor,
+        as: iterState.as ?? "item",
+      };
+    }
+  }
+
+  return {
+    triggerPayload,
+    stepResults,
+    stepConfigs: data.allStepDefs,
+    workflowName,
+    secretStore,
+    variableStore,
+    iterationContext,
+  };
 }
 
 /**
