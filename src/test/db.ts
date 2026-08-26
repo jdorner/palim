@@ -17,6 +17,7 @@ import { fileURLToPath } from "node:url";
 import {
   appConfig,
   extensionSettings,
+  globalVariables,
   jobLogs,
   secretAuditLog,
   secretsVault,
@@ -53,6 +54,7 @@ const schema = {
   extWikiEmbeddings,
   secretAuditLog,
   secretsVault,
+  globalVariables,
 } as const;
 
 /**
