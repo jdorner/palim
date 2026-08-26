@@ -20,11 +20,6 @@ let chatInputRef = $state<ChatInput | undefined>(undefined);
 // Only show streaming UI when the stream targets the currently viewed conversation
 let isStreamingHere = $derived(chatStream.activeStreaming);
 
-// Check if the active conversation is a feedback conversation (no downvote allowed)
-let isFeedbackConversation = $derived(
-  chatStream.conversations.find((c) => c.id === chatStream.activeConversationId)?.feedbackConversation ?? false,
-);
-
 onMount(async () => {
   chatStream.chatVisible = true;
   await chatStream.loadConversations();
@@ -101,7 +96,6 @@ async function onSubmit(content: string) {
         activeTool={isStreamingHere ? chatStream.activeTool : null}
         streamSegments={isStreamingHere ? chatStream.streamSegments : []}
         error={chatStream.error}
-        feedbackConversation={isFeedbackConversation}
         contextWindow={modelStore.contextWindow}
         disabled={!$connected}
         disconnected={!$connected}
@@ -109,7 +103,6 @@ async function onSubmit(content: string) {
         onRegenerate={(msg) => chatStream.handleRegenerate(msg)}
         onDeleteMessage={(msg) => chatStream.handleDeleteMessage(msg)}
         onEditMessage={(msg, content) => chatStream.handleEditMessage(msg, content)}
-        onDownvote={(msg, comment) => chatStream.handleDownvote(msg, comment)}
       />
 
       <ChatInput

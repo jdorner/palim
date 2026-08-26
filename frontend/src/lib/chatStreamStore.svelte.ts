@@ -6,12 +6,7 @@
  * and delegates send/cancel/edit actions through its methods.
  */
 
-import type {
-  ApprovalRequestEvent,
-  ChatWebSocketEvent,
-  FeedbackReportEvent,
-  PushMessageEvent,
-} from "../../../shared/types";
+import type { ApprovalRequestEvent, ChatWebSocketEvent, PushMessageEvent } from "../../../shared/types";
 import { authFetch } from "./auth";
 import {
   addMessage,
@@ -404,29 +399,6 @@ class ChatStreamStore {
   }
 
   /**
-   * Handles a feedback_report WebSocket event by auto-creating a new conversation
-   * with the report as the first assistant message.
-   * @param event - The feedback report event from the backend.
-   */
-  async handleFeedbackReport(event: FeedbackReportEvent): Promise<void> {
-    try {
-      const title = `Feedback: ${event.report.slice(0, 40).replace(/\n/g, " ")}...`;
-      const conv = await createConversation(title, { feedbackConversation: true });
-      const contentSegments: MessageSegment[] = [{ type: "text", content: event.report }];
-      await addMessage({
-        conversationId: conv.id,
-        role: "assistant",
-        content: event.report,
-        createdAt: Date.now(),
-        segments: contentSegments,
-      });
-      await this.loadConversations();
-    } catch (err) {
-      console.error("Failed to create feedback conversation:", err);
-    }
-  }
-
-  /**
    * Handles an approval_request WebSocket event by auto-creating a new
    * conversation with the extension details and approve/reject action buttons.
    * @param event - The approval request event from the backend.
@@ -679,32 +651,6 @@ class ChatStreamStore {
     // server, the message must be appended to the newly created session.
     const skipAppend = !!this.currentSessionId;
     await this.startStream(lastUserMsg.content, { skipAppend });
-  }
-
-  /**
-   * Sends feedback for a downvoted assistant message.
-   * @param msg - The downvoted assistant message.
-   * @param comment - The user's feedback comment (may be empty).
-   */
-  async handleDownvote(msg: Message, comment: string): Promise<void> {
-    if (!this.activeConversationId) return;
-
-    const payload = {
-      chatId: this.activeConversationId,
-      jobId: msg.jobId ?? "",
-      comment,
-      messages: this.messages.map((m) => ({ role: m.role, content: m.content })),
-    };
-
-    try {
-      await authFetch("/ext/response-feedback/feedback", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
-    } catch (err) {
-      console.error("Failed to send feedback:", err);
-    }
   }
 
   // -------------------------------------------------------------------------

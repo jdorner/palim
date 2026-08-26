@@ -12,8 +12,6 @@ export interface Conversation {
   title: string;
   createdAt: number;
   updatedAt: number;
-  /** Whether this conversation was auto-created from a feedback report. */
-  feedbackConversation?: boolean;
   /** Server-side session ID, persisted so edits/deletes can sync after reload. */
   sessionId?: string;
 }
@@ -103,13 +101,9 @@ export function generateTitle(content: string): string {
 /**
  * Creates a new conversation in the store.
  * @param title - The conversation title.
- * @param opts - Optional properties for the conversation.
  * @returns The newly created Conversation.
  */
-export async function createConversation(
-  title: string,
-  opts?: { feedbackConversation?: boolean },
-): Promise<Conversation> {
+export async function createConversation(title: string): Promise<Conversation> {
   const db = await initDB();
   const now = Date.now();
   const conversation: Conversation = {
@@ -117,7 +111,6 @@ export async function createConversation(
     title,
     createdAt: now,
     updatedAt: now,
-    ...(opts?.feedbackConversation ? { feedbackConversation: true } : {}),
   };
 
   return new Promise((resolve, reject) => {
