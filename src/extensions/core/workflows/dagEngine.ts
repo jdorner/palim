@@ -43,6 +43,8 @@ export interface DagStepJobData {
   sessionId: string;
   /** Trigger payload (available to all steps via template resolution from Run Store). */
   triggerPayload?: unknown;
+  /** Slug of the iterator this step belongs to (when inside an iteration body). */
+  iteratorSlug?: string;
 }
 
 /**
