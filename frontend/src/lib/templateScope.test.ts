@@ -9,6 +9,7 @@ import {
   getStepSlugs,
   getSuggestions,
   getTopLevelSuggestions,
+  getVariableSuggestions,
   type ScopeConfig,
   type Suggestion,
 } from "./templateScope";
@@ -53,7 +54,7 @@ const secretKeyArb = fc
 /** Env name: same pattern as secret keys */
 const envNameArb = secretKeyArb;
 
-const TOP_LEVEL_NAMESPACES = ["trigger", "steps", "env", "secret"];
+const TOP_LEVEL_NAMESPACES = ["trigger", "steps", "env", "secret", "var"];
 
 describe("Template Scope Registry - Property Tests", () => {
   describe("Prefix filtering returns only matches", () => {
@@ -326,6 +327,7 @@ describe("Output Schema Suggestions", () => {
       steps: [{ slug: "fetch" }, { slug: "process" }],
       currentStepIndex: 1,
       secretKeys: ["API_KEY"],
+      variableKeys: [],
       outputSchemas: {
         trigger: filewatcherSchema,
         steps: {
@@ -457,6 +459,7 @@ describe("Output Schema Suggestions", () => {
         steps: [{ slug: "fetch" }, { slug: "process" }],
         currentStepIndex: 1,
         secretKeys: [],
+        variableKeys: [],
       };
 
       test("trigger.payload remains terminal", () => {
@@ -599,6 +602,7 @@ describe("getSuggestions with config introspection", () => {
     steps: stepsWithConfig,
     currentStepIndex: 1,
     secretKeys: [],
+    variableKeys: [],
   };
 
   test("steps.<slug>.config is non-terminal", () => {
@@ -676,6 +680,7 @@ describe("getSuggestions with edit draft structure (nested config)", () => {
     steps: draftSteps,
     currentStepIndex: 0,
     secretKeys: [],
+    variableKeys: [],
   };
 
   test("custom step config shows fields from nested config object", () => {
@@ -721,7 +726,7 @@ describe("getSuggestions hides result for succeeding steps", () => {
   ];
 
   test("preceding step shows both result and config", () => {
-    const config: ScopeConfig = { steps, currentStepIndex: 2, secretKeys: [] };
+    const config: ScopeConfig = { steps, currentStepIndex: 2, secretKeys: [], variableKeys: [] };
     const results = getSuggestions(config, ["steps", "first"], "");
     const labels = results.map((s) => s.label);
     expect(labels).toContain("result");
@@ -729,7 +734,7 @@ describe("getSuggestions hides result for succeeding steps", () => {
   });
 
   test("succeeding step shows only config, not result", () => {
-    const config: ScopeConfig = { steps, currentStepIndex: 0, secretKeys: [] };
+    const config: ScopeConfig = { steps, currentStepIndex: 0, secretKeys: [], variableKeys: [] };
     const results = getSuggestions(config, ["steps", "second"], "");
     const labels = results.map((s) => s.label);
     expect(labels).not.toContain("result");
@@ -739,7 +744,7 @@ describe("getSuggestions hides result for succeeding steps", () => {
   test("step at same index as current shows only config", () => {
     // This shouldn't normally happen (current step is excluded from slug list)
     // but if it does, result should not be shown
-    const config: ScopeConfig = { steps, currentStepIndex: 1, secretKeys: [] };
+    const config: ScopeConfig = { steps, currentStepIndex: 1, secretKeys: [], variableKeys: [] };
     const results = getSuggestions(config, ["steps", "second"], "");
     const labels = results.map((s) => s.label);
     expect(labels).not.toContain("result");
@@ -751,6 +756,7 @@ describe("getSuggestions hides result for succeeding steps", () => {
       steps,
       currentStepIndex: 2,
       secretKeys: [],
+      variableKeys: [],
       outputSchemas: { trigger: null, steps: { first: { data: "string" } } },
     };
     const results = getSuggestions(config, ["steps", "first"], "");
@@ -764,6 +770,7 @@ describe("getSuggestions hides result for succeeding steps", () => {
       steps,
       currentStepIndex: 0,
       secretKeys: [],
+      variableKeys: [],
       outputSchemas: { trigger: null, steps: { second: { data: "string" } } },
     };
     const results = getSuggestions(config, ["steps", "second"], "");
@@ -805,6 +812,7 @@ describe("Condition fields complete like any other field", () => {
     .record({
       slugs: fc.array(slugArb, { minLength: 0, maxLength: 6 }),
       secretKeys: fc.array(secretKeyArb, { minLength: 0, maxLength: 5 }),
+      variableKeys: fc.array(secretKeyArb, { minLength: 0, maxLength: 5 }),
       envAllowlist: fc.option(fc.array(envNameArb, { minLength: 0, maxLength: 5 }), { nil: undefined }),
       triggerSchema: fc.option(outputSchemaArb, { nil: null }),
       stepSchemas: fc.dictionary(slugArb, outputSchemaArb, { minKeys: 0, maxKeys: 4 }),
@@ -818,6 +826,7 @@ describe("Condition fields complete like any other field", () => {
           steps,
           currentStepIndex,
           secretKeys: base.secretKeys,
+          variableKeys: base.variableKeys,
         };
         if (base.envAllowlist !== undefined) {
           config.envAllowlist = base.envAllowlist;
@@ -986,6 +995,132 @@ describe("Enum metadata extraction sources from schemaForm helpers", () => {
     test("non-enum property carries no enumValues", () => {
       const suggestion = suggestionFor(schema, "count");
       expect(suggestion.enumValues).toBeUndefined();
+    });
+  });
+});
+
+describe("getVariableSuggestions", () => {
+  // Variable keys share the secret key format /^[A-Z][A-Z0-9_]{0,63}$/,
+  // so the existing secretKeyArb generator is reused as a variable key source.
+  const variableKeyArb = secretKeyArb;
+
+  describe("Autocomplete filter and sort invariants", () => {
+    // Feature: global-variables, Property 10
+    /**
+     * Property 10: Autocomplete filter and sort invariants.
+     * Validates: Requirements 7.2, 7.3, 7.4
+     *
+     * For any list of variable keys and any prefix, the suggestions from
+     * getVariableSuggestions(variableKeys, prefix) are exactly the keys whose
+     * text contains the prefix case-insensitively (all keys when the prefix is
+     * empty), sorted ascending by case-insensitive comparison, and each
+     * suggestion is terminal.
+     */
+    test("returns exactly the case-insensitive substring matches, sorted, all terminal", () => {
+      fc.assert(
+        fc.property(
+          fc.array(variableKeyArb, { minLength: 0, maxLength: 30 }),
+          fc.oneof(
+            fc.constant(""),
+            prefixArb,
+            fc.string({ unit: fc.constantFrom(...upperAlphaNumUnderscore.split("")), minLength: 0, maxLength: 10 }),
+          ),
+          (variableKeys, prefix) => {
+            const results = getVariableSuggestions(variableKeys, prefix);
+            const labels = results.map((s) => s.label);
+            const lowerPrefix = prefix.toLowerCase();
+
+            // Membership: exactly the keys whose text contains the prefix
+            // case-insensitively (every key when the prefix is empty).
+            const expected = variableKeys
+              .filter((key) => key.toLowerCase().includes(lowerPrefix))
+              .sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+            expect(labels).toEqual(expected);
+
+            // Each returned label indeed contains the prefix case-insensitively.
+            for (const label of labels) {
+              expect(label.toLowerCase().includes(lowerPrefix)).toBe(true);
+            }
+
+            // Sorted ascending by case-insensitive comparison.
+            for (let i = 1; i < labels.length; i++) {
+              const prev = (labels[i - 1] as string).toLowerCase();
+              const curr = (labels[i] as string).toLowerCase();
+              expect(prev.localeCompare(curr)).toBeLessThanOrEqual(0);
+            }
+
+            // Every suggestion is terminal.
+            for (const s of results) {
+              expect(s.terminal).toBe(true);
+            }
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+  });
+});
+
+describe("getSuggestions hides the var namespace when empty", () => {
+  // Variable keys share the secret key format /^[A-Z][A-Z0-9_]{0,63}$/.
+  const variableKeyArb = secretKeyArb;
+
+  describe("Autocomplete hides the namespace when empty", () => {
+    // Feature: global-variables, Property 11
+    /**
+     * Property 11: Autocomplete hides the namespace when empty.
+     * Validates: Requirements 7.1, 7.5, 7.7
+     *
+     * For any scope configuration, the top-level suggestions from
+     * getSuggestions(config, [], prefix) include `var` when at least one
+     * variable key is available and omit `var` when none are available.
+     *
+     * The config is constructed so that top-level filtering of the other
+     * conditional namespaces does not interfere with asserting `var`:
+     *   - `steps` is dropped when steps.length <= 1, so a single step is used.
+     *   - `secret` is dropped when secretKeys is empty, so no secret keys are used.
+     * The prefix is constrained to "" or "var" so that startsWith(prefix)
+     * always includes the `var` label when the namespace is present.
+     */
+    test("includes var iff at least one variable key is available", () => {
+      fc.assert(
+        fc.property(
+          fc.array(variableKeyArb, { minLength: 0, maxLength: 10 }),
+          fc.constantFrom("", "v", "va", "var"),
+          (variableKeys, prefix) => {
+            const config: ScopeConfig = {
+              steps: [{ slug: "only" }],
+              currentStepIndex: 0,
+              secretKeys: [],
+              variableKeys,
+            };
+
+            const labels = getSuggestions(config, [], prefix).map((s) => s.label);
+
+            if (variableKeys.length > 0) {
+              expect(labels).toContain("var");
+            } else {
+              expect(labels).not.toContain("var");
+            }
+          },
+        ),
+        { numRuns: 100 },
+      );
+    });
+
+    // Explicit boundary example: zero vs one variable key.
+    test("boundary: omits var for zero keys and includes it for one key", () => {
+      const baseConfig: Omit<ScopeConfig, "variableKeys"> = {
+        steps: [{ slug: "only" }],
+        currentStepIndex: 0,
+        secretKeys: [],
+      };
+
+      const zeroLabels = getSuggestions({ ...baseConfig, variableKeys: [] }, [], "").map((s) => s.label);
+      expect(zeroLabels).not.toContain("var");
+
+      const oneLabels = getSuggestions({ ...baseConfig, variableKeys: ["MY_VAR"] }, [], "").map((s) => s.label);
+      expect(oneLabels).toContain("var");
     });
   });
 });

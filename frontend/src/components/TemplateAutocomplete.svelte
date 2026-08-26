@@ -16,6 +16,8 @@ interface Props {
   currentStepIndex: number;
   /** Prefetched secret key names */
   secretKeys: string[];
+  /** Prefetched variable key names */
+  variableKeys?: string[];
   /** Optional env allowlist override */
   envAllowlist?: string[];
   /** Resolved output schemas for deep property autocomplete */
@@ -24,7 +26,16 @@ interface Props {
   onChange: (newValue: string) => void;
 }
 
-let { targetElement, steps, currentStepIndex, secretKeys, envAllowlist, outputSchemas, onChange }: Props = $props();
+let {
+  targetElement,
+  steps,
+  currentStepIndex,
+  secretKeys,
+  variableKeys = [],
+  envAllowlist,
+  outputSchemas,
+  onChange,
+}: Props = $props();
 
 /** Whether the popup is currently visible */
 let visible = $state(false);
@@ -245,7 +256,7 @@ function acceptSuggestion(index?: number): void {
     // Non-terminal: re-detect trigger and query next-segment suggestions
     const newTrigger = detectTrigger(result.newText, result.newCursorPos);
     if (newTrigger.active) {
-      const config: ScopeConfig = { steps, currentStepIndex, secretKeys, envAllowlist, outputSchemas };
+      const config: ScopeConfig = { steps, currentStepIndex, secretKeys, variableKeys, envAllowlist, outputSchemas };
       const newSuggestions = querySuggestions(config, newTrigger.path, newTrigger.prefix);
       if (newSuggestions.length > 0) {
         show(newSuggestions, newTrigger);
@@ -271,7 +282,7 @@ function handleInput(): void {
   const trigger = detectTrigger(text, cursorPos);
 
   if (trigger.active) {
-    const config: ScopeConfig = { steps, currentStepIndex, secretKeys, envAllowlist, outputSchemas };
+    const config: ScopeConfig = { steps, currentStepIndex, secretKeys, variableKeys, envAllowlist, outputSchemas };
     const newSuggestions = querySuggestions(config, trigger.path, trigger.prefix);
     if (newSuggestions.length > 0) {
       show(newSuggestions, trigger);
