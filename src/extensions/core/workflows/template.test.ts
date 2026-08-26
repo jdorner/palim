@@ -1,6 +1,41 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import type { TemplateVariableResolver } from "@src/variables";
+import fc from "fast-check";
 import type { TemplateContext, TemplateSecretResolver } from "./template";
 import { resolveTemplates } from "./template";
+
+/**
+ * In-memory fake implementing {@link TemplateVariableResolver}, backed by a Map.
+ *
+ * Used to exercise the {{var.KEY}} branch of the template engine without a
+ * database. Mirrors the plaintext, no-ACL semantics of the real VariableStore.
+ */
+class FakeVariableResolver implements TemplateVariableResolver {
+  private store: Map<string, string>;
+
+  /**
+   * @param entries - Initial key/value pairs to seed the resolver with.
+   */
+  constructor(entries: Map<string, string> = new Map()) {
+    this.store = entries;
+  }
+
+  /**
+   * @param key - The variable key.
+   * @returns The stored plaintext value, or null when the key is absent.
+   */
+  resolve(key: string): string | null {
+    return this.store.has(key) ? this.store.get(key)! : null;
+  }
+
+  /**
+   * @param key - The variable key.
+   * @returns True when the key exists in the map.
+   */
+  has(key: string): boolean {
+    return this.store.has(key);
+  }
+}
 
 describe("resolveTemplates", () => {
   let ctx: TemplateContext;
@@ -332,5 +367,159 @@ describe("resolveTemplates", () => {
       expect(resolved).toContain('"key":"name"');
       expect(warnings).toEqual([]);
     });
+  });
+
+  describe("var.<KEY>", () => {
+    test("substitutes an existing variable with its plaintext value", async () => {
+      ctx.variableStore = new FakeVariableResolver(new Map([["API_BASE_URL", "https://example.com"]]));
+      const { resolved, warnings } = await resolveTemplates("url={{var.API_BASE_URL}}", ctx);
+      expect(resolved).toBe("url=https://example.com");
+      expect(warnings).toEqual([]);
+    });
+
+    test("leaves literal and warns when the key does not exist", async () => {
+      ctx.variableStore = new FakeVariableResolver();
+      const { resolved, warnings } = await resolveTemplates("{{var.MISSING}}", ctx);
+      expect(resolved).toBe("{{var.MISSING}}");
+      expect(warnings).toContain('Variable "MISSING" not found');
+    });
+
+    test("leaves literal and warns when no variable store is provided", async () => {
+      const { resolved, warnings } = await resolveTemplates("{{var.ANY}}", ctx);
+      expect(resolved).toBe("{{var.ANY}}");
+      expect(warnings).toContain("Variable store not available for template: var.ANY");
+    });
+
+    test("substitutes value byte-for-byte with no transformation", async () => {
+      const raw = '  spaced\n{"json":true}\ttrailing  ';
+      ctx.variableStore = new FakeVariableResolver(new Map([["RAW", raw]]));
+      const { resolved, warnings } = await resolveTemplates("{{var.RAW}}", ctx);
+      expect(resolved).toBe(raw);
+      expect(warnings).toEqual([]);
+    });
+
+    test("malformed var expression (wrong segment count) falls through to unrecognized handling", async () => {
+      ctx.variableStore = new FakeVariableResolver(new Map([["A", "x"]]));
+      const { resolved, warnings } = await resolveTemplates("{{var.A.B}}", ctx);
+      expect(resolved).toBe("{{var.A.B}}");
+      expect(warnings).toContain("Unrecognized template expression: var.A.B");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Property-based tests for the {{var.KEY}} namespace.
+  // ---------------------------------------------------------------------------
+
+  // Generator for valid variable keys matching the documented format
+  // ^[A-Z][A-Z0-9_]{0,63}$ (upper snake case).
+  const varKeyArb = fc.stringMatching(/^[A-Z][A-Z0-9_]{0,10}$/).filter((s) => /^[A-Z][A-Z0-9_]{0,63}$/.test(s));
+
+  // Arbitrary plaintext values (may contain arbitrary unicode; the engine must
+  // emit them byte-for-byte with no transformation).
+  const varValueArb = fc.string();
+
+  // Feature: global-variables, Property 6
+  test("Property 6: substitution replaces matches and preserves the rest", async () => {
+    // Validates: Requirements 5.1, 5.2, 5.3, 5.4
+    await fc.assert(
+      fc.asyncProperty(
+        // A map of stored variables.
+        fc.dictionary(varKeyArb, varValueArb),
+        // 1..100 keys to reference (all guaranteed to exist since drawn from the map).
+        fc.array(fc.nat(), { minLength: 1, maxLength: 100 }),
+        // Literal surrounding chunks that never contain braces, so they cannot
+        // interfere with {{...}} delimiter parsing at chunk boundaries.
+        fc.array(
+          fc.string().map((s) => s.replace(/[{}]/g, "")),
+          { minLength: 1 },
+        ),
+        async (varsRecord, refIndexes, chunks) => {
+          const keys = Object.keys(varsRecord);
+          fc.pre(keys.length > 0);
+
+          const store = new Map(Object.entries(varsRecord));
+          const ctxLocal: TemplateContext = { stepResults: {}, variableStore: new FakeVariableResolver(store) };
+
+          // Interleave literal chunks with {{var.KEY}} references so every
+          // reference resolves to an existing key.
+          const usedKeys = refIndexes.map((i) => keys[i % keys.length]!);
+          let field = "";
+          let expected = "";
+          for (let i = 0; i < usedKeys.length; i++) {
+            const chunk = chunks[i % chunks.length]!;
+            field += `${chunk}{{var.${usedKeys[i]!}}}`;
+            expected += `${chunk}${store.get(usedKeys[i]!)!}`;
+          }
+          const tail = chunks[usedKeys.length % chunks.length]!;
+          field += tail;
+          expected += tail;
+
+          const { resolved, warnings } = await resolveTemplates(field, ctxLocal);
+          expect(resolved).toBe(expected);
+          expect(warnings).toEqual([]);
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+
+  // Feature: global-variables, Property 7
+  test("Property 7: misses stay literal and warn once per distinct reference", async () => {
+    // Validates: Requirement 5.5
+    await fc.assert(
+      fc.asyncProperty(
+        // Existing variables in the store.
+        fc.dictionary(varKeyArb, varValueArb),
+        // Distinct keys that are guaranteed NOT to exist (prefixed to avoid collisions).
+        fc.uniqueArray(varKeyArb, { minLength: 1, maxLength: 20 }),
+        async (existingRecord, missingKeysRaw) => {
+          const store = new Map(Object.entries(existingRecord));
+          // Ensure "missing" keys truly do not exist in the store.
+          const missingKeys = missingKeysRaw.filter((k) => !store.has(k));
+          fc.pre(missingKeys.length > 0);
+
+          const ctxLocal: TemplateContext = { stepResults: {}, variableStore: new FakeVariableResolver(store) };
+
+          const existingKeys = Object.keys(existingRecord);
+
+          // Build a field that references each missing key (possibly repeated)
+          // plus, when available, one existing key that must still resolve.
+          let field = "";
+          let expectedContainsExisting: string | undefined;
+          if (existingKeys.length > 0) {
+            const k = existingKeys[0]!;
+            field += `prefix {{var.${k}}} `;
+            expectedContainsExisting = store.get(k)!;
+          }
+          // Reference each distinct missing key exactly once.
+          for (const k of missingKeys) {
+            field += `{{var.${k}}} `;
+          }
+
+          const { resolved, warnings } = await resolveTemplates(field, ctxLocal);
+          // Each missing reference stays literal in the output.
+          for (const k of missingKeys) {
+            expect(resolved).toContain(`{{var.${k}}}`);
+          }
+          // The existing-key expression is still substituted (no warning for it).
+          if (expectedContainsExisting !== undefined) {
+            const k = existingKeys[0]!;
+            expect(warnings).not.toContain(`Variable "${k}" not found`);
+            // The literal placeholder was consumed (unless the value itself
+            // reproduces the placeholder text, which we tolerate).
+            if (!expectedContainsExisting.includes(`{{var.${k}}}`)) {
+              expect(resolved).not.toContain(`{{var.${k}}}`);
+            }
+          }
+          // Exactly one warning per distinct unresolved reference.
+          for (const k of missingKeys) {
+            const warningText = `Variable "${k}" not found`;
+            const count = warnings.filter((w) => w === warningText).length;
+            expect(count).toBe(1);
+          }
+        },
+      ),
+      { numRuns: 100 },
+    );
   });
 });
