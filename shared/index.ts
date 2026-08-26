@@ -21,6 +21,7 @@ export type { JobEntry, LogEntry } from "./jobs";
 export type { AvailableModel, ModelIntent, SelectedModelResponse } from "./models";
 export { MODEL_INTENTS } from "./models";
 export type { ScheduleEntry } from "./schedules";
+export type { GlobalVariableEntry } from "./variables";
 export type { ApprovalRequestEvent, PushMessageEvent, WebSocketMessage } from "./websocket";
 export type {
   OutputSchema,
