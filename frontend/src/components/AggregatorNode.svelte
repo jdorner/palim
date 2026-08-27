@@ -66,10 +66,10 @@ let strokeClass = $derived(data.selected ? "stroke-primary" : "stroke-sky-400/70
   <!-- Error badge -->
   {#if data.hasError}
     <div
-      class="absolute right-1 top-0.5 z-30 rounded-full bg-white leading-none"
+      class="absolute -right-2 -top-1.5 z-30 rounded-full bg-white leading-none"
       title="This step has a configuration error"
     >
-      <WarningCircleIcon size={16} weight="fill" class="text-red-500" aria-label="Configuration error" />
+      <WarningCircleIcon size={18} weight="fill" class="text-red-500" aria-label="Configuration error" />
     </div>
   {/if}
 
@@ -77,7 +77,7 @@ let strokeClass = $derived(data.selected ? "stroke-primary" : "stroke-sky-400/70
   <Handle
     type="target"
     position={Position.Left}
-    style="left: 2px; top: 50%;"
+    style="left: 5px; top: 50%;"
     class="h-2.5! w-2.5! border-2! border-background! bg-sky-500!"
   />
 
