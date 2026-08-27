@@ -352,6 +352,14 @@ function validateStepFields(
     errors.set(`${path}.event`, "Event name is required");
   }
 
+  if (step.type === "iterator" && (!step.items || (step.items as string).trim().length === 0)) {
+    errors.set(`${path}.items`, "Items expression is required");
+  }
+
+  if (step.type === "aggregator" && (!step.iterator || (step.iterator as string).trim().length === 0)) {
+    errors.set(`${path}.iterator`, "Iterator reference is required");
+  }
+
   // Custom step type config validation
   if (!["agent", "if", "case", "waitFor", "emit"].includes(step.type) && stepTypeSchemas) {
     const schemaInfo = stepTypeSchemas.find((s) => s.type === step.type);
@@ -459,6 +467,24 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
     };
     if (step.payload) result.payload = step.payload;
     return result;
+  }
+
+  // Control flow: iterator
+  if (step.type === "iterator") {
+    const result: Record<string, unknown> = {
+      type: "iterator",
+      items: step.items,
+    };
+    if (step.as) result.as = step.as;
+    return result;
+  }
+
+  // Control flow: aggregator
+  if (step.type === "aggregator") {
+    return {
+      type: "aggregator",
+      iterator: step.iterator,
+    };
   }
 
   // Custom (extension-registered) step type: merge type + config (no slug)

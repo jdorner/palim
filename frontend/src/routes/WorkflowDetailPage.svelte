@@ -312,6 +312,20 @@ function toStepDraft(s: StepDef | Record<string, unknown>): StepDraft {
     return result;
   }
 
+  // Control flow: iterator - preserve items + optional as
+  if (type === "iterator") {
+    const result: StepDraft = { id, slug, type, items: raw.items as string };
+    if (typeof raw.as === "string") {
+      result.as = raw.as;
+    }
+    return result;
+  }
+
+  // Control flow: aggregator - preserve iterator reference
+  if (type === "aggregator") {
+    return { id, slug, type, iterator: raw.iterator as string };
+  }
+
   // Custom extension step types: rebuild config from non-standard fields
   const { id: _id, slug: _s, type: _t, input: _i, output: _o, ...config } = raw;
   return {

@@ -635,7 +635,7 @@ function clearConditionError(index: number) {
           {/if}
         </div>
       {/if}
-    {:else if !editMode && (selectedStep.type === "if" || selectedStep.type === "case" || selectedStep.type === "waitFor" || selectedStep.type === "emit")}
+    {:else if !editMode && (selectedStep.type === "if" || selectedStep.type === "case" || selectedStep.type === "waitFor" || selectedStep.type === "emit" || selectedStep.type === "iterator" || selectedStep.type === "aggregator")}
       <!-- Read-only: built-in control-flow step config -->
       {@const roCfType = selectedStep.type}
       {@const roCfSchema = builtinConfigSchema(roCfType)}
