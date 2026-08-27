@@ -118,7 +118,7 @@ let {
  * they are excluded from the step-type change dropdown to avoid converting a
  * step into a non-editable state.
  */
-const CF_TYPES = new Set(["if", "case", "waitFor", "emit"]);
+const CF_TYPES = new Set(["if", "case", "iterator", "aggregator", "waitFor", "emit"]);
 
 /** Custom step types offered in the change-type dropdown (excludes control-flow types). */
 let selectableCustomTypes = $derived(customStepTypes.filter((st) => !CF_TYPES.has(st.type)));

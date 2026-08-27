@@ -127,7 +127,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
 
   // Add workflow step nodes
   for (const node of graph.nodes) {
-    const isCF = node.data.type === "if" || node.data.type === "case";
+    const isCF = node.data.type === "if" || node.data.type === "case" || node.data.type === "iterator";
     g.setNode(node.id, {
       width: isCF ? CF_NODE_WIDTH : NODE_WIDTH,
       height: isCF ? CF_NODE_HEIGHT : NODE_HEIGHT,
@@ -140,7 +140,8 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   // chain, never off a node that lives inside a control-flow branch.
   const firstRootId = findRootNodeId(graph);
   const lastRoot = firstRootId ? graph.nodes.find((n) => n.id === branchTail(graph, firstRootId)) : undefined;
-  const lastRootIsCF = lastRoot && (lastRoot.data.type === "if" || lastRoot.data.type === "case");
+  const lastRootIsCF =
+    lastRoot && (lastRoot.data.type === "if" || lastRoot.data.type === "case" || lastRoot.data.type === "iterator");
   const lastRootIsTerminal = lastRoot && options.terminalTypes?.has(lastRoot.data.type);
   const showRootAddStep = options.includeAddNode && !!lastRoot && !lastRootIsCF && !lastRootIsTerminal;
 
@@ -201,7 +202,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   // For each CF node, collect all nodes (step nodes + addStep nodes) per branch,
   // then ensure branches are vertically stacked in order with sufficient spacing.
   for (const node of graph.nodes) {
-    if (node.data.type !== "if" && node.data.type !== "case") continue;
+    if (node.data.type !== "if" && node.data.type !== "case" && node.data.type !== "iterator") continue;
 
     const branchLabels = branchLabelsFor(node, graph);
 
@@ -335,7 +336,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   // Workflow step nodes
   for (const node of graph.nodes) {
     const pos = g.node(node.id);
-    const isCF = node.data.type === "if" || node.data.type === "case";
+    const isCF = node.data.type === "if" || node.data.type === "case" || node.data.type === "iterator";
     const w = isCF ? CF_NODE_WIDTH : NODE_WIDTH;
     const h = isCF ? CF_NODE_HEIGHT : NODE_HEIGHT;
 
@@ -444,7 +445,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
 
 /** Maps a workflow step type to the corresponding SvelteFlow node type. */
 function nodeTypeForStep(stepType: string): string {
-  if (stepType === "if" || stepType === "case") return "controlFlow";
+  if (stepType === "if" || stepType === "case" || stepType === "iterator") return "controlFlow";
   if (stepType === "waitFor") return "waitFor";
   return "step";
 }
@@ -486,7 +487,7 @@ function toSvelteEdge(edge: GraphEdge): Edge {
  * @returns Object with `branches` array if the node has outgoing branch edges
  */
 function extractCFMeta(node: GraphNode, edges: GraphEdge[]): Record<string, unknown> {
-  if (node.data.type !== "if" && node.data.type !== "case") {
+  if (node.data.type !== "if" && node.data.type !== "case" && node.data.type !== "iterator") {
     return {};
   }
 
@@ -649,7 +650,7 @@ function branchChainNodeIds(graph: FlatGraph, cfNodeId: string, branch: string):
     seen.add(currentId);
     ids.push(currentId);
     const node = graph.nodes.find((n) => n.id === currentId);
-    if (node && (node.data.type === "if" || node.data.type === "case")) break;
+    if (node && (node.data.type === "if" || node.data.type === "case" || node.data.type === "iterator")) break;
     const outgoing = graph.edges.filter((e) => e.source === currentId && !e.branch);
     if (outgoing.length !== 1) break;
     currentId = outgoing[0]!.target;
@@ -674,7 +675,7 @@ function branchChainNodeIds(graph: FlatGraph, cfNodeId: string, branch: string):
  */
 function discoverBranches(graph: FlatGraph, terminalTypes?: Set<string>): BranchDiscovery[] {
   const branches: BranchDiscovery[] = [];
-  const isBranchingType = (type: string) => type === "if" || type === "case";
+  const isBranchingType = (type: string) => type === "if" || type === "case" || type === "iterator";
 
   // Track tail nodes that already have an addStep so that branches converging on
   // a common join node produce a single addStep, not one per incoming branch.

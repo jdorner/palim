@@ -88,7 +88,7 @@ export interface FlatGraph {
 }
 
 /** Control flow step types that route via branch-labeled edges. */
-const CF_TYPES = new Set(["if", "case"]);
+const CF_TYPES = new Set(["if", "case", "iterator"]);
 
 // ---------------------------------------------------------------------------
 // Build flat graph from DAG definition

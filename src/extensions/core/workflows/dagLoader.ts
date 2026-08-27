@@ -9,7 +9,7 @@
 import { formatValidationErrors } from "@ext/sdk";
 import type { Logger } from "@ext/types";
 import { Value } from "@sinclair/typebox/value";
-import { validateCfEdges, validateDag } from "./dagValidation";
+import { validateCfEdges, validateDag, validateIteratorPairing } from "./dagValidation";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePrompt } from "./schemas";
 
 /**
@@ -53,7 +53,8 @@ export async function loadDagWorkflows(workflowsDir: string, log: Logger): Promi
       // Structural DAG validation
       const dagErrors = validateDag(definition);
       const cfErrors = validateCfEdges(definition);
-      const allErrors = [...dagErrors, ...cfErrors];
+      const pairingErrors = validateIteratorPairing(definition);
+      const allErrors = [...dagErrors, ...cfErrors, ...pairingErrors];
       if (allErrors.length > 0) {
         log.error(`Invalid workflow ${entry}: ${allErrors.map((e) => e.message).join("; ")}`);
         continue;

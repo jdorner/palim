@@ -326,11 +326,11 @@ export function computeTerminalSteps(definition: DagWorkflowDefinition): string[
 /**
  * Validates iterator/aggregator pairing rules.
  *
- * Checks:
- * - Every iterator references an existing aggregator slug
- * - Every aggregator references an existing iterator slug
- * - Mutual references are consistent (iterator.aggregator == aggregator slug AND aggregator.iterator == iterator slug)
- * - The aggregator is reachable from the iterator's `each` branch (connected via body path)
+ * With the single-reference model, only the aggregator carries the `iterator`
+ * field. Validation checks:
+ * - Every aggregator references an existing iterator slug of type `iterator`
+ * - Every iterator has exactly one aggregator referencing it
+ * - The aggregator is reachable from its paired iterator
  *
  * @param definition - The parsed DAG workflow definition
  * @returns Array of pairing validation errors (empty means valid)
@@ -351,51 +351,52 @@ export function validateIteratorPairing(definition: DagWorkflowDefinition): DagV
   }
 
   // Collect iterators and aggregators
-  const iterators = new Map<string, { aggregator: string }>();
+  const iteratorSlugs = new Set<string>();
   const aggregators = new Map<string, { iterator: string }>();
 
   for (const [slug, stepDef] of Object.entries(steps)) {
     if (stepDef.type === "iterator") {
-      const iter = stepDef as { type: "iterator"; aggregator: string };
-      iterators.set(slug, { aggregator: iter.aggregator });
+      iteratorSlugs.add(slug);
     } else if (stepDef.type === "aggregator") {
       const agg = stepDef as { type: "aggregator"; iterator: string };
       aggregators.set(slug, { iterator: agg.iterator });
     }
   }
 
-  // Validate each iterator
-  for (const [iterSlug, iterDef] of iterators) {
-    const aggSlug = iterDef.aggregator;
+  // Track which iterators are referenced by an aggregator
+  const referencedIterators = new Map<string, string>();
 
-    // Aggregator must exist
-    if (!steps[aggSlug]) {
+  // Validate each aggregator
+  for (const [aggSlug, aggDef] of aggregators) {
+    const iterSlug = aggDef.iterator;
+
+    if (!steps[iterSlug]) {
       errors.push({
-        code: "iterator_missing_aggregator",
-        message: `Iterator "${iterSlug}" references aggregator "${aggSlug}" which does not exist`,
+        code: "aggregator_missing_iterator",
+        message: `Aggregator "${aggSlug}" references iterator "${iterSlug}" which does not exist`,
       });
       continue;
     }
 
-    // Must be an aggregator type
-    if (steps[aggSlug]!.type !== "aggregator") {
+    if (steps[iterSlug]!.type !== "iterator") {
       errors.push({
-        code: "iterator_missing_aggregator",
-        message: `Iterator "${iterSlug}" references "${aggSlug}" which is not an aggregator (type: ${steps[aggSlug]!.type})`,
+        code: "aggregator_missing_iterator",
+        message: `Aggregator "${aggSlug}" references "${iterSlug}" which is not an iterator (type: ${steps[iterSlug]!.type})`,
       });
       continue;
     }
 
-    // Mutual reference check
-    const aggDef = aggregators.get(aggSlug);
-    if (!aggDef || aggDef.iterator !== iterSlug) {
+    // Check for duplicate references
+    if (referencedIterators.has(iterSlug)) {
       errors.push({
         code: "iterator_aggregator_mismatch",
-        message: `Iterator "${iterSlug}" references aggregator "${aggSlug}" but the aggregator's iterator field points to "${aggDef?.iterator ?? "(none)"}"`,
+        message: `Iterator "${iterSlug}" is referenced by multiple aggregators: "${referencedIterators.get(iterSlug)}" and "${aggSlug}"`,
       });
+    } else {
+      referencedIterators.set(iterSlug, aggSlug);
     }
 
-    // Reachability: aggregator must be reachable from iterator via forward edges
+    // Reachability
     const reachable = new Set<string>();
     const queue = [iterSlug];
     while (queue.length > 0) {
@@ -416,32 +417,12 @@ export function validateIteratorPairing(definition: DagWorkflowDefinition): DagV
     }
   }
 
-  // Validate each aggregator references a valid iterator
-  for (const [aggSlug, aggDef] of aggregators) {
-    const iterSlug = aggDef.iterator;
-
-    if (!steps[iterSlug]) {
+  // Every iterator must have an aggregator
+  for (const iterSlug of iteratorSlugs) {
+    if (!referencedIterators.has(iterSlug)) {
       errors.push({
-        code: "aggregator_missing_iterator",
-        message: `Aggregator "${aggSlug}" references iterator "${iterSlug}" which does not exist`,
-      });
-      continue;
-    }
-
-    if (steps[iterSlug]!.type !== "iterator") {
-      errors.push({
-        code: "aggregator_missing_iterator",
-        message: `Aggregator "${aggSlug}" references "${iterSlug}" which is not an iterator (type: ${steps[iterSlug]!.type})`,
-      });
-      continue;
-    }
-
-    // Check if this aggregator is referenced by its iterator (orphan detection)
-    const iterDef = iterators.get(iterSlug);
-    if (!iterDef || iterDef.aggregator !== aggSlug) {
-      errors.push({
-        code: "iterator_aggregator_mismatch",
-        message: `Aggregator "${aggSlug}" references iterator "${iterSlug}" but the iterator's aggregator field points to "${iterDef?.aggregator ?? "(none)"}"`,
+        code: "iterator_missing_aggregator",
+        message: `Iterator "${iterSlug}" has no aggregator referencing it`,
       });
     }
   }

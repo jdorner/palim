@@ -414,7 +414,6 @@ export const DagIteratorStepSchema = Type.Object(
     type: Type.Literal("iterator"),
     items: Type.String({ minLength: 1, description: "Template expression resolving to a JSON array" }),
     as: Type.Optional(Type.String({ minLength: 1, pattern: "^[a-zA-Z][a-zA-Z0-9_]*$" })),
-    aggregator: Type.String({ minLength: 1, description: "Slug of the paired aggregator node" }),
   },
   { additionalProperties: false },
 );
@@ -422,9 +421,10 @@ export const DagIteratorStepSchema = Type.Object(
 /**
  * An `aggregator` step definition for DAG format.
  *
- * Paired to an iterator. Collects per-iteration results, drives the loop by
- * resetting the body subgraph between iterations or completing when all items
- * are exhausted. Has regular (unlabeled) outgoing edges to downstream steps.
+ * Paired to an iterator via the `iterator` field. Collects per-iteration
+ * results, drives the loop by resetting the body subgraph between iterations
+ * or completing when all items are exhausted. Has regular (unlabeled) outgoing
+ * edges to downstream steps.
  */
 export const DagAggregatorStepSchema = Type.Object(
   {
@@ -510,8 +510,6 @@ export interface DagIteratorStep {
   items: string;
   /** Variable name for the current element (default: "item"). */
   as?: string;
-  /** Slug of the paired aggregator node. */
-  aggregator: string;
 }
 
 /** TypeScript type for a DAG `aggregator` step. */

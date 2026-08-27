@@ -420,7 +420,7 @@ describe("validateCfEdges - iterator", () => {
     const def = makeDag({
       steps: {
         a: { type: "agent", prompt: "x" },
-        iter: { type: "iterator", items: "{{trigger.payload}}", aggregator: "agg" },
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
         body: { type: "agent", prompt: "body" },
         agg: { type: "aggregator", iterator: "iter" },
       },
@@ -438,7 +438,7 @@ describe("validateCfEdges - iterator", () => {
     const def = makeDag({
       steps: {
         a: { type: "agent", prompt: "x" },
-        iter: { type: "iterator", items: "{{trigger.payload}}", aggregator: "agg" },
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
         body: { type: "agent", prompt: "body" },
         agg: { type: "aggregator", iterator: "iter" },
       },
@@ -458,7 +458,7 @@ describe("validateCfEdges - iterator", () => {
     const def = makeDag({
       steps: {
         a: { type: "agent", prompt: "x" },
-        iter: { type: "iterator", items: "{{trigger.payload}}", aggregator: "agg" },
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
         body: { type: "agent", prompt: "body" },
         agg: { type: "aggregator", iterator: "iter" },
       },
@@ -476,7 +476,7 @@ describe("validateCfEdges - iterator", () => {
   test("aggregator with unlabeled outgoing edges passes validation", () => {
     const def = makeDag({
       steps: {
-        iter: { type: "iterator", items: "{{trigger.payload}}", aggregator: "agg" },
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
         body: { type: "agent", prompt: "body" },
         agg: { type: "aggregator", iterator: "iter" },
         downstream: { type: "agent", prompt: "after loop" },
@@ -494,7 +494,7 @@ describe("validateCfEdges - iterator", () => {
   test("aggregator with branch-labeled outgoing edge fails validation", () => {
     const def = makeDag({
       steps: {
-        iter: { type: "iterator", items: "{{trigger.payload}}", aggregator: "agg" },
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
         body: { type: "agent", prompt: "body" },
         agg: { type: "aggregator", iterator: "iter" },
         downstream: { type: "agent", prompt: "after loop" },
@@ -515,7 +515,7 @@ describe("validateIteratorPairing", () => {
   test("returns no errors for valid iterator-aggregator pairing", () => {
     const def = makeDag({
       steps: {
-        iter: { type: "iterator", items: "{{trigger.payload}}", aggregator: "agg" },
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
         body: { type: "agent", prompt: "body" },
         agg: { type: "aggregator", iterator: "iter" },
       },
@@ -528,10 +528,10 @@ describe("validateIteratorPairing", () => {
     expect(errors).toEqual([]);
   });
 
-  test("detects iterator referencing non-existent aggregator", () => {
+  test("detects iterator with no aggregator referencing it", () => {
     const def = makeDag({
       steps: {
-        iter: { type: "iterator", items: "{{trigger.payload}}", aggregator: "missing" },
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
         body: { type: "agent", prompt: "body" },
       },
       edges: [{ from: "iter", to: "body", branch: "each" }],
@@ -539,23 +539,6 @@ describe("validateIteratorPairing", () => {
     const errors = validateIteratorPairing(def);
     expect(errors.length).toBe(1);
     expect(errors[0]!.code).toBe("iterator_missing_aggregator");
-  });
-
-  test("detects mismatched pairing references", () => {
-    const def = makeDag({
-      steps: {
-        iter: { type: "iterator", items: "{{trigger.payload}}", aggregator: "agg" },
-        body: { type: "agent", prompt: "body" },
-        agg: { type: "aggregator", iterator: "other-iter" },
-      },
-      edges: [
-        { from: "iter", to: "body", branch: "each" },
-        { from: "body", to: "agg" },
-      ],
-    });
-    const errors = validateIteratorPairing(def);
-    expect(errors.length).toBeGreaterThan(0);
-    expect(errors.some((e) => e.code === "iterator_aggregator_mismatch")).toBe(true);
   });
 
   test("detects aggregator referencing non-existent iterator", () => {
@@ -571,31 +554,24 @@ describe("validateIteratorPairing", () => {
     expect(errors[0]!.code).toBe("aggregator_missing_iterator");
   });
 
+  test("detects aggregator referencing non-iterator type", () => {
+    const def = makeDag({
+      steps: {
+        notiter: { type: "agent", prompt: "x" },
+        agg: { type: "aggregator", iterator: "notiter" },
+      },
+      edges: [{ from: "notiter", to: "agg" }],
+    });
+    const errors = validateIteratorPairing(def);
+    expect(errors.length).toBe(1);
+    expect(errors[0]!.code).toBe("aggregator_missing_iterator");
+  });
+
   test("detects unreachable aggregator", () => {
     const def = makeDag({
       steps: {
-        iter: { type: "iterator", items: "{{trigger.payload}}", aggregator: "agg" },
-        body: { type: "agent", prompt: "body" },
-        agg: { type: "aggregator", iterator: "iter" },
-        other: { type: "agent", prompt: "other" },
-      },
-      edges: [
-        { from: "iter", to: "body", branch: "each" },
-        // agg is NOT connected to body — unreachable from iter
-        { from: "other", to: "agg" },
-        { from: "body", to: "other" },
-      ],
-    });
-    // In this case agg IS reachable: iter -> body -> other -> agg
-    const errors = validateIteratorPairing(def);
-    expect(errors).toEqual([]);
-  });
-
-  test("detects truly unreachable aggregator (disconnected)", () => {
-    const def = makeDag({
-      steps: {
         start: { type: "agent", prompt: "start" },
-        iter: { type: "iterator", items: "{{trigger.payload}}", aggregator: "agg" },
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
         body: { type: "agent", prompt: "body" },
         agg: { type: "aggregator", iterator: "iter" },
       },
@@ -603,12 +579,9 @@ describe("validateIteratorPairing", () => {
         { from: "start", to: "iter" },
         { from: "iter", to: "body", branch: "each" },
         // No edge from body to agg — aggregator is unreachable from iterator
-        { from: "start", to: "agg" }, // reachable from start, but not from iter
+        { from: "start", to: "agg" },
       ],
     });
-    // agg is reachable from iter via: iter -> body? No, body has no outgoing edge to agg.
-    // But start -> agg is separate. Let's trace: from iter, we reach body only. agg is not reachable.
-    // Wait, adjacency includes start -> iter and start -> agg, iter -> body. From iter: body. Not agg.
     const errors = validateIteratorPairing(def);
     expect(errors.length).toBe(1);
     expect(errors[0]!.code).toBe("aggregator_unreachable");

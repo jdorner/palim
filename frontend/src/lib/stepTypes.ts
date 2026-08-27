@@ -98,6 +98,10 @@ export function labelForStepType(type: string, triggerType?: string): string {
       return "If";
     case "case":
       return "Case";
+    case "iterator":
+      return "Iterator";
+    case "aggregator":
+      return "Aggregator";
     case "waitFor":
       return "Wait For";
     case "emit":

@@ -94,7 +94,7 @@ export function buildStepJobIdMap(jobs: { stepSlug: string; id: string }[]): Map
 }
 
 /** Built-in step types handled directly by the workflow engine. */
-const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "waitFor"]);
+const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "iterator", "aggregator", "waitFor", "emit"]);
 
 /** Result of validating tool and skill availability for a workflow. */
 export interface WorkflowValidationResult {

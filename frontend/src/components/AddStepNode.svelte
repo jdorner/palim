@@ -86,6 +86,7 @@ function portal(node: HTMLElement) {
  */
 const builtinTypes = [
   { type: "agent", label: "Agent", category: "execution" },
+  { type: "iterator", label: "Iterator", category: "control-flow" },
   { type: "if", label: "If / Condition", category: "control-flow" },
   { type: "case", label: "Case / Switch", category: "control-flow" },
   { type: "waitFor", label: "Wait For Signal", category: "control-flow" },

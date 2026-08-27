@@ -16,7 +16,9 @@ import GitBranchIcon from "phosphor-svelte/lib/GitBranchIcon";
 import LightningIcon from "phosphor-svelte/lib/LightningIcon";
 import LinkIcon from "phosphor-svelte/lib/LinkIcon";
 import PauseIcon from "phosphor-svelte/lib/PauseIcon";
+import RepeatIcon from "phosphor-svelte/lib/RepeatIcon";
 import RobotIcon from "phosphor-svelte/lib/RobotIcon";
+import TrayIcon from "phosphor-svelte/lib/TrayIcon";
 import type { Component } from "svelte";
 import { resolveIcon } from "./iconRegistry";
 
@@ -50,6 +52,8 @@ const BUILTIN: Record<string, { icon: Component; category: NodeCategory }> = {
   agent: { icon: RobotIcon, category: "agent" },
   if: { icon: ArrowsSplitIcon, category: "logic" },
   case: { icon: GitBranchIcon, category: "logic" },
+  iterator: { icon: RepeatIcon, category: "logic" },
+  aggregator: { icon: TrayIcon, category: "logic" },
   waitFor: { icon: PauseIcon, category: "logic" },
   emit: { icon: BroadcastIcon, category: "logic" },
 };

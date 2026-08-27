@@ -428,6 +428,15 @@ function addStep(
   const template = stepTemplate(type);
   template.slug = nextStepSlug();
 
+  // Paired creation: adding an iterator auto-creates a matching aggregator
+  let pairedAggregator: StepDraft | null = null;
+  if (type === "iterator") {
+    pairedAggregator = stepTemplate("aggregator");
+    pairedAggregator.slug = nextStepSlug();
+    // Aggregator references the iterator (single-reference model)
+    (pairedAggregator as Record<string, unknown>).iterator = template.slug;
+  }
+
   // Draft edges are id-based; branchContext ids and the new step's id are both
   // synthetic ids, so edges can be written directly with no slug translation.
   const newStepId = template.id!;
@@ -445,8 +454,8 @@ function addStep(
 
   editDraft = {
     ...editDraft,
-    steps: [...editDraft.steps, template],
-    edges: newEdges,
+    steps: pairedAggregator ? [...editDraft.steps, template, pairedAggregator] : [...editDraft.steps, template],
+    edges: pairedAggregator ? [...newEdges, { from: newStepId, to: pairedAggregator.id!, branch: "each" }] : newEdges,
   };
 
   const newIndex = editDraft.steps.length - 1;
@@ -482,6 +491,10 @@ function stepTemplate(type: string): StepDraft {
       return { id, slug: "", type: "waitFor", event: "" };
     case "emit":
       return { id, slug: "", type: "emit", event: "" };
+    case "iterator":
+      return { id, slug: "", type: "iterator", items: "", as: "item" };
+    case "aggregator":
+      return { id, slug: "", type: "aggregator", iterator: "" };
     default: {
       // Custom extension step type. Seed the config with all supported
       // properties (schema defaults or type-appropriate empty values) so the

@@ -461,20 +461,22 @@ async function evaluateIteratorNode(
     log.info(`Iterator "${stepSlug}" in run ${runId}: empty items array, short-circuiting`);
 
     // Mark aggregator completed with empty results
-    const aggSlug = stepDef.aggregator;
-    const aggResult = { results: [], totalItems: 0, succeeded: 0, failed: 0 };
-    dagRunStore.updateStepResult(runId, aggSlug, aggResult);
-    dagRunStore.updateStepStatus(runId, aggSlug, "completed");
-    broadcast({ type: "workflow_step_completed", workflowRunId: runId, stepSlug: aggSlug, jobId: runId });
+    const aggSlug = findAggregatorForIterator(stepSlug, definition);
+    if (aggSlug) {
+      const aggResult = { results: [], totalItems: 0, succeeded: 0, failed: 0 };
+      dagRunStore.updateStepResult(runId, aggSlug, aggResult);
+      dagRunStore.updateStepStatus(runId, aggSlug, "completed");
+      broadcast({ type: "workflow_step_completed", workflowRunId: runId, stepSlug: aggSlug, jobId: runId });
 
-    // Satisfy aggregator's outgoing edges and check its successors
-    const aggOutEdges = topology.outgoingEdges.get(aggSlug) ?? [];
-    for (const edge of aggOutEdges) {
-      const eid = edgeId(edge.from, edge.to, edge.branch);
-      dagRunStore.updateEdgeState(runId, eid, "satisfied");
+      // Satisfy aggregator's outgoing edges and check its successors
+      const aggOutEdges = topology.outgoingEdges.get(aggSlug) ?? [];
+      for (const edge of aggOutEdges) {
+        const eid = edgeId(edge.from, edge.to, edge.branch);
+        dagRunStore.updateEdgeState(runId, eid, "satisfied");
+      }
+      const updatedRun = dagRunStore.get(runId)!;
+      await checkSuccessors(runId, aggOutEdges, updatedRun, definition, topology, deps);
     }
-    const updatedRun = dagRunStore.get(runId)!;
-    await checkSuccessors(runId, aggOutEdges, updatedRun, definition, topology, deps);
     return;
   }
 
@@ -831,14 +833,29 @@ async function checkSuccessors(
 }
 
 /**
+ * Finds the aggregator slug paired to a given iterator by scanning step definitions.
+ * Returns undefined if no aggregator references this iterator.
+ */
+function findAggregatorForIterator(iteratorSlug: string, definition: DagWorkflowDefinition): string | undefined {
+  for (const [slug, stepDef] of Object.entries(definition.steps)) {
+    if (stepDef.type === "aggregator") {
+      const aggDef = stepDef as DagAggregatorStep;
+      if (aggDef.iterator === iteratorSlug) return slug;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Finds the iterator slug that owns the body containing a given step.
  * Returns undefined if the step is not inside any iteration body.
  */
 function findIteratorForBodyStep(slug: string, definition: DagWorkflowDefinition): string | undefined {
   for (const [iterSlug, stepDef] of Object.entries(definition.steps)) {
     if (stepDef.type !== "iterator") continue;
-    const iterDef = stepDef as DagIteratorStep;
-    const { bodySlugs } = computeBodySubgraph(definition, iterSlug, iterDef.aggregator);
+    const aggSlug = findAggregatorForIterator(iterSlug, definition);
+    if (!aggSlug) continue;
+    const { bodySlugs } = computeBodySubgraph(definition, iterSlug, aggSlug);
     if (bodySlugs.has(slug)) return iterSlug;
   }
   return undefined;

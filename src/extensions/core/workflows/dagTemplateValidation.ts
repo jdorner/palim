@@ -221,6 +221,58 @@ function computeDominators(definition: DagWorkflowDefinition): Map<string, Set<s
 }
 
 /**
+ * Computes additional known prefixes for a step that is inside an iterator body.
+ * Returns the iterator's `as` variable name (default "item") and "itemIndex".
+ * Returns an empty set for steps not inside any iterator body.
+ */
+function getIterationPrefixesForStep(slug: string, definition: DagWorkflowDefinition): Set<string> {
+  const prefixes = new Set<string>();
+  for (const [iterSlug, stepDef] of Object.entries(definition.steps)) {
+    if (stepDef.type !== "iterator") continue;
+    const iterDef = stepDef as { type: "iterator"; items: string; as?: string };
+
+    // Find the aggregator that references this iterator
+    let aggSlug: string | undefined;
+    for (const [s, d] of Object.entries(definition.steps)) {
+      if (d.type === "aggregator" && (d as { iterator: string }).iterator === iterSlug) {
+        aggSlug = s;
+        break;
+      }
+    }
+    if (!aggSlug) continue;
+
+    // Quick check: is this slug reachable from the iterator's each target
+    // and before the aggregator? Use forward BFS from each targets.
+    const forward = new Map<string, string[]>();
+    for (const s of Object.keys(definition.steps)) forward.set(s, []);
+    for (const edge of definition.edges) forward.get(edge.from)?.push(edge.to);
+
+    const reachable = new Set<string>();
+    const eachTargets: string[] = [];
+    for (const edge of definition.edges) {
+      if (edge.from === iterSlug && edge.branch === "each") eachTargets.push(edge.to);
+    }
+    const queue = [...eachTargets];
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (current === aggSlug) continue; // Don't pass through aggregator
+      if (reachable.has(current)) continue;
+      reachable.add(current);
+      for (const neighbor of forward.get(current) ?? []) {
+        if (!reachable.has(neighbor)) queue.push(neighbor);
+      }
+    }
+
+    if (reachable.has(slug)) {
+      prefixes.add(iterDef.as ?? "item");
+      prefixes.add("itemIndex");
+      break; // Found the enclosing iterator
+    }
+  }
+  return prefixes;
+}
+
+/**
  * Validate all template expressions in a DAG workflow definition.
  *
  * @param definition - The validated DAG workflow definition
@@ -241,6 +293,10 @@ export async function validateDagWorkflowTemplates(
   for (const [slug, step] of Object.entries(definition.steps)) {
     const fields = getTemplateFields(step);
 
+    // Compute iteration-scoped prefixes: if this step is inside an iterator body,
+    // the iterator's `as` variable (e.g. "image") and "itemIndex" are valid prefixes.
+    const iterPrefixes = getIterationPrefixesForStep(slug, definition);
+
     for (const [fieldName, fieldValue] of fields) {
       TEMPLATE_PATTERN.lastIndex = 0;
       const reported = new Set<string>();
@@ -253,7 +309,7 @@ export async function validateDagWorkflowTemplates(
         const parts = expr.split(".");
         const prefix = parts[0];
 
-        if (!prefix || !KNOWN_PREFIXES.has(prefix)) {
+        if (!prefix || (!KNOWN_PREFIXES.has(prefix) && !iterPrefixes.has(prefix))) {
           warnings.push({
             stepSlug: slug,
             field: fieldName,
