@@ -587,3 +587,59 @@ describe("validateIteratorPairing", () => {
     expect(errors[0]!.code).toBe("aggregator_unreachable");
   });
 });
+
+describe("validateIteratorPairing - non-blocking behavior", () => {
+  test("mismatched aggregator reference produces a warning but workflow is structurally valid", () => {
+    // The workflow is structurally valid (no cycles, connected, edges valid)
+    // but the aggregator references a wrong iterator slug
+    const def = makeDag({
+      steps: {
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
+        body: { type: "agent", prompt: "body" },
+        agg: { type: "aggregator", iterator: "wrong-slug" },
+      },
+      edges: [
+        { from: "iter", to: "body", branch: "each" },
+        { from: "body", to: "agg" },
+      ],
+    });
+
+    // Structural validation passes (no cycles, connected, CF edges valid)
+    const dagErrors = validateDag(def);
+    const cfErrors = validateCfEdges(def);
+    expect(dagErrors).toEqual([]);
+    expect(cfErrors).toEqual([]);
+
+    // Pairing validation produces errors (but these should be warnings, not blockers)
+    const pairingErrors = validateIteratorPairing(def);
+    expect(pairingErrors.length).toBeGreaterThan(0);
+    expect(pairingErrors.some((e) => e.code === "aggregator_missing_iterator")).toBe(true);
+  });
+
+  test("renamed iterator slug leaves orphan iterator and broken aggregator ref", () => {
+    const def = makeDag({
+      steps: {
+        // Iterator was renamed from "iter" to "images" but aggregator still references "iter"
+        images: { type: "iterator", items: "{{trigger.payload}}" },
+        body: { type: "agent", prompt: "body" },
+        agg: { type: "aggregator", iterator: "iter" },
+      },
+      edges: [
+        { from: "images", to: "body", branch: "each" },
+        { from: "body", to: "agg" },
+      ],
+    });
+
+    // Structural validation still passes
+    const dagErrors = validateDag(def);
+    const cfErrors = validateCfEdges(def);
+    expect(dagErrors).toEqual([]);
+    expect(cfErrors).toEqual([]);
+
+    // Pairing detects both: orphan iterator + broken aggregator ref
+    const pairingErrors = validateIteratorPairing(def);
+    expect(pairingErrors.length).toBe(2);
+    expect(pairingErrors.some((e) => e.code === "iterator_missing_aggregator")).toBe(true);
+    expect(pairingErrors.some((e) => e.code === "aggregator_missing_iterator")).toBe(true);
+  });
+});

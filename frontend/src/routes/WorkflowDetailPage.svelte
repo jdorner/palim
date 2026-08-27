@@ -702,10 +702,21 @@ function onStepSlugInput(index: number, value: string) {
   if (!editDraft) return;
   // Edges are id-based and the step's id is stable, so a slug edit never touches
   // edges: connections survive renames, clears, and duplicate slugs untouched.
-  editDraft = {
-    ...editDraft,
-    steps: editDraft.steps.map((s, i) => (i === index ? { ...s, slug: value } : s)),
-  };
+  const oldSlug = editDraft.steps[index]?.slug;
+  const stepType = editDraft.steps[index]?.type;
+
+  let updatedSteps = editDraft.steps.map((s, i) => (i === index ? { ...s, slug: value } : s));
+
+  // Auto-update paired references on iterator/aggregator slug rename:
+  // If renaming an iterator, update any aggregator whose `iterator` field matches the old slug.
+  // If renaming an aggregator, update any iterator... (not needed — iterator has no aggregator ref).
+  if (stepType === "iterator" && oldSlug) {
+    updatedSteps = updatedSteps.map((s) =>
+      s.type === "aggregator" && (s as Record<string, unknown>).iterator === oldSlug ? { ...s, iterator: value } : s,
+    );
+  }
+
+  editDraft = { ...editDraft, steps: updatedSteps };
 
   const existing = stepSlugTimeouts.get(index);
   if (existing) clearTimeout(existing);
