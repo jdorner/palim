@@ -18,8 +18,10 @@ import { buildDagGraph, type DagEdge, type StepData } from "$lib/workflowGraph";
 import { computeLayout } from "$lib/workflowLayout";
 import { type GraphStepStatus, isEdgeAnimated } from "$lib/workflowRunStatus";
 import AddStepNode from "./AddStepNode.svelte";
+import AggregatorNode from "./AggregatorNode.svelte";
 import ControlFlowNode from "./ControlFlowNode.svelte";
 import FitViewOnInit from "./FitViewOnInit.svelte";
+import IteratorNode from "./IteratorNode.svelte";
 import WaitForNode from "./WaitForNode.svelte";
 import WorkflowStepNode from "./WorkflowStepNode.svelte";
 
@@ -129,7 +131,14 @@ let {
 
 let colorMode = $state<ColorMode>("light");
 
-const nodeTypes = { step: WorkflowStepNode, controlFlow: ControlFlowNode, waitFor: WaitForNode, addStep: AddStepNode };
+const nodeTypes = {
+  step: WorkflowStepNode,
+  controlFlow: ControlFlowNode,
+  iterator: IteratorNode,
+  aggregator: AggregatorNode,
+  waitFor: WaitForNode,
+  addStep: AddStepNode,
+};
 
 /**
  * Colors a node dot in the minimap by its resolved category so the overview

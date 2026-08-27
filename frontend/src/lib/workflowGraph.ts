@@ -154,7 +154,10 @@ export function buildDagGraph(steps: StepData[], edges: DagEdge[]): FlatGraph {
             // Canonical routing key stays intact for layout matching; the
             // display label may be overridden for if nodes.
             branch: edge.branch,
-            label: branchEdgeLabel(idToType.get(edge.from), idToBranchLabels.get(edge.from), edge.branch!),
+            label:
+              idToType.get(edge.from) === "iterator"
+                ? undefined
+                : branchEdgeLabel(idToType.get(edge.from), idToBranchLabels.get(edge.from), edge.branch!),
             sourceHandle: sourceHandleId(idToType.get(edge.from), edge.from, edge.branch!),
           }
         : {}),
@@ -187,6 +190,10 @@ function branchEdgeLabel(
     const trimmed = override?.trim();
     if (trimmed) return trimmed;
   }
+  // if (sourceType === "iterator") {
+  //   return ""
+  // }
+
   return branch;
 }
 
