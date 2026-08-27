@@ -308,3 +308,89 @@ describe("computeLayout", () => {
     });
   });
 });
+
+describe("iterator/aggregator layout", () => {
+  test("body step between iterator and aggregator: no overlapping positions", () => {
+    // Simulates: iterator → bodyStep (branch:each) → aggregator
+    const steps = toStepArray({
+      iter: { type: "iterator", items: "{{trigger.payload}}" },
+      body: { type: "agent", prompt: "process" },
+      agg: { type: "aggregator", iterator: "iter" },
+    });
+    const edges: DagEdge[] = [
+      { from: "iter", to: "body", branch: "each" },
+      { from: "body", to: "agg" },
+    ];
+    const graph = buildDagGraph(steps, edges);
+    const layout = computeLayout(graph, { includeAddNode: true });
+
+    // All three nodes should be present
+    const iterNode = layout.nodes.find((n) => n.id === "iter");
+    const bodyNode = layout.nodes.find((n) => n.id === "body");
+    const aggNode = layout.nodes.find((n) => n.id === "agg");
+
+    expect(iterNode).toBeDefined();
+    expect(bodyNode).toBeDefined();
+    expect(aggNode).toBeDefined();
+
+    // With LR layout, nodes should be at increasing X positions (left to right)
+    expect(bodyNode!.position.x).toBeGreaterThan(iterNode!.position.x);
+    expect(aggNode!.position.x).toBeGreaterThan(bodyNode!.position.x);
+
+    // No vertical overlap: all nodes should be at the same Y (single chain, no branching)
+    // Allow small tolerance for dagre float imprecision
+    const yPositions = [iterNode!.position.y, bodyNode!.position.y, aggNode!.position.y];
+    const minY = Math.min(...yPositions);
+    const maxY = Math.max(...yPositions);
+    expect(maxY - minY).toBeLessThan(10); // All roughly on the same row
+  });
+
+  test("two body steps between iterator and aggregator: sequential left-to-right", () => {
+    // Simulates: iterator → step1 (branch:each) → step2 → aggregator
+    const steps = toStepArray({
+      iter: { type: "iterator", items: "{{trigger.payload}}" },
+      convert: { type: "http-request", url: "http://example.com" },
+      classify: { type: "agent", prompt: "classify" },
+      agg: { type: "aggregator", iterator: "iter" },
+    });
+    const edges: DagEdge[] = [
+      { from: "iter", to: "convert", branch: "each" },
+      { from: "convert", to: "classify" },
+      { from: "classify", to: "agg" },
+    ];
+    const graph = buildDagGraph(steps, edges);
+    const layout = computeLayout(graph, { includeAddNode: true });
+
+    const iterNode = layout.nodes.find((n) => n.id === "iter");
+    const convertNode = layout.nodes.find((n) => n.id === "convert");
+    const classifyNode = layout.nodes.find((n) => n.id === "classify");
+    const aggNode = layout.nodes.find((n) => n.id === "agg");
+
+    expect(iterNode).toBeDefined();
+    expect(convertNode).toBeDefined();
+    expect(classifyNode).toBeDefined();
+    expect(aggNode).toBeDefined();
+
+    // Sequential X positions: iter < convert < classify < agg
+    expect(convertNode!.position.x).toBeGreaterThan(iterNode!.position.x);
+    expect(classifyNode!.position.x).toBeGreaterThan(convertNode!.position.x);
+    expect(aggNode!.position.x).toBeGreaterThan(classifyNode!.position.x);
+  });
+
+  test("empty body (iterator directly to aggregator): both present and sequential", () => {
+    const steps = toStepArray({
+      iter: { type: "iterator", items: "{{trigger.payload}}" },
+      agg: { type: "aggregator", iterator: "iter" },
+    });
+    const edges: DagEdge[] = [{ from: "iter", to: "agg", branch: "each" }];
+    const graph = buildDagGraph(steps, edges);
+    const layout = computeLayout(graph, { includeAddNode: true });
+
+    const iterNode = layout.nodes.find((n) => n.id === "iter");
+    const aggNode = layout.nodes.find((n) => n.id === "agg");
+
+    expect(iterNode).toBeDefined();
+    expect(aggNode).toBeDefined();
+    expect(aggNode!.position.x).toBeGreaterThan(iterNode!.position.x);
+  });
+});

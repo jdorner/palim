@@ -34,6 +34,7 @@ import {
   type WorkflowDraft,
 } from "$lib/workflowValidation";
 import StatusDot from "../components/StatusDot.svelte";
+import StepTypePicker from "../components/StepTypePicker.svelte";
 import WorkflowGraph from "../components/WorkflowGraph.svelte";
 import WorkflowStepSidebar from "../components/WorkflowStepSidebar.svelte";
 import { navigate, route } from "../router";
@@ -489,6 +490,95 @@ function addStep(
   selectedStepIndex = newIndex;
   triggerSelected = false;
   sidebarOpen = true;
+}
+
+/**
+ * Pending edge insertion context — shown as a type picker popup.
+ */
+let edgeInsertContext = $state<{
+  sourceId: string;
+  targetId: string;
+  branch?: string;
+  position: { x: number; y: number };
+} | null>(null);
+
+/**
+ * Called when the user clicks the "+" button on an edge. Opens the type picker.
+ */
+function insertStepOnEdge(
+  sourceId: string,
+  targetId: string,
+  branch: string | undefined,
+  position: { x: number; y: number },
+) {
+  edgeInsertContext = { sourceId, targetId, branch, position };
+}
+
+/**
+ * Called when a type is selected from the edge insert popup.
+ * Performs the actual edge split and step creation.
+ */
+function confirmEdgeInsert(type: string) {
+  if (!editDraft || !edgeInsertContext) return;
+
+  const { sourceId, targetId, branch } = edgeInsertContext;
+  edgeInsertContext = null;
+
+  const template = stepTemplate(type);
+  template.slug = nextStepSlug();
+  const newStepId = template.id!;
+
+  // Remove the original edge and replace with two new edges.
+  const newEdges = editDraft.edges.filter((e) => {
+    if (e.from === sourceId && e.to === targetId) {
+      if (branch) return e.branch !== branch;
+      return !!e.branch;
+    }
+    return true;
+  });
+
+  if (branch) {
+    newEdges.push({ from: sourceId, to: newStepId, branch });
+  } else {
+    newEdges.push({ from: sourceId, to: newStepId });
+  }
+  newEdges.push({ from: newStepId, to: targetId });
+
+  editDraft = {
+    ...editDraft,
+    steps: pairedAggregatorForType(type, template, newEdges),
+    edges: newEdges,
+  };
+
+  const newIndex = editDraft.steps.length - 1;
+  const newErrors = new Map(validationErrors);
+  if (type === "agent") {
+    newErrors.set(`steps[${newIndex}].prompt`, "Prompt is required for agent steps");
+  }
+  validationErrors = newErrors;
+
+  fitViewTrigger++;
+
+  selectedStep = editDraft.steps[newIndex] as StepDef;
+  selectedStepIndex = newIndex;
+  triggerSelected = false;
+  sidebarOpen = true;
+}
+
+/**
+ * Helper: if inserting an iterator, also create its paired aggregator.
+ * Returns the updated steps array.
+ */
+function pairedAggregatorForType(type: string, template: StepDraft, newEdges: EdgeDraft[]): StepDraft[] {
+  if (type === "iterator") {
+    const agg = stepTemplate("aggregator");
+    agg.slug = nextStepSlug();
+    (agg as Record<string, unknown>).iterator = template.slug;
+    // Wire each edge from iterator to aggregator
+    newEdges.push({ from: template.id!, to: agg.id!, branch: "each" });
+    return [...editDraft!.steps, template, agg];
+  }
+  return [...editDraft!.steps, template];
 }
 
 /** Returns a default step template for a given type (DAG: no nested branches). */
@@ -1335,6 +1425,7 @@ onDestroy(() => {
               onNodeClick={onStepClick}
               {onTriggerClick}
               onAddStep={addStep}
+              onInsertStepOnEdge={editMode ? insertStepOnEdge : undefined}
               onEdgesChange={editMode ? handleEdgesChange : undefined}
               onNodesDelete={editMode ? removeStepsByIds : undefined}
               {fitViewTrigger}
@@ -1638,5 +1729,26 @@ onDestroy(() => {
         {/if}
       </Tabs.Content>
     </Tabs.Root>
+  </div>
+{/if}
+
+<!-- Edge insert type picker popup -->
+{#if edgeInsertContext}
+  <div
+    class="fixed inset-0 z-9999"
+    onclick={() => { edgeInsertContext = null; }}
+    onkeydown={(e) => { if (e.key === "Escape") edgeInsertContext = null; }}
+    role="presentation"
+  >
+    <div
+      class="fixed z-9999 min-w-52 max-h-80 overflow-y-auto rounded-xl border border-border bg-background p-1.5 shadow-lg text-sm"
+      style="left: {edgeInsertContext.position.x}px; top: {edgeInsertContext.position.y}px; transform: translateX(-50%);"
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
+      role="menu"
+      tabindex="-1"
+    >
+      <StepTypePicker {customStepTypes} onselect={confirmEdgeInsert} includeControlFlow={false} />
+    </div>
   </div>
 {/if}

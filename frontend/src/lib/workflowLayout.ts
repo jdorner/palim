@@ -170,6 +170,15 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
       if (info.lastNodeId) {
         const lastNode = graph.nodes.find((n) => n.id === info.lastNodeId);
         if (lastNode && options.terminalTypes?.has(lastNode.data.type)) continue;
+
+        // Skip the branch add-step if the next node after the chain is an aggregator.
+        // The aggregator marks the end of the iteration body — the edge insert button
+        // between the last body step and the aggregator serves as the add-step.
+        const nextEdge = graph.edges.find((e) => e.source === info.lastNodeId && !e.branch);
+        if (nextEdge) {
+          const nextNode = graph.nodes.find((n) => n.id === nextEdge.target);
+          if (nextNode && nextNode.data.type === "aggregator") continue;
+        }
       }
 
       const addNodeId = `__addStep:${info.parentNodeId}:${info.branch}__`;
@@ -661,7 +670,14 @@ function branchChainNodeIds(graph: FlatGraph, cfNodeId: string, branch: string):
     seen.add(currentId);
     ids.push(currentId);
     const node = graph.nodes.find((n) => n.id === currentId);
-    if (node && (node.data.type === "if" || node.data.type === "case" || node.data.type === "iterator")) break;
+    if (
+      node &&
+      (node.data.type === "if" ||
+        node.data.type === "case" ||
+        node.data.type === "iterator" ||
+        node.data.type === "aggregator")
+    )
+      break;
     const outgoing = graph.edges.filter((e) => e.source === currentId && !e.branch);
     if (outgoing.length !== 1) break;
     currentId = outgoing[0]!.target;
