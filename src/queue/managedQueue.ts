@@ -355,13 +355,8 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
       // cannot handle it. Pause the queue to prevent the worker from picking up the
       // job, retry it (moves from DLQ to waiting), then remove and resume.
       if (stateBefore === "failed") {
-        this.queue.pause();
-        try {
-          await this.queue.retryJob(jobId);
-          await this.queue.removeAsync(jobId);
-        } finally {
-          this.queue.resume();
-        }
+        this.queue.removeDlqJob(jobId);
+
         const stateAfter = await this.queue.getJobState(jobId);
         if (stateAfter === "unknown") {
           logger.info(`Removed DLQ job ${jobId} from "${this.queue.name}"`);
@@ -372,7 +367,7 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
           }
           return true;
         }
-        logger.warn(`Job ${jobId} still present after retry+remove in "${this.queue.name}" (state: ${stateAfter})`);
+        logger.warn(`Job ${jobId} still present after trying to remove from DLQ in "${this.queue.name}" (state: ${stateAfter})`);
         return false;
       }
 
