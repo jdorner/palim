@@ -43,6 +43,8 @@ export interface DagStepJobData {
   sessionId: string;
   /** Trigger payload (available to all steps via template resolution from Run Store). */
   triggerPayload?: unknown;
+  /** Slug of the iterator this step belongs to (when inside an iteration body). */
+  iteratorSlug?: string;
 }
 
 /**
@@ -61,6 +63,7 @@ export function buildDagStepJob(
     allStepDefs: Record<string, unknown>;
     sessionFactory: SessionFactory;
     triggerPayload?: unknown;
+    iteratorSlug?: string;
   },
 ): FlowJob<DagStepJobData> {
   const session = opts.sessionFactory.create({
@@ -80,6 +83,7 @@ export function buildDagStepJob(
     allStepDefs: opts.allStepDefs,
     sessionId: session.id,
     triggerPayload: opts.triggerPayload,
+    iteratorSlug: opts.iteratorSlug,
   };
 
   return {

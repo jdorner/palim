@@ -22,8 +22,10 @@ import { type DagWorkflowRun, edgeId } from "./dagRunStore";
 import { computeTerminalSteps } from "./dagValidation";
 import type {
   ConditionDef,
+  DagAggregatorStep,
   DagCaseStep,
   DagIfStep,
+  DagIteratorStep,
   DagStep,
   DagWaitForStep,
   DagWorkflowDefinition,
@@ -191,6 +193,8 @@ async function evaluateCfNode(
     await evaluateIfNode(runId, stepSlug, stepDef as DagIfStep, run, definition, topology, deps);
   } else if (stepDef.type === "case") {
     await evaluateCaseNode(runId, stepSlug, stepDef as DagCaseStep, run, definition, topology, deps);
+  } else if (stepDef.type === "iterator") {
+    await evaluateIteratorNode(runId, stepSlug, stepDef as DagIteratorStep, run, definition, topology, deps);
   } else {
     log.error(`DAG coordinator: unknown CF node type "${stepDef.type}" for step "${stepSlug}"`);
     failRun(runId, stepSlug, `Unknown CF node type: ${stepDef.type}`, deps);
@@ -367,6 +371,368 @@ async function evaluateCaseNode(
 }
 
 // ---------------------------------------------------------------------------
+// Iterator/Aggregator Evaluation
+// ---------------------------------------------------------------------------
+
+/**
+ * Iteration state stored in the iterator's step result.
+ * Persisted in dagRunStore via updateStepResult.
+ */
+export interface IterationState {
+  /** The full array of items to iterate over. */
+  items: unknown[];
+  /** Zero-based index of the current iteration. */
+  cursor: number;
+  /** Collected results from completed iterations. */
+  iterationResults: unknown[];
+  /** The variable name for the current item in templates. */
+  as: string;
+}
+
+/**
+ * Evaluates an `iterator` node: resolves items, initializes iteration state,
+ * and satisfies the `each` branch edge to kick off the first iteration.
+ *
+ * If the items array is empty, the iterator short-circuits: it directly
+ * marks the paired aggregator as completed with empty results.
+ */
+async function evaluateIteratorNode(
+  runId: string,
+  stepSlug: string,
+  stepDef: DagIteratorStep,
+  run: DagWorkflowRun,
+  definition: DagWorkflowDefinition,
+  topology: DagGraphTopology,
+  deps: DagCoordinatorDeps,
+): Promise<void> {
+  const { log, broadcast } = deps;
+
+  // Build template context for resolving the items expression
+  const templateCtx: TemplateContext = {
+    triggerPayload: run.triggerPayload ?? undefined,
+    stepResults: run.stepResults,
+    stepConfigs: buildStepConfigs(definition),
+  };
+
+  // Resolve the items template expression
+  let itemsJson: string;
+  try {
+    const { resolved } = await resolveTemplates(stepDef.items, templateCtx);
+    itemsJson = resolved;
+  } catch (err) {
+    failRun(
+      runId,
+      stepSlug,
+      `Iterator items template resolution failed: ${err instanceof Error ? err.message : String(err)}`,
+      deps,
+    );
+    return;
+  }
+
+  // Parse as JSON array
+  let items: unknown[];
+  try {
+    const parsed = JSON.parse(itemsJson);
+    if (!Array.isArray(parsed)) {
+      failRun(runId, stepSlug, `Iterator items resolved to ${typeof parsed}, expected array`, deps);
+      return;
+    }
+    items = parsed;
+  } catch (err) {
+    failRun(
+      runId,
+      stepSlug,
+      `Iterator items is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
+      deps,
+    );
+    return;
+  }
+
+  const asName = stepDef.as ?? "item";
+
+  // Initialize iteration state
+  const iterState: IterationState = { items, cursor: 0, iterationResults: [], as: asName };
+  dagRunStore.updateStepResult(runId, stepSlug, iterState);
+
+  // Handle empty array: short-circuit to aggregator completion
+  if (items.length === 0) {
+    dagRunStore.updateStepStatus(runId, stepSlug, "completed");
+    broadcast({ type: "workflow_step_completed", workflowRunId: runId, stepSlug, jobId: runId });
+    log.info(`Iterator "${stepSlug}" in run ${runId}: empty items array, short-circuiting`);
+
+    // Mark aggregator completed with empty results
+    const aggSlug = findAggregatorForIterator(stepSlug, definition);
+    if (aggSlug) {
+      const aggResult = { results: [], totalItems: 0, succeeded: 0, failed: 0 };
+      dagRunStore.updateStepResult(runId, aggSlug, aggResult);
+      dagRunStore.updateStepStatus(runId, aggSlug, "completed");
+      broadcast({ type: "workflow_step_completed", workflowRunId: runId, stepSlug: aggSlug, jobId: runId });
+
+      // Satisfy aggregator's outgoing edges and check its successors
+      const aggOutEdges = topology.outgoingEdges.get(aggSlug) ?? [];
+      for (const edge of aggOutEdges) {
+        const eid = edgeId(edge.from, edge.to, edge.branch);
+        dagRunStore.updateEdgeState(runId, eid, "satisfied");
+      }
+      const updatedRun = dagRunStore.get(runId)!;
+      await checkSuccessors(runId, aggOutEdges, updatedRun, definition, topology, deps);
+    }
+    return;
+  }
+
+  // Mark iterator completed (it only evaluates once)
+  dagRunStore.updateStepStatus(runId, stepSlug, "completed");
+  broadcast({ type: "workflow_step_completed", workflowRunId: runId, stepSlug, jobId: runId });
+
+  // Satisfy the "each" branch edge to dispatch the body
+  const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
+  for (const edge of outEdges) {
+    const eid = edgeId(edge.from, edge.to, edge.branch);
+    if (edge.branch === "each") {
+      dagRunStore.updateEdgeState(runId, eid, "satisfied");
+    }
+  }
+
+  log.info(`Iterator "${stepSlug}" in run ${runId}: ${items.length} items, starting iteration 0`);
+
+  // Re-read run state and check successors (dispatch body steps)
+  const updatedRun = dagRunStore.get(runId)!;
+  await checkSuccessors(runId, outEdges, updatedRun, definition, topology, deps);
+}
+
+/**
+ * Computes the set of body step slugs between an iterator and its aggregator.
+ *
+ * Body = all nodes reachable from the iterator's `each` branch target
+ * that are also backwards-reachable from the aggregator, excluding the
+ * aggregator itself.
+ *
+ * @param definition - The workflow definition
+ * @param iteratorSlug - The iterator step slug
+ * @param aggregatorSlug - The aggregator step slug
+ * @returns Set of body step slugs
+ */
+export function computeBodySubgraph(
+  definition: DagWorkflowDefinition,
+  iteratorSlug: string,
+  aggregatorSlug: string,
+): { bodySlugs: Set<string>; bodyEdgeIds: Set<string> } {
+  const { edges } = definition;
+
+  // Build forward adjacency
+  const forward = new Map<string, Edge[]>();
+  for (const slug of Object.keys(definition.steps)) {
+    forward.set(slug, []);
+  }
+  for (const edge of edges) {
+    forward.get(edge.from)?.push(edge);
+  }
+
+  // Build backward adjacency
+  const backward = new Map<string, string[]>();
+  for (const slug of Object.keys(definition.steps)) {
+    backward.set(slug, []);
+  }
+  for (const edge of edges) {
+    backward.get(edge.to)?.push(edge.from);
+  }
+
+  // Forward-reachable from iterator's "each" target(s)
+  const forwardReachable = new Set<string>();
+  const fwQueue: string[] = [];
+  for (const edge of forward.get(iteratorSlug) ?? []) {
+    if (edge.branch === "each" && !forwardReachable.has(edge.to)) {
+      forwardReachable.add(edge.to);
+      fwQueue.push(edge.to);
+    }
+  }
+  while (fwQueue.length > 0) {
+    const current = fwQueue.shift()!;
+    if (current === aggregatorSlug) continue; // Don't traverse past aggregator
+    for (const edge of forward.get(current) ?? []) {
+      if (!forwardReachable.has(edge.to)) {
+        forwardReachable.add(edge.to);
+        fwQueue.push(edge.to);
+      }
+    }
+  }
+
+  // Backward-reachable from aggregator (stopping at iterator)
+  const backwardReachable = new Set<string>();
+  const bwQueue: string[] = [];
+  for (const source of backward.get(aggregatorSlug) ?? []) {
+    if (source !== iteratorSlug && !backwardReachable.has(source)) {
+      backwardReachable.add(source);
+      bwQueue.push(source);
+    }
+  }
+  while (bwQueue.length > 0) {
+    const current = bwQueue.shift()!;
+    if (current === iteratorSlug) continue;
+    for (const source of backward.get(current) ?? []) {
+      if (source !== iteratorSlug && !backwardReachable.has(source)) {
+        backwardReachable.add(source);
+        bwQueue.push(source);
+      }
+    }
+  }
+
+  // Body = intersection of forward-reachable and backward-reachable, minus aggregator
+  const bodySlugs = new Set<string>();
+  for (const slug of forwardReachable) {
+    if (slug !== aggregatorSlug && backwardReachable.has(slug)) {
+      bodySlugs.add(slug);
+    }
+  }
+
+  // Collect body edge IDs (edges where both from and to are body steps, or from iterator each to body, or body to aggregator)
+  const bodyEdgeIds = new Set<string>();
+  for (const edge of edges) {
+    const fromIsBody = bodySlugs.has(edge.from);
+    const toIsBody = bodySlugs.has(edge.to);
+    const fromIsIterator = edge.from === iteratorSlug && edge.branch === "each";
+    const toIsAggregator = edge.to === aggregatorSlug;
+
+    if ((fromIsBody && toIsBody) || (fromIsIterator && toIsBody) || (fromIsBody && toIsAggregator)) {
+      bodyEdgeIds.add(edgeId(edge.from, edge.to, edge.branch));
+    }
+  }
+
+  return { bodySlugs, bodyEdgeIds };
+}
+
+/**
+ * Resets all body step statuses and body edges to `pending`.
+ * Called by the aggregator between iterations to allow re-execution.
+ *
+ * @param runId - The workflow run ID
+ * @param bodySlugs - Set of body step slugs to reset
+ * @param bodyEdgeIds - Set of body edge IDs to reset
+ */
+export function resetBodySubgraph(runId: string, bodySlugs: Set<string>, bodyEdgeIds: Set<string>): void {
+  for (const slug of bodySlugs) {
+    dagRunStore.updateStepStatus(runId, slug, "pending");
+  }
+  const edgeUpdates: Record<string, "pending"> = {};
+  for (const eid of bodyEdgeIds) {
+    edgeUpdates[eid] = "pending";
+  }
+  if (Object.keys(edgeUpdates).length > 0) {
+    dagRunStore.updateEdgeStates(runId, edgeUpdates);
+  }
+}
+
+/**
+ * Evaluates an `aggregator` node: collects the current iteration's result,
+ * advances the cursor, and either resets the body for the next iteration
+ * or completes with collected results.
+ */
+export async function evaluateAggregatorNode(
+  runId: string,
+  stepSlug: string,
+  _stepDef: DagAggregatorStep,
+  run: DagWorkflowRun,
+  definition: DagWorkflowDefinition,
+  topology: DagGraphTopology,
+  deps: DagCoordinatorDeps,
+): Promise<void> {
+  const { log, broadcast } = deps;
+
+  const iterSlug = _stepDef.iterator;
+  const iterState = run.stepResults[iterSlug] as IterationState | undefined;
+
+  if (!iterState) {
+    failRun(runId, stepSlug, `Aggregator "${stepSlug}" cannot read iterator state from "${iterSlug}"`, deps);
+    return;
+  }
+
+  // Compute body subgraph
+  const { bodySlugs, bodyEdgeIds } = computeBodySubgraph(definition, iterSlug, stepSlug);
+
+  // Collect the body's terminal step results for this iteration
+  // Terminal body steps = body steps with no outgoing edge to another body step (only to aggregator)
+  const bodyTerminalSlugs: string[] = [];
+  const bodyOutgoing = new Map<string, string[]>();
+  for (const slug of bodySlugs) {
+    bodyOutgoing.set(slug, []);
+  }
+  for (const edge of definition.edges) {
+    if (bodySlugs.has(edge.from) && bodySlugs.has(edge.to)) {
+      bodyOutgoing.get(edge.from)!.push(edge.to);
+    }
+  }
+  for (const slug of bodySlugs) {
+    if ((bodyOutgoing.get(slug) ?? []).length === 0) {
+      bodyTerminalSlugs.push(slug);
+    }
+  }
+
+  // Collect results from body terminal steps
+  const iterationResult: Record<string, unknown> = {};
+  for (const slug of bodyTerminalSlugs) {
+    iterationResult[slug] = run.stepResults[slug];
+  }
+
+  // Append to iteration results and advance cursor
+  iterState.iterationResults.push(iterationResult);
+  iterState.cursor += 1;
+
+  // Persist updated iteration state on the iterator
+  dagRunStore.updateStepResult(runId, iterSlug, iterState);
+
+  if (iterState.cursor < iterState.items.length) {
+    // More items: reset body and re-dispatch
+    log.info(
+      `Aggregator "${stepSlug}" in run ${runId}: iteration ${iterState.cursor - 1} complete, advancing to ${iterState.cursor}/${iterState.items.length}`,
+    );
+
+    // Reset body subgraph
+    resetBodySubgraph(runId, bodySlugs, bodyEdgeIds);
+
+    // Reset aggregator itself to pending so it can be re-triggered
+    dagRunStore.updateStepStatus(runId, stepSlug, "pending");
+
+    // Re-satisfy the iterator's "each" edge to re-dispatch body
+    const iterOutEdges = topology.outgoingEdges.get(iterSlug) ?? [];
+    for (const edge of iterOutEdges) {
+      if (edge.branch === "each") {
+        const eid = edgeId(edge.from, edge.to, edge.branch);
+        dagRunStore.updateEdgeState(runId, eid, "satisfied");
+      }
+    }
+
+    // Check successors to dispatch the body again
+    const updatedRun = dagRunStore.get(runId)!;
+    await checkSuccessors(runId, iterOutEdges, updatedRun, definition, topology, deps);
+  } else {
+    // All items processed: complete the aggregator
+    const aggResult = {
+      results: iterState.iterationResults,
+      totalItems: iterState.items.length,
+      succeeded: iterState.iterationResults.length,
+      failed: 0,
+    };
+
+    dagRunStore.updateStepResult(runId, stepSlug, aggResult);
+    dagRunStore.updateStepStatus(runId, stepSlug, "completed");
+
+    broadcast({ type: "workflow_step_completed", workflowRunId: runId, stepSlug, jobId: runId });
+
+    log.info(`Aggregator "${stepSlug}" in run ${runId}: all ${iterState.items.length} iterations complete`);
+
+    // Satisfy outgoing edges and check downstream successors
+    const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
+    for (const edge of outEdges) {
+      const eid = edgeId(edge.from, edge.to, edge.branch);
+      dagRunStore.updateEdgeState(runId, eid, "satisfied");
+    }
+
+    const updatedRun = dagRunStore.get(runId)!;
+    await checkSuccessors(runId, outEdges, updatedRun, definition, topology, deps);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Successor Dispatch Logic
 // ---------------------------------------------------------------------------
 
@@ -445,6 +811,14 @@ async function checkSuccessors(
       registerWaitForNode(runId, slug, stepDef as DagWaitForStep, deps);
       const freshRun = dagRunStore.get(runId)!;
       Object.assign(run, freshRun);
+    } else if (stepDef.type === "aggregator") {
+      // Aggregator node: evaluate inline (collect results, advance iteration or complete)
+      dagRunStore.updateStepStatus(runId, slug, "running");
+      const freshRun = dagRunStore.get(runId)!;
+      await evaluateAggregatorNode(runId, slug, stepDef as DagAggregatorStep, freshRun, definition, topology, deps);
+      const postAggRun = dagRunStore.get(runId);
+      if (!postAggRun || !dagRunStore.isActiveRunStatus(postAggRun.status)) return;
+      Object.assign(run, postAggRun);
     } else {
       // Execution node: dispatch as a job
       await dispatchStep(runId, slug, stepDef as DagStep, run, definition, deps);
@@ -456,6 +830,35 @@ async function checkSuccessors(
 
   // After processing all successors, check for run completion
   await checkRunCompletion(runId, topology, deps);
+}
+
+/**
+ * Finds the aggregator slug paired to a given iterator by scanning step definitions.
+ * Returns undefined if no aggregator references this iterator.
+ */
+function findAggregatorForIterator(iteratorSlug: string, definition: DagWorkflowDefinition): string | undefined {
+  for (const [slug, stepDef] of Object.entries(definition.steps)) {
+    if (stepDef.type === "aggregator") {
+      const aggDef = stepDef as DagAggregatorStep;
+      if (aggDef.iterator === iteratorSlug) return slug;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Finds the iterator slug that owns the body containing a given step.
+ * Returns undefined if the step is not inside any iteration body.
+ */
+function findIteratorForBodyStep(slug: string, definition: DagWorkflowDefinition): string | undefined {
+  for (const [iterSlug, stepDef] of Object.entries(definition.steps)) {
+    if (stepDef.type !== "iterator") continue;
+    const aggSlug = findAggregatorForIterator(iterSlug, definition);
+    if (!aggSlug) continue;
+    const { bodySlugs } = computeBodySubgraph(definition, iterSlug, aggSlug);
+    if (bodySlugs.has(slug)) return iterSlug;
+  }
+  return undefined;
 }
 
 /**
@@ -483,6 +886,7 @@ async function dispatchStep(
     allStepDefs,
     sessionFactory,
     triggerPayload: run.triggerPayload ?? undefined,
+    iteratorSlug: findIteratorForBodyStep(slug, definition),
   });
 
   try {

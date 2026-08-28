@@ -47,6 +47,28 @@ export function iconIdForType(type: string): string | undefined {
 }
 
 /**
+ * Resolves a custom step type's declared palette category from the extension
+ * store. This drives the node accent color (control-flow types share the sky
+ * "logic" accent with built-in CF nodes; the rest use the amber action accent).
+ *
+ * Built-in types return undefined because their category comes from the
+ * built-in map in `visualForStepType`; only custom extension types carry a
+ * category here.
+ *
+ * @param type - The step type identifier (e.g. "for-each")
+ * @returns The category string, or undefined if the type is built-in or declares none
+ */
+export function categoryForType(type: string): string | undefined {
+  const allExtensions = get(extensions);
+  for (const ext of allExtensions) {
+    if (!ext.enabled || !ext.ui?.stepTypes) continue;
+    const match = ext.ui.stepTypes.find((st) => st.type === type);
+    if (match) return match.category;
+  }
+  return undefined;
+}
+
+/**
  * Returns a plain-text human-readable label for a workflow step type.
  * Handles the built-in agent/control-flow types, triggers, and custom
  * extension types. Icons are rendered separately via the icon registry.
@@ -76,6 +98,10 @@ export function labelForStepType(type: string, triggerType?: string): string {
       return "If";
     case "case":
       return "Case";
+    case "iterator":
+      return "Iterator";
+    case "aggregator":
+      return "Aggregator";
     case "waitFor":
       return "Wait For";
     case "emit":

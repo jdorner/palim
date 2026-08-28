@@ -69,6 +69,15 @@ export interface TemplateContext {
   secretStore?: TemplateSecretResolver;
   /** Variable resolver (optional - {{var.KEY}} left literal if absent). */
   variableStore?: TemplateVariableResolver;
+  /** Iteration context (when inside an iterator body). */
+  iterationContext?: {
+    /** The current array element. */
+    item: unknown;
+    /** Zero-based iteration index. */
+    itemIndex: number;
+    /** The variable name for the current element (e.g. "item"). */
+    as: string;
+  };
 }
 
 /**
@@ -134,6 +143,23 @@ export async function resolveTemplates(
     const expr: string = match[1]!;
     const trimmed = expr.trim();
     const parts = trimmed.split(".");
+
+    // {{itemIndex}} - zero-based iteration index (only inside iterator body)
+    if (trimmed === "itemIndex" && ctx.iterationContext) {
+      resolved += String(ctx.iterationContext.itemIndex);
+      continue;
+    }
+
+    // {{<as>}} or {{<as>.<path>}} - current iteration item (only inside iterator body)
+    if (ctx.iterationContext && parts[0] === ctx.iterationContext.as) {
+      if (parts.length === 1) {
+        resolved += stringify(ctx.iterationContext.item);
+      } else {
+        const value = traversePath(ctx.iterationContext.item, parts.slice(1));
+        resolved += stringify(value);
+      }
+      continue;
+    }
 
     // {{env.<VAR>}} - restricted to allowlist to prevent template injection
     if (parts[0] === "env" && parts.length >= 2) {

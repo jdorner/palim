@@ -43,7 +43,7 @@ import { loadDagWorkflows } from "./dagLoader";
 import * as dagRunStore from "./dagRunStore";
 import { initDagRunStore } from "./dagRunStore";
 import { type TemplateWarning, validateDagWorkflowTemplates } from "./dagTemplateValidation";
-import { validateCfEdges, validateDag } from "./dagValidation";
+import { validateCfEdges, validateDag, validateIteratorPairing } from "./dagValidation";
 import { createDagStepProcessor } from "./dagWorker";
 import { compileOutputSchema, resolveTriggerOutputSchemaJson } from "./outputSchemaCompiler";
 import type { DagWorkflowDefinition, OutputSchemaShorthand } from "./schemas";
@@ -94,7 +94,7 @@ export function buildStepJobIdMap(jobs: { stepSlug: string; id: string }[]): Map
 }
 
 /** Built-in step types handled directly by the workflow engine. */
-const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "waitFor"]);
+const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "iterator", "aggregator", "waitFor", "emit"]);
 
 /** Result of validating tool and skill availability for a workflow. */
 export interface WorkflowValidationResult {
@@ -694,6 +694,11 @@ export function createExtension(): Extension {
               resolveTriggerOutputSchema: () => outputSchemas.trigger,
             });
             const depWarnings = getDependencyWarnings(w, ctx);
+            const pairingWarnings: TemplateWarning[] = validateIteratorPairing(w).map((e) => ({
+              stepSlug: "",
+              field: "pairing",
+              message: e.message,
+            }));
 
             return {
               name: w.name,
@@ -706,7 +711,7 @@ export function createExtension(): Extension {
               activeRuns,
               completedRuns,
               failedRuns,
-              warnings: [...templateWarnings, ...depWarnings, ...schemaWarnings],
+              warnings: [...templateWarnings, ...depWarnings, ...pairingWarnings, ...schemaWarnings],
             };
           }),
         );
@@ -757,11 +762,16 @@ export function createExtension(): Extension {
           resolveTriggerOutputSchema: () => outputSchemas.trigger,
         });
         const depWarnings = getDependencyWarnings(wf, ctx);
+        const pairingWarnings: TemplateWarning[] = validateIteratorPairing(wf).map((e) => ({
+          stepSlug: "",
+          field: "pairing",
+          message: e.message,
+        }));
 
         return Response.json({
           ...wf,
           runs,
-          warnings: [...templateWarnings, ...depWarnings, ...schemaWarnings],
+          warnings: [...templateWarnings, ...depWarnings, ...pairingWarnings, ...schemaWarnings],
           outputSchemas,
         });
       });

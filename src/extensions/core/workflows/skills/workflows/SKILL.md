@@ -13,14 +13,14 @@ A workflow is a set of named `steps` plus an `edges` array that wires them toget
 - **Sequential chains** - edge from one step to the next
 - **Parallel fan-out** - a step with multiple outgoing edges dispatches all successors at once
 - **Join / convergence** - a step with multiple incoming edges waits until all predecessors resolve before running
-- **Control flow** - conditional branching (`if`, `case`), external signal gates (`waitFor`), and cross-workflow signaling (`emit`)
+- **Control flow** - conditional branching (`if`, `case`), data-driven iteration (`iterator`/`aggregator`), external signal gates (`waitFor`), and cross-workflow signaling (`emit`)
 
 ## When to use
 
 - When the user wants to create a new multi-step pipeline
 - When the user wants to modify, inspect, or delete an existing workflow
 - When the user asks about chaining agent tasks, automations, or pipelines
-- When the user needs parallel execution, joins, conditional logic, approval gates, or inter-workflow coordination
+- When the user needs parallel execution, joins, conditional logic, data-driven loops, approval gates, or inter-workflow coordination
 
 ## Duplicate/Similar Workflow Guardrail
 
@@ -45,7 +45,7 @@ A workflow is a set of named `steps` plus an `edges` array that wires them toget
   // it does NOT appear as a field inside the step object.
   "steps": {
     "step-name": {
-      "type": "agent", // "agent", "if", "case", "waitFor", "emit", or any registered step type
+      "type": "agent", // "agent", "if", "case", "iterator", "aggregator", "waitFor", "emit", or any registered step type
       // optional, tool names for agent steps
       "tools": ["exec"],
       // optional, skill names for agent steps
@@ -87,7 +87,7 @@ The `edges` array defines the execution graph. Each edge is an object:
 - There must be at least one **root** step (no incoming edges). Roots are dispatched when the run starts.
 - Every step must be reachable from a root (no orphan steps).
 - A non-CF step's outgoing edges must NOT have a `branch` property.
-- A CF node (`if`/`case`) must have ONLY branch-labeled outgoing edges. For `if`, valid branches are `"then"` and `"else"`. For `case`, branches must match the declared `paths` keys.
+- A CF node (`if`/`case`/`iterator`) must have ONLY branch-labeled outgoing edges. For `if`, valid branches are `"then"` and `"else"`. For `case`, branches must match the declared `paths` keys. For `iterator`, the only valid branch is `"each"`.
 
 ### Fan-out and join
 
@@ -164,6 +164,9 @@ Use inside `prompt`, `url`, `body`, and control flow `ref`/`match`/`payload` fie
 - `{{trigger.payload.filename}}` - the detected file path relative to WORK_DIR (file watcher triggers only). For example, if the watcher monitors `inbox` and a file `example.txt` is created, this resolves to `inbox/example.txt`.
 - `{{steps.<slug>.result}}` - full result of any completed step
 - `{{steps.<slug>.result.field}}` - dot-path into the step's result
+- `{{item}}` - current array element (inside an iterator body; name configurable via `as`)
+- `{{item.field}}` - dot-path into the current element
+- `{{itemIndex}}` - zero-based iteration index (inside an iterator body)
 - `{{env.VAR_NAME}}` - environment variable value
 - `{{secret.SECRET_NAME}}` - encrypted secret (decrypted at access, ACL-checked)
 
@@ -349,6 +352,94 @@ Resolves a `match` template and routes to the matching branch. The `paths` field
 ```
 
 Path matching is exact and case-sensitive (no trimming). If the resolved value matches no path and no `default` is set, the run fails.
+
+### Iterator + Aggregator (data-driven loop)
+
+Iterates over an array, executing the body steps once per element. Uses two paired nodes: an **iterator** (splits the array, opens the loop scope) and an **aggregator** (collects results, drives re-execution or completes).
+
+The body steps between them are regular top-level nodes — they show up in the graph, get their own status/logs, and can be any step type.
+
+**Iterator definition:**
+
+```json5
+"iter": {
+  "type": "iterator",
+  "items": "{{trigger.payload}}",  // template expression resolving to a JSON array
+  "as": "image",                   // optional, variable name for current element (default: "item")
+}
+```
+
+**Aggregator definition:**
+
+```json5
+"collect": {
+  "type": "aggregator",
+  "iterator": "iter",  // slug of the paired iterator
+}
+```
+
+**Wiring:** The iterator's outgoing edge must have `branch: "each"`. Body steps connect sequentially between iterator and aggregator with regular (unlabeled) edges.
+
+```json5
+"edges": [
+  { "from": "iter", "to": "convert", "branch": "each" },
+  { "from": "convert", "to": "collect" },
+  { "from": "collect", "to": "downstream-step" },
+]
+```
+
+**Template variables inside the loop body:**
+
+- `{{<as>}}` (e.g. `{{image}}`) — the current array element
+- `{{<as>.<field>}}` (e.g. `{{image.dataUrl}}`) — dot-path into the current element
+- `{{itemIndex}}` — zero-based iteration index
+
+**Aggregator result:** After all iterations complete, the aggregator's result is available downstream as `{{steps.<aggregator-slug>.result}}` containing `{ results: [...], totalItems, succeeded, failed }`.
+
+**Full example:**
+
+```json5
+{
+  "name": "process-scans",
+  "trigger": { "type": "webhook", "ref": "scan-app" },
+  "steps": {
+    "iter": {
+      "type": "iterator",
+      "items": "{{trigger.payload}}",
+      "as": "image",
+    },
+    "ocr": {
+      "type": "http-request",
+      "url": "http://localhost:3000/ext/converter/convert",
+      "method": "POST",
+      "body": "{\"data\": \"{{image.dataUrl}}\"}",
+      "responseFormat": "json",
+      "timeout": 120000,
+    },
+    "collect": {
+      "type": "aggregator",
+      "iterator": "iter",
+    },
+    "summarize": {
+      "type": "agent",
+      "prompt": "Summarize OCR results: {{steps.collect.result.results}}",
+    },
+  },
+  "edges": [
+    { "from": "iter", "to": "ocr", "branch": "each" },
+    { "from": "ocr", "to": "collect" },
+    { "from": "collect", "to": "summarize" },
+  ],
+}
+```
+
+**Rules:**
+- Every iterator must have exactly one aggregator referencing it (via the aggregator's `iterator` field)
+- The aggregator must be reachable from the iterator's `each` branch
+- The iterator's outgoing edges must all carry `branch: "each"` (it is a CF node)
+- The aggregator has regular (unlabeled) outgoing edges
+- Iteration is sequential — each item runs through the full body before the next starts
+- If a body step fails, the entire run fails (fail-fast)
 
 ### WaitFor step (signal gate)
 
@@ -751,8 +842,9 @@ workflow validate "my-pipeline"
 - A step is dispatched only when all its incoming edges are resolved (`satisfied` or `dead`) with at least one `satisfied` (join barrier).
 - A non-CF step with multiple outgoing edges fans out — all successors are dispatched.
 - Independent branches execute concurrently on the queue.
-- Control flow nodes (`if`, `case`) are evaluated inline (not queued) and mark their branch edges `satisfied`/`dead`.
+- Control flow nodes (`if`, `case`, `iterator`) are evaluated inline (not queued) and mark their branch edges `satisfied`/`dead`.
 - Dead edges propagate: a step reachable only through dead edges is skipped (marked `dead`), and its outgoing edges become dead too.
+- Iterator/aggregator pairs drive sequential iteration: the aggregator resets body steps between iterations and re-dispatches them until all items are processed.
 - Each step receives previous step results via `{{steps.<slug>.result}}`, resolved from the run store (any ancestor, not just the direct predecessor).
 - Fail-fast: if any step fails, the run fails, in-flight jobs are cancelled, and remaining pending steps are marked dead.
 - `waitFor` releases its worker slot while waiting (blocks only its own successors, not the whole run).
@@ -781,7 +873,7 @@ The tool skips files already in DAG format (steps object + edges array), convert
 - When `skills` are specified, `exec` is automatically added to the tool list (even if `tools` is omitted)
 - JSON5 supports `//` and `/* */` comments — use them for documentation
 - Trailing commas are allowed in arrays and objects
-- Only edges from `if`/`case` nodes may carry a `branch` property; all other edges must omit it
+- Only edges from `if`/`case`/`iterator` nodes may carry a `branch` property; all other edges must omit it
 - If an `if`/`case` branch has no matching edge and no path is taken, the corresponding branch is simply skipped (dead)
 - Use a `fail` step on a branch to explicitly abort with a meaningful error message
 - Always ask for approval before triggering a workflow run!

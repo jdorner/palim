@@ -2,14 +2,14 @@
 import { Handle, type NodeProps, Position } from "@xyflow/svelte";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 import { tick } from "svelte";
-import { visualForStepType } from "$lib/nodeVisuals";
+import StepTypePicker from "./StepTypePicker.svelte";
 
 interface Props extends NodeProps {
   data: {
     /** Callback when a step type is selected from the menu. */
     onSelectType?: (type: string) => void;
     /** Custom step types from extensions (passed from parent). */
-    customStepTypes?: Array<{ type: string; label: string; icon?: string }>;
+    customStepTypes?: Array<{ type: string; label: string; icon?: string; category?: string }>;
   };
 }
 
@@ -29,7 +29,6 @@ async function toggleMenu(e: MouseEvent) {
   menuOpen = !menuOpen;
 
   if (menuOpen) {
-    // After render, adjust if the menu overflows the viewport
     await tick();
     adjustMenuPosition();
   }
@@ -43,12 +42,10 @@ function adjustMenuPosition() {
 
   let { x, y } = menuPos;
 
-  // Horizontal: keep within viewport
   const halfW = rect.width / 2;
   if (x - halfW < 8) x = halfW + 8;
   if (x + halfW > vw - 8) x = vw - halfW - 8;
 
-  // Vertical: flip above if overflowing bottom
   if (y + rect.height > vh - 8) {
     const buttonRect = buttonRef?.getBoundingClientRect();
     y = (buttonRect?.top ?? y) - rect.height - 4;
@@ -79,27 +76,6 @@ function portal(node: HTMLElement) {
     },
   };
 }
-
-/**
- * Built-in step types available in the menu. Icons/colors are resolved from the
- * shared nodeVisuals helper so the menu rows match the rendered node cards.
- */
-const builtinTypes = [
-  { type: "agent", label: "Agent", category: "execution" },
-  { type: "if", label: "If / Condition", category: "control-flow" },
-  { type: "case", label: "Case / Switch", category: "control-flow" },
-  { type: "waitFor", label: "Wait For Signal", category: "control-flow" },
-  { type: "emit", label: "Emit Signal", category: "control-flow" },
-] as const;
-
-/** Slugs handled by the built-in menu entries above, used to de-duplicate. */
-const builtinTypeSlugs = new Set<string>(builtinTypes.map((t) => t.type));
-
-let controlFlowTypes = $derived(builtinTypes.filter((t) => t.category === "control-flow"));
-// Exclude custom step types that duplicate a built-in type (e.g. the workflows
-// extension registers "emit", which is already listed under Control Flow).
-let customTypes = $derived((data.customStepTypes ?? []).filter((t) => !builtinTypeSlugs.has(t.type)));
-let agentVisual = $derived(visualForStepType("agent"));
 </script>
 
 <svelte:document onclick={handleClickOutside} />
@@ -125,49 +101,6 @@ let agentVisual = $derived(visualForStepType("agent"));
     class="fixed z-9999 min-w-52 max-h-80 overflow-y-auto rounded-xl border border-border bg-background p-1.5 shadow-lg text-sm"
     style="left: {menuPos.x}px; top: {menuPos.y}px; transform: translateX(-50%);"
   >
-    <!-- Execution steps -->
-    <div class="px-2 pt-1 pb-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Steps</div>
-    <button
-      type="button"
-      class="w-full text-left px-2 py-1.5 rounded-lg hover:bg-muted/60 transition-colors flex items-center gap-2.5"
-      onclick={() => selectType("agent")}
-    >
-      <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white {agentVisual.tileClass}">
-        <agentVisual.icon size={15} weight="bold" aria-hidden="true" />
-      </span>
-      <span class="font-medium text-foreground">Agent</span>
-    </button>
-    {#each customTypes as ct}
-      {@const ctVisual = visualForStepType(ct.type, { iconId: ct.icon })}
-      <button
-        type="button"
-        class="w-full text-left px-2 py-1.5 rounded-lg hover:bg-muted/60 transition-colors flex items-center gap-2.5"
-        onclick={() => selectType(ct.type)}
-      >
-        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white {ctVisual.tileClass}">
-          <ctVisual.icon size={15} weight="bold" aria-hidden="true" />
-        </span>
-        <span class="font-medium text-foreground">{ct.label}</span>
-      </button>
-    {/each}
-
-    <!-- Control flow -->
-    <div class="border-t border-border my-1"></div>
-    <div class="px-2 pt-1 pb-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-      Control Flow
-    </div>
-    {#each controlFlowTypes as cf}
-      {@const cfVisual = visualForStepType(cf.type)}
-      <button
-        type="button"
-        class="w-full text-left px-2 py-1.5 rounded-lg hover:bg-muted/60 transition-colors flex items-center gap-2.5"
-        onclick={() => selectType(cf.type)}
-      >
-        <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white {cfVisual.tileClass}">
-          <cfVisual.icon size={15} weight="bold" aria-hidden="true" />
-        </span>
-        <span class="font-medium text-foreground">{cf.label}</span>
-      </button>
-    {/each}
+    <StepTypePicker customStepTypes={data.customStepTypes ?? []} onselect={selectType} />
   </div>
 {/if}

@@ -1,6 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { Value } from "@sinclair/typebox/value";
-import { computeRootSteps, computeTerminalSteps, validateCfEdges, validateDag } from "./dagValidation";
+import {
+  computeRootSteps,
+  computeTerminalSteps,
+  validateCfEdges,
+  validateDag,
+  validateIteratorPairing,
+} from "./dagValidation";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema } from "./schemas";
 
 /** Helper to create a minimal valid DAG definition for testing. */
@@ -406,5 +412,234 @@ describe("computeTerminalSteps", () => {
     });
     const terminals = computeTerminalSteps(def);
     expect(terminals.sort()).toEqual(["b", "c"]);
+  });
+});
+
+describe("validateCfEdges - iterator", () => {
+  test("returns no errors for valid iterator with each branch", () => {
+    const def = makeDag({
+      steps: {
+        a: { type: "agent", prompt: "x" },
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
+        body: { type: "agent", prompt: "body" },
+        agg: { type: "aggregator", iterator: "iter" },
+      },
+      edges: [
+        { from: "a", to: "iter" },
+        { from: "iter", to: "body", branch: "each" },
+        { from: "body", to: "agg" },
+      ],
+    });
+    const errors = validateCfEdges(def);
+    expect(errors).toEqual([]);
+  });
+
+  test("detects iterator with invalid branch label", () => {
+    const def = makeDag({
+      steps: {
+        a: { type: "agent", prompt: "x" },
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
+        body: { type: "agent", prompt: "body" },
+        agg: { type: "aggregator", iterator: "iter" },
+      },
+      edges: [
+        { from: "a", to: "iter" },
+        { from: "iter", to: "body", branch: "done" },
+        { from: "body", to: "agg" },
+      ],
+    });
+    const errors = validateCfEdges(def);
+    expect(errors.length).toBe(1);
+    expect(errors[0]!.code).toBe("invalid_iterator_branch");
+    expect(errors[0]!.message).toContain("done");
+  });
+
+  test("detects iterator with unlabeled outgoing edge", () => {
+    const def = makeDag({
+      steps: {
+        a: { type: "agent", prompt: "x" },
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
+        body: { type: "agent", prompt: "body" },
+        agg: { type: "aggregator", iterator: "iter" },
+      },
+      edges: [
+        { from: "a", to: "iter" },
+        { from: "iter", to: "body" }, // missing branch
+        { from: "body", to: "agg" },
+      ],
+    });
+    const errors = validateCfEdges(def);
+    expect(errors.length).toBe(1);
+    expect(errors[0]!.code).toBe("cf_node_unconditional_edge");
+  });
+
+  test("aggregator with unlabeled outgoing edges passes validation", () => {
+    const def = makeDag({
+      steps: {
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
+        body: { type: "agent", prompt: "body" },
+        agg: { type: "aggregator", iterator: "iter" },
+        downstream: { type: "agent", prompt: "after loop" },
+      },
+      edges: [
+        { from: "iter", to: "body", branch: "each" },
+        { from: "body", to: "agg" },
+        { from: "agg", to: "downstream" }, // unlabeled, valid for aggregator
+      ],
+    });
+    const errors = validateCfEdges(def);
+    expect(errors).toEqual([]);
+  });
+
+  test("aggregator with branch-labeled outgoing edge fails validation", () => {
+    const def = makeDag({
+      steps: {
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
+        body: { type: "agent", prompt: "body" },
+        agg: { type: "aggregator", iterator: "iter" },
+        downstream: { type: "agent", prompt: "after loop" },
+      },
+      edges: [
+        { from: "iter", to: "body", branch: "each" },
+        { from: "body", to: "agg" },
+        { from: "agg", to: "downstream", branch: "done" }, // invalid: non-CF node with branch
+      ],
+    });
+    const errors = validateCfEdges(def);
+    expect(errors.length).toBe(1);
+    expect(errors[0]!.code).toBe("non_cf_edge_has_branch");
+  });
+});
+
+describe("validateIteratorPairing", () => {
+  test("returns no errors for valid iterator-aggregator pairing", () => {
+    const def = makeDag({
+      steps: {
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
+        body: { type: "agent", prompt: "body" },
+        agg: { type: "aggregator", iterator: "iter" },
+      },
+      edges: [
+        { from: "iter", to: "body", branch: "each" },
+        { from: "body", to: "agg" },
+      ],
+    });
+    const errors = validateIteratorPairing(def);
+    expect(errors).toEqual([]);
+  });
+
+  test("detects iterator with no aggregator referencing it", () => {
+    const def = makeDag({
+      steps: {
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
+        body: { type: "agent", prompt: "body" },
+      },
+      edges: [{ from: "iter", to: "body", branch: "each" }],
+    });
+    const errors = validateIteratorPairing(def);
+    expect(errors.length).toBe(1);
+    expect(errors[0]!.code).toBe("iterator_missing_aggregator");
+  });
+
+  test("detects aggregator referencing non-existent iterator", () => {
+    const def = makeDag({
+      steps: {
+        body: { type: "agent", prompt: "body" },
+        agg: { type: "aggregator", iterator: "missing" },
+      },
+      edges: [{ from: "body", to: "agg" }],
+    });
+    const errors = validateIteratorPairing(def);
+    expect(errors.length).toBe(1);
+    expect(errors[0]!.code).toBe("aggregator_missing_iterator");
+  });
+
+  test("detects aggregator referencing non-iterator type", () => {
+    const def = makeDag({
+      steps: {
+        notiter: { type: "agent", prompt: "x" },
+        agg: { type: "aggregator", iterator: "notiter" },
+      },
+      edges: [{ from: "notiter", to: "agg" }],
+    });
+    const errors = validateIteratorPairing(def);
+    expect(errors.length).toBe(1);
+    expect(errors[0]!.code).toBe("aggregator_missing_iterator");
+  });
+
+  test("detects unreachable aggregator", () => {
+    const def = makeDag({
+      steps: {
+        start: { type: "agent", prompt: "start" },
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
+        body: { type: "agent", prompt: "body" },
+        agg: { type: "aggregator", iterator: "iter" },
+      },
+      edges: [
+        { from: "start", to: "iter" },
+        { from: "iter", to: "body", branch: "each" },
+        // No edge from body to agg — aggregator is unreachable from iterator
+        { from: "start", to: "agg" },
+      ],
+    });
+    const errors = validateIteratorPairing(def);
+    expect(errors.length).toBe(1);
+    expect(errors[0]!.code).toBe("aggregator_unreachable");
+  });
+});
+
+describe("validateIteratorPairing - non-blocking behavior", () => {
+  test("mismatched aggregator reference produces a warning but workflow is structurally valid", () => {
+    // The workflow is structurally valid (no cycles, connected, edges valid)
+    // but the aggregator references a wrong iterator slug
+    const def = makeDag({
+      steps: {
+        iter: { type: "iterator", items: "{{trigger.payload}}" },
+        body: { type: "agent", prompt: "body" },
+        agg: { type: "aggregator", iterator: "wrong-slug" },
+      },
+      edges: [
+        { from: "iter", to: "body", branch: "each" },
+        { from: "body", to: "agg" },
+      ],
+    });
+
+    // Structural validation passes (no cycles, connected, CF edges valid)
+    const dagErrors = validateDag(def);
+    const cfErrors = validateCfEdges(def);
+    expect(dagErrors).toEqual([]);
+    expect(cfErrors).toEqual([]);
+
+    // Pairing validation produces errors (but these should be warnings, not blockers)
+    const pairingErrors = validateIteratorPairing(def);
+    expect(pairingErrors.length).toBeGreaterThan(0);
+    expect(pairingErrors.some((e) => e.code === "aggregator_missing_iterator")).toBe(true);
+  });
+
+  test("renamed iterator slug leaves orphan iterator and broken aggregator ref", () => {
+    const def = makeDag({
+      steps: {
+        // Iterator was renamed from "iter" to "images" but aggregator still references "iter"
+        images: { type: "iterator", items: "{{trigger.payload}}" },
+        body: { type: "agent", prompt: "body" },
+        agg: { type: "aggregator", iterator: "iter" },
+      },
+      edges: [
+        { from: "images", to: "body", branch: "each" },
+        { from: "body", to: "agg" },
+      ],
+    });
+
+    // Structural validation still passes
+    const dagErrors = validateDag(def);
+    const cfErrors = validateCfEdges(def);
+    expect(dagErrors).toEqual([]);
+    expect(cfErrors).toEqual([]);
+
+    // Pairing detects both: orphan iterator + broken aggregator ref
+    const pairingErrors = validateIteratorPairing(def);
+    expect(pairingErrors.length).toBe(2);
+    expect(pairingErrors.some((e) => e.code === "iterator_missing_aggregator")).toBe(true);
+    expect(pairingErrors.some((e) => e.code === "aggregator_missing_iterator")).toBe(true);
   });
 });

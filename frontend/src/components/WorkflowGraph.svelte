@@ -18,8 +18,11 @@ import { buildDagGraph, type DagEdge, type StepData } from "$lib/workflowGraph";
 import { computeLayout } from "$lib/workflowLayout";
 import { type GraphStepStatus, isEdgeAnimated } from "$lib/workflowRunStatus";
 import AddStepNode from "./AddStepNode.svelte";
+import AggregatorNode from "./AggregatorNode.svelte";
 import ControlFlowNode from "./ControlFlowNode.svelte";
 import FitViewOnInit from "./FitViewOnInit.svelte";
+import InsertButtonEdge from "./InsertButtonEdge.svelte";
+import IteratorNode from "./IteratorNode.svelte";
 import WaitForNode from "./WaitForNode.svelte";
 import WorkflowStepNode from "./WorkflowStepNode.svelte";
 
@@ -61,7 +64,7 @@ interface Props {
   /** Whether the trigger node is currently selected (shows orange highlight). */
   triggerSelected?: boolean;
   fitViewTrigger?: number;
-  customStepTypes?: Array<{ type: string; label: string; icon?: string; terminal?: boolean }>;
+  customStepTypes?: Array<{ type: string; label: string; icon?: string; terminal?: boolean; category?: string }>;
   /**
    * Optional slug-based status map for runtime status overlay.
    * When provided, node status is resolved by slug lookup instead of by array index.
@@ -105,6 +108,17 @@ interface Props {
    * reappears on the next layout recompute as an orphaned node.
    */
   onNodesDelete?: (ids: string[]) => void;
+  /**
+   * Fired when the user clicks the "+" button on an edge to insert a step
+   * between two existing nodes. Provides the source and target node ids plus
+   * an optional branch label and click coordinates for the type picker popup.
+   */
+  onInsertStepOnEdge?: (
+    sourceId: string,
+    targetId: string,
+    branch: string | undefined,
+    position: { x: number; y: number },
+  ) => void;
 }
 
 let {
@@ -125,11 +139,21 @@ let {
   onAddStep,
   onEdgesChange,
   onNodesDelete,
+  onInsertStepOnEdge,
 }: Props = $props();
 
 let colorMode = $state<ColorMode>("light");
 
-const nodeTypes = { step: WorkflowStepNode, controlFlow: ControlFlowNode, waitFor: WaitForNode, addStep: AddStepNode };
+const nodeTypes = {
+  step: WorkflowStepNode,
+  controlFlow: ControlFlowNode,
+  iterator: IteratorNode,
+  aggregator: AggregatorNode,
+  waitFor: WaitForNode,
+  addStep: AddStepNode,
+};
+
+const edgeTypes = { insertButton: InsertButtonEdge };
 
 /**
  * Colors a node dot in the minimap by its resolved category so the overview
@@ -138,8 +162,9 @@ const nodeTypes = { step: WorkflowStepNode, controlFlow: ControlFlowNode, waitFo
 function miniMapNodeColor(node: Node): string {
   const type = (node.data as { type?: string } | undefined)?.type;
   const triggerType = (node.data as { triggerType?: string } | undefined)?.triggerType;
+  const stepCategory = (node.data as { category?: string } | undefined)?.category;
   if (node.id.startsWith("__addStep")) return "#94a3b8";
-  const { category } = visualForStepType(type ?? "", { triggerType });
+  const { category } = visualForStepType(type ?? "", { triggerType, category: stepCategory });
   switch (category) {
     case "trigger":
       return "#10b981";
@@ -174,9 +199,15 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
   // extension metadata keyed by step type.
   const iconIdByType = new Map(customStepTypes.filter((st) => st.icon).map((st) => [st.type, st.icon as string]));
 
+  // Map each custom step type to its declared palette category so the step node
+  // resolves the matching accent color (control-flow -> sky, action -> amber).
+  const categoryByType = new Map(
+    customStepTypes.filter((st) => st.category).map((st) => [st.type, st.category as string]),
+  );
+
   const layout = computeLayout(flatGraph, {
     trigger,
-    includeAddNode: editMode && steps.length > 0,
+    includeAddNode: !!editMode,
     terminalTypes,
   });
 
@@ -220,6 +251,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
     const slug = node.data.slug as string;
     const hasError = (errorSlugs?.has(slug) ?? false) || (errorNodeIds?.has(node.id) ?? false);
     const iconId = iconIdByType.get(node.data.type as string);
+    const category = categoryByType.get(node.data.type as string);
 
     if (statusMap) {
       const status = statusMap[slug] ?? "waiting";
@@ -232,6 +264,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
           terminal: isTerminal,
           hasError,
           iconId,
+          category,
         },
       };
     }
@@ -246,6 +279,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
         terminal: isTerminal,
         hasError,
         iconId,
+        category,
       },
     };
   });
@@ -260,10 +294,31 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
     // style); keep them arrow-free and muted. Real flow edges get an arrowhead
     // and a smooth curve so direction reads clearly.
     const isAddStepEdge = edge.target === "__addStep__" || edge.target.startsWith("__addStep:");
+    const isTriggerEdge = edge.source === "__trigger__";
+    // In edit mode, non-synthetic edges get the insertButton type with a "+" at midpoint
+    const useInsertButton = editMode && !isAddStepEdge && !isTriggerEdge && !!onInsertStepOnEdge;
     return {
       ...edge,
-      type: "smoothstep",
+      type: useInsertButton ? "insertButton" : "smoothstep",
       animated: isEdgeAnimated({ source: edge.source, target: edge.target, animated: edge.animated }, statusNodes),
+      ...(useInsertButton
+        ? {
+            data: {
+              editMode: true,
+              onInsert: (position: { x: number; y: number }) => {
+                // Derive branch from sourceHandle by stripping the source node ID prefix.
+                // Format: "{sourceNodeId}-{branch}" (e.g. "node-3-each" → "each")
+                let edgeBranch: string | undefined;
+                if (edge.sourceHandle && edge.sourceHandle.startsWith(edge.source + "-")) {
+                  edgeBranch = edge.sourceHandle.slice(edge.source.length + 1);
+                  // Case paths use "path-" prefix: "node-3-path-low" → strip to "low"
+                  if (edgeBranch.startsWith("path-")) edgeBranch = edgeBranch.slice(5);
+                }
+                onInsertStepOnEdge!(edge.source, edge.target, edgeBranch, position);
+              },
+            },
+          }
+        : {}),
       ...(isAddStepEdge
         ? {}
         : {
@@ -345,14 +400,10 @@ $effect(() => {
       return newData ? { ...node, data: newData } : node;
     });
   } else if (editMode) {
-    // Entering edit mode or structure changed: reseed, preserving positions.
-    const existingPositions = new Map(untrack(() => nodes).map((n) => [n.id, n.position]));
-    nodes = layout.nodes.map((node) => {
-      // Always use fresh positions for addStep nodes (they move as branches grow)
-      if (node.id.startsWith("__addStep")) return node;
-      const existing = existingPositions.get(node.id);
-      return existing ? { ...node, position: existing } : node;
-    });
+    // Entering edit mode or structure changed: full reseed from dagre layout.
+    // User-dragged positions are dropped when structure changes because node
+    // ranks shift (e.g. inserting a step between two nodes moves successors right).
+    nodes = layout.nodes;
     edges = [...layout.edges];
   } else {
     // View mode (e.g. run page): always take the freshly computed layout so
@@ -529,6 +580,7 @@ onMount(() => {
     bind:nodes
     bind:edges
     {nodeTypes}
+    {edgeTypes}
     {colorMode}
     nodesDraggable={editMode}
     nodesConnectable={editMode}

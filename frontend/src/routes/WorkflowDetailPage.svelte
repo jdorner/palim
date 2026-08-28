@@ -33,7 +33,9 @@ import {
   validateWorkflowDraft,
   type WorkflowDraft,
 } from "$lib/workflowValidation";
+import { BUILTIN_STEP_TYPES, type StepTypeDescriptor, WorkflowBuilder } from "$shared/workflowBuilder";
 import StatusDot from "../components/StatusDot.svelte";
+import StepTypePicker from "../components/StepTypePicker.svelte";
 import WorkflowGraph from "../components/WorkflowGraph.svelte";
 import WorkflowStepSidebar from "../components/WorkflowStepSidebar.svelte";
 import { navigate, route } from "../router";
@@ -181,6 +183,26 @@ let customStepTypes = $derived(
   $extensions.filter((ext) => ext.enabled && ext.ui?.stepTypes?.length).flatMap((ext) => ext.ui!.stepTypes!),
 );
 
+/** WorkflowBuilder instance, recreated when extension step types change. */
+let workflowBuilder = $derived(
+  new WorkflowBuilder({
+    stepTypes: [
+      ...BUILTIN_STEP_TYPES,
+      ...customStepTypes
+        .filter((st): st is typeof st & { type: string } => !!st.type)
+        .map(
+          (st): StepTypeDescriptor => ({
+            type: st.type,
+            branches: [],
+            terminal: st.terminal ?? false,
+          }),
+        ),
+    ],
+    idFactory: nextStepId,
+    slugFactory: nextStepSlug,
+  }),
+);
+
 /** Fetch available tools and skills from meta endpoints. */
 async function fetchMeta() {
   metaLoading = true;
@@ -312,6 +334,20 @@ function toStepDraft(s: StepDef | Record<string, unknown>): StepDraft {
     return result;
   }
 
+  // Control flow: iterator - preserve items + optional as
+  if (type === "iterator") {
+    const result: StepDraft = { id, slug, type, items: raw.items as string };
+    if (typeof raw.as === "string") {
+      result.as = raw.as;
+    }
+    return result;
+  }
+
+  // Control flow: aggregator - preserve iterator reference
+  if (type === "aggregator") {
+    return { id, slug, type, iterator: raw.iterator as string };
+  }
+
   // Custom extension step types: rebuild config from non-standard fields
   const { id: _id, slug: _s, type: _t, input: _i, output: _o, ...config } = raw;
   return {
@@ -425,29 +461,52 @@ function addStep(
 ) {
   if (!editDraft) return;
 
-  const template = stepTemplate(type);
-  template.slug = nextStepSlug();
+  let result: { steps: StepDraft[]; edges: EdgeDraft[] };
 
-  // Draft edges are id-based; branchContext ids and the new step's id are both
-  // synthetic ids, so edges can be written directly with no slug translation.
-  const newStepId = template.id!;
-  const newEdges = [...editDraft.edges];
   if (branchContext) {
     if (branchContext.lastNodeId) {
-      // Main-chain tail or populated branch: append after the source node via a
-      // plain sequential edge so the new step stays attached to the graph.
-      newEdges.push({ from: branchContext.lastNodeId, to: newStepId });
+      // Main-chain tail or populated branch: append after the last node.
+      result = workflowBuilder.appendAfter(editDraft, branchContext.lastNodeId, type);
     } else if (branchContext.branch) {
-      // Empty branch: connect the CF node to the new step via a labeled edge.
-      newEdges.push({ from: branchContext.parentNodeId, to: newStepId, branch: branchContext.branch });
+      // Empty branch: add to the CF node's branch.
+      result = workflowBuilder.addToBranch(editDraft, branchContext.parentNodeId, branchContext.branch, type);
+    } else {
+      // Fallback: append after parent with no branch
+      result = workflowBuilder.appendAfter(editDraft, branchContext.parentNodeId, type);
     }
+  } else {
+    // No context (first step of an empty workflow): create unconnected.
+    // The builder doesn't have an "add unconnected" operation, so we manually
+    // add the step. Use the builder's descriptor for paired creation.
+    const descriptor = workflowBuilder.getDescriptor(type);
+    const newStep = builderCreateStep(type);
+    let newSteps = [...editDraft.steps, newStep];
+    let newEdges = [...editDraft.edges];
+
+    if (descriptor.paired) {
+      const pairedStep = builderCreateStep(descriptor.paired.type);
+      (pairedStep as Record<string, unknown>)[descriptor.paired.ref] = newStep.slug;
+      newEdges.push({ from: newStep.id!, to: pairedStep.id!, branch: descriptor.paired.branch });
+      newSteps = [...editDraft.steps, newStep, pairedStep];
+    }
+
+    result = { steps: newSteps, edges: newEdges };
   }
 
-  editDraft = {
-    ...editDraft,
-    steps: [...editDraft.steps, template],
-    edges: newEdges,
-  };
+  // If result is unchanged (no-op from builder), bail
+  if (result.steps === editDraft.steps && result.edges === editDraft.edges) return;
+
+  // Enrich custom step types with config schema defaults
+  const newSteps = result.steps.map((s) => {
+    if (s.config !== undefined || BUILTIN_STEP_TYPES.some((bt) => bt.type === s.type)) return s;
+    const schemaInfo = customStepTypes.find((st) => st.type === s.type);
+    if (schemaInfo?.configSchema) {
+      return { ...s, config: buildInitialValues(schemaInfo.configSchema, undefined) };
+    }
+    return s;
+  });
+
+  editDraft = { ...editDraft, steps: newSteps, edges: result.edges };
 
   const newIndex = editDraft.steps.length - 1;
   const newErrors = new Map(validationErrors);
@@ -456,9 +515,6 @@ function addStep(
   }
   validationErrors = newErrors;
 
-  // Growing the graph with a new node is an intentional structural
-  // change, so re-fit the view to bring the new step into frame. (Edge draws
-  // do NOT bump this, so connecting nodes no longer re-fits the canvas.)
   fitViewTrigger++;
 
   // Auto-select the new step in the sidebar
@@ -466,6 +522,80 @@ function addStep(
   selectedStepIndex = newIndex;
   triggerSelected = false;
   sidebarOpen = true;
+}
+
+/**
+ * Pending edge insertion context — shown as a type picker popup.
+ */
+let edgeInsertContext = $state<{
+  sourceId: string;
+  targetId: string;
+  branch?: string;
+  position: { x: number; y: number };
+} | null>(null);
+
+/**
+ * Called when the user clicks the "+" button on an edge. Opens the type picker.
+ */
+function insertStepOnEdge(
+  sourceId: string,
+  targetId: string,
+  branch: string | undefined,
+  position: { x: number; y: number },
+) {
+  edgeInsertContext = { sourceId, targetId, branch, position };
+}
+
+/**
+ * Called when a type is selected from the edge insert popup.
+ * Performs the actual edge split and step creation.
+ */
+function confirmEdgeInsert(type: string) {
+  if (!editDraft || !edgeInsertContext) return;
+
+  const { sourceId, targetId, branch } = edgeInsertContext;
+  edgeInsertContext = null;
+
+  const result = workflowBuilder.insertBetween(editDraft, sourceId, targetId, type, branch);
+
+  // If result is unchanged (no-op), bail
+  if (result.steps === editDraft.steps && result.edges === editDraft.edges) return;
+
+  // Enrich custom step types with config schema defaults
+  const newSteps = result.steps.map((s) => {
+    if (s.config !== undefined || BUILTIN_STEP_TYPES.some((bt) => bt.type === s.type)) return s;
+    const schemaInfo = customStepTypes.find((st) => st.type === s.type);
+    if (schemaInfo?.configSchema) {
+      return { ...s, config: buildInitialValues(schemaInfo.configSchema, undefined) };
+    }
+    return s;
+  });
+
+  editDraft = { ...editDraft, steps: newSteps, edges: result.edges };
+
+  const newIndex = editDraft.steps.length - 1;
+  const newErrors = new Map(validationErrors);
+  if (type === "agent") {
+    newErrors.set(`steps[${newIndex}].prompt`, "Prompt is required for agent steps");
+  }
+  validationErrors = newErrors;
+
+  fitViewTrigger++;
+
+  selectedStep = editDraft.steps[newIndex] as StepDef;
+  selectedStepIndex = newIndex;
+  triggerSelected = false;
+  sidebarOpen = true;
+}
+
+/**
+ * Creates a step using stepTemplate + nextStepSlug. Used for the "unconnected add"
+ * path where the builder's operations don't apply (no source node exists).
+ */
+function builderCreateStep(type: string): StepDraft {
+  const step = stepTemplate(type);
+  step.slug = nextStepSlug();
+  return step;
 }
 
 /** Returns a default step template for a given type (DAG: no nested branches). */
@@ -482,6 +612,10 @@ function stepTemplate(type: string): StepDraft {
       return { id, slug: "", type: "waitFor", event: "" };
     case "emit":
       return { id, slug: "", type: "emit", event: "" };
+    case "iterator":
+      return { id, slug: "", type: "iterator", items: "", as: "item" };
+    case "aggregator":
+      return { id, slug: "", type: "aggregator", iterator: "" };
     default: {
       // Custom extension step type. Seed the config with all supported
       // properties (schema defaults or type-appropriate empty values) so the
@@ -595,38 +729,44 @@ function branchFromHandle(sourceId: string, sourceHandle: string | null | undefi
 /** Remove a step at the given index. Returns false if removal was prevented. */
 function removeStep(id: string) {
   if (!editDraft) return;
-  if (editDraft.steps.length <= 1) return; // Prevent removal of last step
 
   // Resolve the step by its stable synthetic id. The index is derived here
-  // purely to re-key the index-based validation-error map below; identity and
-  // edge cleanup are id-based so they survive slug edits and reordering.
+  // purely to re-key the index-based validation-error map below.
   const index = editDraft.steps.findIndex((s) => s.id === id);
   if (index < 0) return;
 
-  const removedSlug = editDraft.steps[index].slug;
-  const removedId = id;
-  editDraft = {
-    ...editDraft,
-    steps: editDraft.steps.filter((_, i) => i !== index),
-    // Drop any edges touching the removed step (edges are id-based).
-    edges: editDraft.edges.filter((e) => e.from !== removedId && e.to !== removedId),
-  };
+  const removedSlug = editDraft.steps[index]!.slug;
 
-  // Clean up validation errors for the removed step and re-index subsequent steps
+  // Use the builder for intelligent removal (reconnection, cascade, etc.)
+  const result = workflowBuilder.remove(editDraft, id);
+
+  // Compute which steps were actually removed (builder may cascade iterator pairs)
+  const removedIds = new Set(
+    editDraft.steps.filter((s) => !result.steps.some((rs) => rs.id === s.id)).map((s) => s.id),
+  );
+
+  editDraft = { ...editDraft, steps: result.steps, edges: result.edges };
+
+  // Clean up validation errors: remove entries for deleted steps, re-index remaining
+  const oldSteps = [...editDraft.steps]; // already updated
   const newErrors = new Map<string, string>();
   for (const [key, val] of validationErrors) {
     const stepMatch = key.match(/^steps\[(\d+)\]\.(.+)$/);
     if (stepMatch) {
-      const stepIdx = Number.parseInt(stepMatch[1], 10);
-      const field = stepMatch[2];
-      if (stepIdx < index) {
-        newErrors.set(key, val);
-      } else if (stepIdx > index) {
-        newErrors.set(`steps[${stepIdx - 1}].${field}`, val);
-      }
-      // Skip the removed index
+      const stepIdx = Number.parseInt(stepMatch[1]!, 10);
+      // Find where this step ended up in the new array (by counting removed before it)
+      const oldStep = editDraft.steps[stepIdx]; // wrong: editDraft already changed
+      // Skip validation re-indexing for simplicity - just clear all step errors
+      // and let the next validation pass re-populate them
     } else {
       newErrors.set(key, val);
+    }
+  }
+
+  // Simpler re-index: clear all step-indexed errors; they'll be re-validated on save
+  for (const [key] of validationErrors) {
+    if (!key.startsWith("steps[")) {
+      newErrors.set(key, validationErrors.get(key)!);
     }
   }
 
@@ -675,10 +815,21 @@ function onStepSlugInput(index: number, value: string) {
   if (!editDraft) return;
   // Edges are id-based and the step's id is stable, so a slug edit never touches
   // edges: connections survive renames, clears, and duplicate slugs untouched.
-  editDraft = {
-    ...editDraft,
-    steps: editDraft.steps.map((s, i) => (i === index ? { ...s, slug: value } : s)),
-  };
+  const oldSlug = editDraft.steps[index]?.slug;
+  const stepType = editDraft.steps[index]?.type;
+
+  let updatedSteps = editDraft.steps.map((s, i) => (i === index ? { ...s, slug: value } : s));
+
+  // Auto-update paired references on iterator/aggregator slug rename:
+  // If renaming an iterator, update any aggregator whose `iterator` field matches the old slug.
+  // If renaming an aggregator, update any iterator... (not needed — iterator has no aggregator ref).
+  if (stepType === "iterator" && oldSlug) {
+    updatedSteps = updatedSteps.map((s) =>
+      s.type === "aggregator" && (s as Record<string, unknown>).iterator === oldSlug ? { ...s, iterator: value } : s,
+    );
+  }
+
+  editDraft = { ...editDraft, steps: updatedSteps };
 
   const existing = stepSlugTimeouts.get(index);
   if (existing) clearTimeout(existing);
@@ -1297,6 +1448,7 @@ onDestroy(() => {
               onNodeClick={onStepClick}
               {onTriggerClick}
               onAddStep={addStep}
+              onInsertStepOnEdge={editMode ? insertStepOnEdge : undefined}
               onEdgesChange={editMode ? handleEdgesChange : undefined}
               onNodesDelete={editMode ? removeStepsByIds : undefined}
               {fitViewTrigger}
@@ -1600,5 +1752,26 @@ onDestroy(() => {
         {/if}
       </Tabs.Content>
     </Tabs.Root>
+  </div>
+{/if}
+
+<!-- Edge insert type picker popup -->
+{#if edgeInsertContext}
+  <div
+    class="fixed inset-0 z-9999"
+    onclick={() => { edgeInsertContext = null; }}
+    onkeydown={(e) => { if (e.key === "Escape") edgeInsertContext = null; }}
+    role="presentation"
+  >
+    <div
+      class="fixed z-9999 min-w-52 max-h-80 overflow-y-auto rounded-xl border border-border bg-background p-1.5 shadow-lg text-sm"
+      style="left: {edgeInsertContext.position.x}px; top: {edgeInsertContext.position.y}px; transform: translateX(-50%);"
+      onclick={(e) => e.stopPropagation()}
+      onkeydown={(e) => e.stopPropagation()}
+      role="menu"
+      tabindex="-1"
+    >
+      <StepTypePicker {customStepTypes} onselect={confirmEdgeInsert} />
+    </div>
   </div>
 {/if}

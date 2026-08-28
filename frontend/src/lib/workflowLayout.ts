@@ -33,6 +33,20 @@ const NODE_HEIGHT = 56;
 const CF_NODE_WIDTH = 108;
 const CF_NODE_HEIGHT = 108;
 
+/**
+ * Dimensions for iterator/aggregator pentagon nodes.
+ * Matches the clip-path container in IteratorNode/AggregatorNode (140x60).
+ */
+const ITER_NODE_WIDTH = 140;
+const ITER_NODE_HEIGHT = 60;
+
+/** Returns the width/height for a given step type's node. */
+function nodeDimensions(stepType: string): { width: number; height: number } {
+  if (stepType === "if" || stepType === "case") return { width: CF_NODE_WIDTH, height: CF_NODE_HEIGHT };
+  if (stepType === "iterator" || stepType === "aggregator") return { width: ITER_NODE_WIDTH, height: ITER_NODE_HEIGHT };
+  return { width: NODE_WIDTH, height: NODE_HEIGHT };
+}
+
 /** Default dimensions for the add-step button node. */
 const ADD_NODE_WIDTH = 32;
 const ADD_NODE_HEIGHT = 32;
@@ -127,11 +141,8 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
 
   // Add workflow step nodes
   for (const node of graph.nodes) {
-    const isCF = node.data.type === "if" || node.data.type === "case";
-    g.setNode(node.id, {
-      width: isCF ? CF_NODE_WIDTH : NODE_WIDTH,
-      height: isCF ? CF_NODE_HEIGHT : NODE_HEIGHT,
-    });
+    const { width, height } = nodeDimensions(node.data.type);
+    g.setNode(node.id, { width, height });
   }
 
   // Identify the graph's entry node (no incoming edge) and the tail of the main
@@ -140,11 +151,16 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   // chain, never off a node that lives inside a control-flow branch.
   const firstRootId = findRootNodeId(graph);
   const lastRoot = firstRootId ? graph.nodes.find((n) => n.id === branchTail(graph, firstRootId)) : undefined;
-  const lastRootIsCF = lastRoot && (lastRoot.data.type === "if" || lastRoot.data.type === "case");
+  const lastRootIsCF =
+    lastRoot && (lastRoot.data.type === "if" || lastRoot.data.type === "case" || lastRoot.data.type === "iterator");
   const lastRootIsTerminal = lastRoot && options.terminalTypes?.has(lastRoot.data.type);
   const showRootAddStep = options.includeAddNode && !!lastRoot && !lastRootIsCF && !lastRootIsTerminal;
 
-  if (showRootAddStep) {
+  // When there are no steps at all but we're in edit mode, show the add-step
+  // connected to the trigger so the user can add the first step.
+  const showEmptyAddStep = options.includeAddNode && graph.nodes.length === 0 && !!options.trigger;
+
+  if (showRootAddStep || showEmptyAddStep) {
     g.setNode("__addStep__", { width: ADD_NODE_WIDTH, height: ADD_NODE_HEIGHT });
   }
 
@@ -158,6 +174,15 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
       if (info.lastNodeId) {
         const lastNode = graph.nodes.find((n) => n.id === info.lastNodeId);
         if (lastNode && options.terminalTypes?.has(lastNode.data.type)) continue;
+
+        // Skip the branch add-step if the next node after the chain is an aggregator.
+        // The aggregator marks the end of the iteration body — the edge insert button
+        // between the last body step and the aggregator serves as the add-step.
+        const nextEdge = graph.edges.find((e) => e.source === info.lastNodeId && !e.branch);
+        if (nextEdge) {
+          const nextNode = graph.nodes.find((n) => n.id === nextEdge.target);
+          if (nextNode && nextNode.data.type === "aggregator") continue;
+        }
       }
 
       const addNodeId = `__addStep:${info.parentNodeId}:${info.branch}__`;
@@ -183,6 +208,11 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
     g.setEdge("__trigger__", firstRootId);
   }
 
+  // Connect trigger to add-step when there are no steps (empty workflow in edit mode)
+  if (showEmptyAddStep) {
+    g.setEdge("__trigger__", "__addStep__");
+  }
+
   // Add workflow edges
   for (const edge of graph.edges) {
     g.setEdge(edge.source, edge.target);
@@ -201,7 +231,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   // For each CF node, collect all nodes (step nodes + addStep nodes) per branch,
   // then ensure branches are vertically stacked in order with sufficient spacing.
   for (const node of graph.nodes) {
-    if (node.data.type !== "if" && node.data.type !== "case") continue;
+    if (node.data.type !== "if" && node.data.type !== "case" && node.data.type !== "iterator") continue;
 
     const branchLabels = branchLabelsFor(node, graph);
 
@@ -288,7 +318,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
     const srcPos = g.node(sourceId);
     if (!addPos || !srcPos) return;
     const srcIsCF = graph.nodes.find((n) => n.id === sourceId)?.data.type;
-    const srcWidth = srcIsCF === "if" || srcIsCF === "case" ? CF_NODE_WIDTH : NODE_WIDTH;
+    const srcWidth = nodeDimensions(srcIsCF ?? "agent").width;
     // Place the add-step a small attach-gap to the right of the source's right
     // edge, centered on it, so the "+" stays visually attached to its source.
     addPos.x = srcPos.x + srcWidth / 2 + ADD_NODE_ATTACH_GAP + ADD_NODE_WIDTH / 2;
@@ -297,6 +327,9 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
 
   if (showRootAddStep && lastRoot) {
     reanchorAddStep("__addStep__", lastRoot.id);
+  }
+  if (showEmptyAddStep) {
+    reanchorAddStep("__addStep__", "__trigger__");
   }
   for (const info of branchAddSteps) {
     // The add-step's real source is the branch tail, or the CF node for an
@@ -323,6 +356,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
       id: "__trigger__",
       type: "step",
       position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
+      deletable: false,
       data: {
         slug: options.trigger.ref ?? options.trigger.type,
         type: "trigger",
@@ -335,9 +369,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   // Workflow step nodes
   for (const node of graph.nodes) {
     const pos = g.node(node.id);
-    const isCF = node.data.type === "if" || node.data.type === "case";
-    const w = isCF ? CF_NODE_WIDTH : NODE_WIDTH;
-    const h = isCF ? CF_NODE_HEIGHT : NODE_HEIGHT;
+    const { width: w, height: h } = nodeDimensions(node.data.type);
 
     svelteNodes.push({
       id: node.id,
@@ -353,7 +385,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   }
 
   // Root add-step node
-  if (showRootAddStep) {
+  if (showRootAddStep || showEmptyAddStep) {
     const pos = g.node("__addStep__");
     svelteNodes.push({
       id: "__addStep__",
@@ -411,6 +443,16 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
     }
   }
 
+  // Empty workflow: dashed edge from trigger to add-step
+  if (showEmptyAddStep) {
+    svelteEdges.push({
+      id: "__trigger__->__addStep__",
+      source: "__trigger__",
+      target: "__addStep__",
+      style: "stroke-dasharray: 5 5;",
+    });
+  }
+
   // Branch add-step edges (dashed)
   for (const info of branchAddSteps) {
     // Resolve the branch's tail node via edges (DAG model). If the branch has
@@ -445,6 +487,8 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
 /** Maps a workflow step type to the corresponding SvelteFlow node type. */
 function nodeTypeForStep(stepType: string): string {
   if (stepType === "if" || stepType === "case") return "controlFlow";
+  if (stepType === "iterator") return "iterator";
+  if (stepType === "aggregator") return "aggregator";
   if (stepType === "waitFor") return "waitFor";
   return "step";
 }
@@ -486,7 +530,7 @@ function toSvelteEdge(edge: GraphEdge): Edge {
  * @returns Object with `branches` array if the node has outgoing branch edges
  */
 function extractCFMeta(node: GraphNode, edges: GraphEdge[]): Record<string, unknown> {
-  if (node.data.type !== "if" && node.data.type !== "case") {
+  if (node.data.type !== "if" && node.data.type !== "case" && node.data.type !== "iterator") {
     return {};
   }
 
@@ -649,7 +693,14 @@ function branchChainNodeIds(graph: FlatGraph, cfNodeId: string, branch: string):
     seen.add(currentId);
     ids.push(currentId);
     const node = graph.nodes.find((n) => n.id === currentId);
-    if (node && (node.data.type === "if" || node.data.type === "case")) break;
+    if (
+      node &&
+      (node.data.type === "if" ||
+        node.data.type === "case" ||
+        node.data.type === "iterator" ||
+        node.data.type === "aggregator")
+    )
+      break;
     const outgoing = graph.edges.filter((e) => e.source === currentId && !e.branch);
     if (outgoing.length !== 1) break;
     currentId = outgoing[0]!.target;
@@ -674,7 +725,7 @@ function branchChainNodeIds(graph: FlatGraph, cfNodeId: string, branch: string):
  */
 function discoverBranches(graph: FlatGraph, terminalTypes?: Set<string>): BranchDiscovery[] {
   const branches: BranchDiscovery[] = [];
-  const isBranchingType = (type: string) => type === "if" || type === "case";
+  const isBranchingType = (type: string) => type === "if" || type === "case" || type === "iterator";
 
   // Track tail nodes that already have an addStep so that branches converging on
   // a common join node produce a single addStep, not one per incoming branch.

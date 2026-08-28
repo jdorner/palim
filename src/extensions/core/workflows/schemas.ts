@@ -403,6 +403,38 @@ export const DagEmitStepSchema = Type.Object(
 );
 
 /**
+ * An `iterator` step definition for DAG format.
+ *
+ * Splits an array into per-item execution scope. Paired with an aggregator
+ * that collects results and drives iteration. The `each` branch edge
+ * connects to the first body step.
+ */
+export const DagIteratorStepSchema = Type.Object(
+  {
+    type: Type.Literal("iterator"),
+    items: Type.String({ minLength: 1, description: "Template expression resolving to a JSON array" }),
+    as: Type.Optional(Type.String({ minLength: 1, pattern: "^[a-zA-Z][a-zA-Z0-9_]*$" })),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * An `aggregator` step definition for DAG format.
+ *
+ * Paired to an iterator via the `iterator` field. Collects per-iteration
+ * results, drives the loop by resetting the body subgraph between iterations
+ * or completing when all items are exhausted. Has regular (unlabeled) outgoing
+ * edges to downstream steps.
+ */
+export const DagAggregatorStepSchema = Type.Object(
+  {
+    type: Type.Literal("aggregator"),
+    iterator: Type.String({ minLength: 1, description: "Slug of the paired iterator node" }),
+  },
+  { additionalProperties: false },
+);
+
+/**
  * A generic step for custom (extension-registered) step types in DAG format.
  *
  * Requires `type`; allows any additional properties since the extension's
@@ -426,6 +458,8 @@ export const DagStepDefSchema = Type.Union([
   DagCaseStepSchema,
   DagWaitForStepSchema,
   DagEmitStepSchema,
+  DagIteratorStepSchema,
+  DagAggregatorStepSchema,
   DagGenericStepSchema,
 ]);
 
@@ -469,6 +503,22 @@ export interface DagEmitStep {
   payload?: string;
 }
 
+/** TypeScript type for a DAG `iterator` step. */
+export interface DagIteratorStep {
+  type: "iterator";
+  /** Template expression resolving to a JSON array. */
+  items: string;
+  /** Variable name for the current element (default: "item"). */
+  as?: string;
+}
+
+/** TypeScript type for a DAG `aggregator` step. */
+export interface DagAggregatorStep {
+  type: "aggregator";
+  /** Slug of the paired iterator node. */
+  iterator: string;
+}
+
 /** TypeScript type for a DAG agent step. */
 export interface DagAgentStep {
   type: "agent";
@@ -485,7 +535,15 @@ export interface DagGenericStep {
 }
 
 /** Union of all typed DAG step definitions. */
-export type DagStep = DagAgentStep | DagIfStep | DagCaseStep | DagWaitForStep | DagEmitStep | DagGenericStep;
+export type DagStep =
+  | DagAgentStep
+  | DagIfStep
+  | DagCaseStep
+  | DagWaitForStep
+  | DagEmitStep
+  | DagIteratorStep
+  | DagAggregatorStep
+  | DagGenericStep;
 
 /**
  * Edge definition in a DAG workflow.
@@ -528,7 +586,7 @@ export const DagWorkflowDefinitionSchema = Type.Object(
 export type DagWorkflowDefinition = Static<typeof DagWorkflowDefinitionSchema>;
 
 /** Control flow step types in DAG format. */
-export const DAG_CF_TYPES = new Set(["if", "case"]);
+export const DAG_CF_TYPES = new Set(["if", "case", "iterator"]);
 
 // ---------------------------------------------------------------------------
 // Global Slug Uniqueness Validator (legacy sequential format)

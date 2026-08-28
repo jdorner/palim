@@ -109,6 +109,44 @@ export const CaseConfigSchema: Record<string, unknown> = {
 };
 
 /**
+ * Config schema for the `iterator` step: splits an array into per-item execution.
+ */
+export const IteratorConfigSchema: Record<string, unknown> = {
+  type: "object",
+  required: ["items"],
+  properties: {
+    items: {
+      type: "string",
+      title: "Items",
+      description: "Template expression resolving to a JSON array (e.g. '{{trigger.payload}}').",
+      minLength: 1,
+    },
+    as: {
+      type: "string",
+      title: "Item Variable",
+      description: "Variable name for the current element in body step templates. Default: 'item'.",
+      pattern: "^[a-zA-Z][a-zA-Z0-9_]*$",
+    },
+  },
+};
+
+/**
+ * Config schema for the `aggregator` step: collects per-iteration results.
+ */
+export const AggregatorConfigSchema: Record<string, unknown> = {
+  type: "object",
+  required: ["iterator"],
+  properties: {
+    iterator: {
+      type: "string",
+      title: "Iterator",
+      description: "Slug of the paired iterator node.",
+      minLength: 1,
+    },
+  },
+};
+
+/**
  * Registry mapping a built-in control-flow step type to its config schema.
  * Types absent from this map (currently only `if`) use a bespoke form instead.
  */
@@ -116,6 +154,8 @@ export const BUILTIN_STEP_CONFIG_SCHEMAS: Record<string, Record<string, unknown>
   waitFor: WaitForConfigSchema,
   emit: EmitConfigSchema,
   case: CaseConfigSchema,
+  iterator: IteratorConfigSchema,
+  aggregator: AggregatorConfigSchema,
 };
 
 /**

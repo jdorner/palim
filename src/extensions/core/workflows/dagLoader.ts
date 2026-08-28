@@ -9,7 +9,7 @@
 import { formatValidationErrors } from "@ext/sdk";
 import type { Logger } from "@ext/types";
 import { Value } from "@sinclair/typebox/value";
-import { validateCfEdges, validateDag } from "./dagValidation";
+import { validateCfEdges, validateDag, validateIteratorPairing } from "./dagValidation";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePrompt } from "./schemas";
 
 /**
@@ -57,6 +57,12 @@ export async function loadDagWorkflows(workflowsDir: string, log: Logger): Promi
       if (allErrors.length > 0) {
         log.error(`Invalid workflow ${entry}: ${allErrors.map((e) => e.message).join("; ")}`);
         continue;
+      }
+
+      // Iterator/aggregator pairing validation (non-blocking warnings)
+      const pairingErrors = validateIteratorPairing(definition);
+      if (pairingErrors.length > 0) {
+        log.warn(`Workflow ${entry} has pairing issues: ${pairingErrors.map((e) => e.message).join("; ")}`);
       }
 
       // Normalize agent prompt arrays to strings

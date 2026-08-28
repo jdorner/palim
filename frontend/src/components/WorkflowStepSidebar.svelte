@@ -5,7 +5,7 @@ import { builtinConfigSchema } from "$lib/builtinStepSchemas";
 import { Badge } from "$lib/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/components/ui/select";
 import { visualForStepType } from "$lib/nodeVisuals";
-import { iconIdForType, labelForStepType } from "$lib/stepTypes";
+import { categoryForType, iconIdForType, labelForStepType } from "$lib/stepTypes";
 import type { OutputSchemas } from "$lib/templateScope";
 import type { StepDraft, WorkflowDraft } from "$lib/workflowValidation";
 import { validateStepConfig } from "$lib/workflowValidation";
@@ -118,7 +118,7 @@ let {
  * they are excluded from the step-type change dropdown to avoid converting a
  * step into a non-editable state.
  */
-const CF_TYPES = new Set(["if", "case", "waitFor", "emit"]);
+const CF_TYPES = new Set(["if", "case", "iterator", "aggregator", "waitFor", "emit"]);
 
 /** Custom step types offered in the change-type dropdown (excludes control-flow types). */
 let selectableCustomTypes = $derived(customStepTypes.filter((st) => !CF_TYPES.has(st.type)));
@@ -204,7 +204,7 @@ function clearConditionError(index: number) {
   built-in types resolve their icon directly in visualForStepType.
 -->
 {#snippet stepTypeChip(type: string, size: number)}
-  {@const v = visualForStepType(type, { iconId: iconIdForType(type) })}
+  {@const v = visualForStepType(type, { iconId: iconIdForType(type), category: categoryForType(type) })}
   <span
     class="flex shrink-0 items-center justify-center rounded text-white {v.tileClass}"
     style="width: {size}px; height: {size}px;"
@@ -635,7 +635,7 @@ function clearConditionError(index: number) {
           {/if}
         </div>
       {/if}
-    {:else if !editMode && (selectedStep.type === "if" || selectedStep.type === "case" || selectedStep.type === "waitFor" || selectedStep.type === "emit")}
+    {:else if !editMode && (selectedStep.type === "if" || selectedStep.type === "case" || selectedStep.type === "waitFor" || selectedStep.type === "emit" || selectedStep.type === "iterator" || selectedStep.type === "aggregator")}
       <!-- Read-only: built-in control-flow step config -->
       {@const roCfType = selectedStep.type}
       {@const roCfSchema = builtinConfigSchema(roCfType)}
