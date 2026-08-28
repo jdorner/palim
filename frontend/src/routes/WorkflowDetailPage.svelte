@@ -1772,7 +1772,7 @@ onDestroy(() => {
       role="menu"
       tabindex="-1"
     >
-      <StepTypePicker {customStepTypes} onselect={confirmEdgeInsert} includeControlFlow={false} />
+      <StepTypePicker {customStepTypes} onselect={confirmEdgeInsert} />
     </div>
   </div>
 {/if}
