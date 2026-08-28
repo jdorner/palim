@@ -207,7 +207,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
 
   const layout = computeLayout(flatGraph, {
     trigger,
-    includeAddNode: editMode && steps.length > 0,
+    includeAddNode: !!editMode,
     terminalTypes,
   });
 

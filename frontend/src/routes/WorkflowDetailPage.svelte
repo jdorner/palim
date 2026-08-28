@@ -729,7 +729,6 @@ function branchFromHandle(sourceId: string, sourceHandle: string | null | undefi
 /** Remove a step at the given index. Returns false if removal was prevented. */
 function removeStep(id: string) {
   if (!editDraft) return;
-  if (editDraft.steps.length <= 1) return; // Prevent removal of last step
 
   // Resolve the step by its stable synthetic id. The index is derived here
   // purely to re-key the index-based validation-error map below.

@@ -156,7 +156,11 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   const lastRootIsTerminal = lastRoot && options.terminalTypes?.has(lastRoot.data.type);
   const showRootAddStep = options.includeAddNode && !!lastRoot && !lastRootIsCF && !lastRootIsTerminal;
 
-  if (showRootAddStep) {
+  // When there are no steps at all but we're in edit mode, show the add-step
+  // connected to the trigger so the user can add the first step.
+  const showEmptyAddStep = options.includeAddNode && graph.nodes.length === 0 && !!options.trigger;
+
+  if (showRootAddStep || showEmptyAddStep) {
     g.setNode("__addStep__", { width: ADD_NODE_WIDTH, height: ADD_NODE_HEIGHT });
   }
 
@@ -202,6 +206,11 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   // Connect trigger to the entry node
   if (options.trigger && firstRootId) {
     g.setEdge("__trigger__", firstRootId);
+  }
+
+  // Connect trigger to add-step when there are no steps (empty workflow in edit mode)
+  if (showEmptyAddStep) {
+    g.setEdge("__trigger__", "__addStep__");
   }
 
   // Add workflow edges
@@ -319,6 +328,9 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   if (showRootAddStep && lastRoot) {
     reanchorAddStep("__addStep__", lastRoot.id);
   }
+  if (showEmptyAddStep) {
+    reanchorAddStep("__addStep__", "__trigger__");
+  }
   for (const info of branchAddSteps) {
     // The add-step's real source is the branch tail, or the CF node for an
     // empty branch (mirrors the edge-building logic below).
@@ -344,6 +356,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
       id: "__trigger__",
       type: "step",
       position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
+      deletable: false,
       data: {
         slug: options.trigger.ref ?? options.trigger.type,
         type: "trigger",
@@ -372,7 +385,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   }
 
   // Root add-step node
-  if (showRootAddStep) {
+  if (showRootAddStep || showEmptyAddStep) {
     const pos = g.node("__addStep__");
     svelteNodes.push({
       id: "__addStep__",
@@ -428,6 +441,16 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
         style: "stroke-dasharray: 5 5;",
       });
     }
+  }
+
+  // Empty workflow: dashed edge from trigger to add-step
+  if (showEmptyAddStep) {
+    svelteEdges.push({
+      id: "__trigger__->__addStep__",
+      source: "__trigger__",
+      target: "__addStep__",
+      style: "stroke-dasharray: 5 5;",
+    });
   }
 
   // Branch add-step edges (dashed)
