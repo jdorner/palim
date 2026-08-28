@@ -24,6 +24,14 @@ export type { ScheduleEntry } from "./schedules";
 export type { GlobalVariableEntry } from "./variables";
 export type { ApprovalRequestEvent, PushMessageEvent, WebSocketMessage } from "./websocket";
 export type {
+  BuilderConfig,
+  BuilderDraft,
+  EdgeDraft as BuilderEdgeDraft,
+  StepDraft as BuilderStepDraft,
+  StepTypeDescriptor,
+} from "./workflowBuilder";
+export { BUILTIN_STEP_TYPES, getDescriptor, WorkflowBuilder } from "./workflowBuilder";
+export type {
   OutputSchema,
   OutputSchemas,
   ResolvedExpression,
