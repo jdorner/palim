@@ -22,10 +22,7 @@ import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePromp
  * @param log - Logger instance for reporting errors
  * @returns The validated DAG definition, or `null` if skipped
  */
-export async function loadSingleWorkflow(
-  filePath: string,
-  log: Logger,
-): Promise<DagWorkflowDefinition | null> {
+export async function loadSingleWorkflow(filePath: string, log: Logger): Promise<DagWorkflowDefinition | null> {
   const filename = filePath.split("/").pop()!;
 
   try {
