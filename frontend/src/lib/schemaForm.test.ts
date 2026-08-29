@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { getAvailableItems, getInputType, type SchemaProperty } from "./schemaForm";
+import { buildInitialValues, getAvailableItems, getEmptyValue, getInputType, type SchemaProperty } from "./schemaForm";
 
 describe("getInputType", () => {
   describe("select (single string with availableItems)", () => {
@@ -62,5 +62,70 @@ describe("getAvailableItems", () => {
 
   test("returns an empty array when availableItems is not an array", () => {
     expect(getAvailableItems({ availableItems: "nope" })).toEqual([]);
+  });
+});
+
+describe("getEmptyValue", () => {
+  test("returns {} for object/record types (not an empty string)", () => {
+    expect(getEmptyValue({ type: "object" })).toEqual({});
+  });
+
+  test("returns false for boolean, 0 for number, [] for array", () => {
+    expect(getEmptyValue({ type: "boolean" })).toBe(false);
+    expect(getEmptyValue({ type: "number" })).toBe(0);
+    expect(getEmptyValue({ type: "array" })).toEqual([]);
+  });
+
+  test("returns empty string for plain string", () => {
+    expect(getEmptyValue({ type: "string" })).toBe("");
+  });
+});
+
+describe("buildInitialValues", () => {
+  // Mirrors the http-request config schema shape: url required, headers an
+  // optional object, method an optional enum with a default.
+  const schema = {
+    type: "object",
+    properties: {
+      url: { type: "string" },
+      method: { anyOf: [{ const: "GET" }, { const: "POST" }], default: "POST" },
+      headers: { type: "object" },
+      body: { type: "string" },
+    },
+    required: ["url"],
+  };
+
+  test("omits optional fields with no value and no default (does not persist empty placeholders)", () => {
+    const vals = buildInitialValues(schema, undefined);
+    // Optional object field must NOT be injected as "" (the original bug).
+    expect("headers" in vals).toBe(false);
+    // Optional string field with no default is omitted too.
+    expect("body" in vals).toBe(false);
+  });
+
+  test("seeds required fields lacking a value/default with a typed empty value", () => {
+    const vals = buildInitialValues(schema, undefined);
+    expect(vals.url).toBe("");
+  });
+
+  test("applies declared defaults for optional fields", () => {
+    const vals = buildInitialValues(schema, undefined);
+    expect(vals.method).toBe("POST");
+  });
+
+  test("preserves existing values, including optional object fields", () => {
+    const vals = buildInitialValues(schema, { url: "http://x", headers: { Authorization: "Bearer t" } });
+    expect(vals.url).toBe("http://x");
+    expect(vals.headers).toEqual({ Authorization: "Bearer t" });
+  });
+
+  test("a required object field defaults to an empty object, never an empty string", () => {
+    const objRequired = {
+      type: "object",
+      properties: { cfg: { type: "object" } },
+      required: ["cfg"],
+    };
+    const vals = buildInitialValues(objRequired, undefined);
+    expect(vals.cfg).toEqual({});
   });
 });

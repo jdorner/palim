@@ -13,6 +13,7 @@
 
 import { DEFAULT_ENV_ALLOWLIST } from "@shared/workflows";
 import type { TemplateVariableResolver } from "@src/variables";
+import { evaluateExpression, isForbiddenKey, referencesForbiddenKey } from "./templateEval";
 
 /**
  * Minimal interface for secret resolution within templates.
@@ -92,6 +93,10 @@ function traversePath(obj: unknown, segments: string[]): unknown {
   for (const segment of segments) {
     if (current === null || current === undefined) return undefined;
     if (typeof current !== "object") return undefined;
+    // Refuse prototype-chain / constructor escape keys, matching the evaluator's
+    // sandbox. An access to such a key resolves to undefined (which surfaces as
+    // the standard "unresolvable path" warning + literal fallback).
+    if (isForbiddenKey(segment)) return undefined;
     current = (current as Record<string, unknown>)[segment];
   }
   return current;
@@ -143,6 +148,15 @@ export async function resolveTemplates(
     const expr: string = match[1]!;
     const trimmed = expr.trim();
     const parts = trimmed.split(".");
+
+    // Sandbox guard (applies to ALL expressions, path and evaluated alike):
+    // refuse any reference to a prototype-chain / constructor escape key. Such
+    // an expression is left literal with a warning and never resolved.
+    if (referencesForbiddenKey(trimmed)) {
+      warnings.push(`Forbidden key reference in template expression: ${trimmed}`);
+      resolved += `{{${trimmed}}}`;
+      continue;
+    }
 
     // {{itemIndex}} - zero-based iteration index (only inside iterator body)
     if (trimmed === "itemIndex" && ctx.iterationContext) {
@@ -283,10 +297,106 @@ export async function resolveTemplates(
       }
     }
 
+    // Fallback for expressions that are not plain namespace references.
+    //
+    // Only expressions that use function-call / operator syntax are routed to
+    // the safe evaluator. A plain dot-path that reached this point (e.g. an
+    // unknown namespace like `unknown.thing`, or a malformed `var.A.B`) is NOT
+    // evaluated: it retains the historical "unrecognized -> left literal +
+    // warning" behavior, so existing workflows do not silently change meaning.
+    //
+    // The evaluator runs against a NON-SENSITIVE scope only. Guarded namespaces
+    // (secret, env) are intentionally NOT included: they are resolved above by
+    // the dedicated branches and must never be reachable from arbitrary
+    // expression logic. The scope exposes the same non-sensitive namespaces the
+    // path branches use (trigger, steps, var) plus the iterator alias and
+    // itemIndex when inside an iterator body.
+    if (isExpressionSyntax(trimmed)) {
+      const evalScope = buildExpressionScopeNamespaces(ctx);
+      const evalResult = evaluateExpression(trimmed, evalScope);
+      if (evalResult.ok) {
+        resolved += stringify(evalResult.value);
+      } else {
+        warnings.push(evalResult.warning ?? `Unrecognized template expression: ${trimmed}`);
+        resolved += `{{${trimmed}}}`;
+      }
+      continue;
+    }
+
     warnings.push(`Unrecognized template expression: ${trimmed}`);
     resolved += `{{${trimmed}}}`;
   }
 
   resolved += template.slice(lastIndex);
   return { resolved, warnings };
+}
+
+/**
+ * Determines whether a trimmed expression uses function-call syntax (and
+ * therefore requires the safe evaluator). A dot-path - even a malformed one
+ * like `var.A.` - is NOT routed to the evaluator: it retains the historical
+ * namespace-branch / unrecognized-expression behavior, so existing workflows
+ * keep their exact warning semantics.
+ *
+ * @param trimmed - The trimmed expression text (without braces)
+ * @returns True when the expression uses function-call syntax
+ */
+function isExpressionSyntax(trimmed: string): boolean {
+  return trimmed.includes("(");
+}
+
+/**
+ * Builds the non-sensitive namespace values exposed to the expression
+ * evaluator. Includes `trigger`, `steps` (result + config), `var`, and - when
+ * inside an iterator body - the iterator alias and `itemIndex`.
+ *
+ * Deliberately EXCLUDES `secret` and `env`: those are access-controlled and are
+ * resolved by dedicated branches before evaluation, never exposed to arbitrary
+ * expression logic.
+ *
+ * @param ctx - The template resolution context
+ * @returns A record of namespace name to value for the evaluation scope
+ */
+function buildExpressionScopeNamespaces(ctx: TemplateContext): Record<string, unknown> {
+  const ns: Record<string, unknown> = {};
+
+  // trigger.payload -> expose as `trigger: { payload }`
+  ns.trigger = { payload: ctx.triggerPayload };
+
+  // steps.<slug>.result / .config -> expose as `steps: { <slug>: { result, config } }`
+  const steps: Record<string, { result?: unknown; config?: unknown }> = {};
+  for (const [slug, result] of Object.entries(ctx.stepResults)) {
+    steps[slug] = { result };
+  }
+  if (ctx.stepConfigs) {
+    for (const [slug, config] of Object.entries(ctx.stepConfigs)) {
+      steps[slug] = { ...(steps[slug] ?? {}), config };
+    }
+  }
+  ns.steps = steps;
+
+  // var.<KEY> - plaintext global variables (no ACL). The variable keys are not
+  // enumerable up front, so `var` is exposed as a lazy lookup backed by the
+  // resolver. The proxy target is null-prototype so that stray prototype-chain
+  // keys (constructor, etc.) are not reachable even before the lexical
+  // forbidden-key check.
+  if (ctx.variableStore) {
+    const store = ctx.variableStore;
+    ns.var = new Proxy(Object.create(null), {
+      get(_t, key: string) {
+        return store.has(key) ? store.resolve(key) : undefined;
+      },
+      has(_t, key: string) {
+        return store.has(key);
+      },
+    });
+  }
+
+  // Iterator body: alias + itemIndex
+  if (ctx.iterationContext) {
+    ns[ctx.iterationContext.as] = ctx.iterationContext.item;
+    ns.itemIndex = ctx.iterationContext.itemIndex;
+  }
+
+  return ns;
 }

@@ -172,6 +172,34 @@ Use inside `prompt`, `url`, `body`, and control flow `ref`/`match`/`payload` fie
 
 A step can reference the result of ANY completed step, not just its direct predecessor. Results are read from the run store, so `{{steps.<slug>.result}}` resolves for any ancestor in the graph.
 
+### Transform functions
+
+Template expressions support function calls to transform values inline, in addition to plain dot-path lookups. Functions can be nested, and their arguments can be any path lookup or another function call.
+
+```json5
+// Strip a data URI prefix, then JSON-escape for safe embedding in a JSON body:
+"body": "{\"data\": \"{{ jsonEscape(stripDataUri(image.dataUrl)) }}\"}"
+```
+
+Available built-in functions:
+
+| Function | Description | Example |
+|----------|-------------|---------|
+| `stripDataUri(value)` | Remove a leading `data:<type>;base64,` prefix, yielding raw base64. Returns the input unchanged if no such prefix is present. | `stripDataUri(image.dataUrl)` |
+| `base64Decode(value)` | Decode a base64 string to UTF-8 text. | `base64Decode(steps.fetch.result.body)` |
+| `jsonEscape(value)` | Escape a value so it is safe to embed inside a JSON string literal (no surrounding quotes added). Use it whenever you interpolate a value into a JSON `body`. | `jsonEscape(steps.extract.result.text)` |
+| `after(value, delimiter)` | Substring after the first occurrence of `delimiter` (empty string if not found). | `after(image.dataUrl, ",")` |
+| `before(value, delimiter)` | Substring before the first occurrence of `delimiter` (whole string if not found). | `before(steps.parse.result.pair, "=")` |
+| `trim(value)` | Trim leading/trailing whitespace. | `trim(steps.extract.result.name)` |
+| `nowIso()` | Current time as an ISO 8601 string. | `nowIso()` |
+
+Notes:
+
+- Functions are pure and side-effect-free (string/data/date transforms only). They cannot perform I/O, network, filesystem, or environment/secret access.
+- **JSON bodies:** substituted values are NOT auto-escaped, so a value containing a quote or newline can break a JSON `body`. Wrap such values in `jsonEscape(...)` — e.g. `"{\"text\": \"{{ jsonEscape(steps.extract.result) }}\"}"`.
+- **Security:** references to `constructor`, `prototype`, `__proto__`, or any `__dunder__` key are refused (left literal with a warning). Only the whitelisted namespaces (`trigger`, `steps`, `var`, the iterator alias, `itemIndex`) and the built-in functions are reachable; `secret`/`env` are resolved separately and are NOT accessible from function expressions.
+- If an expression references an unknown function or fails to evaluate, it is left literal (`{{...}}`) and a warning is logged — it never throws.
+
 ### Accessing secrets
 
 Use `{{secret.<KEY>}}` to inject encrypted credentials into prompts without hardcoding them. The secret is decrypted only at runtime, access is checked against the ACL, and every access attempt is logged.
@@ -239,7 +267,12 @@ Makes an outbound HTTP request. The response body becomes the step result (provi
 }
 ```
 
-Additional options: `headers` (key-value map), `timeout` (ms, default 30000), `responseFormat` (`"json"` or `"text"`), `expectedStatus` (array of acceptable status codes).
+Additional options: `headers` (an object of key-value string pairs; **omit it entirely if you have no custom headers** — do not set it to an empty string), `timeout` (ms, default 30000), `responseFormat` (`"json"` or `"text"`), `expectedStatus` (array of acceptable status codes). When a `body` is present and no `Content-Type` header is set, `application/json` is applied automatically.
+
+```json5
+// With custom headers:
+"headers": { "Authorization": "Bearer {{secret.API_TOKEN}}" }
+```
 
 ### Fail step
 
@@ -412,7 +445,10 @@ The body steps between them are regular top-level nodes — they show up in the 
       "type": "http-request",
       "url": "http://localhost:3000/ext/converter/convert",
       "method": "POST",
-      "body": "{\"data\": \"{{image.dataUrl}}\"}",
+      // The webhook delivers images as data URIs (data:image/...;base64,...),
+      // but the converter's `data` field expects raw base64. stripDataUri removes
+      // the prefix; jsonEscape keeps the value safe inside the JSON body.
+      "body": "{\"data\": \"{{ jsonEscape(stripDataUri(image.dataUrl)) }}\"}",
       "responseFormat": "json",
       "timeout": 120000,
     },

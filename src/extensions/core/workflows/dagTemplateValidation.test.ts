@@ -503,6 +503,84 @@ describe("validateDagWorkflowTemplates (properties)", () => {
 });
 
 // ---------------------------------------------------------------------------
+// Function-call expression syntax
+// ---------------------------------------------------------------------------
+
+describe("validateDagWorkflowTemplates - function-call syntax", () => {
+  /**
+   * Builds an iterator -> body -> aggregator DAG (mirroring the scan-app shape)
+   * with the given body-step field value, so the iterator alias `image` is a
+   * valid prefix inside the body.
+   */
+  function iteratorWf(bodyFieldValue: string): DagWorkflowDefinition {
+    return wf(
+      {
+        images: { type: "iterator", items: "{{trigger.payload}}", as: "image" },
+        convert: { type: "http-request", url: "http://x", method: "POST", body: bodyFieldValue },
+        collect: { type: "aggregator", iterator: "images" },
+      },
+      [
+        { from: "images", to: "convert", branch: "each" },
+        { from: "convert", to: "collect" },
+      ],
+    );
+  }
+
+  test("does not flag a function call over a valid iterator-alias path", async () => {
+    const def = iteratorWf('{"data": "{{ stripDataUri(image.dataUrl) }}"}');
+    const warnings = await validateDagWorkflowTemplates(def);
+    expect(warnings.filter((w) => w.message.includes("Unknown expression prefix"))).toEqual([]);
+    expect(warnings.filter((w) => w.message.includes("Unknown function"))).toEqual([]);
+  });
+
+  test("does not flag nested function calls", async () => {
+    const def = iteratorWf('{"data": "{{ jsonEscape(stripDataUri(image.dataUrl)) }}"}');
+    const warnings = await validateDagWorkflowTemplates(def);
+    expect(warnings).toEqual([]);
+  });
+
+  test("flags an unknown function name", async () => {
+    const def = iteratorWf('{"data": "{{ bogusFn(image.dataUrl) }}"}');
+    const warnings = await validateDagWorkflowTemplates(def);
+    const fnWarn = warnings.find((w) => w.message.includes("Unknown function"));
+    expect(fnWarn).not.toBeUndefined();
+    expect(fnWarn!.message).toContain("bogusFn");
+  });
+
+  test("still flags an unknown namespace in a function argument", async () => {
+    const def = iteratorWf('{"data": "{{ stripDataUri(bogus.field) }}"}');
+    const warnings = await validateDagWorkflowTemplates(def);
+    const prefixWarn = warnings.find((w) => w.message.includes("Unknown expression prefix"));
+    expect(prefixWarn).not.toBeUndefined();
+  });
+
+  test("still flags a genuinely unknown plain-path prefix", async () => {
+    const def = wf(
+      {
+        a: { type: "agent", prompt: "seed" },
+        b: { type: "agent", prompt: "{{totally.unknown}}" },
+      },
+      [{ from: "a", to: "b" }],
+    );
+    const warnings = await validateDagWorkflowTemplates(def);
+    expect(warnings.find((w) => w.message.includes("Unknown expression prefix"))).not.toBeUndefined();
+  });
+
+  test("flags forbidden key references", async () => {
+    const def = iteratorWf('{"data": "{{ constructor.constructor(1)() }}"}');
+    const warnings = await validateDagWorkflowTemplates(def);
+    expect(warnings.find((w) => w.message.includes("Forbidden key"))).not.toBeUndefined();
+  });
+
+  test("scan-app workflow body produces no template warnings (task 6.2/7.1)", async () => {
+    // Mirrors the actual test-scan-app.json5 converter body after the fix.
+    const def = iteratorWf('{"data": "{{ jsonEscape(stripDataUri(image.dataUrl)) }}"}');
+    const warnings = await validateDagWorkflowTemplates(def);
+    expect(warnings).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Variable-reference validation (var namespace)
 // ---------------------------------------------------------------------------
 

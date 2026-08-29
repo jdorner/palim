@@ -17,6 +17,8 @@
 import { DEFAULT_ENV_ALLOWLIST, type OutputSchema, walkSchemaPath } from "@shared/workflows";
 import type { DagStepDef, DagWorkflowDefinition } from "./schemas";
 import type { TemplateSecretResolver } from "./template";
+import { referencesForbiddenKey } from "./templateEval";
+import { TEMPLATE_FUNCTION_NAMES } from "./templateFunctions";
 
 /**
  * A single template validation warning.
@@ -272,6 +274,59 @@ function getIterationPrefixesForStep(slug: string, definition: DagWorkflowDefini
   return prefixes;
 }
 
+/** Matches a function-call head: `name(` where `name` is an identifier. */
+const CALL_HEAD = /([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g;
+
+/**
+ * Decomposition of a template expression for validation.
+ */
+interface ExprDecomposition {
+  /** Namespace path references to validate against scope rules (e.g. "image.dataUrl"). */
+  pathRefs: string[];
+  /** Function names invoked in the expression. */
+  functionNames: string[];
+}
+
+/**
+ * Decompose a (function-call) expression into the namespace path references it
+ * uses and the function names it calls. Used so the validator can accept
+ * function syntax like `stripDataUri(image.dataUrl)` while still validating the
+ * argument path (`image.dataUrl`) under the normal namespace rules.
+ *
+ * The extraction is lexical and conservative: it pulls out identifier chains
+ * (dot-paths) that are NOT immediately followed by `(` (those are function
+ * names), and collects the function names separately. String and numeric
+ * literals are ignored.
+ *
+ * @param expr - The trimmed expression text (without braces)
+ * @returns The extracted path references and function names
+ */
+function decomposeExpression(expr: string): ExprDecomposition {
+  const functionNames: string[] = [];
+  for (let m = CALL_HEAD.exec(expr); m !== null; m = CALL_HEAD.exec(expr)) {
+    functionNames.push(m[1]!);
+  }
+  const fnSet = new Set(functionNames);
+
+  // Strip string literals so their contents are not mistaken for paths.
+  const withoutStrings = expr.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g, " ");
+
+  // Extract identifier dot-paths.
+  const pathRefs: string[] = [];
+  const PATH = /[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z0-9_$]+)*/g;
+  for (let m = PATH.exec(withoutStrings); m !== null; m = PATH.exec(withoutStrings)) {
+    const token = m[0]!;
+    const head = token.split(".")[0]!;
+    // Skip pure function-name references (e.g. "stripDataUri" with no dot path).
+    if (fnSet.has(token)) continue;
+    // A bare identifier that is a function name (followed by `(`) is not a path.
+    if (fnSet.has(head) && !token.includes(".")) continue;
+    pathRefs.push(token);
+  }
+
+  return { pathRefs, functionNames };
+}
+
 /**
  * Validate all template expressions in a DAG workflow definition.
  *
@@ -306,199 +361,233 @@ export async function validateDagWorkflowTemplates(
         if (reported.has(expr)) continue;
         reported.add(expr);
 
-        const parts = expr.split(".");
-        const prefix = parts[0];
-
-        if (!prefix || (!KNOWN_PREFIXES.has(prefix) && !iterPrefixes.has(prefix))) {
+        // Sandbox guard: reject prototype-chain / constructor escape keys.
+        if (referencesForbiddenKey(expr)) {
           warnings.push({
             stepSlug: slug,
             field: fieldName,
-            message: `Unknown expression prefix "${prefix}" in "{{${expr}}}"`,
+            message: `Forbidden key reference in "{{${expr}}}"`,
           });
           continue;
         }
 
-        if (prefix === "trigger") {
-          if (parts.length < 2 || parts[1] !== "payload") {
+        // Decompose the expression into the path references it uses and the
+        // functions it calls. Only expressions using function-call syntax (a
+        // `(`) are decomposed; everything else - including a malformed dot-path
+        // like `var.A.` - is validated literally as a single path so its
+        // malformation is still reported exactly as before.
+        const hasCallSyntax = expr.includes("(");
+        const { pathRefs, functionNames } = hasCallSyntax
+          ? decomposeExpression(expr)
+          : { pathRefs: [expr], functionNames: [] };
+
+        // Validate any called functions against the built-in registry.
+        for (const fnName of functionNames) {
+          if (!TEMPLATE_FUNCTION_NAMES.has(fnName)) {
             warnings.push({
               stepSlug: slug,
               field: fieldName,
-              message: `Invalid trigger expression "{{${expr}}}" - expected "trigger.payload" or "trigger.payload.<path>"`,
+              message: `Unknown function "${fnName}" in "{{${expr}}}"`,
             });
-            continue;
           }
-
-          // Path-existence check: `{{trigger.payload.<path>}}`. Additive and
-          // schema-dependent; suppressed when no resolver is provided or it
-          // returns null/undefined. A present-but-malformed schema is NOT
-          // treated as absent - the walker decides whether the path resolves.
-          if (parts.length > 2 && resolveTriggerOutputSchema) {
-            const schema = resolveTriggerOutputSchema();
-            if (schema !== null && schema !== undefined) {
-              const dotPath = parts.slice(2);
-              if (!walkSchemaPath(schema, dotPath).resolved) {
-                warnings.push({
-                  stepSlug: slug,
-                  field: fieldName,
-                  message: `Reference to unknown payload path "${dotPath.join(".")}" on the trigger in "{{${expr}}}"`,
-                });
-              }
-            }
-          }
-          continue;
         }
 
-        if (prefix === "steps") {
-          if (parts.length < 3) {
+        // Validate each extracted path reference under the namespace rules.
+        for (const refExpr of pathRefs) {
+          const parts = refExpr.split(".");
+          const prefix = parts[0];
+
+          if (!prefix || (!KNOWN_PREFIXES.has(prefix) && !iterPrefixes.has(prefix))) {
             warnings.push({
               stepSlug: slug,
               field: fieldName,
-              message: `Incomplete steps expression "{{${expr}}}" - expected "steps.<slug>.result[.<path>]"`,
+              message: `Unknown expression prefix "${prefix}" in "{{${expr}}}"`,
             });
             continue;
           }
 
-          const referencedSlug = parts[1]!;
-          const accessor = parts[2];
-
-          if (!slugs.has(referencedSlug)) {
-            warnings.push({
-              stepSlug: slug,
-              field: fieldName,
-              message: `References unknown step slug "${referencedSlug}" in "{{${expr}}}"`,
-            });
-            continue;
-          }
-
-          // For result references, the referenced step must run before this one
-          // AND be guaranteed to have run. Two distinct failure modes:
-          //   - not an ancestor at all: the result is never available here;
-          //   - an ancestor but not a dominator: the referenced step sits on a
-          //     conditional branch (if/case) that may be skipped, so its result
-          //     is only available when that branch is taken. This is exactly the
-          //     case that slipped through before and blew up at runtime with
-          //     "Unknown step slug in template" on a join node. Config is static
-          //     (always present), so this only applies to result references.
-          if (accessor === "result" && referencedSlug !== slug) {
-            const stepAncestors = ancestors.get(slug) ?? new Set();
-            if (!stepAncestors.has(referencedSlug)) {
+          if (prefix === "trigger") {
+            if (parts.length < 2 || parts[1] !== "payload") {
               warnings.push({
                 stepSlug: slug,
                 field: fieldName,
-                message: `Reference to step "${referencedSlug}" in "{{${expr}}}" is not an ancestor - its result may not be available`,
+                message: `Invalid trigger expression "{{${expr}}}" - expected "trigger.payload" or "trigger.payload.<path>"`,
               });
               continue;
             }
-            const stepDominators = dominators.get(slug) ?? new Set();
-            if (!stepDominators.has(referencedSlug)) {
+
+            // Path-existence check: `{{trigger.payload.<path>}}`. Additive and
+            // schema-dependent; suppressed when no resolver is provided or it
+            // returns null/undefined. A present-but-malformed schema is NOT
+            // treated as absent - the walker decides whether the path resolves.
+            if (parts.length > 2 && resolveTriggerOutputSchema) {
+              const schema = resolveTriggerOutputSchema();
+              if (schema !== null && schema !== undefined) {
+                const dotPath = parts.slice(2);
+                if (!walkSchemaPath(schema, dotPath).resolved) {
+                  warnings.push({
+                    stepSlug: slug,
+                    field: fieldName,
+                    message: `Reference to unknown payload path "${dotPath.join(".")}" on the trigger in "{{${expr}}}"`,
+                  });
+                }
+              }
+            }
+            continue;
+          }
+
+          if (prefix === "steps") {
+            if (parts.length < 3) {
               warnings.push({
                 stepSlug: slug,
                 field: fieldName,
-                message: `Reference to step "${referencedSlug}" in "{{${expr}}}" is on a conditional branch that may be skipped - its result may not be available`,
+                message: `Incomplete steps expression "{{${expr}}}" - expected "steps.<slug>.result[.<path>]"`,
               });
               continue;
             }
-          }
 
-          if (accessor !== "result" && accessor !== "config") {
-            warnings.push({
-              stepSlug: slug,
-              field: fieldName,
-              message: `Invalid step accessor "${accessor}" in "{{${expr}}}" - only "result" and "config" are supported`,
-            });
-            continue;
-          }
+            const referencedSlug = parts[1]!;
+            const accessor = parts[2];
 
-          // Path-existence check: `{{steps.<slug>.result.<path>}}`. Runs only
-          // after the ancestor/dominator checks above pass (they `continue` on
-          // failure, so we never reach here for those). Additive and
-          // schema-dependent; suppressed when no resolver is provided or it
-          // returns null/undefined. A present-but-malformed schema is NOT
-          // treated as absent - the walker decides whether the path resolves.
-          if (accessor === "result" && parts.length > 3 && resolveStepOutputSchema) {
-            const schema = resolveStepOutputSchema(referencedSlug);
-            if (schema !== null && schema !== undefined) {
-              const dotPath = parts.slice(3);
-              if (!walkSchemaPath(schema, dotPath).resolved) {
+            if (!slugs.has(referencedSlug)) {
+              warnings.push({
+                stepSlug: slug,
+                field: fieldName,
+                message: `References unknown step slug "${referencedSlug}" in "{{${expr}}}"`,
+              });
+              continue;
+            }
+
+            // For result references, the referenced step must run before this one
+            // AND be guaranteed to have run. Two distinct failure modes:
+            //   - not an ancestor at all: the result is never available here;
+            //   - an ancestor but not a dominator: the referenced step sits on a
+            //     conditional branch (if/case) that may be skipped, so its result
+            //     is only available when that branch is taken. This is exactly the
+            //     case that slipped through before and blew up at runtime with
+            //     "Unknown step slug in template" on a join node. Config is static
+            //     (always present), so this only applies to result references.
+            if (accessor === "result" && referencedSlug !== slug) {
+              const stepAncestors = ancestors.get(slug) ?? new Set();
+              if (!stepAncestors.has(referencedSlug)) {
                 warnings.push({
                   stepSlug: slug,
                   field: fieldName,
-                  message: `Reference to unknown result path "${dotPath.join(".")}" on step "${referencedSlug}" in "{{${expr}}}"`,
+                  message: `Reference to step "${referencedSlug}" in "{{${expr}}}" is not an ancestor - its result may not be available`,
+                });
+                continue;
+              }
+              const stepDominators = dominators.get(slug) ?? new Set();
+              if (!stepDominators.has(referencedSlug)) {
+                warnings.push({
+                  stepSlug: slug,
+                  field: fieldName,
+                  message: `Reference to step "${referencedSlug}" in "{{${expr}}}" is on a conditional branch that may be skipped - its result may not be available`,
+                });
+                continue;
+              }
+            }
+
+            if (accessor !== "result" && accessor !== "config") {
+              warnings.push({
+                stepSlug: slug,
+                field: fieldName,
+                message: `Invalid step accessor "${accessor}" in "{{${expr}}}" - only "result" and "config" are supported`,
+              });
+              continue;
+            }
+
+            // Path-existence check: `{{steps.<slug>.result.<path>}}`. Runs only
+            // after the ancestor/dominator checks above pass (they `continue` on
+            // failure, so we never reach here for those). Additive and
+            // schema-dependent; suppressed when no resolver is provided or it
+            // returns null/undefined. A present-but-malformed schema is NOT
+            // treated as absent - the walker decides whether the path resolves.
+            if (accessor === "result" && parts.length > 3 && resolveStepOutputSchema) {
+              const schema = resolveStepOutputSchema(referencedSlug);
+              if (schema !== null && schema !== undefined) {
+                const dotPath = parts.slice(3);
+                if (!walkSchemaPath(schema, dotPath).resolved) {
+                  warnings.push({
+                    stepSlug: slug,
+                    field: fieldName,
+                    message: `Reference to unknown result path "${dotPath.join(".")}" on step "${referencedSlug}" in "{{${expr}}}"`,
+                  });
+                }
+              }
+            }
+            continue;
+          }
+
+          if (prefix === "env") {
+            if (parts.length < 2) {
+              warnings.push({
+                stepSlug: slug,
+                field: fieldName,
+                message: `Incomplete env expression "{{${expr}}}" - expected "env.<VAR_NAME>"`,
+              });
+              continue;
+            }
+            const varName = parts.slice(1).join(".");
+            if (!getEnvAllowlist().has(varName)) {
+              warnings.push({
+                stepSlug: slug,
+                field: fieldName,
+                message: `Environment variable "${varName}" is not in the workflow allowlist`,
+              });
+            }
+            continue;
+          }
+
+          if (prefix === "secret") {
+            if (parts.length !== 2 || !parts[1]) {
+              warnings.push({
+                stepSlug: slug,
+                field: fieldName,
+                message: `Invalid secret expression "{{${expr}}}" - expected "secret.<KEY>"`,
+              });
+              continue;
+            }
+
+            if (secretStore && workflowName) {
+              const secretKey = parts[1];
+              const result = await secretStore.resolve(secretKey, `workflow:${workflowName}`);
+              if (!result.granted) {
+                warnings.push({
+                  stepSlug: slug,
+                  field: fieldName,
+                  message: `Secret "${secretKey}" access denied for workflow "${workflowName}": ${result.reason ?? "unknown"}`,
+                });
+              } else if (result.value === null) {
+                warnings.push({
+                  stepSlug: slug,
+                  field: fieldName,
+                  message: `Secret "${secretKey}" not found in vault`,
                 });
               }
             }
-          }
-          continue;
-        }
-
-        if (prefix === "env") {
-          if (parts.length < 2) {
-            warnings.push({
-              stepSlug: slug,
-              field: fieldName,
-              message: `Incomplete env expression "{{${expr}}}" - expected "env.<VAR_NAME>"`,
-            });
-            continue;
-          }
-          const varName = parts.slice(1).join(".");
-          if (!getEnvAllowlist().has(varName)) {
-            warnings.push({
-              stepSlug: slug,
-              field: fieldName,
-              message: `Environment variable "${varName}" is not in the workflow allowlist`,
-            });
-          }
-          continue;
-        }
-
-        if (prefix === "secret") {
-          if (parts.length !== 2 || !parts[1]) {
-            warnings.push({
-              stepSlug: slug,
-              field: fieldName,
-              message: `Invalid secret expression "{{${expr}}}" - expected "secret.<KEY>"`,
-            });
             continue;
           }
 
-          if (secretStore && workflowName) {
-            const secretKey = parts[1];
-            const result = await secretStore.resolve(secretKey, `workflow:${workflowName}`);
-            if (!result.granted) {
+          if (prefix === "var") {
+            if (parts.length !== 2 || !parts[1]) {
               warnings.push({
                 stepSlug: slug,
                 field: fieldName,
-                message: `Secret "${secretKey}" access denied for workflow "${workflowName}": ${result.reason ?? "unknown"}`,
+                message: `Invalid variable expression "{{${expr}}}" - expected "var.<KEY>"`,
               });
-            } else if (result.value === null) {
-              warnings.push({
-                stepSlug: slug,
-                field: fieldName,
-                message: `Secret "${secretKey}" not found in vault`,
-              });
+              continue;
             }
-          }
-          continue;
-        }
 
-        if (prefix === "var") {
-          if (parts.length !== 2 || !parts[1]) {
-            warnings.push({
-              stepSlug: slug,
-              field: fieldName,
-              message: `Invalid variable expression "{{${expr}}}" - expected "var.<KEY>"`,
-            });
-            continue;
-          }
-
-          if (variableStore) {
-            const variableKey = parts[1];
-            if (!variableStore.has(variableKey)) {
-              warnings.push({
-                stepSlug: slug,
-                field: fieldName,
-                message: `Variable "${variableKey}" not found`,
-              });
+            if (variableStore) {
+              const variableKey = parts[1];
+              if (!variableStore.has(variableKey)) {
+                warnings.push({
+                  stepSlug: slug,
+                  field: fieldName,
+                  message: `Variable "${variableKey}" not found`,
+                });
+              }
             }
           }
         }
