@@ -120,6 +120,10 @@ export function getEmptyValue(prop: SchemaProperty): unknown {
   if (prop.type === "boolean") return false;
   if (prop.type === "number" || prop.type === "integer") return 0;
   if (prop.type === "array") return [];
+  // Object/record fields (e.g. http-request `headers`) must default to an empty
+  // object, never an empty string - an empty string fails object schema
+  // validation at step-execution time ("Expected object").
+  if (prop.type === "object") return {};
   if (isEnum(prop)) {
     const options = getEnumOptions(prop);
     return options.length > 0 ? options[0] : "";
@@ -150,6 +154,7 @@ export function buildInitialValues(
   existingValues?: Record<string, unknown>,
 ): Record<string, unknown> {
   const properties = getProperties(schema);
+  const required = Array.isArray(schema.required) ? new Set(schema.required as string[]) : new Set<string>();
   const vals: Record<string, unknown> = {};
   for (const key of Object.keys(properties)) {
     const prop = properties[key]!;
@@ -157,7 +162,12 @@ export function buildInitialValues(
       vals[key] = existingValues[key];
     } else if (prop.default !== undefined) {
       vals[key] = prop.default;
-    } else {
+    } else if (required.has(key)) {
+      // Only seed an empty value for REQUIRED fields with no value/default.
+      // Optional fields are intentionally omitted so they are not persisted as
+      // empty placeholders (e.g. an optional object field must not be saved as
+      // `""`, which would fail object validation). Form inputs already coalesce
+      // `undefined` to a display value.
       vals[key] = getEmptyValue(prop);
     }
   }
