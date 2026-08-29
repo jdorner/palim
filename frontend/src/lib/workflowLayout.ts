@@ -175,6 +175,12 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
         const lastNode = graph.nodes.find((n) => n.id === info.lastNodeId);
         if (lastNode && options.terminalTypes?.has(lastNode.data.type)) continue;
 
+        // Skip the branch add-step if the branch tail IS an aggregator. This
+        // happens when the iteration body is empty (the `each` edge points
+        // straight at the aggregator). The aggregator's main-flow continuation
+        // owns the add-step, so a branch add-step here would be a duplicate.
+        if (lastNode && lastNode.data.type === "aggregator") continue;
+
         // Skip the branch add-step if the next node after the chain is an aggregator.
         // The aggregator marks the end of the iteration body — the edge insert button
         // between the last body step and the aggregator serves as the add-step.
@@ -658,13 +664,18 @@ function branchTail(graph: FlatGraph, startId: string): string {
 
   while (!seen.has(currentId)) {
     seen.add(currentId);
+    // An aggregator marks the boundary between an iteration body and the
+    // main-flow continuation. The iterator body branch must not traverse into
+    // or past it, so stop as soon as the current node is an aggregator (whether
+    // it was the branch's immediate target or reached along the chain).
+    const currentNode = graph.nodes.find((n) => n.id === currentId);
+    if (currentNode && currentNode.data.type === "aggregator") break;
     // Only follow plain sequential edges (no branch key). If the current node
     // branches, it is a CF node and owns its own addStep buttons.
     const outgoing = graph.edges.filter((e) => e.source === currentId && !e.branch);
     if (outgoing.length !== 1) break;
-    // Stop before an aggregator: it marks the end of an iteration body and the
-    // start of the main-flow continuation, which the iterator body branch must
-    // not traverse into.
+    // Stop before an aggregator too, so the tail is the last body step rather
+    // than the aggregator itself.
     const nextNode = graph.nodes.find((n) => n.id === outgoing[0]!.target);
     if (nextNode && nextNode.data.type === "aggregator") break;
     currentId = outgoing[0]!.target;

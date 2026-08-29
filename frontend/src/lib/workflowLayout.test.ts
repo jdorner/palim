@@ -437,6 +437,115 @@ describe("iterator/aggregator layout", () => {
     });
   });
 
+  describe("empty-body iterator/aggregator pair (just appended)", () => {
+    // Regression: appending a fresh iterator/aggregator pair (empty body, `each`
+    // edge points straight at the aggregator) produced TWO add-steps hanging off
+    // the aggregator: one from the branch-discovery path (wrongly treating the
+    // aggregator as the iterator body tail) and one from the main-flow root path.
+    function buildEmptyPairGraph() {
+      const steps = toStepArray({
+        prev: { type: "agent", prompt: "before" },
+        loop: { type: "iterator", items: "{{x}}" },
+        agg: { type: "aggregator", iterator: "loop" },
+      });
+      const edges: DagEdge[] = [
+        { from: "prev", to: "loop" },
+        { from: "loop", to: "agg", branch: "each" },
+      ];
+      return buildDagGraph(steps, edges);
+    }
+
+    test("aggregator gets exactly one add-step (no duplicate from the empty body branch)", () => {
+      const layout = computeLayout(buildEmptyPairGraph(), { includeAddNode: true });
+      const addStepEdgesFromAgg = layout.edges.filter((e) => e.source === "agg" && e.target.startsWith("__addStep"));
+      expect(addStepEdgesFromAgg).toHaveLength(1);
+    });
+
+    test("no branch add-step is created off the empty iterator body", () => {
+      const layout = computeLayout(buildEmptyPairGraph(), { includeAddNode: true });
+      const branchAddSteps = layout.nodes.filter((n) => n.id.startsWith("__addStep:"));
+      expect(branchAddSteps).toHaveLength(0);
+    });
+
+    test("the single add-step is the root add-step anchored to the aggregator", () => {
+      const layout = computeLayout(buildEmptyPairGraph(), { includeAddNode: true });
+      const rootAddStep = layout.nodes.find((n) => n.id === "__addStep__");
+      expect(rootAddStep).not.toBeUndefined();
+      expect(rootAddStep!.data.sourceNodeId).toBe("agg");
+    });
+  });
+
+  describe("empty-body iterator/aggregator pair WITH a step after the aggregator", () => {
+    // Regression: the earlier fix only handled the case where the aggregator was
+    // the tail. When a step is appended after the aggregator, branchTail started
+    // AT the aggregator and traversed THROUGH it to the following step, creating
+    // a spurious branch add-step off that step -- a second "+" node.
+    function buildPairWithSuccessorGraph() {
+      const steps = toStepArray({
+        loop: { type: "iterator", items: "{{x}}" },
+        agg: { type: "aggregator", iterator: "loop" },
+        after: { type: "agent", prompt: "summarize" },
+      });
+      const edges: DagEdge[] = [
+        { from: "loop", to: "agg", branch: "each" },
+        { from: "agg", to: "after" },
+      ];
+      return buildDagGraph(steps, edges);
+    }
+
+    test("exactly one add-step exists in the whole graph", () => {
+      const layout = computeLayout(buildPairWithSuccessorGraph(), { includeAddNode: true });
+      const allAddSteps = layout.nodes.filter((n) => n.id.startsWith("__addStep"));
+      expect(allAddSteps).toHaveLength(1);
+    });
+
+    test("the single add-step is the root add-step anchored to the step after the aggregator", () => {
+      const layout = computeLayout(buildPairWithSuccessorGraph(), { includeAddNode: true });
+      const rootAddStep = layout.nodes.find((n) => n.id === "__addStep__");
+      expect(rootAddStep).not.toBeUndefined();
+      expect(rootAddStep!.data.sourceNodeId).toBe("after");
+    });
+
+    test("no branch add-step traverses through the aggregator to the following step", () => {
+      const layout = computeLayout(buildPairWithSuccessorGraph(), { includeAddNode: true });
+      const branchAddStepSources = layout.edges.filter((e) => e.target.startsWith("__addStep:")).map((e) => e.source);
+      expect(branchAddStepSources).not.toContain("after");
+      expect(branchAddStepSources).not.toContain("agg");
+    });
+  });
+
+  describe("iterator/aggregator pair WITH a body step AND a step after the aggregator", () => {
+    // The full scan-app shape: iterator -> body -> aggregator -> after.
+    // Only one add-step (root, off `after`), plus the edge insert buttons handle
+    // adding body steps. No branch add-step anywhere.
+    function buildFullGraph() {
+      const steps = toStepArray({
+        loop: { type: "iterator", items: "{{x}}" },
+        body: { type: "agent", prompt: "process" },
+        agg: { type: "aggregator", iterator: "loop" },
+        after: { type: "agent", prompt: "summarize" },
+      });
+      const edges: DagEdge[] = [
+        { from: "loop", to: "body", branch: "each" },
+        { from: "body", to: "agg" },
+        { from: "agg", to: "after" },
+      ];
+      return buildDagGraph(steps, edges);
+    }
+
+    test("exactly one add-step exists in the whole graph", () => {
+      const layout = computeLayout(buildFullGraph(), { includeAddNode: true });
+      const allAddSteps = layout.nodes.filter((n) => n.id.startsWith("__addStep"));
+      expect(allAddSteps).toHaveLength(1);
+    });
+
+    test("the add-step anchors to the step after the aggregator", () => {
+      const layout = computeLayout(buildFullGraph(), { includeAddNode: true });
+      const rootAddStep = layout.nodes.find((n) => n.id === "__addStep__");
+      expect(rootAddStep!.data.sourceNodeId).toBe("after");
+    });
+  });
+
   describe("root add-step when aggregator is the tail", () => {
     // When nothing follows the aggregator, the add-step hangs off the aggregator
     // itself (so the user can append the first post-iteration step).
