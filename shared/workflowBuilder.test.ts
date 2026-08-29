@@ -205,6 +205,57 @@ describe("WorkflowBuilder.insertBetween", () => {
 });
 
 // ---------------------------------------------------------------------------
+// insertAtStart
+// ---------------------------------------------------------------------------
+
+describe("WorkflowBuilder.insertAtStart", () => {
+  test("prepend pass-through before the first root", () => {
+    const builder = new WorkflowBuilder(testConfig());
+    const draft = makeDraft([makeStep("A", "agent"), makeStep("B", "agent")], [{ from: "A", to: "B" }]);
+
+    const result = builder.insertAtStart(draft, "agent");
+
+    expect(result.steps).toHaveLength(3);
+    const newStep = result.steps.find((s) => s.id !== "A" && s.id !== "B")!;
+    // New step becomes the root: edge from it to the original root (A)
+    expect(result.edges).toContainEqual({ from: stepId(newStep), to: "A" });
+    // Original edge A->B preserved
+    expect(result.edges).toContainEqual({ from: "A", to: "B" });
+  });
+
+  test("prepend CF node (if) before the first root uses defaultBranch", () => {
+    const builder = new WorkflowBuilder(testConfig());
+    const draft = makeDraft([makeStep("A", "agent"), makeStep("B", "agent")], [{ from: "A", to: "B" }]);
+
+    const result = builder.insertAtStart(draft, "if");
+
+    const ifNode = result.steps.find((s) => s.type === "if")!;
+    expect(result.edges).toContainEqual({ from: stepId(ifNode), to: "A", branch: "then" });
+  });
+
+  test("prepend paired type (iterator) before the first root", () => {
+    const builder = new WorkflowBuilder(testConfig());
+    const draft = makeDraft([makeStep("A", "agent")], []);
+
+    const result = builder.insertAtStart(draft, "iterator");
+
+    const iter = result.steps.find((s) => s.type === "iterator")!;
+    const agg = result.steps.find((s) => s.type === "aggregator")!;
+    expect(result.edges).toContainEqual({ from: stepId(iter), to: stepId(agg), branch: "each" });
+    expect(result.edges).toContainEqual({ from: stepId(agg), to: "A" });
+  });
+
+  test("prepend to empty draft is a no-op", () => {
+    const builder = new WorkflowBuilder(testConfig());
+    const draft = makeDraft([], []);
+
+    const result = builder.insertAtStart(draft, "agent");
+
+    expect(result).toBe(draft);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // appendAfter
 // ---------------------------------------------------------------------------
 
