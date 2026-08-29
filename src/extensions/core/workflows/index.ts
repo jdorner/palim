@@ -22,6 +22,7 @@
 import { type FSWatcher, watch } from "node:fs";
 import { mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
+import { formatValidationErrors } from "@ext/sdk";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import type { OutputSchema, OutputSchemas } from "@shared/workflows";
@@ -39,7 +40,7 @@ import {
 } from "./dagCoordinator";
 import { createDagEmitHandler } from "./dagEmitHandler";
 import { type DagStepJobData, dispatchDagWorkflow, type SessionFactory } from "./dagEngine";
-import { loadDagWorkflows } from "./dagLoader";
+import { loadDagWorkflows, loadSingleWorkflow } from "./dagLoader";
 import * as dagRunStore from "./dagRunStore";
 import { initDagRunStore } from "./dagRunStore";
 import { type TemplateWarning, validateDagWorkflowTemplates } from "./dagTemplateValidation";
@@ -346,17 +347,36 @@ export function createExtension(): Extension {
   };
 
   /**
-   * Reloads all workflow definitions from disk, debounced.
+   * Reloads workflow definitions from disk, debounced.
+   *
+   * If a specific filename is provided, only that workflow is reloaded (or
+   * removed from the store if the file no longer exists). Otherwise all
+   * workflows are reloaded from disk.
    */
-  function scheduleReload(ctx: ExtensionContext) {
+  function scheduleReload(ctx: ExtensionContext, filename?: string) {
     if (state.reloadTimer) clearTimeout(state.reloadTimer);
     state.reloadTimer = setTimeout(async () => {
       state.reloadTimer = null;
       try {
-        const loaded = await loadDagWorkflows(state.workflowsDir, logger);
-        store.clear();
-        for (const [k, v] of loaded) store.set(k, v);
-        logger.info(`Reloaded ${store.size} workflow definition(s)`);
+        if (filename) {
+          // Single-file reload via shared loader
+          const filePath = path.join(state.workflowsDir, filename);
+          const definition = await loadSingleWorkflow(filePath, logger);
+          if (definition) {
+            store.set(definition.name, definition);
+            logger.info(`Reloaded workflow "${definition.name}" from ${filename}`);
+          } else {
+            // File was invalid or deleted — remove from store
+            store.delete(filename.replace(".json5", ""));
+            logger.info(`Removed workflow "${filename}" from store`);
+          }
+        } else {
+          // Full reload
+          const loaded = await loadDagWorkflows(state.workflowsDir, logger);
+          store.clear();
+          for (const [k, v] of loaded) store.set(k, v);
+          logger.info(`Reloaded ${store.size} workflow definition(s)`);
+        }
         ctx.messaging.broadcast({ type: "workflow_reload" });
       } catch (err) {
         logger.error("Failed to reload workflows:", err);
@@ -482,7 +502,7 @@ export function createExtension(): Extension {
         state.watcher = watch(state.workflowsDir, (_event, filename) => {
           if (filename?.endsWith(".json5")) {
             logger.debug(`Workflow file changed: ${filename}`);
-            scheduleReload(ctx);
+            scheduleReload(ctx, filename);
           }
         });
         state.watcher.on("error", (err) => logger.error("Workflow watcher error:", err));
