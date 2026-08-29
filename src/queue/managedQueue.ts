@@ -367,7 +367,9 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
           }
           return true;
         }
-        logger.warn(`Job ${jobId} still present after trying to remove from DLQ in "${this.queue.name}" (state: ${stateAfter})`);
+        logger.warn(
+          `Job ${jobId} still present after trying to remove from DLQ in "${this.queue.name}" (state: ${stateAfter})`,
+        );
         return false;
       }
 
