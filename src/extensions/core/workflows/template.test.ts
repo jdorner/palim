@@ -522,4 +522,83 @@ describe("resolveTemplates", () => {
       { numRuns: 100 },
     );
   });
+
+  // ---------------------------------------------------------------------------
+  // Expression evaluation (function calls / composed transforms)
+  // ---------------------------------------------------------------------------
+
+  describe("expression evaluation", () => {
+    test("evaluates a function call over the iterator item", async () => {
+      ctx.iterationContext = { item: { dataUrl: "data:image/jpeg;base64,ABC123" }, itemIndex: 0, as: "image" };
+      const { resolved, warnings } = await resolveTemplates("{{ stripDataUri(image.dataUrl) }}", ctx);
+      expect(resolved).toBe("ABC123");
+      expect(warnings).toEqual([]);
+    });
+
+    test("evaluates nested function calls and preserves surrounding text", async () => {
+      ctx.iterationContext = { item: { dataUrl: 'data:text/plain;base64,QUJD"' }, itemIndex: 0, as: "image" };
+      const { resolved, warnings } = await resolveTemplates(
+        'body {"data": "{{ jsonEscape(stripDataUri(image.dataUrl)) }}"} end',
+        ctx,
+      );
+      expect(resolved).toBe('body {"data": "QUJD\\""} end');
+      expect(warnings).toEqual([]);
+      // The embedded JSON object is valid after escaping.
+      const jsonPart = resolved.slice(resolved.indexOf("{"), resolved.lastIndexOf("}") + 1);
+      expect((JSON.parse(jsonPart) as { data: string }).data).toBe('QUJD"');
+    });
+
+    test("evaluates a function over a step result", async () => {
+      ctx.stepResults = { fetch: { url: "key=value" } };
+      const { resolved } = await resolveTemplates("{{ after(steps.fetch.result.url, '=') }}", ctx);
+      expect(resolved).toBe("value");
+    });
+
+    test("unknown function leaves the expression literal and warns", async () => {
+      const { resolved, warnings } = await resolveTemplates("{{ notAFunction(x) }}", ctx);
+      // The literal fallback re-emits the trimmed expression.
+      expect(resolved).toBe("{{notAFunction(x)}}");
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toContain("notAFunction(x)");
+    });
+
+    test("parse error leaves the expression literal and warns", async () => {
+      const { resolved, warnings } = await resolveTemplates("{{ stripDataUri( }}", ctx);
+      expect(resolved).toBe("{{stripDataUri(}}");
+      expect(warnings.length).toBe(1);
+    });
+
+    describe("sandbox", () => {
+      test("constructor escape does not return host process and is left literal + warned", async () => {
+        const hostProcess = (globalThis as { process?: unknown }).process;
+        const { resolved, warnings } = await resolveTemplates('{{ constructor.constructor("return process")() }}', ctx);
+        // Left literal (not substituted with the host process JSON) and warned.
+        expect(resolved).toContain("{{");
+        expect(resolved).not.toContain(String((hostProcess as { pid?: number })?.pid ?? "NO_PID_MATCH"));
+        expect(warnings.length).toBe(1);
+        expect(warnings[0]).toContain("Forbidden key");
+      });
+
+      test("dunder/prototype member access is left literal + warned", async () => {
+        ctx.iterationContext = { item: { a: 1 }, itemIndex: 0, as: "image" };
+        const { resolved, warnings } = await resolveTemplates("{{ image.__proto__ }}", ctx);
+        expect(resolved).toBe("{{image.__proto__}}");
+        expect(warnings[0]).toContain("Forbidden key");
+      });
+
+      test("secret values are not reachable from expression logic", async () => {
+        // secret is resolved by its own branch, never exposed to the evaluator.
+        // A function call that tries to reference `secret` sees no such scope key.
+        ctx.secretStore = {
+          async resolve() {
+            return { value: "TOP_SECRET", granted: true };
+          },
+        };
+        ctx.workflowName = "wf";
+        const { resolved } = await resolveTemplates("{{ trim(secret.API_KEY) }}", ctx);
+        // `secret` is undefined in the eval scope -> trim(undefined) -> "".
+        expect(resolved).not.toContain("TOP_SECRET");
+      });
+    });
+  });
 });

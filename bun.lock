@@ -25,6 +25,7 @@
         "node-telegram-bot-api": "^2.1.0",
         "pdf-to-img": "^6.3.0",
         "rezo": "^1.0.139",
+        "subscript": "10.7.1",
         "turndown": "^7.2.4",
         "yaml": "^2.9.0",
       },
@@ -855,6 +856,8 @@
     "strnum": ["strnum@2.2.3", "", {}, "sha512-oKx6RUCuHfT3oyVjtnrmn19H1SiCqgJSg+54XqURKp5aCMbrXrhLjRN9TjuwMjiYstZ0MzDrHqkGZ5dFTKd+zg=="],
 
     "strtok3": ["strtok3@10.3.5", "", { "dependencies": { "@tokenizer/token": "^0.3.0" } }, "sha512-ki4hZQfh5rX0QDLLkOCj+h+CVNkqmp/CMf8v8kZpkNVK6jGQooMytqzLZYUVYIZcFZ6yDB70EfD8POcFXiF5oA=="],
+
+    "subscript": ["subscript@10.7.1", "", {}, "sha512-FkQbhNFBdH3CHGN0J30j4k2UrkQCWlQ9BDXQLegs72LisW/MmQ1QVemIzqrGWrYUhxNjtHEtOmmWRfByOAfJiA=="],
 
     "tar-fs": ["tar-fs@2.1.4", "", { "dependencies": { "chownr": "^1.1.1", "mkdirp-classic": "^0.5.2", "pump": "^3.0.0", "tar-stream": "^2.1.4" } }, "sha512-mDAjwmZdh7LTT6pNleZ05Yt65HC3E+NiQzl672vQG38jIrehtJk/J3mNwIg+vShQPcLF/LV7CMnDW6vjj6sfYQ=="],
 
