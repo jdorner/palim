@@ -373,6 +373,56 @@ export class WorkflowBuilder {
   }
 
   /**
+   * Inserts a new step at the start of the workflow, before the first root step.
+   *
+   * This is the "insert between trigger and first step" operation. The trigger is
+   * implicit (not a real node in the draft), so there is no edge to split: the new
+   * step simply becomes the new root (no incoming edges) and an edge is added from
+   * it to the original first root.
+   *
+   * Mirrors {@link insertBetween} but without an incoming edge.
+   *
+   * @param draft - The current workflow draft.
+   * @param type - The step type to insert.
+   * @returns A new draft with the step prepended, or the original draft if there is no root.
+   */
+  insertAtStart(draft: BuilderDraft, type: string): BuilderDraft {
+    if (draft.steps.length === 0) return draft;
+
+    // Find the first root step (no incoming edges) — the trigger's target
+    const hasIncoming = new Set(draft.edges.map((e) => e.to));
+    const root = draft.steps.find((s) => s.id && !hasIncoming.has(s.id));
+    if (!root?.id) return draft;
+
+    const descriptor = getDescriptor(type, this.registry);
+    const newStep = createStep(type, this.config);
+    const newStepId = newStep.id!;
+
+    const newEdges = [...draft.edges];
+    let newSteps = [...draft.steps, newStep];
+
+    if (descriptor.terminal) {
+      // Terminal node: no outgoing edge (original root becomes disconnected)
+    } else if (descriptor.paired) {
+      // Paired type: create both steps, aggregator connects to the original root
+      const pairedStep = createStep(descriptor.paired.type, this.config);
+      pairedStep[descriptor.paired.ref] = newStep.slug;
+      const pairedStepId = pairedStep.id!;
+      newEdges.push({ from: newStepId, to: pairedStepId, branch: descriptor.paired.branch });
+      newEdges.push({ from: pairedStepId, to: root.id! });
+      newSteps = [...draft.steps, newStep, pairedStep];
+    } else {
+      // Regular or CF node: outgoing edge uses defaultBranch
+      const outEdge: EdgeDraft = descriptor.defaultBranch
+        ? { from: newStepId, to: root.id!, branch: descriptor.defaultBranch }
+        : { from: newStepId, to: root.id! };
+      newEdges.push(outEdge);
+    }
+
+    return { steps: newSteps, edges: newEdges };
+  }
+
+  /**
    * Appends a new step after an existing node.
    *
    * Creates a new step and connects it via an edge from the source node.

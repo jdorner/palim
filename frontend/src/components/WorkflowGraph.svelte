@@ -294,9 +294,10 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
     // style); keep them arrow-free and muted. Real flow edges get an arrowhead
     // and a smooth curve so direction reads clearly.
     const isAddStepEdge = edge.target === "__addStep__" || edge.target.startsWith("__addStep:");
-    const isTriggerEdge = edge.source === "__trigger__";
-    // In edit mode, non-synthetic edges get the insertButton type with a "+" at midpoint
-    const useInsertButton = editMode && !isAddStepEdge && !isTriggerEdge && !!onInsertStepOnEdge;
+    // In edit mode, real flow edges get the insertButton type with a "+" at midpoint.
+    // The trigger edge is included (insertAtStart handles it); add-step placeholders
+    // are excluded (they're dashed "add" affordances, not real edges).
+    const useInsertButton = editMode && !isAddStepEdge && !!onInsertStepOnEdge;
     return {
       ...edge,
       type: useInsertButton ? "insertButton" : "smoothstep",
@@ -309,7 +310,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
                 // Derive branch from sourceHandle by stripping the source node ID prefix.
                 // Format: "{sourceNodeId}-{branch}" (e.g. "node-3-each" → "each")
                 let edgeBranch: string | undefined;
-                if (edge.sourceHandle && edge.sourceHandle.startsWith(edge.source + "-")) {
+                if (edge.sourceHandle?.startsWith(`${edge.source}-`)) {
                   edgeBranch = edge.sourceHandle.slice(edge.source.length + 1);
                   // Case paths use "path-" prefix: "node-3-path-low" → strip to "low"
                   if (edgeBranch.startsWith("path-")) edgeBranch = edgeBranch.slice(5);

@@ -556,7 +556,12 @@ function confirmEdgeInsert(type: string) {
   const { sourceId, targetId, branch } = edgeInsertContext;
   edgeInsertContext = null;
 
-  const result = workflowBuilder.insertBetween(editDraft, sourceId, targetId, type, branch);
+  // The trigger is implicit (not a real node), so inserting on the trigger edge
+  // prepends a step before the first root instead of splitting an edge.
+  const result =
+    sourceId === "__trigger__"
+      ? workflowBuilder.insertAtStart(editDraft, type)
+      : workflowBuilder.insertBetween(editDraft, sourceId, targetId, type, branch);
 
   // If result is unchanged (no-op), bail
   if (result.steps === editDraft.steps && result.edges === editDraft.edges) return;
