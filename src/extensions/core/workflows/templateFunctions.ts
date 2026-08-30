@@ -10,7 +10,15 @@
  *
  * Functions are intentionally tolerant of non-string inputs (they coerce via
  * {@link toStr}) because template values may arrive as numbers, objects, etc.
+ *
+ * The set of valid names is derived from the shared, pure metadata table
+ * ({@link ../../../../shared/templateFunctionMeta}) so the evaluator, the
+ * load-time validator, and the editor autocomplete all agree on which functions
+ * exist. This module asserts at load time that the implemented functions match
+ * that table exactly (no drift in either direction).
  */
+
+import { TEMPLATE_FUNCTION_NAME_LIST } from "../../../../shared/templateFunctionMeta";
 
 /**
  * Coerce an arbitrary template value to a string for text operations.
@@ -157,5 +165,31 @@ export const TEMPLATE_FUNCTIONS: Record<string, (...args: unknown[]) => unknown>
   nowIso,
 };
 
-/** The set of valid built-in template function names (shared with the validator). */
-export const TEMPLATE_FUNCTION_NAMES: ReadonlySet<string> = new Set(Object.keys(TEMPLATE_FUNCTIONS));
+/**
+ * The set of valid built-in template function names.
+ *
+ * Derived from the shared metadata table ({@link TEMPLATE_FUNCTION_NAME_LIST})
+ * rather than from `Object.keys(TEMPLATE_FUNCTIONS)`, so the runtime, the
+ * validator, and the editor all read the same source. The load-time assertion
+ * below guarantees the implemented functions and the metadata table describe
+ * exactly the same set of names.
+ */
+export const TEMPLATE_FUNCTION_NAMES: ReadonlySet<string> = new Set(TEMPLATE_FUNCTION_NAME_LIST);
+
+/**
+ * Fail fast if the implemented functions and the shared metadata table drift
+ * apart. Either a function is registered without metadata, or metadata names a
+ * function that is not implemented - both are programming errors.
+ */
+{
+  const implemented = Object.keys(TEMPLATE_FUNCTIONS).sort();
+  const declared = [...TEMPLATE_FUNCTION_NAME_LIST].sort();
+  const missingMeta = implemented.filter((name) => !TEMPLATE_FUNCTION_NAMES.has(name));
+  const missingImpl = declared.filter((name) => !(name in TEMPLATE_FUNCTIONS));
+  if (missingMeta.length > 0 || missingImpl.length > 0) {
+    throw new Error(
+      `Template function registry drift: functions without metadata [${missingMeta.join(", ")}], ` +
+        `metadata without implementation [${missingImpl.join(", ")}]`,
+    );
+  }
+}

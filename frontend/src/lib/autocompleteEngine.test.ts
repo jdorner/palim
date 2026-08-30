@@ -265,6 +265,143 @@ describe("Autocomplete Engine - Property Tests", () => {
     });
   });
 
+  describe("Function context classification and insertion", () => {
+    /**
+     * These example-based tests lock the new function-syntax behavior:
+     * detectTrigger classifies path vs argument context, and computeInsertion
+     * inserts `name(` for function suggestions while keeping the popup open.
+     * They also assert the no-regression cases: a plain dot-path expression
+     * still classifies as `kind: "path"` with the identical path/prefix.
+     */
+
+    test("no-regression: plain expression classifies as path with unchanged path/prefix", () => {
+      const text = "{{ steps.fetch.re";
+      const result = detectTrigger(text, text.length);
+      expect(result.active).toBe(true);
+      expect(result.kind).toBe("path");
+      // Leading whitespace after `{{` is trimmed before dot-splitting.
+      expect(result.path).toEqual(["steps", "fetch"]);
+      expect(result.prefix).toBe("re");
+      expect(result.functionName).toBeUndefined();
+    });
+
+    test("no-regression: top-level value position (right after {{)", () => {
+      const text = "{{ ";
+      const result = detectTrigger(text, text.length);
+      expect(result.active).toBe(true);
+      expect(result.kind).toBe("path");
+      expect(result.path).toEqual([]);
+      expect(result.prefix).toBe("");
+    });
+
+    test("cursor inside ( classifies as argument at start of first argument", () => {
+      const text = "{{ stripDataUri(";
+      const result = detectTrigger(text, text.length);
+      expect(result.active).toBe(true);
+      expect(result.kind).toBe("argument");
+      expect(result.functionName).toBe("stripDataUri");
+      expect(result.argumentIndex).toBe(0);
+      expect(result.path).toEqual([]);
+      expect(result.prefix).toBe("");
+    });
+
+    test("argument interior resolves its inner path exactly like a bare path", () => {
+      const text = "{{ stripDataUri(image.da";
+      const result = detectTrigger(text, text.length);
+      expect(result.kind).toBe("argument");
+      expect(result.functionName).toBe("stripDataUri");
+      expect(result.path).toEqual(["image"]);
+      expect(result.prefix).toBe("da");
+    });
+
+    test("cursor after a comma classifies as the next argument", () => {
+      const text = "{{ after(image.url, ";
+      const result = detectTrigger(text, text.length);
+      expect(result.kind).toBe("argument");
+      expect(result.functionName).toBe("after");
+      expect(result.argumentIndex).toBe(1);
+      expect(result.path).toEqual([]);
+      expect(result.prefix).toBe("");
+    });
+
+    test("nested call reports the innermost function and its argument", () => {
+      const text = "{{ jsonEscape(stripDataUri(image.da";
+      const result = detectTrigger(text, text.length);
+      expect(result.kind).toBe("argument");
+      expect(result.functionName).toBe("stripDataUri");
+      expect(result.argumentIndex).toBe(0);
+      expect(result.path).toEqual(["image"]);
+      expect(result.prefix).toBe("da");
+    });
+
+    test("cursor after a closed inner call returns to the outer argument context", () => {
+      const text = "{{ jsonEscape(stripDataUri(image.dataUrl)";
+      const result = detectTrigger(text, text.length);
+      expect(result.kind).toBe("argument");
+      expect(result.functionName).toBe("jsonEscape");
+      expect(result.argumentIndex).toBe(0);
+    });
+
+    test("computeInsertion for a function inserts name( and keeps popup open", () => {
+      const text = "{{ st";
+      const cursorPos = text.length;
+      const suggestion: Suggestion = { label: "stripDataUri", terminal: false, kind: "function" };
+      const result = computeInsertion(text, cursorPos, 0, suggestion, [], "st");
+      expect(result.newText).toBe("{{ stripDataUri(");
+      expect(result.newCursorPos).toBe("{{ stripDataUri(".length);
+      expect(result.keepOpen).toBe(true);
+    });
+
+    test("computeInsertion for a function does not duplicate an existing open paren", () => {
+      const text = "{{ st(";
+      // Cursor sits right after the typed prefix "st", before the existing "(".
+      const cursorPos = "{{ st".length;
+      const suggestion: Suggestion = { label: "stripDataUri", terminal: false, kind: "function" };
+      const result = computeInsertion(text, cursorPos, 0, suggestion, [], "st");
+      expect(result.newText).toBe("{{ stripDataUri(");
+      expect(result.keepOpen).toBe(true);
+    });
+
+    test("accepting a terminal value inside a call closes the paren before the braces", () => {
+      // Reproduces the reported bug: completing `payload` inside `base64Decode(`
+      // must produce a balanced `...payload)}}`, not `...payload}}`.
+      const text = "{{base64Decode(trigger.payload";
+      const cursorPos = text.length;
+      const suggestion: Suggestion = { label: "payload", terminal: true };
+      const result = computeInsertion(text, cursorPos, 0, suggestion, ["trigger"], "payload");
+      expect(result.newText).toBe("{{base64Decode(trigger.payload)}}");
+      expect(result.keepOpen).toBe(false);
+    });
+
+    test("terminal value closes multiple nested open parens before the braces", () => {
+      const text = "{{jsonEscape(stripDataUri(image.dataUrl";
+      const cursorPos = text.length;
+      const suggestion: Suggestion = { label: "dataUrl", terminal: true };
+      const result = computeInsertion(text, cursorPos, 0, suggestion, ["image"], "dataUrl");
+      expect(result.newText).toBe("{{jsonEscape(stripDataUri(image.dataUrl))}}");
+      expect(result.keepOpen).toBe(false);
+    });
+
+    test("terminal value does not duplicate a paren the author already closed", () => {
+      // Author already typed the closing paren; completion should not add another.
+      const text = "{{base64Decode(trigger.payload)";
+      const cursorPos = "{{base64Decode(trigger.payload".length; // caret before the ")"
+      const suggestion: Suggestion = { label: "payload", terminal: true };
+      const result = computeInsertion(text, cursorPos, 0, suggestion, ["trigger"], "payload");
+      expect(result.newText).toBe("{{base64Decode(trigger.payload)}}");
+      expect(result.keepOpen).toBe(false);
+    });
+
+    test("terminal value outside any call is unaffected (no extra parens)", () => {
+      const text = "{{trigger.payload";
+      const cursorPos = text.length;
+      const suggestion: Suggestion = { label: "payload", terminal: true };
+      const result = computeInsertion(text, cursorPos, 0, suggestion, ["trigger"], "payload");
+      expect(result.newText).toBe("{{trigger.payload}}");
+      expect(result.keepOpen).toBe(false);
+    });
+  });
+
   describe("Property 8: Highlight navigation always stays in bounds", () => {
     /**
      * Validates: Requirements 8.1, 8.2, 8.4, 8.5, 8.7

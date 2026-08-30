@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test";
 import * as fc from "fast-check";
+import { TEMPLATE_FUNCTION_NAME_LIST } from "../../../shared/templateFunctionMeta";
 import { getEnumOptions, isEnum } from "./schemaForm";
 import {
   getConfigSuggestions,
   getEnvSuggestions,
+  getFunctionSuggestions,
   getOutputSchemaSuggestions,
   getSecretSuggestions,
   getStepSlugs,
@@ -1122,5 +1124,107 @@ describe("getSuggestions hides the var namespace when empty", () => {
       const oneLabels = getSuggestions({ ...baseConfig, variableKeys: ["MY_VAR"] }, [], "").map((s) => s.label);
       expect(oneLabels).toContain("var");
     });
+  });
+});
+
+describe("getFunctionSuggestions", () => {
+  test("returns exactly the shared registry names with empty prefix", () => {
+    const labels = getFunctionSuggestions("").map((s) => s.label);
+    expect(labels).toEqual([...TEMPLATE_FUNCTION_NAME_LIST]);
+  });
+
+  test("every suggestion is a non-terminal function flavor with signature and description", () => {
+    for (const s of getFunctionSuggestions("")) {
+      expect(s.kind).toBe("function");
+      expect(s.terminal).toBe(false);
+      expect(typeof s.signature).toBe("string");
+      expect((s.signature as string).length).toBeGreaterThan(0);
+      expect(typeof s.description).toBe("string");
+    }
+  });
+
+  test("filters by case-sensitive startsWith prefix", () => {
+    const labels = getFunctionSuggestions("s").map((s) => s.label);
+    expect(labels).toEqual(["stripDataUri"]);
+  });
+
+  test("returns nothing for a prefix that matches no function", () => {
+    expect(getFunctionSuggestions("zzz")).toEqual([]);
+  });
+
+  test("returned names are all valid runtime function names (no drift)", () => {
+    const validNames = new Set(TEMPLATE_FUNCTION_NAME_LIST);
+    for (const s of getFunctionSuggestions("")) {
+      expect(validNames.has(s.label)).toBe(true);
+    }
+  });
+});
+
+describe("getSuggestions offers functions in value positions", () => {
+  const config: ScopeConfig = {
+    steps: [{ slug: "fetch" }, { slug: "process" }],
+    currentStepIndex: 1,
+    secretKeys: ["API_KEY"],
+    variableKeys: [],
+    outputSchemas: {
+      trigger: null,
+      steps: {
+        fetch: {
+          type: "object",
+          properties: {
+            data: { type: "string" },
+            status: {
+              type: "object",
+              properties: { code: { type: "number" } },
+            },
+          },
+        },
+      },
+    },
+  };
+
+  test("top-level (empty path) offers namespaces AND functions", () => {
+    const labels = getSuggestions(config, [], "").map((s) => s.label);
+    // Namespaces still present
+    expect(labels).toContain("trigger");
+    expect(labels).toContain("steps");
+    expect(labels).toContain("secret");
+    // Functions now appended
+    for (const name of TEMPLATE_FUNCTION_NAME_LIST) {
+      expect(labels).toContain(name);
+    }
+  });
+
+  test("top-level filters both namespaces and functions by prefix", () => {
+    // "s" matches namespaces (steps, secret) and functions (stripDataUri)
+    const labels = getSuggestions(config, [], "s").map((s) => s.label);
+    expect(labels).toContain("steps");
+    expect(labels).toContain("secret");
+    expect(labels).toContain("stripDataUri");
+    // A non-matching namespace/function is excluded
+    expect(labels).not.toContain("trigger");
+    expect(labels).not.toContain("jsonEscape");
+  });
+
+  test("function suggestions carry the function flavor at the top level", () => {
+    const strip = getSuggestions(config, [], "stripDataUri").find((s) => s.label === "stripDataUri");
+    expect(strip).not.toBeUndefined();
+    expect(strip!.kind).toBe("function");
+  });
+
+  test("argument interior (non-empty path) drills into the output schema like a bare path", () => {
+    // Mirrors detectTrigger output for `{{ stripDataUri(steps.fetch.result.` :
+    // path=["steps","fetch","result"], which must resolve to the step schema
+    // properties exactly as a bare path expression would.
+    const viaFunctionArg = getSuggestions(config, ["steps", "fetch", "result"], "").map((s) => s.label);
+    expect(viaFunctionArg).toEqual(["data", "status"]);
+  });
+
+  test("no functions are offered mid-path (only value positions get functions)", () => {
+    // At a drill-in position the suggestions are schema/namespace children only.
+    const labels = getSuggestions(config, ["steps", "fetch", "result"], "").map((s) => s.label);
+    for (const name of TEMPLATE_FUNCTION_NAME_LIST) {
+      expect(labels).not.toContain(name);
+    }
   });
 });

@@ -49,26 +49,32 @@ let position = $state({ top: 0, left: 0, bottom: 0 });
 let flipAbove = $state(false);
 /** The active trigger context */
 let context = $state<TriggerContext | null>(null);
+/** The scrollable list container, used to keep the highlighted option visible */
+let listElement = $state<HTMLDivElement | null>(null);
 
 /** Unique ID for the popup element (for aria-activedescendant linking) */
 const popupId = "template-autocomplete-popup";
 
 /**
- * Computes the pixel position of the trigger offset within the target element
+ * Computes the pixel position of a character offset within the target element
  * using the mirror-div technique. Creates a hidden div replicating the textarea's
- * CSS, sets its text content up to the trigger offset, and measures a marker span.
+ * CSS, sets its text content up to the caret offset, and measures a marker span.
+ *
+ * The popup anchors at the caret (the current typing position), so it follows
+ * the caret as the author types deeper into a multi-line expression rather than
+ * staying pinned to the start of the `{{` trigger.
  *
  * When flipping above the cursor (viewport overflow), returns a `bottom` value
  * instead of `top` so the popup's bottom edge anchors to the cursor line regardless
  * of the popup's actual rendered height.
  *
  * @param element - The textarea or input element
- * @param triggerOffset - The character offset of the `{{` in the text
+ * @param caretOffset - The character offset of the caret in the text
  * @returns Pixel coordinates and whether to flip above (includes bottom for CSS anchoring)
  */
 function computePosition(
   element: HTMLTextAreaElement | HTMLInputElement,
-  triggerOffset: number,
+  caretOffset: number,
 ): { top: number; left: number; flipAbove: boolean; bottom: number } {
   const text = element.value;
   const computedStyle = window.getComputedStyle(element);
@@ -93,9 +99,9 @@ function computePosition(
   mirror.style.textIndent = computedStyle.textIndent;
   mirror.style.textTransform = computedStyle.textTransform;
 
-  // Set text content up to the trigger offset
-  const textBeforeTrigger = text.slice(0, triggerOffset);
-  mirror.textContent = textBeforeTrigger;
+  // Set text content up to the caret offset
+  const textBeforeCaret = text.slice(0, caretOffset);
+  mirror.textContent = textBeforeCaret;
 
   // Append a zero-width marker span
   const marker = document.createElement("span");
@@ -150,7 +156,10 @@ function computePosition(
  */
 export function updatePosition(): void {
   if (!targetElement || !context?.active) return;
-  const pos = computePosition(targetElement, context.triggerOffset);
+  // Anchor at the caret (falling back to the trigger start if unavailable) so
+  // the popup follows the typing position, not the start of the `{{` trigger.
+  const caretOffset = targetElement.selectionStart ?? context.triggerOffset;
+  const pos = computePosition(targetElement, caretOffset);
   position = { top: pos.top, left: pos.left, bottom: pos.bottom };
   flipAbove = pos.flipAbove;
 }
@@ -396,6 +405,21 @@ function handleScroll(): void {
 }
 
 /**
+ * Keeps the highlighted option visible within the scrollable list as the
+ * highlight moves via keyboard navigation. Without this, arrowing past the
+ * visible rows moves the highlight off-screen and the dropdown appears not to
+ * follow the selection.
+ */
+$effect(() => {
+  // Reference reactive state so the effect re-runs on navigation and list changes.
+  const index = highlightIndex;
+  void suggestions.length;
+  if (!visible || !listElement) return;
+  const option = listElement.querySelector<HTMLElement>(`#${getOptionId(index)}`);
+  option?.scrollIntoView({ block: "nearest" });
+});
+
+/**
  * Effect that attaches event listeners and ResizeObserver to the target element.
  * Cleans up on target change or component destruction.
  */
@@ -433,7 +457,7 @@ $effect(() => {
     role="listbox"
     aria-label="Template suggestions"
   >
-    <div class="max-h-50 overflow-y-auto p-1">
+    <div bind:this={listElement} class="max-h-50 overflow-y-auto p-1">
       {#if suggestions.length === 0}
         <div class="px-3 py-2 text-xs text-muted-foreground">No suggestions</div>
       {:else}
