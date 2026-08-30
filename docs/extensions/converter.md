@@ -43,11 +43,13 @@ Each setting can also be overridden via environment variable (highest precedence
 
 ### POST /ext/converter/convert
 
-Accepts JSON with one of:
+Accepts JSON with at least one input field:
 
-- `path` - File path relative to the work directory
-- `data` - Base64-encoded file content (for piped/stdin input)
+- `paths` - Array of file paths relative to the work directory
+- `data` - Array of base64-encoded file contents (for piped/stdin input)
 - `prompt` (optional) - Custom system prompt overriding the default OCR instructions
+
+When multiple inputs are supplied (via `paths`, `data`, or a mix), they are merged into a single conversion: every image is sent to the vision model together as pages of one document, and one combined markdown result is returned. Inputs are ordered `paths` first, then `data`.
 
 **Response:**
 
@@ -57,7 +59,7 @@ Accepts JSON with one of:
 
 **Error responses:**
 
-- `400` - Validation error or missing path/data
+- `400` - Validation error or no input provided
 - `403` - Path outside work directory
 - `404` - File not found
 - `415` - Unsupported file type

@@ -3,11 +3,13 @@
  * via the converter extension's HTTP endpoint.
  *
  * Supports two input modes:
- * - `--file <path>` - convert a file from the virtual filesystem
+ * - `--file <path>` - convert a file from the virtual filesystem. May be
+ *   repeated to merge several images into a single conversion (they are
+ *   treated as pages of one document).
  * - stdin (pipe/redirect) - convert piped binary data directly
  *
  * Options:
- * - `--file` / `-f` - Path to the file to convert
+ * - `--file` / `-f` - Path to a file to convert (repeatable)
  * - `--output` / `-o` - Write result to this path instead of stdout
  * - `--prompt` / `-p` - Custom system prompt overriding the default OCR instructions
  */
@@ -36,11 +38,11 @@ export function buildConvertCommand(scriptCtx: SkillScriptContext) {
       return { exitCode: 1, stdout: "", stderr: `Error: ${parsed.error}\n\n${HELP_TEXT}` };
     }
 
-    const { filePath, outputPath, prompt } = parsed;
+    const { filePaths, outputPath, prompt } = parsed;
 
     // Determine input mode: --file takes priority, otherwise read stdin
     const hasStdin = ctx.stdin !== EMPTY_BYTES && ctx.stdin !== ("" as unknown);
-    if (!filePath && !hasStdin) {
+    if (filePaths.length === 0 && !hasStdin) {
       return {
         exitCode: 1,
         stdout: "",
@@ -49,16 +51,17 @@ export function buildConvertCommand(scriptCtx: SkillScriptContext) {
     }
 
     try {
-      // Build request payload
-      const payload: { path?: string; data?: string; prompt?: string } = {};
+      // Build request payload. File inputs go through `paths`; stdin data
+      // through `data`. Both are arrays and merged into one conversion.
+      const payload: { paths?: string[]; data?: string[]; prompt?: string } = {};
 
-      if (filePath) {
-        payload.path = filePath;
+      if (filePaths.length > 0) {
+        payload.paths = filePaths;
       } else {
         // Read stdin as raw bytes and base64-encode for transport
         const raw = latin1FromBytes(ctx.stdin);
         const bytes = Uint8Array.from(raw, (c) => c.charCodeAt(0));
-        payload.data = Buffer.from(bytes).toString("base64");
+        payload.data = [Buffer.from(bytes).toString("base64")];
       }
 
       if (prompt) {
@@ -115,7 +118,7 @@ export async function registerSkill(skillName: string, ctx: SkillScriptContext) 
 
 /** Parsed arguments from the convert command invocation. */
 interface ConvertArgs {
-  filePath: string;
+  filePaths: string[];
   outputPath: string;
   prompt: string;
   help: boolean;
@@ -124,18 +127,21 @@ interface ConvertArgs {
 
 const HELP_TEXT = `Convert files (PDFs, images) to markdown text.
 
-Usage: convert [--file <path>] [--output <path>] [--prompt <text>]
+Usage: convert [--file <path>]... [--output <path>] [--prompt <text>]
 
 When --file is omitted, input is read from stdin (pipe or redirect).
+--file may be repeated to merge several images into a single conversion;
+they are treated as pages of one document and produce one markdown result.
 
 Options:
-  -f, --file     Path to the file to convert
+  -f, --file     Path to a file to convert (repeatable)
   -o, --output   Write markdown to this path instead of stdout
   -p, --prompt   Custom system prompt overriding the default OCR instructions
 
 Examples:
   convert --file data/raw/document.pdf
   convert -f data/raw/photo.png -o data/wiki/pages/photo.md
+  convert --file page1.png --file page2.png --file page3.png
   convert --file image.png --prompt "Is there a blue ball in this image?"
   cat data/raw/image.png | convert
   cat data/raw/invoice.pdf | convert --prompt "Extract the total amount"`;
@@ -147,7 +153,7 @@ Examples:
  * @returns Parsed arguments object
  */
 function parseArgs(args: string[]): ConvertArgs {
-  const result: ConvertArgs = { filePath: "", outputPath: "", prompt: "", help: false, error: "" };
+  const result: ConvertArgs = { filePaths: [], outputPath: "", prompt: "", help: false, error: "" };
 
   let i = 0;
   while (i < args.length) {
@@ -164,7 +170,7 @@ function parseArgs(args: string[]): ConvertArgs {
         result.error = "Missing value for --file";
         return result;
       }
-      result.filePath = val;
+      result.filePaths.push(val);
     } else if (token === "--output" || token === "-o") {
       const val = args[++i];
       if (!val) {

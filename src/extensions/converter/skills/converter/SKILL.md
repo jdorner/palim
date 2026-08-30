@@ -26,14 +26,16 @@ File types are detected by reading magic bytes from the file header, not by file
 ## Command reference
 
 ```
-convert [--file <path>] [--output <path>] [--prompt <text>]
+convert [--file <path>]... [--output <path>] [--prompt <text>]
 ```
 
 When `--file` is omitted, input is read from stdin (pipe or redirect).
 
+`--file` may be repeated. When multiple files are supplied they are merged into a single conversion: all images are sent to the vision model together as pages of one document, producing one combined markdown result. Use this for multiple photos of the same document.
+
 **Options:**
 
-- `-f`, `--file` — Path to the file to convert
+- `-f`, `--file` — Path to a file to convert (repeatable)
 - `-o`, `--output` — Write result to this path instead of stdout
 - `-p`, `--prompt` — Custom system prompt overriding the default OCR instructions. When omitted, the default prompt extracts all visible text and preserves document structure as markdown.
 
@@ -55,6 +57,12 @@ convert -f data/raw/file1.pdf -o data/wiki/pages/file1.md
 
 ```sh
 convert --file data/raw/screenshot.png
+```
+
+### Merge several images into one document
+
+```sh
+convert --file data/raw/page1.jpg --file data/raw/page2.jpg --file data/raw/page3.jpg -o data/wiki/pages/doc.md
 ```
 
 ### Ask a question about an image
