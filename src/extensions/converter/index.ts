@@ -174,6 +174,8 @@ export function createExtension(): Extension {
             },
           ];
 
+          await job.log(`**System Prompt:**\n\n${systemPrompt}`);
+
           for (let i = 0; i < imageParts.length; i++) {
             if (imageParts.length > 1) {
               contentParts.push({ type: "text", text: `--- Page ${i + 1} of ${imageParts.length} ---` });
