@@ -428,16 +428,28 @@ function updateDraftStep(index: number, updater: (step: StepDraft) => void) {
  * (e.g. "step-1", "step-2", ...) that doesn't collide with existing slugs.
  */
 function nextStepSlug(): string {
-  if (!editDraft) return "step-1";
-  const existing = new Set(editDraft.steps.map((s) => s.slug));
-  let n = editDraft.steps.length + 1;
+  const existing = new Set(editDraft ? editDraft.steps.map((s) => s.slug) : []);
+  // Also exclude slugs handed out earlier in the same synchronous burst. When a
+  // single builder operation creates multiple steps (e.g. an iterator + its
+  // paired aggregator), slugFactory() is called several times before editDraft
+  // is reassigned, so the draft snapshot alone would return the same slug twice.
+  for (const s of pendingSlugs) existing.add(s);
+  let n = existing.size + 1;
   let candidate = `step-${n}`;
   while (existing.has(candidate)) {
     n++;
     candidate = `step-${n}`;
   }
+  pendingSlugs.add(candidate);
   return candidate;
 }
+
+/**
+ * Slugs handed out by {@link nextStepSlug} since the last draft commit. Cleared
+ * whenever a builder operation finishes and reassigns `editDraft`. Prevents
+ * duplicate slugs when one operation mints several steps synchronously.
+ */
+let pendingSlugs = new Set<string>();
 
 /**
  * Add a new step to the draft with the given type (defaults to "agent").
@@ -460,6 +472,7 @@ function addStep(
   branchContext?: { parentNodeId: string; branch?: string; lastNodeId: string | null },
 ) {
   if (!editDraft) return;
+  pendingSlugs.clear();
 
   let result: { steps: StepDraft[]; edges: EdgeDraft[] };
 
@@ -552,6 +565,7 @@ function insertStepOnEdge(
  */
 function confirmEdgeInsert(type: string) {
   if (!editDraft || !edgeInsertContext) return;
+  pendingSlugs.clear();
 
   const { sourceId, targetId, branch } = edgeInsertContext;
   edgeInsertContext = null;

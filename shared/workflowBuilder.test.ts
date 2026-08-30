@@ -165,6 +165,11 @@ describe("WorkflowBuilder.insertBetween", () => {
     const iterNode = result.steps.find((s) => s.type === "iterator")!;
     const aggNode = result.steps.find((s) => s.type === "aggregator")!;
     expect(aggNode.iterator).toBe(iterNode.slug);
+    // The paired steps must have distinct ids and slugs (slugFactory called once
+    // per created step). A factory that returns the same slug for both would
+    // produce a broken pair.
+    expect(stepId(iterNode)).not.toBe(stepId(aggNode));
+    expect(iterNode.slug).not.toBe(aggNode.slug);
     expect(result.edges).toContainEqual({ from: "A", to: stepId(iterNode) });
     expect(result.edges).toContainEqual({ from: stepId(iterNode), to: stepId(aggNode), branch: "each" });
     expect(result.edges).toContainEqual({ from: stepId(aggNode), to: "B" });

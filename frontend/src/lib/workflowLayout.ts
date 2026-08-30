@@ -150,7 +150,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   // not node.parent: the root add-step must hang off the end of the top-level
   // chain, never off a node that lives inside a control-flow branch.
   const firstRootId = findRootNodeId(graph);
-  const lastRoot = firstRootId ? graph.nodes.find((n) => n.id === branchTail(graph, firstRootId)) : undefined;
+  const lastRoot = firstRootId ? graph.nodes.find((n) => n.id === mainFlowTail(graph, firstRootId)) : undefined;
   const lastRootIsCF =
     lastRoot && (lastRoot.data.type === "if" || lastRoot.data.type === "case" || lastRoot.data.type === "iterator");
   const lastRootIsTerminal = lastRoot && options.terminalTypes?.has(lastRoot.data.type);
@@ -174,6 +174,12 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
       if (info.lastNodeId) {
         const lastNode = graph.nodes.find((n) => n.id === info.lastNodeId);
         if (lastNode && options.terminalTypes?.has(lastNode.data.type)) continue;
+
+        // Skip the branch add-step if the branch tail IS an aggregator. This
+        // happens when the iteration body is empty (the `each` edge points
+        // straight at the aggregator). The aggregator's main-flow continuation
+        // owns the add-step, so a branch add-step here would be a duplicate.
+        if (lastNode && lastNode.data.type === "aggregator") continue;
 
         // Skip the branch add-step if the next node after the chain is an aggregator.
         // The aggregator marks the end of the iteration body — the edge insert button
@@ -658,14 +664,82 @@ function branchTail(graph: FlatGraph, startId: string): string {
 
   while (!seen.has(currentId)) {
     seen.add(currentId);
+    // An aggregator marks the boundary between an iteration body and the
+    // main-flow continuation. The iterator body branch must not traverse into
+    // or past it, so stop as soon as the current node is an aggregator (whether
+    // it was the branch's immediate target or reached along the chain).
+    const currentNode = graph.nodes.find((n) => n.id === currentId);
+    if (currentNode && currentNode.data.type === "aggregator") break;
     // Only follow plain sequential edges (no branch key). If the current node
     // branches, it is a CF node and owns its own addStep buttons.
+    const outgoing = graph.edges.filter((e) => e.source === currentId && !e.branch);
+    if (outgoing.length !== 1) break;
+    // Stop before an aggregator too, so the tail is the last body step rather
+    // than the aggregator itself.
+    const nextNode = graph.nodes.find((n) => n.id === outgoing[0]!.target);
+    if (nextNode && nextNode.data.type === "aggregator") break;
+    currentId = outgoing[0]!.target;
+  }
+
+  return currentId;
+}
+
+/**
+ * Follows the main (top-level) flow from a start node to its tail, treating an
+ * iterator/aggregator pair as a single pass-through: when the chain reaches an
+ * iterator, it jumps to the iterator's paired aggregator and continues from the
+ * aggregator's sequential successor. This keeps the root add-step anchored to
+ * the true end of the top-level chain (e.g. a step appended after an aggregator)
+ * rather than stopping at the iterator or aggregator.
+ *
+ * @param graph - The flat graph.
+ * @param startId - ID of the entry node.
+ * @returns The ID of the last node in the main flow.
+ */
+function mainFlowTail(graph: FlatGraph, startId: string): string {
+  const seen = new Set<string>();
+  let currentId = startId;
+
+  while (!seen.has(currentId)) {
+    seen.add(currentId);
+    const node = graph.nodes.find((n) => n.id === currentId);
+
+    // When we reach an iterator, jump to its paired aggregator (the join point)
+    // and continue the main flow from there.
+    if (node && node.data.type === "iterator") {
+      const aggId = findAggregatorFor(graph, node);
+      if (aggId && !seen.has(aggId)) {
+        currentId = aggId;
+        continue;
+      }
+      break;
+    }
+
+    // Follow plain sequential edges. A node that only has branch edges (if/case)
+    // ends the main flow (its branches own their own add-steps).
     const outgoing = graph.edges.filter((e) => e.source === currentId && !e.branch);
     if (outgoing.length !== 1) break;
     currentId = outgoing[0]!.target;
   }
 
   return currentId;
+}
+
+/**
+ * Finds the paired aggregator node for a given iterator by matching the
+ * aggregator's `iterator` field against the iterator's slug.
+ *
+ * @param graph - The flat graph.
+ * @param iteratorNode - The iterator node.
+ * @returns The aggregator node ID, or undefined if none is paired.
+ */
+function findAggregatorFor(graph: FlatGraph, iteratorNode: GraphNode): string | undefined {
+  const iteratorSlug = (iteratorNode.data as { slug?: string }).slug;
+  if (!iteratorSlug) return undefined;
+  const agg = graph.nodes.find(
+    (n) => n.data.type === "aggregator" && (n.data as { iterator?: string }).iterator === iteratorSlug,
+  );
+  return agg?.id;
 }
 
 /**
