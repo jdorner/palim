@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import { TEMPLATE_FUNCTION_META, TEMPLATE_FUNCTION_NAME_LIST } from "../../../../shared/templateFunctionMeta";
 import {
   after,
   base64Decode,
@@ -8,6 +9,7 @@ import {
   setClock,
   stripDataUri,
   TEMPLATE_FUNCTION_NAMES,
+  TEMPLATE_FUNCTIONS,
   trim,
 } from "./templateFunctions";
 
@@ -119,5 +121,36 @@ describe("TEMPLATE_FUNCTION_NAMES", () => {
     expect(TEMPLATE_FUNCTION_NAMES.has("jsonEscape")).toBe(true);
     expect(TEMPLATE_FUNCTION_NAMES.has("base64Decode")).toBe(true);
     expect(TEMPLATE_FUNCTION_NAMES.has("notAFunction")).toBe(false);
+  });
+
+  test("is derived from the shared metadata name list", () => {
+    expect([...TEMPLATE_FUNCTION_NAMES].sort()).toEqual([...TEMPLATE_FUNCTION_NAME_LIST].sort());
+  });
+});
+
+describe("shared metadata / runtime registry consistency", () => {
+  test("every implemented function has a metadata entry (no orphan implementations)", () => {
+    const declared = new Set(TEMPLATE_FUNCTION_META.map((meta) => meta.name));
+    for (const name of Object.keys(TEMPLATE_FUNCTIONS)) {
+      expect(declared.has(name)).toBe(true);
+    }
+  });
+
+  test("every metadata entry has an implementation (no orphan metadata)", () => {
+    for (const meta of TEMPLATE_FUNCTION_META) {
+      expect(typeof TEMPLATE_FUNCTIONS[meta.name]).toBe("function");
+    }
+  });
+
+  test("metadata and implementation describe the same set of names", () => {
+    expect(TEMPLATE_FUNCTION_META.map((meta) => meta.name).sort()).toEqual(Object.keys(TEMPLATE_FUNCTIONS).sort());
+  });
+
+  test("each metadata entry declares a signature, description, and return type", () => {
+    for (const meta of TEMPLATE_FUNCTION_META) {
+      expect(meta.signature.length).toBeGreaterThan(0);
+      expect(meta.description.length).toBeGreaterThan(0);
+      expect(meta.returnType.length).toBeGreaterThan(0);
+    }
   });
 });

@@ -6,6 +6,7 @@
  * No Svelte or DOM dependencies.
  */
 
+import { TEMPLATE_FUNCTION_META } from "../../../shared/templateFunctionMeta";
 import {
   DEFAULT_ENV_ALLOWLIST,
   isObjectSchemaNode,
@@ -26,6 +27,14 @@ export interface Suggestion {
   label: string;
   /** Whether selecting this completes the expression (appends `}}`) */
   terminal: boolean;
+  /**
+   * Suggestion flavor. Defaults to `"value"` (namespaces, paths, keys). A
+   * `"function"` suggestion is a callable built-in: accepting it inserts
+   * `name(` and keeps the popup open so the author can fill in arguments.
+   */
+  kind?: "value" | "function";
+  /** Optional human-readable signature, shown for function suggestions. */
+  signature?: string;
   /** Optional description for display */
   description?: string;
   /** JSON Schema `type` of the property, when declared. */
@@ -69,6 +78,27 @@ export function getTopLevelSuggestions(prefix: string): Suggestion[] {
   return TOP_LEVEL_NAMESPACES.filter((name) => name.startsWith(prefix)).map((name) => ({
     label: name,
     terminal: false,
+  }));
+}
+
+/**
+ * Returns built-in function suggestions, filtered by prefix (case-sensitive
+ * startsWith, matching namespace filtering). The names and documentation are
+ * sourced from the shared metadata table ({@link TEMPLATE_FUNCTION_META}), the
+ * same source the runtime evaluator uses, so completions cannot drift from the
+ * functions actually available at runtime. Each suggestion is a non-terminal
+ * `"function"` flavor: accepting it inserts `name(` and keeps the popup open.
+ *
+ * @param prefix - The currently typed text used for filtering
+ * @returns Array of matching function suggestions, in metadata declaration order
+ */
+export function getFunctionSuggestions(prefix: string): Suggestion[] {
+  return TEMPLATE_FUNCTION_META.filter((meta) => meta.name.startsWith(prefix)).map((meta) => ({
+    label: meta.name,
+    terminal: false,
+    kind: "function",
+    signature: meta.signature,
+    description: meta.description,
   }));
 }
 
@@ -339,15 +369,20 @@ export function getConfigSuggestions(
  * @returns Array of matching suggestions, sorted appropriately
  */
 export function getSuggestions(config: ScopeConfig, path: string[], prefix: string): Suggestion[] {
-  // Top-level: no path segments yet
+  // Top-level value position (no path segments yet): offer namespaces plus
+  // built-in functions. This position is reached both at the start of the
+  // top-level expression (`{{ `) and at the start of a call argument
+  // (`{{ trim(`), where both a `namespace.path` lookup and a function call are
+  // grammatically valid.
   if (path.length === 0) {
     // Filter out namespaces that would have no sub-items
-    return getTopLevelSuggestions(prefix).filter((s) => {
+    const namespaces = getTopLevelSuggestions(prefix).filter((s) => {
       if (s.label === "steps" && config.steps.length <= 1) return false;
       if (s.label === "secret" && config.secretKeys.length === 0) return false;
       if (s.label === "var" && config.variableKeys.length === 0) return false;
       return true;
     });
+    return [...namespaces, ...getFunctionSuggestions(prefix)];
   }
 
   const namespace = path[0];
