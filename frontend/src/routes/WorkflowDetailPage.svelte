@@ -528,8 +528,6 @@ function addStep(
   }
   validationErrors = newErrors;
 
-  fitViewTrigger++;
-
   // Auto-select the new step in the sidebar
   selectedStep = editDraft.steps[newIndex] as StepDef;
   selectedStepIndex = newIndex;
@@ -598,8 +596,6 @@ function confirmEdgeInsert(type: string) {
     newErrors.set(`steps[${newIndex}].prompt`, "Prompt is required for agent steps");
   }
   validationErrors = newErrors;
-
-  fitViewTrigger++;
 
   selectedStep = editDraft.steps[newIndex] as StepDef;
   selectedStepIndex = newIndex;
