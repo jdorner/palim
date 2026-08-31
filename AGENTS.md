@@ -140,13 +140,23 @@ src/
     ├── fileWatcher.ts       # Watcher that auto-queues jobs
     └── validation.ts        # Shared validation helpers
 
-shared/
-└── types.ts                 # Types shared between backend and frontend
-                             # (JobEntry, LogEntry, WebSocketMessage, ChatWebSocketEvent,
-                             #  WorkflowWebSocketEvent, ApprovalRequestEvent,
-                             #  ExtensionLifecycleEvent, PushMessageEvent, TokenUsage,
-                             #  ScheduleEntry, NavigationEntry, ExtensionUiContribution,
-                             #  ExtensionInfo, AvailableModel, SelectedModelResponse)
+shared/                      # Types + pure helpers shared between backend and frontend,
+│                            # split into domain modules and re-exported from index.ts
+├── index.ts                 # Barrel re-export of all shared modules
+├── types.ts                 # Backward-compatible re-export (legacy import path)
+├── chat.ts                  # ChatWebSocketEvent, TokenUsage
+├── extensions.ts            # ExtensionInfo, ExtensionLifecycleEvent, ExtensionUiContribution, NavigationEntry, ...
+├── jobs.ts                  # JobEntry, LogEntry
+├── models.ts                # AvailableModel, ModelIntent, SelectedModelResponse, MODEL_INTENTS
+├── schedules.ts             # ScheduleEntry
+├── variables.ts             # GlobalVariableEntry
+├── websocket.ts             # WebSocketMessage, ApprovalRequestEvent, PushMessageEvent
+├── workflows.ts             # WorkflowWebSocketEvent, WorkflowStepSummary, OutputSchema(s), walkSchemaPath, DEFAULT_ENV_ALLOWLIST
+├── workflowBuilder.ts       # WorkflowBuilder + builder draft types (BUILTIN_STEP_TYPES, getDescriptor)
+└── templateFunctionMeta.ts  # Pure metadata table for built-in template functions (name,
+                             #  signature, description, returnType). Single source of truth for
+                             #  valid function names, consumed by the backend runtime registry
+                             #  and the frontend autocomplete (import-safe from both).
 
 frontend/                    # Svelte 5 web UI (page-based routing)
 └── src/
@@ -232,6 +242,15 @@ Job logs are persisted to SQLite (`src/queue/logStore.ts`) so they survive resta
 ### Workflows (DAG engine)
 
 Workflows (`src/extensions/core/workflows/`) are directed acyclic graphs: a `steps` map (keyed by slug) plus an `edges` array (`from`, `to`, optional `branch`). The engine dispatches all root steps in parallel, then dispatches each successor once all its incoming edges are resolved (`satisfied` or `dead`, at least one `satisfied` — the join barrier). Control-flow nodes (`if`/`case`) are evaluated inline and mark their branch edges satisfied/dead; dead edges propagate to skip unreachable steps. Any step failure fails the whole run (fail-fast) and cancels in-flight jobs. Per-run edge states, step statuses, and results are persisted in SQLite. The `http-request` and `fail` step types are provided by the `core-wf-steps` extension. Legacy sequential-format files are converted with `bun run migrate-workflows` (`src/tools/migrateWorkflows.ts`).
+
+#### Template Expressions
+
+Workflow string fields, agent prompts, and `if`/`case`/`iterator` expressions support `{{...}}` template expressions resolved by `src/extensions/core/workflows/template.ts`. Beyond plain dot-path lookups (`{{ trigger.payload }}`, `{{ steps.fetch.result.data }}`), expressions support composable function calls (`{{ jsonEscape(stripDataUri(image.dataUrl)) }}`):
+
+- **Built-in function registry** (`templateFunctions.ts`): pure, deterministic helpers - `stripDataUri`, `base64Decode`, `jsonEscape`, `after`, `before`, `trim`, `nowIso`. The valid-name set is derived from the shared, pure metadata table `shared/templateFunctionMeta.ts` (a load-time assertion guards against drift), so the evaluator, the load-time validator, and the frontend autocomplete all agree on which functions exist.
+- **Sandboxed evaluation** (`templateEval.ts`): expressions are evaluated by `subscript` (Justin preset). Guarded namespaces (`secret`, `env`) are resolved (ACL/allowlist) BEFORE evaluation and never placed in the evaluated scope. Unresolvable paths, unknown functions, and parse errors leave the expression literal with a warning.
+- **Load-time validation** (`dagTemplateValidation.ts`): parses function-call syntax and validates argument paths under the same namespace rules, sharing the function-name allowlist so validation cannot diverge from evaluation. Warnings are advisory (surfaced non-blocking on the workflow list/detail API).
+- **Frontend autocomplete** (`frontend/src/lib/autocompleteEngine.ts`, `templateScope.ts`): the `{{...}}` editor offers namespaces and built-in functions (sourced from the shared metadata) in value positions, classifies path vs function-argument cursor context, and closes open call parentheses when completing a value inside a call.
 
 ### Extension System
 
