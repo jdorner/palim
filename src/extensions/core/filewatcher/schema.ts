@@ -14,7 +14,7 @@ import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
  * files are detected, enabling file system events as workflow triggers.
  */
 export const fileWatchers = sqliteTable("ext_filewatcher_watchers", {
-  /** URL-safe slug - used as the trigger ref in workflow YAML. */
+  /** URL-safe slug - used as the trigger ref in workflow definitions. */
   slug: text("slug").primaryKey(),
   /** Human-readable label. */
   name: text("name").notNull(),

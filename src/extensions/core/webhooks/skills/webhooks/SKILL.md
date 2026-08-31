@@ -114,9 +114,9 @@ webhook delete "old-webhook"
 
 ## Connecting webhooks to workflows
 
-Webhooks emit events - workflows consume them via `trigger.ref`. To create a webhook-triggered workflow, both resources must be created together. See the `workflows` skill for the full pattern and YAML schema.
+Webhooks emit events - workflows consume them via `trigger.ref`. To create a webhook-triggered workflow, both resources must be created together. See the `workflows` skill for the full pattern and JSON5 schema.
 
-Key rule: `trigger.ref` in the workflow YAML must match the webhook slug exactly, or the workflow will not start.
+Key rule: `trigger.ref` in the workflow definition must match the webhook slug exactly, or the workflow will not start.
 
 ## Notes
 

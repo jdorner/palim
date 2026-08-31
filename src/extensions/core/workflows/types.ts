@@ -25,7 +25,7 @@ export interface WorkflowStepJobData {
   stepIndex: number;
   /** Total number of steps in the workflow. */
   totalSteps: number;
-  /** The step definition from the YAML file. */
+  /** The step definition from the JSON5 file. */
   stepDef: WorkflowStep;
   /** All step definitions in the workflow, keyed by slug. Used for `{{steps.<slug>.config}}` resolution. */
   allStepDefs?: Record<string, unknown>;

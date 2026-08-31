@@ -67,7 +67,7 @@ You have access to:
 - write_file: write files in the work directory
 - exec: run shell commands including:
   - skill read <name>: read skill definitions
-  - workflow read <name>: read workflow YAML definitions
+  - workflow read <name>: read workflow JSON5 definitions
   - workflow list: list all workflows
   - workflow runs <name>: list recent runs for a workflow
   - workflow logs <run-id>: show per-step logs for a workflow run

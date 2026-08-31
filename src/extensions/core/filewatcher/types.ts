@@ -10,7 +10,7 @@ export type FileWatcherEventType = (typeof ALL_WATCHER_EVENT_TYPES)[number];
 
 /** A persisted file watcher registration. */
 export interface FileWatcherRegistration {
-  /** URL-safe slug - used as the trigger ref in workflow YAML. */
+  /** URL-safe slug - used as the trigger ref in workflow definitions. */
   slug: string;
   /** Human-readable label. */
   name: string;

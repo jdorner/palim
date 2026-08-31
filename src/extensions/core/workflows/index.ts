@@ -22,7 +22,6 @@
 import { type FSWatcher, watch } from "node:fs";
 import { mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
-import { formatValidationErrors } from "@ext/sdk";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import type { OutputSchema, OutputSchemas } from "@shared/workflows";

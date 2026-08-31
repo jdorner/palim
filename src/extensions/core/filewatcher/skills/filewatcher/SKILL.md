@@ -121,17 +121,19 @@ File watchers emit events - workflows consume them via `trigger.ref`. The watche
 filewatcher create "inbox-ocr" "OCR Inbox Watcher" "inbox" "*.jpg,*.png"
 
 # Step 2: Create the workflow with matching trigger.ref
-workflow write "ocr-pipeline" "name: ocr-pipeline
-description: Process images dropped into inbox
-trigger:
-  type: filewatcher
-  ref: inbox-ocr
-steps:
-  - slug: scan-image
-    type: ocr
-    input: inbox/{{trigger.payload.filename}}
-    prompt: Extract all text from this image.
-"
+workflow write "ocr-pipeline" '{
+  "name": "ocr-pipeline",
+  "description": "Process images dropped into inbox",
+  "trigger": { "type": "filewatcher", "ref": "inbox-ocr" },
+  "steps": {
+    "scan-image": {
+      "type": "agent",
+      "skills": ["converter"],
+      "prompt": "Run convert on inbox/{{trigger.payload.filename}} to extract all text as markdown.",
+    },
+  },
+  "edges": [],
+}'
 ```
 
 Multiple workflows can listen to the same file watcher slug.
