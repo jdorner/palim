@@ -11,7 +11,7 @@
   "dependencies": {
     "@comark/svelte": "^0.6.2",
     "@dagrejs/dagre": "^3.1.1",
-    "@xyflow/svelte": "^1.6.5",
+    "@xyflow/svelte": "^1.6.6",
     "beautiful-mermaid": "^1.1.3",
     "bits-ui": "^2.19.0",
     "clsx": "^2.1.1",
@@ -21,7 +21,7 @@
     "sv-router": "^0.18.1",
     "tailwind-merge": "^3.6.0",
     "tailwind-variants": "^3.3.1",
-    "typebox": "^1.3.20"
+    "typebox": "^1.3.24"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.0",
@@ -29,7 +29,7 @@
     "@tailwindcss/vite": "^4.3.3",
     "@types/node": "^26.4.0",
     "@typescript/native": "npm:typescript@7",
-    "svelte": "^5.56.10",
+    "svelte": "^5.57.0",
     "svelte-check": "^4.7.6",
     "tailwindcss": "^4.3.3",
     "typescript": "~6",
