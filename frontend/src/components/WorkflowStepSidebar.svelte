@@ -718,7 +718,7 @@ function clearConditionError(index: number) {
           >{JSON.stringify(selectedStep, null, 2)}</pre>
         </div>
       {:else if roStepTypeInfo?.configSchema}
-        {@const roConfig = (() => { const { slug: _s, type: _t, input: _i, output: _o, ...rest } = selectedStep; return rest; })()}
+        {@const roConfig = (() => { const { slug: _s, type: _t, ...rest } = selectedStep; return rest; })()}
         <StepConfigForm
           schema={roStepTypeInfo.configSchema}
           values={roConfig}
@@ -739,7 +739,7 @@ function clearConditionError(index: number) {
             <pre
               class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-64 overflow-y-auto mt-0.5"
             >{JSON.stringify(
-              (() => { const { slug: _s, type: _t, input: _i, output: _o, ...rest } = selectedStep; return rest; })(),
+              (() => { const { slug: _s, type: _t, ...rest } = selectedStep; return rest; })(),
               null, 2
             )}</pre>
           </div>

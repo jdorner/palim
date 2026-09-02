@@ -348,8 +348,13 @@ function toStepDraft(s: StepDef | Record<string, unknown>): StepDraft {
     return { id, slug, type, iterator: raw.iterator as string };
   }
 
-  // Custom extension step types: rebuild config from non-standard fields
-  const { id: _id, slug: _s, type: _t, input: _i, output: _o, ...config } = raw;
+  // Custom extension step types: rebuild config from non-standard fields.
+  // Only `id` (synthetic frontend id), `slug`, and `type` are non-config; every
+  // other top-level field is part of the step's config (which is stored
+  // flattened on the persisted step). Do NOT strip `input`/`output` here - those
+  // are not reserved step fields, and stripping them would silently drop a
+  // legitimate config field named `input` or `output` (e.g. the `chunk` step).
+  const { id: _id, slug: _s, type: _t, ...config } = raw;
   return {
     id,
     slug,
