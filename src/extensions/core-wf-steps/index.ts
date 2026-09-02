@@ -9,12 +9,15 @@
  *   message. Useful in control-flow branches to signal unexpected states.
  * - `start-workflow` - Dispatches another named workflow in a fire-and-forget
  *   fashion (no join, no result propagation, independent lifecycle).
+ * - `chunk` - Splits a string or array into fixed-size batches, typically fed
+ *   into an `iterator` so large inputs can be processed in manageable pieces.
  *
  * This extension is marked `core: true` and cannot be disabled since these
  * step types are fundamental workflow building blocks.
  */
 
 import type { Extension, ExtensionContext, ExtensionManifest } from "@ext/types";
+import { createChunkHandler } from "./chunk";
 import { createFailHandler } from "./fail";
 import { createHttpRequestHandler } from "./http-request";
 import { createStartWorkflowHandler, WORKFLOW_NAMES_PROVIDER } from "./start-workflow";
@@ -33,6 +36,7 @@ const extension: Extension = {
   async initialize(ctx: ExtensionContext) {
     ctx.stepTypes.register("http-request", createHttpRequestHandler());
     ctx.stepTypes.register("fail", createFailHandler());
+    ctx.stepTypes.register("chunk", createChunkHandler());
 
     // Populate the start-workflow step's "Workflow Name" dropdown in the editor
     // with the current set of loaded workflow names, resolved at request time.
