@@ -173,17 +173,18 @@ export function createDagStepProcessor(deps: DagStepWorkerDeps) {
           throw new Error(`No handler registered for step type "${stepDef.type}"`);
         }
 
-        // Resolve templates in all string fields of the step definition
-        const resolvedDef: Record<string, unknown> = {};
-        for (const [key, val] of Object.entries(stepDef)) {
-          if (typeof val === "string" && val.includes("{{")) {
-            const { resolved } = await resolveTemplates(val, tmplCtx);
-            resolvedDef[key] = resolved;
-          } else {
-            resolvedDef[key] = val;
-          }
-        }
-
+        // Pass the RAW step definition to the handler; do NOT pre-resolve its
+        // string fields here. Handlers resolve the fields they consume via
+        // `ctx.resolveTemplate(...)` themselves (see the built-in and external
+        // step types). Pre-resolving would (a) double-resolve every field a
+        // handler already resolves, and (b) break handlers that depend on
+        // receiving raw `{{...}}` expressions - most importantly sandbox-exec,
+        // which binds each expression to a shell env var for injection safety.
+        // Inlining the resolved value before that binder runs lets shell
+        // metacharacters (e.g. the braces/quotes in a JSON payload) reach the
+        // shell unquoted, corrupting the command. Handing over the raw stepDef
+        // also matches the documented contract ("the full step definition
+        // object from the workflow JSON5").
         const context = {
           resolveTemplate: async (template: string) => resolveTemplates(template, tmplCtx),
           log: deps.log,
@@ -194,7 +195,7 @@ export function createDagStepProcessor(deps: DagStepWorkerDeps) {
           triggerPayload: tmplCtx.triggerPayload,
         };
 
-        value = await handler.execute(resolvedDef, context);
+        value = await handler.execute(stepDef as unknown as Record<string, unknown>, context);
       }
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
