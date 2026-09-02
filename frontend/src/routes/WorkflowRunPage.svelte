@@ -6,6 +6,7 @@ import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
+import { extensions } from "$lib/extensionStore";
 import { formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import { buildStatusMap, type GraphStepStatus } from "$lib/workflowRunStatus";
 import { type RunStep, workflowStore } from "$lib/workflowRunStore.svelte";
@@ -36,6 +37,16 @@ const workflowName = $derived(params.name ?? "");
 
 /** Reactive reference to the store's run state. */
 const run = $derived(workflowStore.run);
+
+/**
+ * Custom step types registered by enabled extensions, derived from the
+ * extension store. Passed to the graph so custom step nodes render their
+ * extension-declared icon (and terminal/category styling) instead of the
+ * generic gear fallback.
+ */
+const customStepTypes = $derived(
+  $extensions.filter((ext) => ext.enabled && ext.ui?.stepTypes?.length).flatMap((ext) => ext.ui!.stepTypes!),
+);
 
 /**
  * Builds a slug-to-status map from the run steps, including skipped branch detection.
@@ -219,6 +230,7 @@ onDestroy(() => {
           edges={definitionEdges}
           trigger={run.trigger ?? undefined}
           statusMap={definitionSteps.length > 0 ? statusMap : undefined}
+          {customStepTypes}
           onNodeClick={openSidebar}
         />
       </div>
