@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.11/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.12/schema.json",
   "html": {
     "formatter": {
       "enabled": true
@@ -47,6 +47,8 @@
       "**",
       "!node_modules",
       "!**/node_modules",
+      "!docs-site/dist",
+      "!docs-site/.astro",
       "!frontend/node_modules",
       "!frontend/dist",
       "!frontend/.svelte-check",
