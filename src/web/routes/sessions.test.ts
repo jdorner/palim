@@ -296,3 +296,40 @@ describe("DELETE /api/sessions/:id/messages (turn-based truncation)", () => {
     expect(res.status).toBe(404);
   });
 });
+
+describe("DELETE /api/sessions/:id (session deletion)", () => {
+  let store: SessionStore;
+  let app: ReturnType<typeof sessionRoutes>;
+
+  beforeAll(() => {
+    // Reuse the shared singleton (initialized by the suite above). Passing a db
+    // is a no-op once the singleton exists, so this is safe regardless of order.
+    store = getSessionStore(createTestDb());
+    app = sessionRoutes();
+  });
+
+  async function deleteSession(sessionId: string): Promise<Response> {
+    return app.handle(new Request(`http://localhost/api/sessions/${sessionId}`, { method: "DELETE" }));
+  }
+
+  test("deletes the session and its messages", async () => {
+    const session = store.create({ source: "chat", sourceId: `del-${Date.now()}` });
+    store.append(session.id, userMsg("hello"));
+    store.append(session.id, assistantMsg("hi"));
+
+    const res = await deleteSession(session.id);
+    expect(res.status).toBe(200);
+
+    const body = (await res.json()) as { sessionId: string; ok: boolean };
+    expect(body.ok).toBe(true);
+    expect(body.sessionId).toBe(session.id);
+
+    expect(store.get(session.id)).toBeUndefined();
+    expect(store.getMessages(session.id)).toEqual([]);
+  });
+
+  test("returns 404 for a non-existent session", async () => {
+    const res = await deleteSession("nonexistent-id");
+    expect(res.status).toBe(404);
+  });
+});

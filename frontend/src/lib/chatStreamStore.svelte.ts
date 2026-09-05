@@ -275,7 +275,12 @@ class ChatStreamStore {
    * @returns The new active conversation ID (or null).
    */
   async handleDelete(id: string): Promise<string | null> {
+    // Resolve the server-side session id before the local record is removed,
+    // so the backend session (and its messages) can be deleted too.
+    const sessionId = this.conversations.find((c) => c.id === id)?.sessionId;
+
     await deleteConversation(id);
+    if (sessionId) await this.deleteServerSession(sessionId);
     await this.loadConversations();
 
     if (this.activeConversationId === id) {
@@ -869,6 +874,22 @@ class ChatStreamStore {
       });
     } catch (err) {
       console.error("Failed to truncate server session:", err);
+    }
+  }
+
+  /**
+   * Deletes the backend session (and all its messages) for a deleted conversation.
+   *
+   * Best-effort: failures are logged but do not block local deletion, since the
+   * conversation has already been removed from IndexedDB.
+   *
+   * @param sessionId - The server-side session ID to delete.
+   */
+  private async deleteServerSession(sessionId: string): Promise<void> {
+    try {
+      await authFetch(`/api/sessions/${sessionId}`, { method: "DELETE" });
+    } catch (err) {
+      console.error("Failed to delete server session:", err);
     }
   }
 }
