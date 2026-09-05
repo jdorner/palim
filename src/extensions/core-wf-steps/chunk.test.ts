@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { StepExecutionContext } from "@ext/types";
+import { InMemoryFs } from "just-bash";
 import { type ChunkStepResult, createChunkHandler } from "./chunk";
 
 /** Creates a minimal fake StepExecutionContext for testing. */
@@ -8,6 +9,7 @@ function createFakeContext(overrides?: Partial<StepExecutionContext>): StepExecu
     resolveTemplate: async (template: string) => ({ resolved: template, warnings: [] }),
     log: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as unknown as StepExecutionContext["log"],
     workDir: "/tmp/test-work",
+    fs: new InMemoryFs(),
     jobLog: async () => {},
     workflowRunId: "test-run-123",
     ...overrides,

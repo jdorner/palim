@@ -25,6 +25,7 @@ import type { SkillEntry } from "@src/tools/sandbox";
 import type { FlowProducer } from "bunqueue/client";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import type { Context } from "elysia";
+import type { IFileSystem } from "just-bash";
 import type { Logger } from "logging";
 
 export type { Logger } from "logging";
@@ -281,6 +282,21 @@ export interface StepExecutionContext {
 
   /** Absolute path to the agent's working directory. */
   readonly workDir: string;
+
+  /**
+   * Virtual filesystem scoped to the agent working directory ({@link workDir}).
+   *
+   * Mirrors the `fs` available to sandbox command handlers (`CommandContext.fs`),
+   * exposing the same async, Node-fs-like {@link IFileSystem} API (`readFile`,
+   * `writeFile`, `mkdir`, `readdir`, `stat`, `rm`, etc.). Paths are resolved
+   * relative to the work-directory root of this filesystem, so use paths like
+   * `"outbox/report.xlsx"` (or an absolute path within the same root) rather
+   * than the sandbox-absolute `/home/user/work/...` prefix used by the shell.
+   *
+   * Prefer this over `node:fs`/`Bun.file` in step handlers: it keeps file
+   * access scoped to the work directory and consistent with the sandbox.
+   */
+  readonly fs: IFileSystem;
 
   /**
    * Log a message to the job's persistent log (visible in the web UI).
