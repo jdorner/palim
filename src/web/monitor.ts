@@ -236,8 +236,11 @@ export class QueueMonitor {
       logs: [],
     };
 
-    // Enrich with workflow metadata if the job payload carries it
+    // Enrich with session/workflow metadata if the job payload carries it
     const data = job.data as Record<string, unknown> | null | undefined;
+    if (data && typeof data.sessionId === "string") {
+      entry.sessionId = data.sessionId;
+    }
     if (data && typeof data.workflowRunId === "string") {
       entry.workflowRunId = data.workflowRunId;
       if (typeof data.workflowName === "string") entry.workflowName = data.workflowName;

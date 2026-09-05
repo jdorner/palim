@@ -13,6 +13,8 @@ export interface JobEntry {
   completedAt?: number;
   logs?: LogEntry[];
   error?: string;
+  /** Conversation session ID this job is associated with, if any. */
+  sessionId?: string;
   /** Workflow run ID if this job is part of a workflow chain. */
   workflowRunId?: string;
   /** Workflow definition name if this job is part of a workflow chain. */
