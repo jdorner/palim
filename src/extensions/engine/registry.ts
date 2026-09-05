@@ -20,7 +20,7 @@ import {
 } from "@src/skills/loader";
 import type { SkillEntry } from "@src/tools/sandbox";
 import type { TemplateVariableResolver } from "@src/variables";
-import { enrichSchemaWithDynamicItems } from "@src/web/dynamicItemProviders";
+import { enrichSchema } from "@src/web/dynamicProviders";
 import { FlowProducer } from "bunqueue/client";
 import { eq } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
@@ -529,9 +529,7 @@ export class ExtensionRegistry {
             extensionName: st.extensionName,
             terminal: st.handler.terminal ?? false,
             category: st.handler.category,
-            configSchema: st.handler.schema
-              ? enrichSchemaWithDynamicItems(JSON.parse(JSON.stringify(st.handler.schema)))
-              : undefined,
+            configSchema: st.handler.schema ? enrichSchema(JSON.parse(JSON.stringify(st.handler.schema))) : undefined,
             // Serialize the handler's output schema to JSON Schema, kept distinct from
             // configSchema. Dynamic-item enrichment is a config-input concern and is
             // deliberately not applied here (output schemas describe produced data).

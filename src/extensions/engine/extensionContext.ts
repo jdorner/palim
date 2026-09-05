@@ -21,7 +21,7 @@ import type { TemplateVariableResolver } from "@src/variables";
 import {
   registerDynamicDefaultProvider as registerDefaultProviderFn,
   registerDynamicItemProvider as registerProviderFn,
-} from "@src/web/dynamicItemProviders";
+} from "@src/web/dynamicProviders";
 import type { FlowProducer } from "bunqueue/client";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";

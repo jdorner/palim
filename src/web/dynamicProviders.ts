@@ -1,17 +1,25 @@
 /**
- * Dynamic item provider registry for extension settings schemas.
+ * Dynamic provider registry for extension settings and step type schemas.
  *
- * Extensions can annotate array properties in their settings schema with a
- * `dynamicItems` key that names a registered provider. When the settings API
- * serves the schema to the frontend, it resolves each `dynamicItems` reference
- * and injects the result into `availableItems`, keeping the frontend unchanged.
+ * Extensions annotate schema properties with a named provider that is resolved
+ * at request time (when the schema is served to the frontend), keeping the
+ * frontend unchanged. Two provider kinds are supported:
+ *
+ * - `dynamicItems` on an ARRAY property names an item provider (`() => string[]`)
+ *   whose result replaces `availableItems`.
+ * - `dynamicDefault` on a SCALAR property names a default provider
+ *   (`() => string`) whose result replaces `default`.
  *
  * @example
  * ```ts
  * // In an extension's settingsSchema:
  * monitoredQueues: Type.Array(Type.String(), {
  *   availableItems: ["agents", "chat"],   // static fallback
- *   dynamicItems: "all-queue-names",  // resolved at request time
+ *   dynamicItems: "all-queue-names",      // resolved at request time
+ * }),
+ * fpcalcPath: Type.String({
+ *   default: "",                          // static fallback
+ *   dynamicDefault: "fpcalc-discovered",  // resolved at request time
  * })
  * ```
  *
@@ -31,7 +39,7 @@ export type DynamicItemProvider = () => string[];
 export type DynamicDefaultProvider = () => string;
 
 /** Internal registry mapping provider names to their resolver functions. */
-const providers = new Map<string, DynamicItemProvider>();
+const itemProviders = new Map<string, DynamicItemProvider>();
 
 /** Internal registry mapping provider names to scalar-default resolvers. */
 const defaultProviders = new Map<string, DynamicDefaultProvider>();
@@ -44,10 +52,10 @@ const defaultProviders = new Map<string, DynamicDefaultProvider>();
  * @throws If a provider with the same name is already registered
  */
 export function registerDynamicItemProvider(name: string, fn: DynamicItemProvider): void {
-  if (providers.has(name)) {
+  if (itemProviders.has(name)) {
     log.warn(`Dynamic item provider "${name}" is being replaced`);
   }
-  providers.set(name, fn);
+  itemProviders.set(name, fn);
 }
 
 /**
@@ -57,7 +65,7 @@ export function registerDynamicItemProvider(name: string, fn: DynamicItemProvide
  * @returns The resolved items array, or `null` if the provider is not registered
  */
 export function resolveDynamicItems(name: string): string[] | null {
-  const fn = providers.get(name);
+  const fn = itemProviders.get(name);
   if (!fn) {
     log.debug(`Dynamic item provider "${name}" not found`);
     return null;
@@ -110,17 +118,20 @@ export function resolveDynamicDefault(name: string): string | null {
 }
 
 /**
- * Enrich a JSON Schema object by resolving all `dynamicItems` references
- * in its properties. Mutates a deep clone of the schema (the original is untouched).
+ * Enrich a JSON Schema object by resolving all `dynamicItems` and
+ * `dynamicDefault` references in its properties. Returns a deep clone when any
+ * enrichment applies (the original is untouched); otherwise returns it as-is.
  *
  * For each property that declares `dynamicItems: "<providerName>"`, the named
- * provider is invoked and its result replaces `availableItems`. If the provider
- * is not registered or fails, the existing static `availableItems` is preserved.
+ * provider is invoked and its result replaces `availableItems`. For each
+ * property that declares `dynamicDefault: "<providerName>"`, the named provider
+ * is invoked and its result replaces `default`. If a provider is not registered
+ * or fails, the existing static value is preserved.
  *
  * @param schema - The raw JSON Schema object (TypeBox output)
- * @returns A new schema object with `availableItems` populated from providers
+ * @returns A new schema object with `availableItems` / `default` populated from providers
  */
-export function enrichSchemaWithDynamicItems(schema: Record<string, unknown>): Record<string, unknown> {
+export function enrichSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const properties = schema.properties as Record<string, Record<string, unknown>> | undefined;
   if (!properties) return schema;
 
@@ -168,7 +179,7 @@ export function enrichSchemaWithDynamicItems(schema: Record<string, unknown>): R
 /**
  * Remove all registered providers (item and default). Useful for testing.
  */
-export function clearDynamicItemProviders(): void {
-  providers.clear();
+export function clearDynamicProviders(): void {
+  itemProviders.clear();
   defaultProviders.clear();
 }
