@@ -4,6 +4,7 @@
  * Handles:
  * - `GET    /api/sessions/:id/messages`
  * - `DELETE /api/sessions/:id/messages`
+ * - `DELETE /api/sessions/:id`
  *
  * Note: Skill request routes are defined in `src/jobs/skillRequestQueue.ts`.
  */
@@ -123,5 +124,19 @@ export function sessionRoutes() {
           ),
         }),
       },
-    );
+    )
+    .delete("/api/sessions/:id", ({ params, status }) => {
+      try {
+        const sessionStore = getSessionStore();
+        const notFound = requireSession(sessionStore, params.id, status);
+        if (notFound) return notFound;
+
+        sessionStore.delete(params.id);
+
+        return status(200, { sessionId: params.id, ok: true });
+      } catch (error) {
+        log.error("Failed to delete session", { error, sessionId: params.id });
+        return status(500, { error: "Failed to delete session" });
+      }
+    });
 }

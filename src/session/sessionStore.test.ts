@@ -7,7 +7,9 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import * as schema from "@src/db/schema";
 import { createTestDb } from "@src/test/db";
+import { eq } from "drizzle-orm";
 import { SessionStore } from "./sessionStore";
 
 function makeTextMessage(role: string, text: string): AgentMessage {
@@ -313,5 +315,93 @@ describe("SessionStore", () => {
       session.delete();
       expect(store.get(session.id)).toBeUndefined();
     });
+  });
+});
+
+describe("SessionStore.purgeStaleSessions", () => {
+  let db: ReturnType<typeof createTestDb>;
+  let store: SessionStore;
+
+  beforeEach(() => {
+    db = createTestDb();
+    store = new SessionStore(db);
+  });
+
+  /** Backdate a session's updatedAt so it appears idle for `ageMs`. */
+  function backdate(sessionId: string, ageMs: number): void {
+    db.update(schema.sessions)
+      .set({ updatedAt: Date.now() - ageMs })
+      .where(eq(schema.sessions.id, sessionId))
+      .run();
+  }
+
+  const HOUR = 60 * 60 * 1000;
+
+  test("deletes stale non-chat sessions and their messages", () => {
+    const session = store.create({ source: "scheduler" });
+    store.append(session.id, makeTextMessage("user", "run"));
+    backdate(session.id, 48 * HOUR);
+
+    const purged = store.purgeStaleSessions({ olderThanMs: 24 * HOUR });
+
+    expect(purged).toBe(1);
+    expect(store.get(session.id)).toBeUndefined();
+    expect(store.getMessages(session.id)).toEqual([]);
+  });
+
+  test("never deletes chat sessions, even when stale", () => {
+    const chat = store.create({ source: "chat" });
+    backdate(chat.id, 365 * 24 * HOUR);
+
+    const purged = store.purgeStaleSessions({ olderThanMs: 24 * HOUR });
+
+    expect(purged).toBe(0);
+    expect(store.get(chat.id)).not.toBeUndefined();
+  });
+
+  test("keeps sessions newer than the age threshold", () => {
+    const fresh = store.create({ source: "scheduler" });
+    backdate(fresh.id, 1 * HOUR);
+
+    const purged = store.purgeStaleSessions({ olderThanMs: 24 * HOUR });
+
+    expect(purged).toBe(0);
+    expect(store.get(fresh.id)).not.toBeUndefined();
+  });
+
+  test("only purges the stale non-chat subset of a mixed set", () => {
+    const staleScheduler = store.create({ source: "scheduler" });
+    const staleChat = store.create({ source: "chat" });
+    const freshTelegram = store.create({ source: "telegram", sourceId: "tg-1" });
+
+    backdate(staleScheduler.id, 48 * HOUR);
+    backdate(staleChat.id, 48 * HOUR);
+    backdate(freshTelegram.id, 1 * HOUR);
+
+    const purged = store.purgeStaleSessions({ olderThanMs: 24 * HOUR });
+
+    expect(purged).toBe(1);
+    expect(store.get(staleScheduler.id)).toBeUndefined();
+    expect(store.get(staleChat.id)).not.toBeUndefined();
+    expect(store.get(freshTelegram.id)).not.toBeUndefined();
+  });
+
+  test("honors a custom excludeSources list", () => {
+    const scheduler = store.create({ source: "scheduler" });
+    const telegram = store.create({ source: "telegram", sourceId: "tg-2" });
+    backdate(scheduler.id, 48 * HOUR);
+    backdate(telegram.id, 48 * HOUR);
+
+    const purged = store.purgeStaleSessions({ olderThanMs: 24 * HOUR, excludeSources: ["telegram"] });
+
+    expect(purged).toBe(1);
+    expect(store.get(scheduler.id)).toBeUndefined();
+    expect(store.get(telegram.id)).not.toBeUndefined();
+  });
+
+  test("returns 0 when nothing is stale", () => {
+    store.create({ source: "scheduler" });
+    const purged = store.purgeStaleSessions({ olderThanMs: 24 * HOUR });
+    expect(purged).toBe(0);
   });
 });

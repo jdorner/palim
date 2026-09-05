@@ -42,7 +42,7 @@ import { buildModelConfig, detectAndSetProvider, fetchAvailableModels, getModelF
 import type { ManagedQueuePort, QueueJob } from "@src/queue";
 import { closeLogStore, startLogPurgeTimer } from "@src/queue";
 import { SecretVault } from "@src/secrets/vault";
-import { getSessionStore } from "@src/session";
+import { deleteNonChatSessions, getSessionStore, startSessionPurgeTimer, stopSessionPurgeTimer } from "@src/session";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { SkillEntry } from "@src/tools/sandbox";
 import { createShell } from "@src/tools/sandbox";
@@ -384,20 +384,31 @@ export class AppBootstrap {
     // ---------------------------------------------------------------------------
     await this.registry.initializeAll(this.registryInitDeps);
 
-    // Wire workflow Run Store cleanup when jobs are cleaned from the queue monitor.
-    // Extracts workflowRunId from cached job entries before eviction.
+    // Wire workflow run store and session cleanup when jobs are cleaned from the
+    // queue monitor. Extracts workflowRunId and sessionId from cached job entries
+    // before eviction.
+    const sessionStore = getSessionStore(getDb());
     this.monitor.setOnBeforeJobsRemoved((jobIds, getCachedJob) => {
       const runIds = new Set<string>();
+      const sessionIds = new Set<string>();
       for (const jobId of jobIds) {
         const cached = getCachedJob(jobId);
         if (cached?.workflowRunId) {
           runIds.add(cached.workflowRunId);
+        }
+        if (cached?.sessionId) {
+          sessionIds.add(cached.sessionId);
         }
       }
       if (runIds.size > 0) {
         const ids = [...runIds];
         deleteSignalsByRunIds(ids);
         deleteRunsByIds(ids);
+      }
+      // Delete associated sessions (and their messages) for cleaned jobs, but
+      // preserve chat conversations - only non-chat sessions are removed.
+      if (sessionIds.size > 0) {
+        deleteNonChatSessions(sessionStore, sessionIds);
       }
     });
 
@@ -504,6 +515,18 @@ export class AppBootstrap {
     );
 
     // ---------------------------------------------------------------------------
+    // Periodic session cleanup - purge stale non-chat sessions every 6 hours.
+    // Sessions idle for more than 7 days are removed; chat sessions are excluded
+    // because the server cannot know whether the browser still holds them.
+    // ---------------------------------------------------------------------------
+    startSessionPurgeTimer(getSessionStore(getDb()), {
+      intervalMs: 6 * 60 * 60 * 1000,
+      maxAgeMs: 7 * 24 * 60 * 60 * 1000,
+      excludeSources: ["chat"],
+      executeImmediately: true,
+    });
+
+    // ---------------------------------------------------------------------------
     // Graceful shutdown
     // ---------------------------------------------------------------------------
     process.on("SIGTERM", this.shutdown);
@@ -527,6 +550,7 @@ export class AppBootstrap {
     await this.registry.shutdownAll();
     await Promise.all(this.getCoreQueues().map((q) => q?.close()));
     shutdownManager();
+    stopSessionPurgeTimer();
     closeLogStore();
     closeDb();
 
