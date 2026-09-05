@@ -89,7 +89,7 @@ src/
 ├── web/
 │   ├── server.ts            # Elysia HTTP + WebSocket server factory
 │   ├── compression.ts       # Elysia compression plugin (gzip, deflate, brotli with LRU cache)
-│   ├── dynamicItemProviders.ts # Provider registry for dynamic settings schema enrichment
+│   ├── dynamicProviders.ts  # Provider registry for dynamic schema enrichment (items + defaults)
 │   ├── monitor.ts           # Real-time job state push to WS clients
 │   ├── auth.ts              # Bearer token auth middleware
 │   ├── chatEvents.ts        # Agent event to chat WS event mappingg
@@ -265,24 +265,32 @@ Extensions can register: tools, HTTP routes (auto-prefixed `/ext/<name>/`), job 
 
 Current extensions (12): **converter**, **error-analyzer**, **mcp**, **steering**, **telegram**, **web-fetch**, **wiki** | Core: **core-wf-steps**, **filewatcher**, **scheduler**, **webhooks**, **workflows**
 
-#### Dynamic Settings Items
+#### Dynamic Schema Enrichment
 
-Extension settings schemas can declare `dynamicItems` on array properties to populate `availableItems` at request time from a named provider. This avoids hardcoding options that depend on runtime state (e.g. registered queues, available models).
+Extension settings schemas (and custom step type config schemas) can declare named providers that are resolved at request time, avoiding hardcoded options that depend on runtime state (e.g. registered queues, available models, discovered binary paths). Two provider kinds:
+
+- `dynamicItems` on an **array** property populates its `availableItems` (provider returns `string[]`).
+- `dynamicDefault` on a **scalar string** property replaces its `default` (provider returns `string`; an empty string leaves the static default untouched). Use it to surface a runtime-discovered value as an editable field default.
 
 Schema example:
 
 ```ts
 monitoredQueues: Type.Array(Type.String(), {
   availableItems: ["agents", "chat", "workflows"],  // static fallback
-  dynamicItems: "all-queue-names",              // resolved at request time
+  dynamicItems: "all-queue-names",                  // resolved at request time
+}),
+fpcalcPath: Type.String({
+  default: "",                                      // static fallback
+  dynamicDefault: "music-metadata-fpcalc-path",     // resolved at request time
 })
 ```
 
-The provider registry lives in `src/web/dynamicItemProviders.ts`. Extensions register providers via `ctx.dynamicItems.register(name, fn)` during initialization. The `GET /api/extensions/:name/settings` route invokes providers before returning the schema to the frontend. The frontend requires no changes since it already renders `availableItems`.
+The provider registry lives in `src/web/dynamicProviders.ts` (`enrichSchema` applies both facets). Extensions register providers via `ctx.dynamicItems.register(name, fn)` (items) and `ctx.dynamicItems.registerDefault(name, fn)` (defaults) during initialization. The `GET /api/extensions/:name/settings` route and the registry's step-type serialization invoke providers before returning schemas to the frontend. The frontend requires no changes since it already renders `availableItems` and `default`.
 
 Built-in providers (registered by extensions):
 
 - `all-queue-names` (error-analyzer) - Core queue names + extension names that have registered queues (short form, e.g. "converter" not "converter:jobs")
+- `workflow-names` (core-wf-steps) - Names of all loaded workflow definitions, populating the `workflowName` dropdown on the `start-workflow` step
 
 ### Sessions
 
