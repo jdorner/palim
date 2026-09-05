@@ -23,8 +23,18 @@ import { mainLogger as log } from "@src/utils/logger";
 /** A function that returns the current set of available items for a schema property. */
 export type DynamicItemProvider = () => string[];
 
+/**
+ * A function that returns the current resolved `default` for a scalar schema
+ * property (e.g. a runtime-discovered path). Returning an empty string leaves
+ * the field effectively unset (the form shows a blank editable field).
+ */
+export type DynamicDefaultProvider = () => string;
+
 /** Internal registry mapping provider names to their resolver functions. */
 const providers = new Map<string, DynamicItemProvider>();
+
+/** Internal registry mapping provider names to scalar-default resolvers. */
+const defaultProviders = new Map<string, DynamicDefaultProvider>();
 
 /**
  * Register a named dynamic item provider.
@@ -61,6 +71,45 @@ export function resolveDynamicItems(name: string): string[] | null {
 }
 
 /**
+ * Register a named dynamic default provider.
+ *
+ * When a settings schema property declares `dynamicDefault: "<providerName>"`,
+ * the named provider is invoked at request time and its return value replaces
+ * the property's `default`. Use this to surface a runtime-discovered value
+ * (e.g. an auto-detected binary path) as the field's default while keeping the
+ * field editable.
+ *
+ * @param name - Unique provider name referenced by `dynamicDefault` in schemas
+ * @param fn - Function that returns the current default value
+ */
+export function registerDynamicDefaultProvider(name: string, fn: DynamicDefaultProvider): void {
+  if (defaultProviders.has(name)) {
+    log.warn(`Dynamic default provider "${name}" is being replaced`);
+  }
+  defaultProviders.set(name, fn);
+}
+
+/**
+ * Resolve a named default provider to its current value.
+ *
+ * @param name - The provider name to look up
+ * @returns The resolved default string, or `null` if the provider is not registered or fails
+ */
+export function resolveDynamicDefault(name: string): string | null {
+  const fn = defaultProviders.get(name);
+  if (!fn) {
+    log.debug(`Dynamic default provider "${name}" not found`);
+    return null;
+  }
+  try {
+    return fn();
+  } catch (err) {
+    log.error(`Dynamic default provider "${name}" threw an error:`, err);
+    return null;
+  }
+}
+
+/**
  * Enrich a JSON Schema object by resolving all `dynamicItems` references
  * in its properties. Mutates a deep clone of the schema (the original is untouched).
  *
@@ -75,10 +124,10 @@ export function enrichSchemaWithDynamicItems(schema: Record<string, unknown>): R
   const properties = schema.properties as Record<string, Record<string, unknown>> | undefined;
   if (!properties) return schema;
 
-  // Check if any property has dynamicItems before cloning
+  // Check if any property has a dynamic reference (items or default) before cloning
   let hasDynamic = false;
   for (const prop of Object.values(properties)) {
-    if (typeof prop.dynamicItems === "string") {
+    if (typeof prop.dynamicItems === "string" || typeof prop.dynamicDefault === "string") {
       hasDynamic = true;
       break;
     }
@@ -90,22 +139,36 @@ export function enrichSchemaWithDynamicItems(schema: Record<string, unknown>): R
   const enrichedProperties = enriched.properties as Record<string, Record<string, unknown>>;
 
   for (const [_key, prop] of Object.entries(enrichedProperties)) {
+    // Array properties: resolve availableItems from an item provider.
     const providerName = prop.dynamicItems;
-    if (typeof providerName !== "string") continue;
-
-    const items = resolveDynamicItems(providerName);
-    if (items !== null) {
-      prop.availableItems = items;
+    if (typeof providerName === "string") {
+      const items = resolveDynamicItems(providerName);
+      if (items !== null) {
+        prop.availableItems = items;
+      }
+      // If resolution failed, leave the existing static availableItems untouched
     }
-    // If resolution failed, leave the existing static availableItems untouched
+
+    // Scalar properties: resolve `default` from a default provider so a
+    // runtime-discovered value (e.g. an auto-detected path) is shown in the
+    // form while remaining editable. A null/empty result leaves the existing
+    // static default untouched.
+    const defaultProviderName = prop.dynamicDefault;
+    if (typeof defaultProviderName === "string") {
+      const resolved = resolveDynamicDefault(defaultProviderName);
+      if (resolved !== null && resolved !== "") {
+        prop.default = resolved;
+      }
+    }
   }
 
   return enriched;
 }
 
 /**
- * Remove all registered providers. Useful for testing.
+ * Remove all registered providers (item and default). Useful for testing.
  */
 export function clearDynamicItemProviders(): void {
   providers.clear();
+  defaultProviders.clear();
 }

@@ -18,7 +18,10 @@ import type { SessionStorePort } from "@src/session";
 import type { SkillEntry } from "@src/tools/sandbox";
 import { authenticatedFetch } from "@src/utils/fetch";
 import type { TemplateVariableResolver } from "@src/variables";
-import { registerDynamicItemProvider as registerProviderFn } from "@src/web/dynamicItemProviders";
+import {
+  registerDynamicDefaultProvider as registerDefaultProviderFn,
+  registerDynamicItemProvider as registerProviderFn,
+} from "@src/web/dynamicItemProviders";
 import type { FlowProducer } from "bunqueue/client";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";
@@ -675,6 +678,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     },
     dynamicItems: {
       register: registerProviderFn,
+      registerDefault: registerDefaultProviderFn,
     },
     internal: {
       secrets: {

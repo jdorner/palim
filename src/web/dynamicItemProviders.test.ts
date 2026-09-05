@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import {
   clearDynamicItemProviders,
   enrichSchemaWithDynamicItems,
+  registerDynamicDefaultProvider,
   registerDynamicItemProvider,
+  resolveDynamicDefault,
   resolveDynamicItems,
 } from "./dynamicItemProviders";
 
@@ -174,15 +176,102 @@ describe("dynamicItemProviders", () => {
     });
   });
 
+  describe("registerDynamicDefaultProvider / resolveDynamicDefault", () => {
+    test("registers a default provider that can be resolved", () => {
+      registerDynamicDefaultProvider("fpcalc", () => "/usr/bin/fpcalc");
+      expect(resolveDynamicDefault("fpcalc")).toBe("/usr/bin/fpcalc");
+    });
+
+    test("returns null for an unregistered default provider", () => {
+      expect(resolveDynamicDefault("nope")).toBeNull();
+    });
+
+    test("returns null when the default provider throws", () => {
+      registerDynamicDefaultProvider("broken", () => {
+        throw new Error("boom");
+      });
+      expect(resolveDynamicDefault("broken")).toBeNull();
+    });
+
+    test("reflects the current value each call", () => {
+      let p = "/a";
+      registerDynamicDefaultProvider("dyn", () => p);
+      expect(resolveDynamicDefault("dyn")).toBe("/a");
+      p = "/b";
+      expect(resolveDynamicDefault("dyn")).toBe("/b");
+    });
+  });
+
+  describe("enrichSchemaWithDynamicItems - dynamicDefault", () => {
+    test("resolves a scalar default from a registered provider", () => {
+      registerDynamicDefaultProvider("fpcalc-discovered", () => "/usr/bin/fpcalc");
+
+      const schema = {
+        type: "object",
+        properties: {
+          fpcalcPath: { type: "string", title: "fpcalc Path", default: "", dynamicDefault: "fpcalc-discovered" },
+        },
+      };
+
+      const result = enrichSchemaWithDynamicItems(schema);
+      const prop = (result.properties as Record<string, Record<string, unknown>>).fpcalcPath;
+      expect(prop?.default).toBe("/usr/bin/fpcalc");
+    });
+
+    test("leaves the static default untouched when the provider returns empty", () => {
+      registerDynamicDefaultProvider("empty", () => "");
+
+      const schema = {
+        type: "object",
+        properties: {
+          fpcalcPath: { type: "string", default: "static-fallback", dynamicDefault: "empty" },
+        },
+      };
+
+      const result = enrichSchemaWithDynamicItems(schema);
+      const prop = (result.properties as Record<string, Record<string, unknown>>).fpcalcPath;
+      expect(prop?.default).toBe("static-fallback");
+    });
+
+    test("leaves the static default untouched when the provider is missing", () => {
+      const schema = {
+        type: "object",
+        properties: {
+          fpcalcPath: { type: "string", default: "static", dynamicDefault: "not-registered" },
+        },
+      };
+
+      const result = enrichSchemaWithDynamicItems(schema);
+      const prop = (result.properties as Record<string, Record<string, unknown>>).fpcalcPath;
+      expect(prop?.default).toBe("static");
+    });
+
+    test("does not mutate the original schema", () => {
+      registerDynamicDefaultProvider("disc", () => "/resolved");
+      const schema = {
+        type: "object",
+        properties: {
+          fpcalcPath: { type: "string", default: "", dynamicDefault: "disc" },
+        },
+      };
+
+      enrichSchemaWithDynamicItems(schema);
+      const prop = (schema.properties as Record<string, Record<string, unknown>>).fpcalcPath;
+      expect(prop?.default).toBe("");
+    });
+  });
+
   describe("clearDynamicItemProviders", () => {
-    test("removes all registered providers", () => {
+    test("removes all registered providers (items and defaults)", () => {
       registerDynamicItemProvider("a", () => ["1"]);
       registerDynamicItemProvider("b", () => ["2"]);
+      registerDynamicDefaultProvider("d", () => "/x");
 
       clearDynamicItemProviders();
 
       expect(resolveDynamicItems("a")).toBeNull();
       expect(resolveDynamicItems("b")).toBeNull();
+      expect(resolveDynamicDefault("d")).toBeNull();
     });
   });
 });

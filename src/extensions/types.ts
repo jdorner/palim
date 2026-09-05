@@ -884,6 +884,21 @@ export interface ExtensionContext {
      * @param fn - Function that returns the current available items
      */
     register(name: string, fn: () => string[]): void;
+
+    /**
+     * Register a named dynamic default provider.
+     *
+     * When a settings schema property declares `dynamicDefault: "<name>"`, the
+     * named provider is invoked at request time and its return value replaces
+     * the property's `default`. Use this to surface a runtime-discovered value
+     * (e.g. an auto-detected binary path) as the field's default while keeping
+     * the field editable. Returning an empty string leaves the static default
+     * untouched.
+     *
+     * @param name - Unique provider name referenced by `dynamicDefault` in schemas
+     * @param fn - Function that returns the current default value
+     */
+    registerDefault(name: string, fn: () => string): void;
   };
 
   // -------------------------------------------------------------------------
