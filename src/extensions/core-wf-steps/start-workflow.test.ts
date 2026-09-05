@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { StepExecutionContext, StepInputValidation, StepTypeHandler, WorkflowDispatchResult } from "@ext/types";
+import { InMemoryFs } from "just-bash";
 import {
   createStartWorkflowHandler,
   type StartWorkflowResult,
@@ -13,6 +14,7 @@ function createFakeContext(overrides?: Partial<StepExecutionContext>): StepExecu
     resolveTemplate: async (template: string) => ({ resolved: template, warnings: [] }),
     log: { info: () => {}, warn: () => {}, error: () => {}, debug: () => {} } as unknown as StepExecutionContext["log"],
     workDir: "/tmp/test-work",
+    fs: new InMemoryFs(),
     jobLog: async () => {},
     workflowRunId: "test-run-123",
     ...overrides,

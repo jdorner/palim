@@ -25,6 +25,7 @@ import { describe, expect, test } from "bun:test";
 import type { StepExecutionContext } from "@ext/types";
 import type { OutputSchema } from "@shared/workflows";
 import type { TSchema } from "@sinclair/typebox";
+import { InMemoryFs } from "just-bash";
 import { createFailHandler } from "../../core-wf-steps/fail";
 import { createHttpRequestHandler } from "../../core-wf-steps/http-request";
 import { createNotifyStepHandler } from "../../telegram/notifyStep";
@@ -313,6 +314,7 @@ describe("backward compatibility: outputSchema is declarative metadata only", ()
           debug: () => {},
         } as unknown as StepExecutionContext["log"],
         workDir: "/tmp/test-work",
+        fs: new InMemoryFs(),
         jobLog: async () => {},
         workflowRunId: "test-run-123",
       };

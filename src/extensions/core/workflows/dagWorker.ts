@@ -7,10 +7,12 @@
  * @module
  */
 
+import { mkdirSync } from "node:fs";
 import type { ExtensionContext, Logger, QueueJob, StepTypeHandler } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { TemplateVariableResolver } from "@src/variables";
+import { type IFileSystem, ReadWriteFs } from "just-bash";
 import type { DagStepJobData } from "./dagEngine";
 import * as dagRunStore from "./dagRunStore";
 import { normalizePrompt } from "./schemas";
@@ -154,6 +156,22 @@ function buildDagStepSystemPrompt(skills: string[] | undefined, deps: DagStepWor
  * @returns A job processor that handles agent and custom extension step types
  */
 export function createDagStepProcessor(deps: DagStepWorkerDeps) {
+  // Virtual filesystem scoped to the work directory, shared across all steps
+  // processed by this worker. Mirrors the `fs` given to sandbox command
+  // handlers (`CommandContext.fs`). `ReadWriteFs` validates its root eagerly,
+  // so ensure the work directory exists before constructing it (the directory
+  // is normally created at boot, but a step may run before anything writes to
+  // it). Built lazily on first use so constructing a processor never touches
+  // the filesystem.
+  let stepFs: IFileSystem | undefined;
+  const getStepFs = (): IFileSystem => {
+    if (!stepFs) {
+      mkdirSync(deps.ctx.paths.work, { recursive: true });
+      stepFs = new ReadWriteFs({ root: deps.ctx.paths.work });
+    }
+    return stepFs;
+  };
+
   return async (job: QueueJob<DagStepJobData>): Promise<unknown> => {
     const { stepDef, stepSlug, workflowName } = job.data;
 
@@ -189,6 +207,7 @@ export function createDagStepProcessor(deps: DagStepWorkerDeps) {
           resolveTemplate: async (template: string) => resolveTemplates(template, tmplCtx),
           log: deps.log,
           workDir: deps.ctx.paths.work,
+          fs: getStepFs(),
           jobLog: async (msg: string) => job.log(msg),
           workflowRunId: job.data.workflowRunId,
           stepResults: tmplCtx.stepResults,
