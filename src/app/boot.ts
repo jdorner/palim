@@ -42,7 +42,7 @@ import { buildModelConfig, detectAndSetProvider, fetchAvailableModels, getModelF
 import type { ManagedQueuePort, QueueJob } from "@src/queue";
 import { closeLogStore, startLogPurgeTimer } from "@src/queue";
 import { SecretVault } from "@src/secrets/vault";
-import { deleteNonChatSessions, getSessionStore } from "@src/session";
+import { deleteNonChatSessions, getSessionStore, startSessionPurgeTimer, stopSessionPurgeTimer } from "@src/session";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { SkillEntry } from "@src/tools/sandbox";
 import { createShell } from "@src/tools/sandbox";
@@ -515,6 +515,18 @@ export class AppBootstrap {
     );
 
     // ---------------------------------------------------------------------------
+    // Periodic session cleanup - purge stale non-chat sessions every 6 hours.
+    // Sessions idle for more than 7 days are removed; chat sessions are excluded
+    // because the server cannot know whether the browser still holds them.
+    // ---------------------------------------------------------------------------
+    startSessionPurgeTimer(getSessionStore(getDb()), {
+      intervalMs: 6 * 60 * 60 * 1000,
+      maxAgeMs: 7 * 24 * 60 * 60 * 1000,
+      excludeSources: ["chat"],
+      executeImmediately: true,
+    });
+
+    // ---------------------------------------------------------------------------
     // Graceful shutdown
     // ---------------------------------------------------------------------------
     process.on("SIGTERM", this.shutdown);
@@ -538,6 +550,7 @@ export class AppBootstrap {
     await this.registry.shutdownAll();
     await Promise.all(this.getCoreQueues().map((q) => q?.close()));
     shutdownManager();
+    stopSessionPurgeTimer();
     closeLogStore();
     closeDb();
 

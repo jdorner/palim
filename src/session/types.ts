@@ -105,6 +105,8 @@ export interface SessionStorePort {
   getOrCreate(opts: GetOrCreateSessionOptions): Session;
   /** Delete a session and all its messages. */
   delete(sessionId: string): void;
+  /** Delete stale sessions (and their messages) older than a given age, excluding certain sources. Returns the count deleted. */
+  purgeStaleSessions(opts: { olderThanMs: number; excludeSources?: string[] }): number;
   /** List sessions, optionally filtered by source. */
   list(opts?: ListSessionsOptions): Session[];
   /** Append a message to a session by ID. */

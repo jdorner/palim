@@ -11,7 +11,7 @@
 
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import * as schema from "@src/db/schema";
-import { and, asc, desc, eq, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lt, notInArray, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";
 import { nanoid } from "nanoid";
@@ -323,6 +323,47 @@ export class SessionStore implements SessionStorePort {
       tx.delete(schema.sessions).where(eq(schema.sessions.id, sessionId)).run();
     });
     logger.debug(`Deleted session ${sessionId}`);
+  }
+
+  /**
+   * Delete stale sessions (and their messages) that have not been updated
+   * within the given age, excluding the listed sources.
+   *
+   * Intended for periodic housekeeping of one-shot, non-interactive sessions
+   * (e.g. scheduler, telegram, workflow-triggered agent runs). Interactive
+   * sources such as `"chat"` should be excluded, because the server cannot know
+   * whether the corresponding conversation still exists in the browser; those
+   * are removed only when the user explicitly deletes the conversation.
+   *
+   * @param opts.olderThanMs - Minimum idle age in ms (based on `updatedAt`) before a session is eligible
+   * @param opts.excludeSources - Session sources that must never be purged (defaults to `["chat"]`)
+   * @returns The number of sessions deleted
+   */
+  purgeStaleSessions(opts: { olderThanMs: number; excludeSources?: string[] }): number {
+    const excludeSources = opts.excludeSources ?? ["chat"];
+    const cutoff = Date.now() - opts.olderThanMs;
+
+    const conditions = [lt(schema.sessions.updatedAt, cutoff)];
+    if (excludeSources.length > 0) {
+      conditions.push(notInArray(schema.sessions.source, excludeSources));
+    }
+
+    const staleIds = this.db
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
+      .where(and(...conditions))
+      .all()
+      .map((row) => row.id);
+
+    if (staleIds.length === 0) return 0;
+
+    this.db.transaction((tx) => {
+      tx.delete(schema.sessionMessages).where(inArray(schema.sessionMessages.sessionId, staleIds)).run();
+      tx.delete(schema.sessions).where(inArray(schema.sessions.id, staleIds)).run();
+    });
+
+    logger.debug(`Purged ${staleIds.length} stale session(s)`);
+    return staleIds.length;
   }
 
   /**
