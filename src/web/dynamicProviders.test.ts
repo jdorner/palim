@@ -1,14 +1,16 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import {
-  clearDynamicItemProviders,
-  enrichSchemaWithDynamicItems,
+  clearDynamicProviders,
+  enrichSchema,
+  registerDynamicDefaultProvider,
   registerDynamicItemProvider,
+  resolveDynamicDefault,
   resolveDynamicItems,
-} from "./dynamicItemProviders";
+} from "./dynamicProviders";
 
-describe("dynamicItemProviders", () => {
+describe("dynamicProviders", () => {
   beforeEach(() => {
-    clearDynamicItemProviders();
+    clearDynamicProviders();
   });
 
   describe("registerDynamicItemProvider", () => {
@@ -51,7 +53,7 @@ describe("dynamicItemProviders", () => {
     });
   });
 
-  describe("enrichSchemaWithDynamicItems", () => {
+  describe("enrichSchema - dynamicItems", () => {
     test("returns the original schema when no properties have dynamicItems", () => {
       const schema = {
         type: "object",
@@ -61,7 +63,7 @@ describe("dynamicItemProviders", () => {
         },
       };
 
-      const result = enrichSchemaWithDynamicItems(schema);
+      const result = enrichSchema(schema);
       // Should return the same reference (no clone needed)
       expect(result).toBe(schema);
     });
@@ -81,7 +83,7 @@ describe("dynamicItemProviders", () => {
         },
       };
 
-      const result = enrichSchemaWithDynamicItems(schema);
+      const result = enrichSchema(schema);
       const prop = (result.properties as Record<string, Record<string, unknown>>).monitoredQueues;
       expect(prop?.availableItems).toEqual(["agents", "chat", "workflows", "error-analyzer:analysis"]);
     });
@@ -100,7 +102,7 @@ describe("dynamicItemProviders", () => {
         },
       };
 
-      enrichSchemaWithDynamicItems(schema);
+      enrichSchema(schema);
       const prop = (schema.properties as Record<string, Record<string, unknown>>).items;
       expect(prop?.availableItems).toEqual(["a"]);
     });
@@ -117,7 +119,7 @@ describe("dynamicItemProviders", () => {
         },
       };
 
-      const result = enrichSchemaWithDynamicItems(schema);
+      const result = enrichSchema(schema);
       const prop = (result.properties as Record<string, Record<string, unknown>>).queues;
       expect(prop?.availableItems).toEqual(["agents", "chat"]);
     });
@@ -138,7 +140,7 @@ describe("dynamicItemProviders", () => {
         },
       };
 
-      const result = enrichSchemaWithDynamicItems(schema);
+      const result = enrichSchema(schema);
       const prop = (result.properties as Record<string, Record<string, unknown>>).queues;
       expect(prop?.availableItems).toEqual(["fallback"]);
     });
@@ -161,7 +163,7 @@ describe("dynamicItemProviders", () => {
         },
       };
 
-      const result = enrichSchemaWithDynamicItems(schema);
+      const result = enrichSchema(schema);
       const props = result.properties as Record<string, Record<string, unknown>>;
       expect(props.colors?.availableItems).toEqual(["red", "blue"]);
       expect(props.staticField?.availableItems).toEqual(["static1", "static2"]);
@@ -169,20 +171,107 @@ describe("dynamicItemProviders", () => {
 
     test("returns schema unchanged when properties is undefined", () => {
       const schema = { type: "object" };
-      const result = enrichSchemaWithDynamicItems(schema);
+      const result = enrichSchema(schema);
       expect(result).toBe(schema);
     });
   });
 
-  describe("clearDynamicItemProviders", () => {
-    test("removes all registered providers", () => {
+  describe("registerDynamicDefaultProvider / resolveDynamicDefault", () => {
+    test("registers a default provider that can be resolved", () => {
+      registerDynamicDefaultProvider("fpcalc", () => "/usr/bin/fpcalc");
+      expect(resolveDynamicDefault("fpcalc")).toBe("/usr/bin/fpcalc");
+    });
+
+    test("returns null for an unregistered default provider", () => {
+      expect(resolveDynamicDefault("nope")).toBeNull();
+    });
+
+    test("returns null when the default provider throws", () => {
+      registerDynamicDefaultProvider("broken", () => {
+        throw new Error("boom");
+      });
+      expect(resolveDynamicDefault("broken")).toBeNull();
+    });
+
+    test("reflects the current value each call", () => {
+      let p = "/a";
+      registerDynamicDefaultProvider("dyn", () => p);
+      expect(resolveDynamicDefault("dyn")).toBe("/a");
+      p = "/b";
+      expect(resolveDynamicDefault("dyn")).toBe("/b");
+    });
+  });
+
+  describe("enrichSchema - dynamicDefault", () => {
+    test("resolves a scalar default from a registered provider", () => {
+      registerDynamicDefaultProvider("fpcalc-discovered", () => "/usr/bin/fpcalc");
+
+      const schema = {
+        type: "object",
+        properties: {
+          fpcalcPath: { type: "string", title: "fpcalc Path", default: "", dynamicDefault: "fpcalc-discovered" },
+        },
+      };
+
+      const result = enrichSchema(schema);
+      const prop = (result.properties as Record<string, Record<string, unknown>>).fpcalcPath;
+      expect(prop?.default).toBe("/usr/bin/fpcalc");
+    });
+
+    test("leaves the static default untouched when the provider returns empty", () => {
+      registerDynamicDefaultProvider("empty", () => "");
+
+      const schema = {
+        type: "object",
+        properties: {
+          fpcalcPath: { type: "string", default: "static-fallback", dynamicDefault: "empty" },
+        },
+      };
+
+      const result = enrichSchema(schema);
+      const prop = (result.properties as Record<string, Record<string, unknown>>).fpcalcPath;
+      expect(prop?.default).toBe("static-fallback");
+    });
+
+    test("leaves the static default untouched when the provider is missing", () => {
+      const schema = {
+        type: "object",
+        properties: {
+          fpcalcPath: { type: "string", default: "static", dynamicDefault: "not-registered" },
+        },
+      };
+
+      const result = enrichSchema(schema);
+      const prop = (result.properties as Record<string, Record<string, unknown>>).fpcalcPath;
+      expect(prop?.default).toBe("static");
+    });
+
+    test("does not mutate the original schema", () => {
+      registerDynamicDefaultProvider("disc", () => "/resolved");
+      const schema = {
+        type: "object",
+        properties: {
+          fpcalcPath: { type: "string", default: "", dynamicDefault: "disc" },
+        },
+      };
+
+      enrichSchema(schema);
+      const prop = (schema.properties as Record<string, Record<string, unknown>>).fpcalcPath;
+      expect(prop?.default).toBe("");
+    });
+  });
+
+  describe("clearDynamicProviders", () => {
+    test("removes all registered providers (items and defaults)", () => {
       registerDynamicItemProvider("a", () => ["1"]);
       registerDynamicItemProvider("b", () => ["2"]);
+      registerDynamicDefaultProvider("d", () => "/x");
 
-      clearDynamicItemProviders();
+      clearDynamicProviders();
 
       expect(resolveDynamicItems("a")).toBeNull();
       expect(resolveDynamicItems("b")).toBeNull();
+      expect(resolveDynamicDefault("d")).toBeNull();
     });
   });
 });

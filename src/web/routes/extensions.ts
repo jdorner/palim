@@ -10,7 +10,7 @@ import { Value } from "@sinclair/typebox/value";
 import { getDb, schema } from "@src/db";
 import type { ExtensionRegistry } from "@src/extensions";
 import { mainLogger as log } from "@src/utils/logger";
-import { enrichSchemaWithDynamicItems } from "@src/web/dynamicItemProviders";
+import { enrichSchema } from "@src/web/dynamicProviders";
 import { eq } from "drizzle-orm";
 import { Elysia } from "elysia";
 
@@ -129,8 +129,8 @@ export function extensionRoutes(getRegistry: () => ExtensionRegistry | undefined
           }
         }
 
-        // Enrich schema with dynamically resolved items before sending to frontend
-        const enrichedSchema = enrichSchemaWithDynamicItems(ext.settingsSchema as Record<string, unknown>);
+        // Enrich schema with dynamically resolved items/defaults before sending to frontend
+        const enrichedSchema = enrichSchema(ext.settingsSchema as Record<string, unknown>);
 
         // Mask sensitive fields
         const properties = (enrichedSchema as Record<string, unknown>).properties as

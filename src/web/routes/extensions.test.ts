@@ -8,7 +8,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { ExtensionInfo } from "@shared/extensions";
 import type { ExtensionRegistry } from "@src/extensions";
-import { clearDynamicItemProviders, registerDynamicItemProvider } from "@src/web/dynamicItemProviders";
+import { clearDynamicProviders, registerDynamicItemProvider } from "@src/web/dynamicProviders";
 import { Elysia } from "elysia";
 import { extensionRoutes } from "./extensions";
 
@@ -61,7 +61,7 @@ function get(app: TestApp, path: string) {
 
 describe("extensionRoutes - dynamic item enrichment", () => {
   beforeEach(() => {
-    clearDynamicItemProviders();
+    clearDynamicProviders();
   });
 
   test("enriches availableItems from a registered dynamic provider", async () => {
