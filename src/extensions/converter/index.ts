@@ -2,9 +2,9 @@
  * Converter extension - converts files (PDFs, images) to markdown text
  * using a vision LLM agent.
  *
- * Exposes a `POST /ext/converter/convert` endpoint that accepts either:
- * - `paths`: an array of file paths (relative to work directory) for filesystem-based input
- * - `data`: an array of base64-encoded file contents for piped/stdin input
+ * Exposes a `POST /ext/converter/convert` endpoint that accepts:
+ * - `data`: an array of base64-encoded file contents (required)
+ * - `filenames`: optional display names aligned with `data`, used only for job labels/logs
  * Multiple inputs are merged into a single conversion (pages of one document).
  *
  * Conversion jobs are processed on the `converter:jobs` queue, giving
@@ -28,7 +28,7 @@ import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import type { ImageContent, TextContent } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { fileTypeFromBuffer, fileTypeFromFile } from "file-type";
+import { fileTypeFromBuffer } from "file-type";
 import { buildImageParts, OCR_SYSTEM_PROMPT } from "./ocr";
 
 /** MIME types supported for conversion. */
@@ -38,24 +38,23 @@ const SUPPORTED_MIME_EXACT = new Set(["application/pdf"]);
 /**
  * TypeBox schema for the convert POST payload.
  *
- * Accepts one or more inputs, from the filesystem or as base64 data:
- * - `paths` - array of file paths relative to the work directory
- * - `data` - array of base64-encoded file contents (for stdin/pipe input)
+ * Inputs are always supplied as base64-encoded bytes:
+ * - `data` - array of base64-encoded file contents (required)
+ * - `filenames` - optional display names, positionally aligned with `data`
  *
  * When multiple inputs are supplied, they are merged into a single conversion:
  * all images are sent to the vision model together as pages of one document.
  */
 const ConvertPayloadSchema = Type.Object({
-  paths: Type.Optional(
+  data: Type.Array(Type.String({ minLength: 1 }), {
+    minItems: 1,
+    description: "Base64-encoded file contents, merged into one conversion",
+  }),
+  filenames: Type.Optional(
     Type.Array(Type.String({ minLength: 1 }), {
       minItems: 1,
-      description: "File paths relative to the work directory, merged into one conversion",
-    }),
-  ),
-  data: Type.Optional(
-    Type.Array(Type.String({ minLength: 1 }), {
-      minItems: 1,
-      description: "Base64-encoded file contents (for stdin/pipe input), merged into one conversion",
+      description:
+        "Display filenames for the `data` inputs, positionally aligned. Used only for job labels/logs; does not affect conversion.",
     }),
   ),
   prompt: Type.Optional(
@@ -63,12 +62,18 @@ const ConvertPayloadSchema = Type.Object({
   ),
 });
 
-/** A single resolved conversion input: an absolute file path plus its detected MIME type. */
+/** A single resolved conversion input: an absolute temp-file path plus its detected MIME type. */
 interface ConvertInput {
-  /** Absolute path to the file to convert. */
+  /** Absolute path to the temp file holding the decoded bytes. */
   filePath: string;
   /** Detected MIME type. */
   mimeType: string;
+  /**
+   * Human-friendly name for job labels, logs, and session metadata. The bytes
+   * are written to a generically named temp file, so this preserves the
+   * caller's original filename. Falls back to the temp file basename.
+   */
+  displayName: string;
 }
 
 /** Job data for a conversion queue job. */
@@ -135,49 +140,17 @@ async function writeDataToTempFile(data: string, mimeType: string): Promise<stri
 
 /** Structured outcome of resolving a single conversion input. */
 type ResolveResult =
-  | { ok: true; input: ConvertInput; tempFile: string | null }
+  | { ok: true; input: ConvertInput; tempFile: string }
   | { ok: false; status: number; body: Record<string, unknown> };
-
-/**
- * Resolves a filesystem path input into an absolute path and detected MIME type.
- *
- * Enforces that the resolved path stays within the work directory and that the
- * file exists and is a supported type.
- *
- * @param rawPath - File path, absolute or relative to the work directory
- * @param workDir - Absolute path to the work directory (scoping boundary)
- * @returns A resolve result with either the resolved input or an error response
- */
-async function resolvePathInput(rawPath: string, workDir: string): Promise<ResolveResult> {
-  const absolutePath = path.isAbsolute(rawPath) ? rawPath : path.resolve(workDir, rawPath);
-  const resolved = path.resolve(absolutePath);
-
-  if (!resolved.startsWith(workDir)) {
-    return { ok: false, status: 403, body: { error: "Access denied: path outside work directory" } };
-  }
-
-  const file = Bun.file(resolved);
-  if (!(await file.exists())) {
-    return { ok: false, status: 404, body: { error: `File not found: ${rawPath}` } };
-  }
-
-  const typeResult = await fileTypeFromFile(resolved);
-  const mimeType = typeResult?.mime ?? "application/octet-stream";
-
-  if (!isSupportedMime(mimeType)) {
-    return { ok: false, status: 415, body: { error: `Unsupported file type: ${mimeType}`, mimeType } };
-  }
-
-  return { ok: true, input: { filePath: resolved, mimeType }, tempFile: null };
-}
 
 /**
  * Resolves a base64 data input by detecting its type and writing it to a temp file.
  *
  * @param data - Base64-encoded file content
+ * @param displayName - Optional original filename for labels/logs; falls back to the temp file basename
  * @returns A resolve result with either the resolved input (and temp file path) or an error response
  */
-async function resolveDataInput(data: string): Promise<ResolveResult> {
+async function resolveDataInput(data: string, displayName?: string): Promise<ResolveResult> {
   const buffer = Buffer.from(data, "base64");
   const typeResult = await fileTypeFromBuffer(buffer);
   const mimeType = typeResult?.mime ?? "application/octet-stream";
@@ -187,7 +160,11 @@ async function resolveDataInput(data: string): Promise<ResolveResult> {
   }
 
   const tempFile = await writeDataToTempFile(data, mimeType);
-  return { ok: true, input: { filePath: tempFile, mimeType }, tempFile };
+  return {
+    ok: true,
+    input: { filePath: tempFile, mimeType, displayName: displayName ?? path.basename(tempFile) },
+    tempFile,
+  };
 }
 
 const manifest = {
@@ -236,7 +213,7 @@ export function createExtension(): Extension {
         "jobs",
         async (job: QueueJob<ConvertJobData>): Promise<ConvertJobResult> => {
           const { inputs, prompt } = job.data;
-          const filenames = inputs.map((input) => path.basename(input.filePath));
+          const filenames = inputs.map((input) => input.displayName);
 
           await job.log(
             inputs.length === 1
@@ -355,20 +332,13 @@ export function createExtension(): Extension {
           }
 
           const payload = body as {
-            paths?: string[];
-            data?: string[];
+            data: string[];
+            filenames?: string[];
             prompt?: string;
           };
 
-          const pathInputs = payload.paths ?? [];
-          const dataInputs = payload.data ?? [];
-
-          if (pathInputs.length === 0 && dataInputs.length === 0) {
-            return new Response(JSON.stringify({ error: "At least one of 'paths' or 'data' must be provided" }), {
-              status: 400,
-              headers: { "Content-Type": "application/json" },
-            });
-          }
+          const dataInputs = payload.data;
+          const dataFilenames = payload.filenames ?? [];
 
           // Resolve every input. Track temp files so we can clean them up regardless of outcome.
           const inputs: ConvertInput[] = [];
@@ -383,8 +353,8 @@ export function createExtension(): Extension {
             }
           };
 
-          for (const rawPath of pathInputs) {
-            const resolveResult = await resolvePathInput(rawPath, ctx.paths.work);
+          for (let i = 0; i < dataInputs.length; i++) {
+            const resolveResult = await resolveDataInput(dataInputs[i]!, dataFilenames[i]);
             if (!resolveResult.ok) {
               cleanupTempFiles();
               return new Response(JSON.stringify(resolveResult.body), {
@@ -393,28 +363,14 @@ export function createExtension(): Extension {
               });
             }
             inputs.push(resolveResult.input);
-          }
-
-          for (const data of dataInputs) {
-            const resolveResult = await resolveDataInput(data);
-            if (!resolveResult.ok) {
-              cleanupTempFiles();
-              return new Response(JSON.stringify(resolveResult.body), {
-                status: resolveResult.status,
-                headers: { "Content-Type": "application/json" },
-              });
-            }
-            inputs.push(resolveResult.input);
-            if (resolveResult.tempFile) {
-              tempFiles.push(resolveResult.tempFile);
-            }
+            tempFiles.push(resolveResult.tempFile);
           }
 
           // Enqueue conversion job and wait for result
           const label =
             inputs.length === 1
-              ? path.basename(inputs[0]!.filePath)
-              : `${inputs.length} inputs (${inputs.map((input) => path.basename(input.filePath)).join(", ")})`;
+              ? inputs[0]!.displayName
+              : `${inputs.length} inputs (${inputs.map((input) => input.displayName).join(", ")})`;
           const jobData: ConvertJobData = { inputs };
           if (payload.prompt) {
             jobData.prompt = payload.prompt;
