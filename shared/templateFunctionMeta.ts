@@ -51,6 +51,12 @@ export const TEMPLATE_FUNCTION_META: readonly TemplateFunctionMeta[] = [
     returnType: "string",
   },
   {
+    name: "base64Encode",
+    signature: "base64Encode(value)",
+    description: "Encode a UTF-8 string to its base64 form.",
+    returnType: "string",
+  },
+  {
     name: "jsonEscape",
     signature: "jsonEscape(value)",
     description: "Escape a value so it is safe to embed inside a JSON string literal (no surrounding quotes).",

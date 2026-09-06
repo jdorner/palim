@@ -3,6 +3,7 @@ import { TEMPLATE_FUNCTION_META, TEMPLATE_FUNCTION_NAME_LIST } from "../../../..
 import {
   after,
   base64Decode,
+  base64Encode,
   before,
   jsonEscape,
   nowIso,
@@ -52,6 +53,25 @@ describe("base64Decode", () => {
   test("round-trips with stripDataUri output", () => {
     const encoded = Buffer.from("world").toString("base64");
     expect(base64Decode(stripDataUri(`data:text/plain;base64,${encoded}`))).toBe("world");
+  });
+});
+
+describe("base64Encode", () => {
+  test("encodes utf-8 text to base64", () => {
+    expect(base64Encode("hello")).toBe("aGVsbG8=");
+  });
+
+  test("coerces non-string input", () => {
+    expect(base64Encode(12345)).toBe(Buffer.from("12345", "utf-8").toString("base64"));
+  });
+
+  test("empty for null/undefined", () => {
+    expect(base64Encode(null)).toBe("");
+    expect(base64Encode(undefined)).toBe("");
+  });
+
+  test("round-trips with base64Decode", () => {
+    expect(base64Decode(base64Encode("user:pass"))).toBe("user:pass");
   });
 });
 
