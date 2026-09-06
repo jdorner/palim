@@ -8,12 +8,17 @@
  *   treated as pages of one document).
  * - stdin (pipe/redirect) - convert piped binary data directly
  *
+ * In both modes the file bytes are read inside the sandbox (via `ctx.fs`) and
+ * sent to the endpoint base64-encoded, so the endpoint never resolves
+ * sandbox-facing paths against its host work directory.
+ *
  * Options:
  * - `--file` / `-f` - Path to a file to convert (repeatable)
  * - `--output` / `-o` - Write result to this path instead of stdout
  * - `--prompt` / `-p` - Custom system prompt overriding the default OCR instructions
  */
 
+import { basename } from "node:path";
 import { formatFetchError, formatHttpError, registerProgram, type SkillScriptContext } from "@ext/sdk";
 import { type CommandContext, EMPTY_BYTES, type ExecResult, latin1FromBytes } from "just-bash";
 
@@ -51,12 +56,32 @@ export function buildConvertCommand(scriptCtx: SkillScriptContext) {
     }
 
     try {
-      // Build request payload. File inputs go through `paths`; stdin data
-      // through `data`. Both are arrays and merged into one conversion.
-      const payload: { paths?: string[]; data?: string[]; prompt?: string } = {};
+      // Build request payload. Both file and stdin inputs are read here inside
+      // the sandbox and sent as base64 `data`. Reading through `ctx.fs` (the
+      // just-bash virtual filesystem) means the paths the agent sees resolve
+      // correctly against the sandbox mount, and the converter never has to
+      // reconcile sandbox-facing paths against its host work directory.
+      const payload: { data?: string[]; filenames?: string[]; prompt?: string } = {};
 
       if (filePaths.length > 0) {
-        payload.paths = filePaths;
+        // Read each file from the sandbox filesystem and base64-encode it.
+        // Send the original basenames so job labels/logs stay meaningful even
+        // though the endpoint writes the bytes to generically named temp files.
+        const data: string[] = [];
+        const filenames: string[] = [];
+        for (const filePath of filePaths) {
+          const resolved = ctx.fs.resolvePath(ctx.cwd, filePath);
+          let bytes: Uint8Array;
+          try {
+            bytes = await ctx.fs.readFileBuffer(resolved);
+          } catch (err) {
+            return { exitCode: 1, stdout: "", stderr: `Error: could not read ${filePath}: ${err}` };
+          }
+          data.push(Buffer.from(bytes).toString("base64"));
+          filenames.push(basename(resolved));
+        }
+        payload.data = data;
+        payload.filenames = filenames;
       } else {
         // Read stdin as raw bytes and base64-encode for transport
         const raw = latin1FromBytes(ctx.stdin);

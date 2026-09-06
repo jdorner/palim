@@ -5,6 +5,7 @@
  * Exposes a `POST /ext/converter/convert` endpoint that accepts either:
  * - `paths`: an array of file paths (relative to work directory) for filesystem-based input
  * - `data`: an array of base64-encoded file contents for piped/stdin input
+ * - `filenames`: optional display names aligned with `data`, used only for job labels/logs
  * Multiple inputs are merged into a single conversion (pages of one document).
  *
  * Conversion jobs are processed on the `converter:jobs` queue, giving
@@ -58,6 +59,13 @@ const ConvertPayloadSchema = Type.Object({
       description: "Base64-encoded file contents (for stdin/pipe input), merged into one conversion",
     }),
   ),
+  filenames: Type.Optional(
+    Type.Array(Type.String({ minLength: 1 }), {
+      minItems: 1,
+      description:
+        "Display filenames for the `data` inputs, positionally aligned. Used only for job labels/logs; does not affect conversion.",
+    }),
+  ),
   prompt: Type.Optional(
     Type.String({ minLength: 1, description: "Custom system prompt to override the default OCR instructions" }),
   ),
@@ -69,6 +77,12 @@ interface ConvertInput {
   filePath: string;
   /** Detected MIME type. */
   mimeType: string;
+  /**
+   * Human-friendly name for job labels, logs, and session metadata. For `data`
+   * inputs the file is written to a generically named temp file, so this
+   * preserves the caller's original filename. Falls back to the file basename.
+   */
+  displayName: string;
 }
 
 /** Job data for a conversion queue job. */
@@ -152,7 +166,7 @@ async function resolvePathInput(rawPath: string, workDir: string): Promise<Resol
   const absolutePath = path.isAbsolute(rawPath) ? rawPath : path.resolve(workDir, rawPath);
   const resolved = path.resolve(absolutePath);
 
-  if (!resolved.startsWith(workDir)) {
+  if (resolved !== workDir && !resolved.startsWith(`${workDir}${path.sep}`)) {
     return { ok: false, status: 403, body: { error: "Access denied: path outside work directory" } };
   }
 
@@ -168,16 +182,17 @@ async function resolvePathInput(rawPath: string, workDir: string): Promise<Resol
     return { ok: false, status: 415, body: { error: `Unsupported file type: ${mimeType}`, mimeType } };
   }
 
-  return { ok: true, input: { filePath: resolved, mimeType }, tempFile: null };
+  return { ok: true, input: { filePath: resolved, mimeType, displayName: path.basename(resolved) }, tempFile: null };
 }
 
 /**
  * Resolves a base64 data input by detecting its type and writing it to a temp file.
  *
  * @param data - Base64-encoded file content
+ * @param displayName - Optional original filename for labels/logs; falls back to the temp file basename
  * @returns A resolve result with either the resolved input (and temp file path) or an error response
  */
-async function resolveDataInput(data: string): Promise<ResolveResult> {
+async function resolveDataInput(data: string, displayName?: string): Promise<ResolveResult> {
   const buffer = Buffer.from(data, "base64");
   const typeResult = await fileTypeFromBuffer(buffer);
   const mimeType = typeResult?.mime ?? "application/octet-stream";
@@ -187,7 +202,11 @@ async function resolveDataInput(data: string): Promise<ResolveResult> {
   }
 
   const tempFile = await writeDataToTempFile(data, mimeType);
-  return { ok: true, input: { filePath: tempFile, mimeType }, tempFile };
+  return {
+    ok: true,
+    input: { filePath: tempFile, mimeType, displayName: displayName ?? path.basename(tempFile) },
+    tempFile,
+  };
 }
 
 const manifest = {
@@ -236,7 +255,7 @@ export function createExtension(): Extension {
         "jobs",
         async (job: QueueJob<ConvertJobData>): Promise<ConvertJobResult> => {
           const { inputs, prompt } = job.data;
-          const filenames = inputs.map((input) => path.basename(input.filePath));
+          const filenames = inputs.map((input) => input.displayName);
 
           await job.log(
             inputs.length === 1
@@ -357,11 +376,13 @@ export function createExtension(): Extension {
           const payload = body as {
             paths?: string[];
             data?: string[];
+            filenames?: string[];
             prompt?: string;
           };
 
           const pathInputs = payload.paths ?? [];
           const dataInputs = payload.data ?? [];
+          const dataFilenames = payload.filenames ?? [];
 
           if (pathInputs.length === 0 && dataInputs.length === 0) {
             return new Response(JSON.stringify({ error: "At least one of 'paths' or 'data' must be provided" }), {
@@ -395,8 +416,8 @@ export function createExtension(): Extension {
             inputs.push(resolveResult.input);
           }
 
-          for (const data of dataInputs) {
-            const resolveResult = await resolveDataInput(data);
+          for (let i = 0; i < dataInputs.length; i++) {
+            const resolveResult = await resolveDataInput(dataInputs[i]!, dataFilenames[i]);
             if (!resolveResult.ok) {
               cleanupTempFiles();
               return new Response(JSON.stringify(resolveResult.body), {
@@ -413,8 +434,8 @@ export function createExtension(): Extension {
           // Enqueue conversion job and wait for result
           const label =
             inputs.length === 1
-              ? path.basename(inputs[0]!.filePath)
-              : `${inputs.length} inputs (${inputs.map((input) => path.basename(input.filePath)).join(", ")})`;
+              ? inputs[0]!.displayName
+              : `${inputs.length} inputs (${inputs.map((input) => input.displayName).join(", ")})`;
           const jobData: ConvertJobData = { inputs };
           if (payload.prompt) {
             jobData.prompt = payload.prompt;

@@ -47,6 +47,7 @@ Accepts JSON with at least one input field:
 
 - `paths` - Array of file paths relative to the work directory
 - `data` - Array of base64-encoded file contents (for piped/stdin input)
+- `filenames` (optional) - Display names aligned positionally with `data`, used only for job labels and logs; does not affect the conversion
 - `prompt` (optional) - Custom system prompt overriding the default OCR instructions
 
 When multiple inputs are supplied (via `paths`, `data`, or a mix), they are merged into a single conversion: every image is sent to the vision model together as pages of one document, and one combined markdown result is returned. Inputs are ordered `paths` first, then `data`.
