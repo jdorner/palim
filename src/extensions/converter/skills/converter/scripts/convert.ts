@@ -8,9 +8,9 @@
  *   treated as pages of one document).
  * - stdin (pipe/redirect) - convert piped binary data directly
  *
- * In both modes the file bytes are read inside the sandbox (via `ctx.fs`) and
- * sent to the endpoint base64-encoded, so the endpoint never resolves
- * sandbox-facing paths against its host work directory.
+ * Both modes send the file bytes to the endpoint base64-encoded (in the
+ * request's `data` field). For `--file`, bytes are read from the sandbox
+ * filesystem (`ctx.fs`); for stdin, they come from `ctx.stdin`.
  *
  * Options:
  * - `--file` / `-f` - Path to a file to convert (repeatable)
@@ -56,10 +56,11 @@ export function buildConvertCommand(scriptCtx: SkillScriptContext) {
     }
 
     try {
-      // Build request payload. Both file and stdin inputs are read here inside
-      // the sandbox and sent as base64 `data`. Reading through `ctx.fs` (the
-      // just-bash virtual filesystem) means the paths the agent sees resolve
-      // correctly against the sandbox mount, and the converter never has to
+      // Build request payload. Both file and stdin inputs are sent as base64
+      // `data`: `--file` reads bytes from the sandbox filesystem (`ctx.fs`),
+      // stdin reads from `ctx.stdin`. Resolving `--file` paths through `ctx.fs`
+      // (the just-bash virtual filesystem) means the paths the agent sees
+      // resolve against the sandbox mount, so the converter never has to
       // reconcile sandbox-facing paths against its host work directory.
       const payload: { data?: string[]; filenames?: string[]; prompt?: string } = {};
 
