@@ -43,7 +43,7 @@ let strokeClass = $derived(data.selected ? "stroke-primary" : "stroke-sky-400/70
   </svg>
 
   <!-- Content -->
-  <div class="relative z-10 flex items-center gap-1.5 pr-2 pl-8">
+  <div class="relative z-10 flex items-center gap-1.5 pr-10 pl-8">
     <div class="flex h-6 w-6 shrink-0 items-center justify-center rounded text-white {visual.tileClass}">
       <visual.icon size={13} weight="bold" aria-hidden="true" />
     </div>
@@ -53,9 +53,9 @@ let strokeClass = $derived(data.selected ? "stroke-primary" : "stroke-sky-400/70
   <!-- Status badge -->
   {#if statusInfo.icon}
     {@const StatusIcon = statusInfo.icon}
-    <div class="absolute right-1 top-0.5 z-20 rounded-full bg-background">
+    <div class="absolute right-2.5 top-5.5 z-20 rounded-full bg-background">
       <StatusIcon
-        size={14}
+        size={16}
         weight="fill"
         class="{statusInfo.colorClass} {statusInfo.spin ? 'animate-spin' : ''}"
         aria-hidden="true"
@@ -66,7 +66,7 @@ let strokeClass = $derived(data.selected ? "stroke-primary" : "stroke-sky-400/70
   <!-- Error badge -->
   {#if data.hasError}
     <div
-      class="absolute -right-2 -top-1.5 z-30 rounded-full bg-white leading-none"
+      class="absolute -right-2 -top-2 z-30 rounded-full bg-white leading-none"
       title="This step has a configuration error"
     >
       <WarningCircleIcon size={18} weight="fill" class="text-red-500" aria-label="Configuration error" />
