@@ -1267,6 +1267,13 @@ export async function handleDagStepFailure(
 /**
  * Marks a run as failed (convenience wrapper used by other modules).
  *
+ * Unlike {@link handleDagStepFailure} (the queue-job failure path), this is
+ * used by inline-evaluated nodes (iterator/if/case/aggregator and dispatch
+ * guards) that have no backing queue job. It mirrors that path's status
+ * handling: the offending step is marked `failed` and every remaining
+ * non-terminal step is swept to `dead`, so the run does not leave a step stuck
+ * in a `running`/`pending` state (which the UI would render as still active).
+ *
  * @param runId - The run ID
  * @param stepSlug - The step that caused failure
  * @param reason - Failure reason
@@ -1282,6 +1289,9 @@ export function failRun(
   log.error(`DAG run ${runId} failed at step "${stepSlug}": ${reason}`);
 
   try {
+    // Mark the offending step failed before failing the run so the UI does not
+    // leave it spinning in a non-terminal state.
+    dagRunStore.updateStepStatus(runId, stepSlug, "failed");
     dagRunStore.updateStatus(runId, "failed", reason);
   } catch {
     // best effort
@@ -1293,6 +1303,23 @@ export function failRun(
     failedStep: stepSlug,
     error: reason,
   });
+
+  // Sweep remaining non-terminal steps to dead, matching handleDagStepFailure.
+  // A failed run means any still-pending/running/paused sibling branch is no
+  // longer reachable and must not keep showing as active.
+  try {
+    const run = dagRunStore.get(runId);
+    if (run) {
+      for (const [slug, status] of Object.entries(run.stepStatuses)) {
+        if (status === "pending" || status === "running" || status === "waiting-signal") {
+          dagRunStore.updateStepStatus(runId, slug, "dead");
+          broadcast({ type: "workflow_step_dead", workflowRunId: runId, stepSlug: slug });
+        }
+      }
+    }
+  } catch {
+    // best effort
+  }
 }
 
 // ---------------------------------------------------------------------------

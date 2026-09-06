@@ -10,6 +10,7 @@ import { beforeEach, describe, expect, test } from "bun:test";
 import { createWorkflowTestDb } from "@src/test/db";
 import {
   type DagCoordinatorDeps,
+  evaluateInlineRoot,
   handleDagStepCompletion,
   handleDagStepFailure,
   resumeWaitForNode,
@@ -367,6 +368,72 @@ describe("handleDagStepFailure", () => {
     expect(finalRun.status).toBe("failed");
     // The paused waitFor step must be swept to dead, not left waiting-signal.
     expect(finalRun.stepStatuses.wait).toBe("dead");
+  });
+});
+
+describe("inline node failure (failRun)", () => {
+  // Regression: an iterator whose `items` expression resolves to invalid JSON
+  // used to fail the RUN while leaving the iterator step stuck at "running".
+  // The UI then showed a spinning/active dot next to a "failed" badge. failRun
+  // must mark the offending step "failed" and sweep siblings to "dead", exactly
+  // like the queue-job failure path (handleDagStepFailure).
+  test("iterator with invalid-JSON items marks the iterator step failed", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "iter-fail-wf",
+      trigger: { type: "manual" },
+      steps: {
+        images: { type: "iterator", items: "{{trigger.payload}}", as: "image" },
+        body: { type: "agent", prompt: "{{image}}" },
+        collect: { type: "aggregator", iterator: "images" },
+      },
+      edges: [
+        { from: "images", to: "body", branch: "each" },
+        { from: "body", to: "collect" },
+      ],
+    };
+
+    // No trigger payload -> the items expression resolves to an empty string,
+    // which is not valid JSON (JSON.parse throws "Unexpected EOF").
+    const run = initRun(def);
+    const deps = createTestDeps(def);
+
+    await evaluateInlineRoot(run.id, "images", deps);
+
+    const finalRun = dagRunStore.get(run.id)!;
+    expect(finalRun.status).toBe("failed");
+    // The iterator step itself must be terminal, not left "running".
+    expect(finalRun.stepStatuses.images).toBe("failed");
+    // Remaining non-terminal steps are swept to dead so nothing shows as active.
+    expect(finalRun.stepStatuses.body).toBe("dead");
+    expect(finalRun.stepStatuses.collect).toBe("dead");
+    expect(finalRun.failureReason).toContain("Iterator items is not valid JSON");
+  });
+
+  test("failRun sweeps pending/running siblings to dead", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "iter-fail-siblings-wf",
+      trigger: { type: "manual" },
+      steps: {
+        images: { type: "iterator", items: "not-json", as: "image" },
+        other: { type: "agent", prompt: "sibling" },
+      },
+      edges: [],
+    };
+
+    const run = initRun(def);
+    // Simulate a sibling branch already running when the iterator fails.
+    dagRunStore.updateStepStatus(run.id, "other", "running");
+    const deps = createTestDeps(def);
+
+    await evaluateInlineRoot(run.id, "images", deps);
+
+    const finalRun = dagRunStore.get(run.id)!;
+    expect(finalRun.status).toBe("failed");
+    expect(finalRun.stepStatuses.images).toBe("failed");
+    expect(finalRun.stepStatuses.other).toBe("dead");
+    // The failing step and each swept step broadcast their terminal transition.
+    expect(deps.broadcasts.some((e: any) => e.type === "workflow_failed")).toBe(true);
+    expect(deps.broadcasts.some((e: any) => e.type === "workflow_step_dead" && e.stepSlug === "other")).toBe(true);
   });
 });
 

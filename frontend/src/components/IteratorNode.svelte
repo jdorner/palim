@@ -55,9 +55,9 @@ let strokeClass = $derived(data.selected ? "stroke-primary" : "stroke-sky-400/70
   <!-- Status badge -->
   {#if statusInfo.icon}
     {@const StatusIcon = statusInfo.icon}
-    <div class="absolute right-8 top-0.5 z-20 rounded-full bg-background">
+    <div class="absolute right-4 top-1/2 -translate-y-1/2 z-20 rounded-full bg-background">
       <StatusIcon
-        size={14}
+        size={16}
         weight="fill"
         class="{statusInfo.colorClass} {statusInfo.spin ? 'animate-spin' : ''}"
         aria-hidden="true"
@@ -68,7 +68,7 @@ let strokeClass = $derived(data.selected ? "stroke-primary" : "stroke-sky-400/70
   <!-- Error badge -->
   {#if data.hasError}
     <div
-      class="absolute right-2 -top-1 z-30 rounded-full bg-white leading-none"
+      class="absolute right-4 top-1 -translate-y-1/2 z-30 rounded-full bg-white leading-none"
       title="This step has a configuration error"
     >
       <WarningCircleIcon size={18} weight="fill" class="text-red-500" aria-label="Configuration error" />
