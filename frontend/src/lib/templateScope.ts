@@ -46,6 +46,15 @@ export interface Suggestion {
 }
 
 /**
+ * An edge in a workflow DAG, expressed in slugs (matching the serialized
+ * backend workflow representation rather than the editor's id-based draft edges).
+ */
+export interface SlugEdge {
+  from: string;
+  to: string;
+}
+
+/**
  * Configuration for the scope registry.
  */
 export interface ScopeConfig {
@@ -53,6 +62,14 @@ export interface ScopeConfig {
   steps: Array<{ slug: string; [key: string]: unknown }>;
   /** Zero-based index of the step currently being edited */
   currentStepIndex: number;
+  /**
+   * DAG edges in slug space, used to determine which steps run before the
+   * current step. Supplied by the editor (converted from id-based draft edges).
+   * When omitted, every step is treated as an entry node with no predecessors,
+   * so no step qualifies as a preceding dominator and `result` references are
+   * never offered (a conservative default, stricter than declaration order).
+   */
+  edges?: SlugEdge[];
   /** Prefetched secret key names */
   secretKeys: string[];
   /** Prefetched variable key names */
@@ -360,6 +377,82 @@ export function getConfigSuggestions(
 }
 
 /**
+ * Computes the set of step slugs whose `result` is guaranteed available when
+ * referenced from `currentSlug`. A slug qualifies only when it is both an
+ * ancestor of (runs before) and a dominator of (guaranteed to execute, i.e. not
+ * sitting on a skippable conditional branch) the current step. This mirrors the
+ * backend rule in `dagTemplateValidation.ts` exactly, so autocomplete offers the
+ * same references the runtime is guaranteed to resolve and never offers a
+ * forward / branch-skippable reference.
+ *
+ * Dominators use the classic iterative fixpoint: dom(entry) = {entry}, and for
+ * every other node dom(n) = {n} ∩ dom(pred) over all predecessors, iterated to a
+ * fixpoint. A dominator is always an ancestor, so the dominator test alone is
+ * sufficient.
+ *
+ * @param steps - Steps carrying a slug (order is irrelevant; precedence is DAG-derived)
+ * @param edges - DAG edges in slug space; when undefined every step is treated as
+ *   an entry node, so only `currentSlug` dominates itself and no other step qualifies
+ * @param currentSlug - Slug of the step currently being edited
+ * @returns Set of valid result-reference slugs (includes `currentSlug`; callers exclude it)
+ */
+export function computeValidResultRefs(
+  steps: Array<{ slug: string }>,
+  edges: SlugEdge[] | undefined,
+  currentSlug: string | undefined,
+): Set<string> {
+  const slugs = steps.map((s) => s.slug);
+  if (!currentSlug || slugs.length === 0) return new Set();
+
+  // Direct predecessors of each step (from edges in slug space).
+  const preds = new Map<string, Set<string>>();
+  for (const s of slugs) preds.set(s, new Set());
+  if (edges) {
+    for (const e of edges) {
+      if (preds.has(e.to)) preds.get(e.to)!.add(e.from);
+    }
+  }
+  // Entry nodes have no incoming edges.
+  const entries = slugs.filter((s) => preds.get(s)?.size === 0);
+
+  // Iterative dominator fixpoint. Entry nodes are dominated only by themselves;
+  // every other node starts pessimistically dominated by all nodes, then is
+  // narrowed by intersecting the dominator sets of its predecessors.
+  const dom = new Map<string, Set<string>>();
+  for (const s of slugs) {
+    dom.set(s, entries.includes(s) ? new Set([s]) : new Set(slugs));
+  }
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const s of slugs) {
+      if (entries.includes(s)) continue;
+      let intersection: Set<string> | null = null;
+      for (const p of [...(preds.get(s) ?? [])]) {
+        const pDom = dom.get(p)!;
+        if (intersection === null) {
+          intersection = new Set(pDom);
+        } else {
+          for (const d of [...intersection]) {
+            if (!pDom.has(d)) intersection.delete(d);
+          }
+        }
+      }
+      const merged: Set<string> = intersection ? new Set(intersection) : new Set<string>();
+      merged.add(s);
+      const prev = dom.get(s)!;
+      if (prev.size !== merged.size || [...merged].some((d) => !prev.has(d))) {
+        dom.set(s, merged);
+        changed = true;
+      }
+    }
+  }
+
+  const curDom = dom.get(currentSlug) ?? new Set([currentSlug]);
+  return curDom;
+}
+
+/**
  * Computes autocomplete suggestions for a given path and typed prefix.
  * Dispatches to the correct sub-function based on path segments.
  *
@@ -402,10 +495,16 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
     }
     if (path.length === 2) {
       // path=["steps", slug] -> show result/config
-      // "result" is only available for preceding steps (forward references are invalid at runtime)
+      // "result" is offered only for steps whose result is guaranteed available here:
+      // steps that are both ancestors (run before) and dominators (guaranteed to run,
+      // never on a skippable conditional branch) of the current step. This is derived
+      // from the DAG edges, so a step declared later in the file but executing earlier
+      // (e.g. a root step feeding a later node) still qualifies. Declaration order
+      // alone is insufficient and would wrongly hide such references.
       const slug = path[1]!;
-      const stepIndex = config.steps.findIndex((s) => s.slug === slug);
-      const isPreceding = stepIndex !== -1 && stepIndex < config.currentStepIndex;
+      const currentSlug = config.steps[config.currentStepIndex]?.slug;
+      const validResultRefs = computeValidResultRefs(config.steps, config.edges, currentSlug);
+      const isPreceding = slug !== currentSlug && validResultRefs.has(slug);
       const stepSchema = config.outputSchemas?.steps[slug];
       const suggestions: Suggestion[] = [
         ...(isPreceding ? [{ label: "result", terminal: !stepSchema }] : []),

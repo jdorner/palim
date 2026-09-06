@@ -4,6 +4,7 @@ import {
   type OutputSchemas,
   getSuggestions as querySuggestions,
   type ScopeConfig,
+  type SlugEdge,
   type Suggestion,
 } from "../lib/templateScope";
 
@@ -22,6 +23,8 @@ interface Props {
   envAllowlist?: string[];
   /** Resolved output schemas for deep property autocomplete */
   outputSchemas?: OutputSchemas;
+  /** DAG edges in slug space, for correct preceding-step (result) precedence */
+  edges?: SlugEdge[];
   /** Callback invoked with the new field value after insertion */
   onChange: (newValue: string) => void;
 }
@@ -34,6 +37,7 @@ let {
   variableKeys = [],
   envAllowlist,
   outputSchemas,
+  edges,
   onChange,
 }: Props = $props();
 
@@ -265,7 +269,15 @@ function acceptSuggestion(index?: number): void {
     // Non-terminal: re-detect trigger and query next-segment suggestions
     const newTrigger = detectTrigger(result.newText, result.newCursorPos);
     if (newTrigger.active) {
-      const config: ScopeConfig = { steps, currentStepIndex, secretKeys, variableKeys, envAllowlist, outputSchemas };
+      const config: ScopeConfig = {
+        steps,
+        currentStepIndex,
+        secretKeys,
+        variableKeys,
+        envAllowlist,
+        outputSchemas,
+        edges,
+      };
       const newSuggestions = querySuggestions(config, newTrigger.path, newTrigger.prefix);
       if (newSuggestions.length > 0) {
         show(newSuggestions, newTrigger);
@@ -291,7 +303,15 @@ function handleInput(): void {
   const trigger = detectTrigger(text, cursorPos);
 
   if (trigger.active) {
-    const config: ScopeConfig = { steps, currentStepIndex, secretKeys, variableKeys, envAllowlist, outputSchemas };
+    const config: ScopeConfig = {
+      steps,
+      currentStepIndex,
+      secretKeys,
+      variableKeys,
+      envAllowlist,
+      outputSchemas,
+      edges,
+    };
     const newSuggestions = querySuggestions(config, trigger.path, trigger.prefix);
     if (newSuggestions.length > 0) {
       show(newSuggestions, trigger);

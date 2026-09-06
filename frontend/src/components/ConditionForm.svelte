@@ -11,7 +11,7 @@
 import { Tooltip } from "bits-ui";
 import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
-import type { OutputSchemas } from "$lib/templateScope";
+import type { OutputSchemas, SlugEdge } from "$lib/templateScope";
 import TemplateAutocomplete from "./TemplateAutocomplete.svelte";
 
 /** The comparison operator keys a condition may carry. */
@@ -52,6 +52,8 @@ interface Props {
   variableKeys?: string[];
   /** Resolved output schemas for deep property autocomplete. */
   outputSchemas?: OutputSchemas;
+  /** DAG edges in slug space, for correct preceding-step (result) precedence */
+  edges?: SlugEdge[];
 }
 
 let {
@@ -64,6 +66,7 @@ let {
   secretKeys,
   variableKeys,
   outputSchemas,
+  edges,
 }: Props = $props();
 
 /** Whether template autocomplete is available (all required context provided). */
@@ -170,6 +173,7 @@ function inAsText(): string {
         secretKeys={secretKeys ?? []}
         variableKeys={variableKeys ?? []}
         {outputSchemas}
+        {edges}
         onChange={(newValue) => updateRef(newValue)}
       />
     {/if}
