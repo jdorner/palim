@@ -159,6 +159,7 @@ function inAsText(): string {
       id="condition-ref"
       bind:this={refEl}
       type="text"
+      autocomplete="off"
       disabled={isReadonly}
       class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-70"
       value={refValue}

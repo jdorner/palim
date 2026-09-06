@@ -250,6 +250,7 @@ function updateValue(key: string, value: unknown) {
           bind:this={fieldRefs[key]}
           type="text"
           list="step-config-{key}-options"
+          autocomplete="off"
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
           value={String(formValues[key] ?? "")}
           minlength={prop.minLength as number | undefined}
@@ -279,6 +280,7 @@ function updateValue(key: string, value: unknown) {
           id="step-config-{key}"
           bind:this={fieldRefs[key]}
           type="text"
+          autocomplete="off"
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
           value={String(formValues[key] ?? "")}
           minlength={prop.minLength as number | undefined}
