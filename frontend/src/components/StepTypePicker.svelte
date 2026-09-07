@@ -35,10 +35,22 @@ const builtinTypes = [
 
 const builtinTypeSlugs = new Set<string>(builtinTypes.map((t) => t.type));
 
-let controlFlowTypes = $derived(builtinTypes.filter((t) => t.category === "control-flow"));
+let controlFlowTypes = $derived(
+  builtinTypes
+    .filter((t) => t.category === "control-flow")
+    .sort((a, b) => a.label.localeCompare(b.label))
+);
 let customTypes = $derived(customStepTypes.filter((t) => !builtinTypeSlugs.has(t.type)));
-let customActionTypes = $derived(customTypes.filter((t) => t.category !== "control-flow"));
-let customControlFlowTypes = $derived(customTypes.filter((t) => t.category === "control-flow"));
+let customActionTypes = $derived(
+  customTypes
+    .filter((t) => t.category !== "control-flow")
+    .sort((a, b) => a.label.localeCompare(b.label))
+);
+let customControlFlowTypes = $derived(
+  customTypes
+    .filter((t) => t.category === "control-flow")
+    .sort((a, b) => a.label.localeCompare(b.label))
+);
 let agentVisual = $derived(visualForStepType("agent"));
 </script>
 
