@@ -64,6 +64,7 @@ export class QueueMonitor {
           this.beforeJobsRemovedCallback(ids, getCached);
         }
       },
+      isJobProtected: (job) => (this.cleanGuard ? this.cleanGuard(job) : false),
     });
     this.addQueues(queues);
   }
@@ -85,6 +86,24 @@ export class QueueMonitor {
     callback: (jobIds: string[], getCachedJob: (id: string) => JobEntry | undefined) => void,
   ): void {
     this.beforeJobsRemovedCallback = callback;
+  }
+
+  /** Optional guard consulted during clean operations to protect specific jobs. */
+  private cleanGuard: ((job: JobEntry) => boolean) | null = null;
+
+  /**
+   * Registers a guard that protects individual jobs from being cleaned.
+   *
+   * The guard receives a cached job entry and returns `true` to keep the job
+   * (exclude it from cleanup). When a guard is set, clean operations use
+   * selective per-job removal instead of the fast bulk path so protected jobs
+   * are never removed. Used to preserve completed workflow step jobs whose run
+   * is still active (running or paused on a `waitFor` signal).
+   *
+   * @param guard - Predicate returning true for jobs that must be kept
+   */
+  setCleanGuard(guard: (job: JobEntry) => boolean): void {
+    this.cleanGuard = guard;
   }
 
   /**

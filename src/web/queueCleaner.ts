@@ -28,6 +28,18 @@ export interface QueueCleanerDeps {
    * cached jobs before they are discarded.
    */
   onBeforeJobsRemoved?: (jobIds: string[], getCachedJob: (id: string) => JobEntry | undefined) => void;
+  /**
+   * Optional guard that protects individual jobs from being cleaned.
+   *
+   * Invoked with a cached job entry; returning `true` keeps the job (it is
+   * excluded from cleanup). Used to preserve jobs whose removal would corrupt
+   * higher-level state - e.g. completed workflow step jobs belonging to a run
+   * that is still active (running or paused on a `waitFor` signal).
+   *
+   * When set, cleanup switches from the fast bulk path to selective per-job
+   * removal so protected jobs are never touched.
+   */
+  isJobProtected?: (job: JobEntry) => boolean;
 }
 
 /**
@@ -118,7 +130,12 @@ export class QueueCleaner {
    * @returns Array of all removed job IDs
    */
   async cleanAllQueues(grace: number, limit: number, type?: string): Promise<string[]> {
-    const results = await Promise.all(this.deps.getQueues().map((q) => q.clean(grace, limit, type)));
+    const guard = this.deps.isJobProtected;
+    const results = await Promise.all(
+      this.deps
+        .getQueues()
+        .map((q) => (guard ? this.cleanQueueGuarded(q, grace, limit, type, guard) : q.clean(grace, limit, type))),
+    );
     const allRemoved = results.flat();
 
     // Notify consumers before cache eviction (allows metadata extraction)
@@ -128,5 +145,73 @@ export class QueueCleaner {
 
     this.deps.removeJobs(allRemoved);
     return allRemoved;
+  }
+
+  /**
+   * Cleans a single queue while honoring the {@link QueueCleanerDeps.isJobProtected}
+   * guard. Enumerates the queue's jobs, keeps only those in the target state that
+   * are old enough (past the grace period) and not protected, then removes them
+   * individually (up to `limit`).
+   *
+   * This is the slower, correctness-preserving counterpart to the bulk
+   * `queue.clean()` path. It is used whenever a guard is registered so that
+   * protected jobs (e.g. step jobs of an active workflow run) are never removed.
+   *
+   * @param queue - The queue to clean
+   * @param grace - Minimum age in ms (measured from completion) before a job is eligible
+   * @param limit - Maximum number of jobs to remove from this queue
+   * @param type - Job state to clean (defaults to "completed")
+   * @param guard - Predicate returning true for jobs that must be kept
+   * @returns Array of removed job IDs
+   */
+  private async cleanQueueGuarded(
+    queue: ManagedQueuePort,
+    grace: number,
+    limit: number,
+    type: string | undefined,
+    guard: (job: JobEntry) => boolean,
+  ): Promise<string[]> {
+    const state = type ?? "completed";
+    const now = Date.now();
+
+    let jobs: Awaited<ReturnType<ManagedQueuePort["getAllJobs"]>>;
+    try {
+      jobs = await queue.getAllJobs();
+    } catch (err) {
+      log.warn(`Guarded clean: failed to list jobs for queue "${queue.name}", skipping`, { err });
+      return [];
+    }
+
+    const removed: string[] = [];
+    for (const job of jobs) {
+      if (removed.length >= limit) break;
+      if (job.state !== state) continue;
+
+      // Respect the grace period, measured from completion when available.
+      const finishedAt = job.finishedOn ?? job.timestamp;
+      if (grace > 0 && now - finishedAt < grace) continue;
+
+      // Skip jobs the guard wants to keep. The guard reads from the monitor's
+      // cached entry; if the job is not cached, fall back to a minimal entry so
+      // the guard can still inspect the queue name.
+      const cached = this.deps.getCachedJob(job.id);
+      const entry: JobEntry = cached ?? {
+        id: job.id,
+        description: job.name,
+        queue: queue.name,
+        status: state as JobEntry["status"],
+        createdAt: job.timestamp,
+        completedAt: job.finishedOn,
+      };
+      if (guard(entry)) continue;
+
+      const ok = await queue.cancelJob(job.id);
+      if (ok) removed.push(job.id);
+    }
+
+    if (removed.length > 0) {
+      log.debug(`Guarded clean removed ${removed.length} "${state}" jobs from "${queue.name}"`);
+    }
+    return removed;
   }
 }

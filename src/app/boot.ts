@@ -31,7 +31,11 @@ import type {
   RunAgentOptions,
 } from "@src/extensions";
 import { ExtensionRegistry } from "@src/extensions";
-import { deleteByIds as deleteRunsByIds } from "@src/extensions/core/workflows/dagRunStore";
+import {
+  deleteByIds as deleteRunsByIds,
+  get as getDagRun,
+  isActiveRunStatus,
+} from "@src/extensions/core/workflows/dagRunStore";
 import { deleteByRunIds as deleteSignalsByRunIds } from "@src/extensions/core/workflows/signalStore";
 import type { EventBus } from "@src/extensions/engine/eventBus";
 import { ExtensionWatcher } from "@src/extensions/engine/extensionWatcher";
@@ -388,6 +392,19 @@ export class AppBootstrap {
     // queue monitor. Extracts workflowRunId and sessionId from cached job entries
     // before eviction.
     const sessionStore = getSessionStore(getDb());
+
+    // Protect completed workflow step jobs whose run is still active (running or
+    // paused on a waitFor signal). Bunqueue marks a waitFor step's job completed
+    // once the step function returns; the run only flips to "waiting-signal"
+    // afterwards in the DAG run store. Without this guard, "clean completed"
+    // would remove those step jobs and, via setOnBeforeJobsRemoved below, delete
+    // the still-active run - making a paused workflow vanish from the UI.
+    this.monitor.setCleanGuard((job) => {
+      if (!job.workflowRunId) return false;
+      const run = getDagRun(job.workflowRunId);
+      return run != null && isActiveRunStatus(run.status);
+    });
+
     this.monitor.setOnBeforeJobsRemoved((jobIds, getCachedJob) => {
       const runIds = new Set<string>();
       const sessionIds = new Set<string>();

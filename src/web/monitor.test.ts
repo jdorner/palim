@@ -479,3 +479,137 @@ describe("QueueMonitor stale cache - persistence across restart", () => {
     expect(jobs.find((j) => j.id === step1Id)).toBeUndefined();
   });
 });
+
+describe("QueueMonitor clean guard - protected jobs", () => {
+  /**
+   * Creates a fake queue whose `cancelJob` also removes completed jobs, so the
+   * guarded clean path (which removes eligible completed step jobs via
+   * `cancelJob`) can be exercised end to end.
+   */
+  function createCleanableQueue(queueName: string, jobs: JobInfo[]) {
+    let currentJobs = [...jobs];
+    const queue: ManagedQueuePort = {
+      name: queueName,
+      async add() {
+        return "";
+      },
+      async getJob(jobId: string) {
+        return currentJobs.find((j) => j.id === jobId) ?? null;
+      },
+      async getWaiting() {
+        return currentJobs.filter((j) => j.state === "waiting");
+      },
+      async getActive() {
+        return currentJobs.filter((j) => j.state === "active");
+      },
+      async getDelayed() {
+        return currentJobs.filter((j) => j.state === "delayed");
+      },
+      async getAllJobs() {
+        return [...currentJobs];
+      },
+      async getJobLogs(): Promise<QueueJobLogs> {
+        return { logs: [], count: 0 };
+      },
+      onEvent() {},
+      offEvent() {},
+      async cancelJob(jobId: string) {
+        const before = currentJobs.length;
+        currentJobs = currentJobs.filter((j) => j.id !== jobId);
+        return currentJobs.length < before;
+      },
+      async retryJob() {
+        return false;
+      },
+      async clean() {
+        // Bulk clean should never be reached when a guard is registered; fail
+        // loudly by removing everything so the test would catch a regression.
+        const ids = currentJobs.map((j) => j.id);
+        currentJobs = [];
+        return ids;
+      },
+      async close() {},
+      async upsertScheduler() {
+        return null;
+      },
+      async removeScheduler() {
+        return false;
+      },
+      async getScheduler() {
+        return null;
+      },
+      async getSchedulers() {
+        return [];
+      },
+    };
+    return { queue, remaining: () => currentJobs.map((j) => j.id) };
+  }
+
+  test("keeps completed step jobs of an active run and removes those of a terminal run", async () => {
+    const activeRunId = "run-active";
+    const doneRunId = "run-done";
+
+    const { queue, remaining } = createCleanableQueue("workflows:steps", [
+      {
+        id: "active-step-0",
+        name: "step-0",
+        queueName: "workflows:steps",
+        data: { workflowRunId: activeRunId },
+        state: "completed",
+        timestamp: 1,
+        finishedOn: 1,
+      },
+      {
+        id: "done-step-0",
+        name: "step-0",
+        queueName: "workflows:steps",
+        data: { workflowRunId: doneRunId },
+        state: "completed",
+        timestamp: 1,
+        finishedOn: 1,
+      },
+    ]);
+
+    const monitor = new QueueMonitor([queue]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Protect jobs belonging to the active run only.
+    monitor.setCleanGuard((job) => job.workflowRunId === activeRunId);
+
+    const removed = await monitor.cleanAllQueues(0, 100, "completed");
+
+    expect(removed).toContain("done-step-0");
+    expect(removed).not.toContain("active-step-0");
+    expect(remaining()).toContain("active-step-0");
+    expect(remaining()).not.toContain("done-step-0");
+
+    // The active run's step must still be visible in the monitor snapshot.
+    const snapshot = getMonitorJobs(monitor);
+    expect(snapshot.find((j) => j.id === "active-step-0")).not.toBeUndefined();
+    expect(snapshot.find((j) => j.id === "done-step-0")).toBeUndefined();
+  });
+
+  test("respects the grace period for eligible jobs", async () => {
+    const { queue, remaining } = createCleanableQueue("agents", [
+      {
+        id: "fresh",
+        name: "job",
+        queueName: "agents",
+        data: {},
+        state: "completed",
+        timestamp: Date.now(),
+        finishedOn: Date.now(),
+      },
+    ]);
+
+    const monitor = new QueueMonitor([queue]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Guard protects nothing, but a large grace window should keep the fresh job.
+    monitor.setCleanGuard(() => false);
+    const removed = await monitor.cleanAllQueues(60_000, 100, "completed");
+
+    expect(removed).not.toContain("fresh");
+    expect(remaining()).toContain("fresh");
+  });
+});
