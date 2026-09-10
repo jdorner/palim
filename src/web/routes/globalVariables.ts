@@ -35,6 +35,15 @@ import { Elysia } from "elysia";
  */
 const VARIABLE_KEY_RE = /^[A-Z][A-Z0-9_]{0,63}$/;
 
+/**
+ * Keys that must never be accepted because they can pollute an object's
+ * prototype chain. These never match {@link VARIABLE_KEY_RE} anyway (they are
+ * lowercase), but they must be detected from the RAW request body: Elysia's
+ * body parser silently drops them from the parsed object, so they would
+ * otherwise disappear before the format check runs.
+ */
+const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
 /** Maximum length of a variable value in characters. */
 const MAX_VALUE_LEN = 65536;
 
@@ -81,6 +90,36 @@ const DeleteQuery = Type.Object({
 });
 
 // ---------------------------------------------------------------------------
+// Raw-body inspection
+// ---------------------------------------------------------------------------
+
+/**
+ * Scans a parsed request body for prototype-polluting keys in the `variables`
+ * or `descriptions` records.
+ *
+ * Must be run on a body obtained via {@link JSON.parse} (which preserves keys
+ * such as `__proto__` as own enumerable properties). Elysia's own body parser
+ * strips those keys, so this check would find nothing on the framework-parsed
+ * body - the route parses the raw text itself for this reason.
+ *
+ * @param parsed - The natively-parsed request body
+ * @returns The first forbidden key found, or `null` if none
+ */
+function findForbiddenKey(parsed: unknown): string | null {
+  if (parsed === null || typeof parsed !== "object") return null;
+
+  for (const field of ["variables", "descriptions"] as const) {
+    const record = (parsed as Record<string, unknown>)[field];
+    if (record !== null && typeof record === "object") {
+      for (const key of Object.keys(record)) {
+        if (FORBIDDEN_KEYS.has(key)) return key;
+      }
+    }
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
 // Route factory
 // ---------------------------------------------------------------------------
 
@@ -105,82 +144,103 @@ export function globalVariableRoutes(getStore: () => VariableStore | undefined) 
         return status(500, { error: `Failed to read variables: ${message}` });
       }
     })
-    .put(
-      "/api/variables",
-      ({ body, status }) => {
-        const store = getStore();
-        if (!store) return status(503, { error: "Variable store not available" });
+    .put("/api/variables", async ({ request, status }) => {
+      const store = getStore();
+      if (!store) return status(503, { error: "Variable store not available" });
 
-        if (!Value.Check(UpsertBody, body)) {
+      // Parse the raw JSON body ourselves rather than relying on Elysia's
+      // parsed `body`. Elysia's parser silently drops prototype-polluting keys
+      // (e.g. "__proto__"), so an attempt to set such a key would otherwise
+      // vanish without an error. The native JSON.parse preserves them as own
+      // enumerable properties, letting us detect and reject them by name.
+      let raw: string;
+      try {
+        raw = await request.text();
+      } catch {
+        return status(400, { error: "Could not read request body" });
+      }
+
+      let body: unknown;
+      try {
+        body = JSON.parse(raw);
+      } catch {
+        return status(400, { error: "Invalid JSON body" });
+      }
+
+      // Reject prototype-polluting keys before anything else.
+      const forbiddenKey = findForbiddenKey(body);
+      if (forbiddenKey) {
+        return status(400, {
+          error: `Invalid key format: "${forbiddenKey}" (must be UPPER_SNAKE_CASE, 1-64 chars)`,
+        });
+      }
+
+      if (!Value.Check(UpsertBody, body)) {
+        return status(400, {
+          error: `Validation failed: ${formatValidationErrors(UpsertBody, body)}`,
+        });
+      }
+
+      const { variables, descriptions } = body;
+
+      // Require at least one entry.
+      const keys = Object.keys(variables);
+      if (keys.length === 0) {
+        return status(400, { error: "No variables provided" });
+      }
+
+      // Validate key format.
+      for (const key of keys) {
+        if (!VARIABLE_KEY_RE.test(key)) {
           return status(400, {
-            error: `Validation failed: ${formatValidationErrors(UpsertBody, body)}`,
+            error: `Invalid key format: "${key}" (must be UPPER_SNAKE_CASE, 1-64 chars)`,
           });
         }
+      }
 
-        const { variables, descriptions } = body;
-
-        // Require at least one entry.
-        const keys = Object.keys(variables);
-        if (keys.length === 0) {
-          return status(400, { error: "No variables provided" });
+      // Validate no empty/whitespace values.
+      for (const [key, value] of Object.entries(variables)) {
+        if (value.trim().length === 0) {
+          return status(400, { error: `Empty value for key: ${key}` });
         }
+      }
 
-        // Validate key format.
-        for (const key of keys) {
-          if (!VARIABLE_KEY_RE.test(key)) {
+      // Validate value length limits.
+      for (const [key, value] of Object.entries(variables)) {
+        if (value.length > MAX_VALUE_LEN) {
+          return status(400, {
+            error: `Value for key "${key}" exceeds maximum length of ${MAX_VALUE_LEN} characters`,
+          });
+        }
+      }
+
+      // Validate description length limits.
+      if (descriptions) {
+        for (const [key, description] of Object.entries(descriptions)) {
+          if (description.length > MAX_DESCRIPTION_LEN) {
             return status(400, {
-              error: `Invalid key format: "${key}" (must be UPPER_SNAKE_CASE, 1-64 chars)`,
+              error: `Description for key "${key}" exceeds maximum length of ${MAX_DESCRIPTION_LEN} characters`,
             });
           }
         }
+      }
 
-        // Validate no empty/whitespace values.
-        for (const [key, value] of Object.entries(variables)) {
-          if (value.trim().length === 0) {
-            return status(400, { error: `Empty value for key: ${key}` });
+      // Validate description keys are a subset of variable keys.
+      if (descriptions) {
+        for (const key of Object.keys(descriptions)) {
+          if (!keys.includes(key)) {
+            return status(400, { error: `Description for unknown key: ${key}` });
           }
         }
+      }
 
-        // Validate value length limits.
-        for (const [key, value] of Object.entries(variables)) {
-          if (value.length > MAX_VALUE_LEN) {
-            return status(400, {
-              error: `Value for key "${key}" exceeds maximum length of ${MAX_VALUE_LEN} characters`,
-            });
-          }
-        }
+      // All validation passed: persist each entry (overwriting existing keys).
+      for (const [key, value] of Object.entries(variables)) {
+        store.upsert(key, value, descriptions?.[key] ?? null);
+      }
 
-        // Validate description length limits.
-        if (descriptions) {
-          for (const [key, description] of Object.entries(descriptions)) {
-            if (description.length > MAX_DESCRIPTION_LEN) {
-              return status(400, {
-                error: `Description for key "${key}" exceeds maximum length of ${MAX_DESCRIPTION_LEN} characters`,
-              });
-            }
-          }
-        }
-
-        // Validate description keys are a subset of variable keys.
-        if (descriptions) {
-          for (const key of Object.keys(descriptions)) {
-            if (!keys.includes(key)) {
-              return status(400, { error: `Description for unknown key: ${key}` });
-            }
-          }
-        }
-
-        // All validation passed: persist each entry (overwriting existing keys).
-        for (const [key, value] of Object.entries(variables)) {
-          store.upsert(key, value, descriptions?.[key] ?? null);
-        }
-
-        return status(200, { success: true });
-      },
-      {
-        body: UpsertBody,
-      },
-    )
+      return status(200, { success: true });
+    })
     .delete(
       "/api/variables/:key",
       async ({ params, query, status }) => {
