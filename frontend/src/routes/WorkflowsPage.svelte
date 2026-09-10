@@ -97,7 +97,7 @@ function handleWorkflowEvent(msg: WorkflowEvent) {
   if (msg.type === "workflow_started") {
     workflows = workflows.map((wf) => (wf.name === msg.workflowName ? { ...wf, activeRuns: wf.activeRuns + 1 } : wf));
   }
-  if (msg.type === "workflow_completed" || msg.type === "workflow_failed") {
+  if (msg.type === "workflow_completed" || msg.type === "workflow_failed" || msg.type === "workflow_run_removed") {
     fetchWorkflows(false);
   }
 }

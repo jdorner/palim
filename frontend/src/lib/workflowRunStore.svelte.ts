@@ -46,6 +46,7 @@ export type WorkflowEvent = Extract<
   | { type: "workflow_step_resumed" }
   | { type: "workflow_completed" }
   | { type: "workflow_failed" }
+  | { type: "workflow_run_removed" }
   | { type: "workflow_reload" }
   | { type: "workflow_deleted" }
 >;

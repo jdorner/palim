@@ -1262,6 +1262,16 @@ function handleWorkflowEvent(msg: WorkflowEvent) {
       runs: workflow.runs.map((r) => (r.runId === msg.workflowRunId ? { ...r, status: "failed" } : r)),
     };
   }
+
+  if (msg.type === "workflow_run_removed") {
+    // The run was cancelled or cleaned (its record is gone from the run store).
+    // Drop it from the list so the "Runs (N)" count and failed-run entries stay
+    // in sync without a manual refetch.
+    workflow = {
+      ...workflow,
+      runs: workflow.runs.filter((r) => r.runId !== msg.workflowRunId),
+    };
+  }
 }
 
 const unsubWorkflow = workflowStore.subscribe(handleWorkflowEvent);

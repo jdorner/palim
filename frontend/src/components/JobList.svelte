@@ -13,7 +13,7 @@ import { authFetch } from "$lib/auth";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
-import { aggregateStepStatus, automationStyle, formatTimestamp, isJobCancellable } from "$lib/utils";
+import { aggregateStepStatus, automationStyle, formatTimestamp, isJobCancellable, isRunCancellable } from "$lib/utils";
 import type { JobEntry } from "../../../shared/types";
 import JobLogs from "./JobLogs.svelte";
 import StatusDot from "./StatusDot.svelte";
@@ -180,6 +180,55 @@ function isCancellable(status: string): boolean {
 /** Extracts the extension name from a queue identifier (e.g. "scheduler:jobs" -> "scheduler"). */
 function queueLabel(queue: string): string {
   return queue.split(":")[0];
+}
+
+/** Tracks the workflow run currently being cancelled, to disable its button. */
+let cancellingRunId = $state<string | null>(null);
+
+/**
+ * Cancels an entire workflow run via the workflow extension's run endpoint.
+ *
+ * Used for workflow groups that are paused on a signal ("waiting-signal"): their
+ * step jobs have already completed at the queue level, so the job chain-cancel
+ * flow is a no-op for the run. This endpoint tears the run down properly -
+ * removing the pending signal, deleting the run record, and cancelling any
+ * remaining in-flight step jobs.
+ *
+ * @param workflowRunId - The workflow run to cancel
+ */
+async function cancelWorkflowRun(workflowRunId: string) {
+  cancellingRunId = workflowRunId;
+  try {
+    const res = await authFetch(`/ext/workflows/runs/${workflowRunId}`, { method: "DELETE" });
+    if (!res.ok) {
+      console.error("Cancel workflow run failed:", await res.text());
+    }
+  } catch (err) {
+    console.error("Failed to cancel workflow run:", err);
+  } finally {
+    setTimeout(() => {
+      cancellingRunId = null;
+    }, 3000);
+  }
+}
+
+/**
+ * Handles the workflow-group Cancel button.
+ *
+ * If the group still has a live (cancellable) step job, use the job chain-cancel
+ * flow (which surfaces a confirmation dialog listing the chain). Otherwise the
+ * run is paused with no live jobs (e.g. "waiting-signal"), so cancel the whole
+ * run via the workflow run endpoint.
+ *
+ * @param item - The workflow display item
+ */
+function handleWorkflowCancel(item: { workflowRunId: string; jobs: JobEntry[] }) {
+  const liveJob = item.jobs.find((j) => isCancellable(j.status));
+  if (liveJob) {
+    handleCancel(liveJob.id);
+  } else {
+    cancelWorkflowRun(item.workflowRunId);
+  }
 }
 
 /**
@@ -390,6 +439,20 @@ function trackColumnWidths(container: HTMLElement) {
           >
         </div>
 
+        {#if isRunCancellable(item.aggregateStatus)}
+          <div class="flex flex-wrap items-center gap-2 px-4 pb-3">
+            <Button
+              size="sm"
+              variant="destructive"
+              disabled={cancellingRunId === item.workflowRunId || cancellingJobId === item.jobs[0]?.id}
+              onclick={(e: Event) => { e.stopPropagation(); handleWorkflowCancel(item); }}
+            >
+              <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
+              Cancel
+            </Button>
+          </div>
+        {/if}
+
         {#if isExpanded}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <div
@@ -577,12 +640,12 @@ function trackColumnWidths(container: HTMLElement) {
             </TableCell>
             <TableCell class="text-right w-1">
               <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                {#if isCancellable(item.aggregateStatus)}
+                {#if isRunCancellable(item.aggregateStatus)}
                   <Button
                     size="sm"
                     variant="destructive"
-                    disabled={cancellingJobId === item.jobs[0]?.id}
-                    onclick={(e: Event) => { e.stopPropagation(); handleCancel(item.jobs.find((j) => isCancellable(j.status))?.id ?? item.jobs[0].id); }}
+                    disabled={cancellingRunId === item.workflowRunId || cancellingJobId === item.jobs[0]?.id}
+                    onclick={(e: Event) => { e.stopPropagation(); handleWorkflowCancel(item); }}
                   >
                     <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
                     Cancel

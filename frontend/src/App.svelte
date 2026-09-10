@@ -91,6 +91,7 @@ function handleMessage(message: WebSocketMessage) {
     case "workflow_step_resumed":
     case "workflow_completed":
     case "workflow_failed":
+    case "workflow_run_removed":
       workflowStore.handleEvent(message);
       break;
     case "workflow_reload":

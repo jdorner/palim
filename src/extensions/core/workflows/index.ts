@@ -979,18 +979,30 @@ export function createExtension(): Extension {
           return Response.json({ error: "Run not found" }, { status: 404 });
         }
 
-        const cancelled: string[] = [];
-        for (const d of stepJobs) {
-          const removed = await stepsQueue.cancelJob(d.id);
-          if (removed) cancelled.push(d.id);
-        }
+        // Remove every step job from the queue in one batch. removeJobs handles
+        // all states: live jobs (waiting / active / delayed), DLQ jobs, and
+        // completed jobs (requeued then removed under a single queue pause so the
+        // worker cannot re-run them). This fully purges the run's jobs, including
+        // a run parked on a waitFor signal whose step jobs have all completed, so
+        // they do not resurface after a restart.
+        const cancelled = await stepsQueue.removeJobs(stepJobs.map((d) => d.id));
 
         signalStore.deleteByRunIds([runId]);
         dagRunStore.deleteByIds([runId]);
 
-        for (const jobId of cancelled) {
-          ctx.messaging.broadcast({ type: "job_removed", jobId });
+        // Broadcast job_removed for EVERY step job of the run so connected clients
+        // drop the whole group immediately, regardless of each job's prior state.
+        for (const d of stepJobs) {
+          ctx.messaging.broadcast({ type: "job_removed", jobId: d.id });
         }
+
+        // Notify workflow views (e.g. the detail page's run list and counts)
+        // that the run itself is gone, since it no longer exists in the run store.
+        ctx.messaging.broadcast({
+          type: "workflow_run_removed",
+          workflowRunId: runId,
+          workflowName: run?.workflowName,
+        });
 
         logger.info(`Cancelled workflow run ${runId} (${cancelled.length}/${stepJobs.length} jobs removed)`);
         return Response.json({ runId, cancelled, total: stepJobs.length });

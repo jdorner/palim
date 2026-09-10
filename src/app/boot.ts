@@ -393,34 +393,50 @@ export class AppBootstrap {
     // before eviction.
     const sessionStore = getSessionStore(getDb());
 
-    // Protect completed workflow step jobs whose run is still active (running or
-    // paused on a waitFor signal). Bunqueue marks a waitFor step's job completed
-    // once the step function returns; the run only flips to "waiting-signal"
-    // afterwards in the DAG run store. Without this guard, "clean completed"
-    // would remove those step jobs and, via setOnBeforeJobsRemoved below, delete
-    // the still-active run - making a paused workflow vanish from the UI.
-    this.monitor.setCleanGuard((job) => {
-      if (!job.workflowRunId) return false;
+    // Decide how workflow step jobs participate in "clean completed"/"clean
+    // failed": a run's steps are cleaned together when the PARENT run's status
+    // matches the clean type, regardless of each step's own queue state. This is
+    // required because a step's queue state does not reflect the run - a step is
+    // "completed" at the queue level while the run is still running or paused on
+    // a waitFor signal, and a failed run's steps are a mix of "completed" (the
+    // steps that ran) and "failed" (the one that broke). So:
+    //   - active run (running / waiting-signal): "keep" (never cleaned).
+    //   - terminal run whose status matches the clean type: "remove" (clean the
+    //     whole run's steps, ignoring their individual queue states).
+    //   - terminal run whose status mismatches the clean type: "keep".
+    // Non-workflow jobs and orphaned step jobs (no run record) return "default"
+    // and clean by the normal rule (own state === clean type).
+    this.monitor.setCleanGuard((job, cleanType) => {
+      if (!job.workflowRunId) return "default";
       const run = getDagRun(job.workflowRunId);
-      return run != null && isActiveRunStatus(run.status);
+      if (!run) return "default";
+      if (isActiveRunStatus(run.status)) return "keep";
+      return run.status === cleanType ? "remove" : "keep";
     });
 
     this.monitor.setOnBeforeJobsRemoved((jobIds, getCachedJob) => {
-      const runIds = new Set<string>();
+      // Map each affected workflow run to its name (for the removal broadcast).
+      const runNames = new Map<string, string | undefined>();
       const sessionIds = new Set<string>();
       for (const jobId of jobIds) {
         const cached = getCachedJob(jobId);
-        if (cached?.workflowRunId) {
-          runIds.add(cached.workflowRunId);
+        if (cached?.workflowRunId && !runNames.has(cached.workflowRunId)) {
+          runNames.set(cached.workflowRunId, cached.workflowName);
         }
         if (cached?.sessionId) {
           sessionIds.add(cached.sessionId);
         }
       }
-      if (runIds.size > 0) {
-        const ids = [...runIds];
+      if (runNames.size > 0) {
+        const ids = [...runNames.keys()];
         deleteSignalsByRunIds(ids);
         deleteRunsByIds(ids);
+        // Notify workflow views (detail page run list/counts) that these runs
+        // are gone, mirroring the cancel path. Without this the "Runs (N)" count
+        // and failed-run list stay stale after "clean completed"/"clean failed".
+        for (const [runId, workflowName] of runNames) {
+          this.monitor.broadcast({ type: "workflow_run_removed", workflowRunId: runId, workflowName });
+        }
       }
       // Delete associated sessions (and their messages) for cleaned jobs, but
       // preserve chat conversations - only non-chat sessions are removed.

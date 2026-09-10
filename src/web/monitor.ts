@@ -12,7 +12,7 @@ import { getLogStore } from "@src/queue";
 import { mainLogger as log } from "@src/utils/logger";
 import type { ServerWebSocket } from "elysia/ws/bun";
 import { JobCanceller } from "./jobCanceller";
-import { QueueCleaner } from "./queueCleaner";
+import { type CleanDecision, QueueCleaner } from "./queueCleaner";
 
 /**
  * Extracts a `prompt` string from an unknown job data payload.
@@ -64,7 +64,7 @@ export class QueueMonitor {
           this.beforeJobsRemovedCallback(ids, getCached);
         }
       },
-      isJobProtected: (job) => (this.cleanGuard ? this.cleanGuard(job) : false),
+      decideJobClean: (job, cleanType) => (this.cleanGuard ? this.cleanGuard(job, cleanType) : "default"),
     });
     this.addQueues(queues);
   }
@@ -88,21 +88,24 @@ export class QueueMonitor {
     this.beforeJobsRemovedCallback = callback;
   }
 
-  /** Optional guard consulted during clean operations to protect specific jobs. */
-  private cleanGuard: ((job: JobEntry) => boolean) | null = null;
+  /** Optional guard consulted during clean operations to decide per-job handling. */
+  private cleanGuard: ((job: JobEntry, cleanType: string) => CleanDecision) | null = null;
 
   /**
-   * Registers a guard that protects individual jobs from being cleaned.
+   * Registers a guard that decides how each job participates in a clean.
    *
-   * The guard receives a cached job entry and returns `true` to keep the job
-   * (exclude it from cleanup). When a guard is set, clean operations use
-   * selective per-job removal instead of the fast bulk path so protected jobs
-   * are never removed. Used to preserve completed workflow step jobs whose run
-   * is still active (running or paused on a `waitFor` signal).
+   * The guard receives a cached job entry and the clean's target state
+   * (`cleanType`, e.g. "completed" or "failed") and returns a
+   * {@link CleanDecision}: `"keep"` (protect), `"remove"` (remove regardless of
+   * the job's own queue state), or `"default"` (apply the normal rule). When a
+   * guard is set, clean operations use selective per-job removal instead of the
+   * fast bulk path so the guard's verdict is honored precisely. Used to clean a
+   * workflow run's steps together when the run status matches the clean type,
+   * keep them when it does not, and always keep steps of a still-active run.
    *
-   * @param guard - Predicate returning true for jobs that must be kept
+   * @param guard - Function returning a per-job clean decision
    */
-  setCleanGuard(guard: (job: JobEntry) => boolean): void {
+  setCleanGuard(guard: (job: JobEntry, cleanType: string) => CleanDecision): void {
     this.cleanGuard = guard;
   }
 
