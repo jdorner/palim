@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   computeOrphanedStepIndices,
   disconnectedStepError,
+  edgesToSlugEdges,
   normalizeIfBranchLabels,
   type StepTypeSchema,
   serializeStep,
@@ -965,5 +966,36 @@ describe("if branch labels", () => {
       // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
       expect(out.branchLabels).toEqual({ then: "approved" });
     });
+  });
+});
+
+describe("edgesToSlugEdges", () => {
+  test("translates id-based edges to slug-based edges", () => {
+    const steps = [
+      { id: "id-1", slug: "fetch" },
+      { id: "id-2", slug: "process" },
+    ];
+    const edges = [{ from: "id-1", to: "id-2" }];
+    expect(edgesToSlugEdges(steps, edges)).toEqual([{ from: "fetch", to: "process" }]);
+  });
+
+  test("drops edges whose endpoints no longer resolve to a step", () => {
+    const steps = [{ id: "id-1", slug: "fetch" }];
+    const edges = [
+      { from: "id-1", to: "id-2" }, // id-2 has no matching step
+      { from: "id-9", to: "id-1" }, // id-9 has no matching step
+    ];
+    expect(edgesToSlugEdges(steps, edges)).toEqual([]);
+  });
+
+  test("handles drafts with no id (returns empty rather than throwing)", () => {
+    const steps = [{ slug: "fetch" }];
+    const edges = [{ from: "missing", to: "missing" }];
+    expect(edgesToSlugEdges(steps, edges)).toEqual([]);
+  });
+
+  test("handles an empty edge list", () => {
+    const steps = [{ id: "id-1", slug: "fetch" }];
+    expect(edgesToSlugEdges(steps, [])).toEqual([]);
   });
 });

@@ -3,6 +3,8 @@
  * Pure TypeScript module with no Svelte dependencies.
  */
 
+import type { SlugEdge } from "./templateScope";
+
 /** Result of a single validation check. */
 export interface ValidationResult {
   valid: boolean;
@@ -58,6 +60,30 @@ export interface StepDraft {
   branchLabels?: { then?: string; else?: string };
   /** Raw JSON config for custom (extension-registered) step types. */
   config?: Record<string, unknown>;
+}
+
+/**
+ * Translates id-based draft edges to slug-based edges using each step's id→slug
+ * map. The editor keeps connections stable while slugs are edited by referencing
+ * synthetic step ids; the template precedence rule (and the serialized API) works
+ * in slug space, so the conversion must happen before those consumers run.
+ *
+ * Returns an empty array when a referenced id has no matching step, so a
+ * partially-edited draft yields no spurious edges rather than a broken reference.
+ *
+ * @param steps - Draft steps carrying both `id` and `slug`
+ * @param edges - Draft edges referencing synthetic step ids
+ * @returns Edges expressed in slugs
+ */
+export function edgesToSlugEdges(steps: Array<{ id?: string; slug: string }>, edges: EdgeDraft[]): SlugEdge[] {
+  const idToSlug = new Map(steps.filter((s) => s.id !== undefined).map((s) => [s.id, s.slug] as const));
+  const result: SlugEdge[] = [];
+  for (const e of edges) {
+    const from = idToSlug.get(e.from);
+    const to = idToSlug.get(e.to);
+    if (from !== undefined && to !== undefined) result.push({ from, to });
+  }
+  return result;
 }
 
 const SLUG_PATTERN = /^[a-z][a-z0-9-]*$/;

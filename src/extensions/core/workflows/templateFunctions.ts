@@ -58,6 +58,16 @@ export function base64Decode(value: unknown): string {
 }
 
 /**
+ * Encode a UTF-8 string to its base64 form.
+ *
+ * @param value - A UTF-8 string (non-string values are coerced first)
+ * @returns The base64-encoded text
+ */
+export function base64Encode(value: unknown): string {
+  return Buffer.from(toStr(value), "utf-8").toString("base64");
+}
+
+/**
  * Escape a value so it is safe to embed inside a JSON string literal. The
  * returned text contains the inner escapes only (no surrounding quotes), so it
  * can be placed directly between quotes in a JSON body template, e.g.
@@ -158,6 +168,7 @@ function currentClock(): number {
 export const TEMPLATE_FUNCTIONS: Record<string, (...args: unknown[]) => unknown> = {
   stripDataUri,
   base64Decode,
+  base64Encode,
   jsonEscape,
   after,
   before,

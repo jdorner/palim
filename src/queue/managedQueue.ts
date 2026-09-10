@@ -351,26 +351,11 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
         return false;
       }
 
-      // If the job is in the DLQ (failed state from stall/max-attempts), removeAsync
-      // cannot handle it. Pause the queue to prevent the worker from picking up the
-      // job, retry it (moves from DLQ to waiting), then remove and resume.
-      if (stateBefore === "failed") {
-        this.queue.removeDlqJob(jobId);
-
-        const stateAfter = await this.queue.getJobState(jobId);
-        if (stateAfter === "unknown") {
-          logger.info(`Removed DLQ job ${jobId} from "${this.queue.name}"`);
-          try {
-            getLogStore().deleteMany([jobId]);
-          } catch {
-            logger.warn(`Failed to clean persisted logs for DLQ job ${jobId}`);
-          }
-          return true;
-        }
-        logger.warn(
-          `Job ${jobId} still present after trying to remove from DLQ in "${this.queue.name}" (state: ${stateAfter})`,
-        );
-        return false;
+      // DLQ (failed) and completed jobs need dedicated removal paths. Delegate to
+      // the batch remover (single-element) so there is one implementation.
+      if (stateBefore === "failed" || stateBefore === "completed") {
+        const removed = await this.removeJobs([jobId]);
+        return removed.includes(jobId);
       }
 
       // removeAsync handles queue, waitingDeps, and waitingChildren states.
@@ -398,6 +383,82 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
       logger.warn(`Failed to cancel job ${jobId} from "${this.queue.name}"`, err);
       return false;
     }
+  }
+
+  /** @inheritdoc */
+  async removeJobs(jobIds: string[]): Promise<string[]> {
+    if (jobIds.length === 0) return [];
+
+    // Partition by current state: each class needs a different removal path.
+    const completed: string[] = [];
+    const failed: string[] = [];
+    const other: string[] = [];
+    for (const id of jobIds) {
+      const state = await this.queue.getJobState(id);
+      if (state === "unknown") continue;
+      if (state === "completed") completed.push(id);
+      else if (state === "failed") failed.push(id);
+      else other.push(id);
+    }
+
+    const removed: string[] = [];
+
+    // DLQ (failed) jobs: removeAsync cannot touch them; use the dedicated DLQ
+    // removal instead.
+    for (const id of failed) {
+      this.queue.removeDlqJob(id);
+      if ((await this.queue.getJobState(id)) === "unknown") {
+        removed.push(id);
+      } else {
+        logger.warn(`Job ${id} still present after DLQ removal in "${this.queue.name}"`);
+      }
+    }
+
+    // Queued/active/delayed/waiting-children jobs: removeAsync handles these.
+    for (const id of other) {
+      await this.queue.removeAsync(id);
+      if ((await this.queue.getJobState(id)) === "unknown") {
+        removed.push(id);
+      } else {
+        logger.warn(`Job ${id} still present after removeAsync in "${this.queue.name}" (may be active)`);
+      }
+    }
+
+    // Completed jobs live in a separate completed store that removeAsync does not
+    // touch. The only per-id purge that does not re-run the job is to requeue it
+    // (completed -> waiting) then remove it while the worker cannot pick it up.
+    // Pause the queue ONCE around the whole completed group so a batch cancel
+    // does not churn pause/resume per job.
+    if (completed.length > 0) {
+      try {
+        await this.queue.pauseAsync();
+        for (const id of completed) {
+          await this.queue.retryCompletedAsync(id);
+          await this.queue.removeAsync(id);
+        }
+      } finally {
+        await this.queue.resumeAsync();
+      }
+      for (const id of completed) {
+        if ((await this.queue.getJobState(id)) === "unknown") {
+          removed.push(id);
+        } else {
+          logger.warn(`Completed job ${id} still present after removal in "${this.queue.name}"`);
+        }
+      }
+    }
+
+    // Clean persisted logs for everything actually removed.
+    if (removed.length > 0) {
+      try {
+        getLogStore().deleteMany(removed);
+      } catch {
+        logger.warn(`Failed to clean persisted logs for ${removed.length} removed jobs in "${this.queue.name}"`);
+      }
+      logger.info(`Removed ${removed.length}/${jobIds.length} job(s) from "${this.queue.name}"`);
+    }
+
+    return removed;
   }
 
   /** @inheritdoc */

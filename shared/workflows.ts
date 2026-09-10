@@ -178,4 +178,5 @@ export type WorkflowWebSocketEvent =
   | { type: "workflow_step_resumed"; workflowRunId: string; stepSlug: string; signalEvent: string }
   | { type: "workflow_completed"; workflowRunId: string }
   | { type: "workflow_failed"; workflowRunId: string; failedStep: string; error: string }
+  | { type: "workflow_run_removed"; workflowRunId: string; workflowName?: string }
   | { type: "workflow_deleted"; workflowName: string };

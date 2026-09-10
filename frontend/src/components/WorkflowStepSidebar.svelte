@@ -8,7 +8,7 @@ import { visualForStepType } from "$lib/nodeVisuals";
 import { categoryForType, iconIdForType, labelForStepType } from "$lib/stepTypes";
 import type { OutputSchemas } from "$lib/templateScope";
 import type { StepDraft, WorkflowDraft } from "$lib/workflowValidation";
-import { validateStepConfig } from "$lib/workflowValidation";
+import { edgesToSlugEdges, validateStepConfig } from "$lib/workflowValidation";
 import ChatMarkdown from "./ChatMarkdown.svelte";
 import ConditionForm from "./ConditionForm.svelte";
 import MultiSelect from "./MultiSelect.svelte";
@@ -122,6 +122,11 @@ const CF_TYPES = new Set(["if", "case", "iterator", "aggregator", "waitFor", "em
 
 /** Custom step types offered in the change-type dropdown (excludes control-flow types). */
 let selectableCustomTypes = $derived(customStepTypes.filter((st) => !CF_TYPES.has(st.type)));
+
+// Edges in slug space for template autocomplete precedence. The editor tracks
+// edges by synthetic id, but the preceding-step rule works in slug space, so
+// convert the draft's id-based edges here before passing them to children.
+let slugEdges = $derived(editDraft ? edgesToSlugEdges(editDraft.steps, editDraft.edges) : []);
 
 // Element references for template autocomplete
 let promptEl = $state<HTMLTextAreaElement | null>(null);
@@ -359,6 +364,7 @@ function clearConditionError(index: number) {
             secretKeys={cachedSecretKeys}
             variableKeys={cachedVariableKeys}
             {outputSchemas}
+            edges={slugEdges}
             onChange={(newValue) => onUpdateDraftStep(selectedStepIndex, (s) => { s.prompt = newValue; })}
           />
         </div>
@@ -412,6 +418,7 @@ function clearConditionError(index: number) {
               secretKeys={cachedSecretKeys}
               variableKeys={cachedVariableKeys}
               {outputSchemas}
+              edges={slugEdges}
               onchange={(cond) => {
                 onUpdateDraftStep(selectedStepIndex, (s) => { s.condition = cond; });
                 clearConditionError(selectedStepIndex);
@@ -485,6 +492,7 @@ function clearConditionError(index: number) {
               secretKeys={cachedSecretKeys}
               variableKeys={cachedVariableKeys}
               {outputSchemas}
+              edges={slugEdges}
               fieldErrors={(() => {
                 const prefix = `steps[${selectedStepIndex}].`;
                 const m = new Map<string, string>();
@@ -565,6 +573,7 @@ function clearConditionError(index: number) {
               secretKeys={cachedSecretKeys}
               variableKeys={cachedVariableKeys}
               {outputSchemas}
+              edges={slugEdges}
               itemOptions={{ skills: availableSkills }}
               fieldErrors={(() => {
               const prefix = `steps[${selectedStepIndex}].config.`;

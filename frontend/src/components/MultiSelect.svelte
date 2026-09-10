@@ -76,7 +76,8 @@ function handleKeydown(event: KeyboardEvent) {
   } else if (event.key === "Backspace" && search === "" && selected.length > 0) {
     selected = selected.slice(0, -1);
     onchange?.(selected);
-  } else if (event.key === "Escape") {
+  } else if (event.key === "Escape" && open) {
+    event.stopPropagation();
     open = false;
     highlightIndex = -1;
   }

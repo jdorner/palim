@@ -150,7 +150,12 @@ export function isJobCancellable(status: string): boolean {
  */
 export function isRunCancellable(status: string): boolean {
   return (
-    status === "active" || status === "running" || status === "waiting" || status === "queued" || status === "failed"
+    status === "active" ||
+    status === "running" ||
+    status === "waiting" ||
+    status === "waiting-signal" ||
+    status === "queued" ||
+    status === "failed"
   );
 }
 

@@ -20,7 +20,7 @@ import {
   getLabel,
   getProperties,
 } from "$lib/schemaForm";
-import type { OutputSchemas } from "$lib/templateScope";
+import type { OutputSchemas, SlugEdge } from "$lib/templateScope";
 import MultiSelect from "./MultiSelect.svelte";
 import TemplateAutocomplete from "./TemplateAutocomplete.svelte";
 
@@ -43,6 +43,8 @@ interface Props {
   variableKeys?: string[];
   /** Resolved output schemas for deep property autocomplete. */
   outputSchemas?: OutputSchemas;
+  /** DAG edges in slug space, for correct preceding-step (result) precedence */
+  edges?: SlugEdge[];
   /** Per-field available items for multiselect rendering (key = property name, value = options). */
   itemOptions?: Record<string, string[]>;
   /** Validation errors keyed by config field name (e.g. "url", "timeout"). */
@@ -59,6 +61,7 @@ let {
   secretKeys,
   variableKeys,
   outputSchemas,
+  edges,
   itemOptions,
   fieldErrors,
 }: Props = $props();
@@ -236,6 +239,7 @@ function updateValue(key: string, value: unknown) {
             secretKeys={secretKeys ?? []}
             variableKeys={variableKeys ?? []}
             {outputSchemas}
+            {edges}
             onChange={(newValue) => updateValue(key, newValue)}
           />
         {/if}
@@ -246,6 +250,7 @@ function updateValue(key: string, value: unknown) {
           bind:this={fieldRefs[key]}
           type="text"
           list="step-config-{key}-options"
+          autocomplete="off"
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
           value={String(formValues[key] ?? "")}
           minlength={prop.minLength as number | undefined}
@@ -265,6 +270,7 @@ function updateValue(key: string, value: unknown) {
             secretKeys={secretKeys ?? []}
             variableKeys={variableKeys ?? []}
             {outputSchemas}
+            {edges}
             onChange={(newValue) => updateValue(key, newValue)}
           />
         {/if}
@@ -274,6 +280,7 @@ function updateValue(key: string, value: unknown) {
           id="step-config-{key}"
           bind:this={fieldRefs[key]}
           type="text"
+          autocomplete="off"
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
           value={String(formValues[key] ?? "")}
           minlength={prop.minLength as number | undefined}
@@ -288,6 +295,7 @@ function updateValue(key: string, value: unknown) {
             secretKeys={secretKeys ?? []}
             variableKeys={variableKeys ?? []}
             {outputSchemas}
+            {edges}
             onChange={(newValue) => updateValue(key, newValue)}
           />
         {/if}

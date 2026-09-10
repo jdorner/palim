@@ -307,12 +307,26 @@ export interface ManagedQueuePort<T = unknown> {
 
   /**
    * Cancel a job by removing it from the queue.
-   * Works for waiting, delayed, failed, and active jobs.
+   * Works for waiting, delayed, failed, active, and completed jobs.
    *
    * @param jobId - The job to cancel
    * @returns true if the job was found and removed
    */
   cancelJob(jobId: string): Promise<boolean>;
+
+  /**
+   * Remove multiple jobs from the queue in one batch, regardless of state.
+   *
+   * Jobs are partitioned by state and removed with the appropriate mechanism:
+   * failed (DLQ) jobs via the DLQ removal, completed jobs by requeueing then
+   * removing under a single queue pause (so the worker cannot re-run them, and
+   * a batch does not churn pause/resume per job), and all other states via the
+   * normal removal.
+   *
+   * @param jobIds - The jobs to remove
+   * @returns The IDs that were actually removed
+   */
+  removeJobs(jobIds: string[]): Promise<string[]>;
 
   /**
    * Retry a failed job by moving it from the DLQ back to the waiting state.

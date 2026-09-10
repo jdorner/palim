@@ -143,3 +143,69 @@ describe("ManagedQueue.cancelJob", () => {
     });
   });
 });
+
+describe("ManagedQueue.removeJobs", () => {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+  test("removes completed jobs without re-running them", async () => {
+    let processed = 0;
+    const mq = new ManagedQueue<{ n: number }>(
+      TEST_QUEUE,
+      async () => {
+        processed++;
+        return { ok: true };
+      },
+      { concurrency: 1, dataPath: null },
+    );
+
+    const id1 = await mq.add("j1", { n: 1 });
+    const id2 = await mq.add("j2", { n: 2 });
+
+    // Let both jobs process to completion.
+    await wait(150);
+    expect(processed).toBe(2);
+    expect((await mq.getJob(id1))?.state).toBe("completed");
+    expect((await mq.getJob(id2))?.state).toBe("completed");
+
+    const runsBefore = processed;
+    const removed = await mq.removeJobs([id1, id2]);
+
+    // Give any (incorrectly) requeued job a chance to be picked up.
+    await wait(150);
+
+    expect(removed.sort()).toEqual([id1, id2].sort());
+    expect(await mq.getJob(id1)).toBeNull();
+    expect(await mq.getJob(id2)).toBeNull();
+    // Critical: the completed jobs must NOT have been re-processed.
+    expect(processed).toBe(runsBefore);
+
+    await mq.close();
+  });
+
+  test("removes a mixed batch of waiting and completed jobs", async () => {
+    let processed = 0;
+    // concurrency 0: added jobs stay "waiting" and are never processed.
+    const idle = new ManagedQueue<{ n: number }>(
+      TEST_QUEUE,
+      async () => {
+        processed++;
+      },
+      { concurrency: 0, dataPath: null },
+    );
+    const waitingId = await idle.add("waiting-job", { n: 1 });
+    expect((await idle.getJob(waitingId))?.state).toBe("waiting");
+
+    const removed = await idle.removeJobs([waitingId, "does-not-exist"]);
+    expect(removed).toEqual([waitingId]);
+    expect(await idle.getJob(waitingId)).toBeNull();
+    expect(processed).toBe(0);
+
+    await idle.close();
+  });
+
+  test("returns empty array for empty input", async () => {
+    const mq = new ManagedQueue(TEST_QUEUE, async () => {}, { concurrency: 0, dataPath: null });
+    expect(await mq.removeJobs([])).toEqual([]);
+    await mq.close();
+  });
+});

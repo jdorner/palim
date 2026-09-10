@@ -328,6 +328,8 @@ describe("Output Schema Suggestions", () => {
     const baseConfig: ScopeConfig = {
       steps: [{ slug: "fetch" }, { slug: "process" }],
       currentStepIndex: 1,
+      // fetch -> process so fetch is a true ancestor+dominator of process
+      edges: [{ from: "fetch", to: "process" }],
       secretKeys: ["API_KEY"],
       variableKeys: [],
       outputSchemas: {
@@ -460,6 +462,7 @@ describe("Output Schema Suggestions", () => {
       const noSchemaConfig: ScopeConfig = {
         steps: [{ slug: "fetch" }, { slug: "process" }],
         currentStepIndex: 1,
+        edges: [{ from: "fetch", to: "process" }],
         secretKeys: [],
         variableKeys: [],
       };
@@ -728,7 +731,17 @@ describe("getSuggestions hides result for succeeding steps", () => {
   ];
 
   test("preceding step shows both result and config", () => {
-    const config: ScopeConfig = { steps, currentStepIndex: 2, secretKeys: [], variableKeys: [] };
+    const config: ScopeConfig = {
+      steps,
+      currentStepIndex: 2,
+      // first -> second -> third, so "first" is an ancestor+dominator of "third"
+      edges: [
+        { from: "first", to: "second" },
+        { from: "second", to: "third" },
+      ],
+      secretKeys: [],
+      variableKeys: [],
+    };
     const results = getSuggestions(config, ["steps", "first"], "");
     const labels = results.map((s) => s.label);
     expect(labels).toContain("result");
@@ -736,7 +749,16 @@ describe("getSuggestions hides result for succeeding steps", () => {
   });
 
   test("succeeding step shows only config, not result", () => {
-    const config: ScopeConfig = { steps, currentStepIndex: 0, secretKeys: [], variableKeys: [] };
+    const config: ScopeConfig = {
+      steps,
+      currentStepIndex: 0,
+      edges: [
+        { from: "first", to: "second" },
+        { from: "second", to: "third" },
+      ],
+      secretKeys: [],
+      variableKeys: [],
+    };
     const results = getSuggestions(config, ["steps", "second"], "");
     const labels = results.map((s) => s.label);
     expect(labels).not.toContain("result");
@@ -746,7 +768,16 @@ describe("getSuggestions hides result for succeeding steps", () => {
   test("step at same index as current shows only config", () => {
     // This shouldn't normally happen (current step is excluded from slug list)
     // but if it does, result should not be shown
-    const config: ScopeConfig = { steps, currentStepIndex: 1, secretKeys: [], variableKeys: [] };
+    const config: ScopeConfig = {
+      steps,
+      currentStepIndex: 1,
+      edges: [
+        { from: "first", to: "second" },
+        { from: "second", to: "third" },
+      ],
+      secretKeys: [],
+      variableKeys: [],
+    };
     const results = getSuggestions(config, ["steps", "second"], "");
     const labels = results.map((s) => s.label);
     expect(labels).not.toContain("result");
@@ -757,6 +788,10 @@ describe("getSuggestions hides result for succeeding steps", () => {
     const config: ScopeConfig = {
       steps,
       currentStepIndex: 2,
+      edges: [
+        { from: "first", to: "second" },
+        { from: "second", to: "third" },
+      ],
       secretKeys: [],
       variableKeys: [],
       outputSchemas: { trigger: null, steps: { first: { data: "string" } } },
@@ -771,11 +806,53 @@ describe("getSuggestions hides result for succeeding steps", () => {
     const config: ScopeConfig = {
       steps,
       currentStepIndex: 0,
+      edges: [
+        { from: "first", to: "second" },
+        { from: "second", to: "third" },
+      ],
       secretKeys: [],
       variableKeys: [],
       outputSchemas: { trigger: null, steps: { second: { data: "string" } } },
     };
     const results = getSuggestions(config, ["steps", "second"], "");
+    const labels = results.map((s) => s.label);
+    expect(labels).not.toContain("result");
+  });
+});
+
+describe("getSuggestions derives precedence from the DAG, not declaration order", () => {
+  // Regression: a step declared *later* in the steps map but executing *earlier*
+  // (via an edge) must still have its `result` offered when referenced from the
+  // step that runs after it. Declaration order alone must never drive precedence,
+  // because the editor keeps steps in an arbitrary/edit-order array while edges
+  // define execution order. This mirrors the onprodata-konnektor workflow where
+  // the `http-request` step is declared after the `if` step but feeds it.
+  const steps: Array<{ slug: string; [key: string]: unknown }> = [
+    { slug: "step-3", type: "if", prompt: "decide" },
+    { slug: "onprodata-no-auth", type: "http-request", url: "http://example.com" },
+  ];
+  const edges = [{ from: "onprodata-no-auth", to: "step-3" }];
+
+  test("root step declared after the current step still offers result", () => {
+    const config: ScopeConfig = {
+      steps,
+      currentStepIndex: 0, // editing step-3
+      edges,
+      secretKeys: [],
+      variableKeys: [],
+      outputSchemas: {
+        trigger: null,
+        steps: { "onprodata-no-auth": { type: "object", properties: { status: { type: "number" } } } },
+      },
+    };
+    const results = getSuggestions(config, ["steps", "onprodata-no-auth", "result"], "s");
+    const labels = results.map((s) => s.label);
+    expect(labels).toContain("status");
+  });
+
+  test("without an edge the result is not offered (not guaranteed to run first)", () => {
+    const config: ScopeConfig = { steps, currentStepIndex: 0, secretKeys: [], variableKeys: [] };
+    const results = getSuggestions(config, ["steps", "onprodata-no-auth", "result"]);
     const labels = results.map((s) => s.label);
     expect(labels).not.toContain("result");
   });

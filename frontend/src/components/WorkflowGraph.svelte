@@ -144,6 +144,14 @@ let {
 
 let colorMode = $state<ColorMode>("light");
 
+/**
+ * Whether the initial fit-view has completed. The flow is rendered but kept
+ * invisible until this flips true, so the user never sees the pre-fit frame
+ * (nodes at the default viewport before `fitView` zooms/pans to fit). Once
+ * fitted, the graph fades in.
+ */
+let initialFitDone = $state(false);
+
 const nodeTypes = {
   step: WorkflowStepNode,
   controlFlow: ControlFlowNode,
@@ -580,6 +588,7 @@ onMount(() => {
   <SvelteFlow
     bind:nodes
     bind:edges
+    class="transition-opacity duration-150 {initialFitDone ? 'opacity-100' : 'opacity-0'}"
     {nodeTypes}
     {edgeTypes}
     {colorMode}
@@ -594,7 +603,7 @@ onMount(() => {
     onnodedragstop={editMode ? handleNodeDragStop : undefined}
     onnodeclick={handleNodeClick}
   >
-    <FitViewOnInit {fitViewTrigger} />
+    <FitViewOnInit {fitViewTrigger} onInitialFit={() => (initialFitDone = true)} />
     <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} patternColor="hsl(var(--border))" />
     <Controls class="shadow-md! rounded-lg! border! border-border! overflow-hidden!" />
     <MiniMap

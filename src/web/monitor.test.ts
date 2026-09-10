@@ -92,6 +92,11 @@ function createFakeQueue(queueName: string, jobs: JobInfo[] = []) {
       // Active jobs would be signalled via worker — not simulated here
       return false;
     },
+    async removeJobs(jobIds: string[]) {
+      const present = new Set(currentJobs.filter((j) => jobIds.includes(j.id)).map((j) => j.id));
+      currentJobs = currentJobs.filter((j) => !present.has(j.id));
+      return [...present];
+    },
     async retryJob() {
       return false;
     },
@@ -477,5 +482,248 @@ describe("QueueMonitor stale cache - persistence across restart", () => {
     jobs = getMonitorJobs(monitor2);
     expect(jobs.find((j) => j.id === step0Id)).toBeUndefined();
     expect(jobs.find((j) => j.id === step1Id)).toBeUndefined();
+  });
+});
+
+describe("QueueMonitor clean guard - protected jobs", () => {
+  /**
+   * Creates a fake queue whose `clean` mimics bunqueue's real semantics: it
+   * removes jobs in the target state that completed before the grace cutoff
+   * (`now - grace`), oldest-first, up to `limit`. Crucially, `cancelJob` does
+   * NOT remove completed jobs (matching bunqueue), so the guarded clean path is
+   * exercised through `clean`, not `cancelJob`.
+   */
+  function createCleanableQueue(queueName: string, jobs: JobInfo[]) {
+    let currentJobs = [...jobs];
+    const queue: ManagedQueuePort = {
+      name: queueName,
+      async add() {
+        return "";
+      },
+      async getJob(jobId: string) {
+        return currentJobs.find((j) => j.id === jobId) ?? null;
+      },
+      async getWaiting() {
+        return currentJobs.filter((j) => j.state === "waiting");
+      },
+      async getActive() {
+        return currentJobs.filter((j) => j.state === "active");
+      },
+      async getDelayed() {
+        return currentJobs.filter((j) => j.state === "delayed");
+      },
+      async getAllJobs() {
+        return [...currentJobs];
+      },
+      async getJobLogs(): Promise<QueueJobLogs> {
+        return { logs: [], count: 0 };
+      },
+      onEvent() {},
+      offEvent() {},
+      async cancelJob(jobId: string) {
+        // Mirrors bunqueue: only queued (waiting/delayed/failed) jobs can be
+        // cancelled; completed jobs cannot be removed this way.
+        const job = currentJobs.find((j) => j.id === jobId);
+        if (!job) return false;
+        if (job.state === "completed" || job.state === "active") return false;
+        currentJobs = currentJobs.filter((j) => j.id !== jobId);
+        return true;
+      },
+      async removeJobs(jobIds: string[]) {
+        // Batch removal handles every state, including completed.
+        const present = new Set(currentJobs.filter((j) => jobIds.includes(j.id)).map((j) => j.id));
+        currentJobs = currentJobs.filter((j) => !present.has(j.id));
+        return [...present];
+      },
+      async retryJob() {
+        return false;
+      },
+      async clean(grace: number, limit: number, type?: string) {
+        const state = type ?? "completed";
+        const cutoff = Date.now() - grace;
+        const eligible = currentJobs
+          .filter((j) => j.state === state && (j.finishedOn ?? j.timestamp) <= cutoff)
+          .sort((a, b) => (a.finishedOn ?? a.timestamp) - (b.finishedOn ?? b.timestamp))
+          .slice(0, limit);
+        const ids = new Set(eligible.map((j) => j.id));
+        currentJobs = currentJobs.filter((j) => !ids.has(j.id));
+        return [...ids];
+      },
+      async close() {},
+      async upsertScheduler() {
+        return null;
+      },
+      async removeScheduler() {
+        return false;
+      },
+      async getScheduler() {
+        return null;
+      },
+      async getSchedulers() {
+        return [];
+      },
+    };
+    return { queue, remaining: () => currentJobs.map((j) => j.id) };
+  }
+
+  test("keeps completed step jobs of an active run and removes those of a terminal run", async () => {
+    const activeRunId = "run-active";
+    const doneRunId = "run-done";
+    // Guarded clean selects the exact non-protected job IDs and removes them via
+    // removeJobs, so the active run's step is kept and the terminal run's step
+    // is removed regardless of their relative completion order.
+    const { queue, remaining } = createCleanableQueue("workflows:steps", [
+      {
+        id: "active-step-0",
+        name: "step-0",
+        queueName: "workflows:steps",
+        data: { workflowRunId: activeRunId },
+        state: "completed",
+        timestamp: 5_000,
+        finishedOn: 5_000,
+      },
+      {
+        id: "done-step-0",
+        name: "step-0",
+        queueName: "workflows:steps",
+        data: { workflowRunId: doneRunId },
+        state: "completed",
+        timestamp: 1_000,
+        finishedOn: 1_000,
+      },
+    ]);
+
+    const monitor = new QueueMonitor([queue]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Keep the active run's step; the terminal run's step cleans by default.
+    monitor.setCleanGuard((job) => (job.workflowRunId === activeRunId ? "keep" : "default"));
+
+    const removed = await monitor.cleanAllQueues(0, 100, "completed");
+
+    expect(removed).toContain("done-step-0");
+    expect(removed).not.toContain("active-step-0");
+    expect(remaining()).toContain("active-step-0");
+    expect(remaining()).not.toContain("done-step-0");
+
+    // The active run's step must still be visible in the monitor snapshot.
+    const snapshot = getMonitorJobs(monitor);
+    expect(snapshot.find((j) => j.id === "active-step-0")).not.toBeUndefined();
+    expect(snapshot.find((j) => j.id === "done-step-0")).toBeUndefined();
+  });
+
+  test("cleans completed jobs via bulk clean when nothing is protected", async () => {
+    const { queue, remaining } = createCleanableQueue("agents", [
+      {
+        id: "done-a",
+        name: "job",
+        queueName: "agents",
+        data: {},
+        state: "completed",
+        timestamp: 1_000,
+        finishedOn: 1_000,
+      },
+      {
+        id: "done-b",
+        name: "job",
+        queueName: "agents",
+        data: {},
+        state: "completed",
+        timestamp: 2_000,
+        finishedOn: 2_000,
+      },
+    ]);
+
+    const monitor = new QueueMonitor([queue]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // A guard is registered but decides "default" for these agents-queue jobs,
+    // so they clean by the normal rule (own state === clean type).
+    monitor.setCleanGuard((job) => (job.queue === "workflows:steps" ? "keep" : "default"));
+    const removed = await monitor.cleanAllQueues(0, 1000, "completed");
+
+    expect(removed).toContain("done-a");
+    expect(removed).toContain("done-b");
+    expect(remaining()).toHaveLength(0);
+  });
+
+  test("respects the grace period for eligible jobs", async () => {
+    const { queue, remaining } = createCleanableQueue("agents", [
+      {
+        id: "fresh",
+        name: "job",
+        queueName: "agents",
+        data: {},
+        state: "completed",
+        timestamp: Date.now(),
+        finishedOn: Date.now(),
+      },
+    ]);
+
+    const monitor = new QueueMonitor([queue]);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    // Guard defers to the default rule, but a large grace window keeps the fresh job.
+    monitor.setCleanGuard(() => "default");
+    const removed = await monitor.cleanAllQueues(60_000, 100, "completed");
+
+    expect(removed).not.toContain("fresh");
+    expect(remaining()).toContain("fresh");
+  });
+
+  test("cleans a run's steps only when the parent run status matches the clean type", async () => {
+    // The step job is "completed" at the queue level, but its parent run FAILED.
+    // The boot-time rule cleans the run's steps only when the run status matches
+    // the requested clean type, regardless of the step's own queue state.
+    const failedRunId = "run-failed";
+    const parentStatus: Record<string, string> = { [failedRunId]: "failed" };
+
+    function makeQueue() {
+      return createCleanableQueue("workflows:steps", [
+        {
+          id: "failed-run-step",
+          name: "step-0",
+          queueName: "workflows:steps",
+          data: { workflowRunId: failedRunId },
+          state: "completed", // a successful step of a run that later failed
+          timestamp: 1_000,
+          finishedOn: 1_000,
+        },
+      ]);
+    }
+
+    // Guard mirroring boot.ts: remove the run's steps when the parent status
+    // matches the clean type, keep them otherwise, default for non-workflow jobs.
+    const guard = (job: { workflowRunId?: string }, cleanType: string): "keep" | "remove" | "default" => {
+      if (!job.workflowRunId) return "default";
+      const status = parentStatus[job.workflowRunId];
+      if (!status) return "default";
+      return status === cleanType ? "remove" : "keep";
+    };
+
+    // "clean completed" must NOT remove the (completed) step of a failed run.
+    {
+      const { queue, remaining } = makeQueue();
+      const monitor = new QueueMonitor([queue]);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      monitor.setCleanGuard(guard);
+
+      const removed = await monitor.cleanAllQueues(0, 100, "completed");
+      expect(removed).not.toContain("failed-run-step");
+      expect(remaining()).toContain("failed-run-step");
+    }
+
+    // "clean failed" must remove the step of a failed run even though the step
+    // job's own queue state is "completed" (the "remove" verdict ignores it).
+    {
+      const { queue, remaining } = makeQueue();
+      const monitor = new QueueMonitor([queue]);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      monitor.setCleanGuard(guard);
+
+      const removed = await monitor.cleanAllQueues(0, 100, "failed");
+      expect(removed).toContain("failed-run-step");
+      expect(remaining()).not.toContain("failed-run-step");
+    }
   });
 });
