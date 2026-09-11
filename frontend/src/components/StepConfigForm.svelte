@@ -166,11 +166,14 @@ function updateValue(key: string, value: unknown) {
         </select>
       {:else if inputType === "multiselect"}
         {@render fieldLabel(key, label, description)}
+        {@const itemLabels = (prop.itemLabels ?? undefined) as Record<string, string> | undefined}
         <MultiSelect
           id="step-config-{key}"
           items={prop.availableItems as string[]}
           selected={Array.isArray(formValues[key]) ? formValues[key] as string[] : []}
           placeholder="Select items..."
+          allowCustom={prop.allowCustomItems === true}
+          labelFor={itemLabels ? (item) => itemLabels[item] : undefined}
           onchange={(val) => updateValue(key, val)}
         />
       {:else if inputType === "tags" && itemOptions?.[key]}
