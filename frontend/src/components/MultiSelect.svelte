@@ -13,6 +13,19 @@ interface Props {
   disabled?: boolean;
   /** Maximum options shown in the dropdown list (default 50). */
   maxDisplay?: number;
+  /**
+   * When true, the user may add a typed value that is not in `items`
+   * (via Enter or the "Add" row). The control also stays enabled when
+   * `items` is empty, acting as a free-form tag input with suggestions.
+   */
+  allowCustom?: boolean;
+  /**
+   * Optional display-label mapping. Given a raw item value, returns the text
+   * to render (e.g. prefixing an emoji to a shortcode). The stored/selected
+   * value is always the raw item; only the rendered label changes. Falls back
+   * to the raw item when omitted or when it returns undefined.
+   */
+  labelFor?: (item: string) => string | undefined;
   /** Optional callback fired when the selection changes. */
   onchange?: (selected: string[]) => void;
 }
@@ -24,19 +37,45 @@ let {
   placeholder = "Search...",
   disabled = false,
   maxDisplay = 50,
+  allowCustom = false,
+  labelFor,
   onchange,
 }: Props = $props();
+
+/**
+ * Resolve the display label for an item, falling back to the raw value.
+ *
+ * @param item - The raw item value
+ * @returns The text to render for the item
+ */
+function displayLabel(item: string): string {
+  return labelFor?.(item) ?? item;
+}
 
 let search = $state("");
 let open = $state(false);
 let inputEl: HTMLInputElement | undefined = $state();
 let highlightIndex = $state(-1);
 
-let isDisabled = $derived(disabled || items.length === 0);
+// With allowCustom the control is always usable (free-form entry), even when
+// there are no suggestion items.
+let isDisabled = $derived(disabled || (items.length === 0 && !allowCustom));
 
 let filtered = $derived.by(() => filterMultiSelectItems(items, selected, search, maxDisplay));
 
 let hasNoResults = $derived(search.length > 0 && filtered.length === 0);
+
+/** Trimmed search term. */
+let trimmedSearch = $derived(search.trim());
+
+/**
+ * Whether the current input represents a custom value that can be added:
+ * only when allowCustom is on, the term is non-empty, not already selected,
+ * and not an exact match of an existing suggestion (which the list handles).
+ */
+let canAddCustom = $derived(
+  allowCustom && trimmedSearch.length > 0 && !selected.includes(trimmedSearch) && !filtered.includes(trimmedSearch),
+);
 
 // Reset highlight when filtered list changes
 $effect(() => {
@@ -45,11 +84,23 @@ $effect(() => {
 });
 
 function select(item: string) {
+  if (selected.includes(item)) {
+    search = "";
+    highlightIndex = -1;
+    inputEl?.focus();
+    return;
+  }
   selected = [...selected, item];
   search = "";
   highlightIndex = -1;
   inputEl?.focus();
   onchange?.(selected);
+}
+
+/** Add the current trimmed search term as a custom value. */
+function addCustom() {
+  if (!canAddCustom) return;
+  select(trimmedSearch);
 }
 
 function remove(item: string) {
@@ -73,6 +124,10 @@ function handleKeydown(event: KeyboardEvent) {
   } else if (event.key === "Enter" && open && highlightIndex >= 0 && highlightIndex < filtered.length) {
     event.preventDefault();
     select(filtered[highlightIndex]);
+  } else if (event.key === "Enter" && canAddCustom) {
+    // No highlighted suggestion but a custom value is typed: add it.
+    event.preventDefault();
+    addCustom();
   } else if (event.key === "Backspace" && search === "" && selected.length > 0) {
     selected = selected.slice(0, -1);
     onchange?.(selected);
@@ -117,7 +172,7 @@ function handleBlur(event: FocusEvent) {
         <span
           class="inline-flex items-center gap-1 rounded-full border border-border bg-muted px-2 py-0.5 text-xs text-foreground"
         >
-          {item}
+          {displayLabel(item)}
           <button
             type="button"
             tabindex="-1"
@@ -167,7 +222,7 @@ function handleBlur(event: FocusEvent) {
         id="multiselect-listbox"
       >
         <div class="max-h-60 overflow-y-auto p-1">
-          {#if hasNoResults}
+          {#if hasNoResults && !canAddCustom}
             <div class="px-3 py-2 text-sm text-muted-foreground">No results found</div>
           {:else}
             {#each filtered as item, i (item)}
@@ -186,9 +241,21 @@ function handleBlur(event: FocusEvent) {
                 onmousedown={(e) => { e.preventDefault(); select(item); }}
                 onmouseenter={() => { highlightIndex = i; }}
               >
-                {item}
+                {displayLabel(item)}
               </button>
             {/each}
+            {#if canAddCustom}
+              <button
+                type="button"
+                role="option"
+                tabindex="-1"
+                aria-selected={false}
+                class="w-full cursor-pointer rounded-sm px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                onmousedown={(e) => { e.preventDefault(); addCustom(); }}
+              >
+                Add "{trimmedSearch}"
+              </button>
+            {/if}
           {/if}
         </div>
       </div>
