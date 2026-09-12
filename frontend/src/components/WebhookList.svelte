@@ -25,6 +25,7 @@ interface Webhook {
 }
 
 let webhooks = $state<Webhook[]>([]);
+let sortedWebhooks = $derived([...webhooks].sort((a, b) => a.slug.localeCompare(b.slug)));
 let loading = $state(true);
 let error = $state<string | null>(null);
 let errorDetail = $state<string | null>(null);
@@ -404,7 +405,7 @@ $effect(() => {
 
     <!-- Mobile & Tablet: Card layout -->
     <div class="responsive-cards">
-      {#each webhooks as webhook (webhook.slug)}
+      {#each sortedWebhooks as webhook (webhook.slug)}
         <div class="rounded-md border border-border p-4 space-y-3 {editingSlug === webhook.slug ? "bg-accent" : ""}">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0 flex-1">
@@ -488,7 +489,7 @@ $effect(() => {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {#each webhooks as webhook (webhook.slug)}
+          {#each sortedWebhooks as webhook (webhook.slug)}
             <TableRow class={editingSlug === webhook.slug ? "bg-accent" : ""}>
               <TableCell>
                 <span class="font-medium">{webhook.name}</span>
