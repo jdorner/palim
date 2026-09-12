@@ -49,7 +49,7 @@ function handleChange(event: Event) {
   </div>
   <select
     name="intent-{intent}"
-    class="ml-3 h-8 max-w-[200px] rounded-md border border-border bg-background px-2 text-sm
+    class="ml-3 h-8 max-w-50 rounded-md border border-border bg-background px-2 text-sm
       text-foreground shadow-sm transition-colors
       focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1
       disabled:cursor-not-allowed disabled:opacity-50"

@@ -125,7 +125,7 @@ const badgeCounts = derived(
     >
       {#if badgeCount > 0 && collapsed}
         <span
-          class="absolute bottom-0 right-0 text-[10px] font-bold leading-none rounded-full bg-primary text-primary-foreground px-1 py-0.5 min-w-[16px] text-center ring-2 ring-background"
+          class="absolute bottom-0 right-0 text-[10px] font-bold leading-none rounded-full bg-primary text-primary-foreground px-1 py-0.5 min-w-4 text-center ring-2 ring-background"
           >{badgeCount > 99 ? "99+" : badgeCount}</span
         >
       {/if}
@@ -156,7 +156,7 @@ const badgeCounts = derived(
   >
     {#if jobCount > 0 && collapsed}
       <span
-        class="absolute bottom-0 right-0 text-[10px] font-bold leading-none rounded-full bg-primary text-primary-foreground px-1 py-0.5 min-w-[16px] text-center ring-2 ring-background"
+        class="absolute bottom-0 right-0 text-[10px] font-bold leading-none rounded-full bg-primary text-primary-foreground px-1 py-0.5 min-w-4 text-center ring-2 ring-background"
         >{jobCount > 99 ? "99+" : jobCount}</span
       >
     {/if}

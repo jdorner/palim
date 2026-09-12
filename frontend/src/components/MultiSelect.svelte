@@ -198,7 +198,7 @@ function handleBlur(event: FocusEvent) {
         bind:this={inputEl}
         {id}
         type="text"
-        class="flex-1 min-w-[80px] bg-transparent outline-none text-sm py-0.5"
+        class="flex-1 min-w-20 bg-transparent outline-none text-sm py-0.5"
         {placeholder}
         bind:value={search}
         onfocus={handleFocus}
