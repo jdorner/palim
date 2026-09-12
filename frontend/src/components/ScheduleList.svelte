@@ -12,6 +12,7 @@ import { formatter } from "$lib/utils";
 import type { ScheduleEntry } from "../../../shared/types";
 
 let items = $state<ScheduleEntry[]>([]);
+let sortedItems = $derived([...items].sort((a, b) => a.id.localeCompare(b.id)));
 let loading = $state(true);
 let error = $state<string | null>(null);
 let errorDetail = $state<string | null>(null);
@@ -117,7 +118,7 @@ $effect(() => {
   {:else}
     <!-- Mobile & Tablet: Card layout -->
     <div class="responsive-cards">
-      {#each items as schedule (schedule.id)}
+      {#each sortedItems as schedule (schedule.id)}
         <div class="rounded-md border border-border p-4 space-y-3">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0 flex-1">
@@ -176,7 +177,7 @@ $effect(() => {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {#each items as schedule (schedule.id)}
+          {#each sortedItems as schedule (schedule.id)}
             <TableRow>
               <TableCell>
                 <span class="font-medium">{schedule.name}</span>

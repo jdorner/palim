@@ -24,6 +24,7 @@ interface McpServer {
 }
 
 let servers = $state<McpServer[]>([]);
+let sortedServers = $derived([...servers].sort((a, b) => a.name.localeCompare(b.name)));
 let loading = $state(true);
 let error = $state<string | null>(null);
 let syncing = $state<string | null>(null);
@@ -369,7 +370,7 @@ $effect(() => {
   {:else}
     <!-- Mobile & Tablet: Card layout -->
     <div class="responsive-cards">
-      {#each servers as server (server.name)}
+      {#each sortedServers as server (server.name)}
         <div class="rounded-md border border-border p-4 space-y-3">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0 flex-1">
@@ -428,7 +429,7 @@ $effect(() => {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {#each servers as server (server.name)}
+          {#each sortedServers as server (server.name)}
             <TableRow>
               <TableCell>
                 <span class="font-medium">{server.name}</span>

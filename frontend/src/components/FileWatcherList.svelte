@@ -27,6 +27,7 @@ interface FileWatcher {
 }
 
 let watchers = $state<FileWatcher[]>([]);
+let sortedWatchers = $derived([...watchers].sort((a, b) => a.slug.localeCompare(b.slug)));
 let loading = $state(true);
 let error = $state<string | null>(null);
 let errorDetail = $state<string | null>(null);
@@ -375,7 +376,7 @@ $effect(() => {
 
     <!-- Mobile & Tablet: Card layout -->
     <div class="responsive-cards">
-      {#each watchers as watcher (watcher.slug)}
+      {#each sortedWatchers as watcher (watcher.slug)}
         <div class="rounded-md border border-border p-4 space-y-3 {editingSlug === watcher.slug ? "bg-accent" : ""}">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0 flex-1">
@@ -445,7 +446,7 @@ $effect(() => {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {#each watchers as watcher (watcher.slug)}
+          {#each sortedWatchers as watcher (watcher.slug)}
             <TableRow class={editingSlug === watcher.slug ? "bg-accent" : ""}>
               <TableCell>
                 <span class="font-medium">{watcher.name}</span>
