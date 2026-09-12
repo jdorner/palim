@@ -617,8 +617,10 @@ class ChatStreamStore {
     if (!this.activeConversationId) return;
     if (this.activeStreaming) return;
 
-    //console.log($state.snapshot(msg))
-    //return
+    // Clear any prior error so a stale error box is dismissed on regenerate
+    // (mirrors handleRetry and handleSubmit).
+    this.error = null;
+
     await deleteMessagesFrom(this.activeConversationId, msg.createdAt);
     this.messages = this.messages.filter((m) => m.createdAt < msg.createdAt);
 
