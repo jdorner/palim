@@ -15,6 +15,10 @@ A workflow is a set of named `steps` plus an `edges` array that wires them toget
 - **Join / convergence** - a step with multiple incoming edges waits until all predecessors resolve before running
 - **Control flow** - conditional branching (`if`, `case`), data-driven iteration (`iterator`/`aggregator`), external signal gates (`waitFor`), and cross-workflow signaling (`emit`)
 
+## Important design principle: prefer determinism
+
+Favor predictable, repeatable steps over agent reasoning. Reach for a deterministic step type first (`http-request`, `if`, `case`, `iterator`/`aggregator`, `fail`, `emit`, `waitFor`) and only fall back to an `agent` step when no deterministic type can do the job. Shell commands via the `exec` tool are a good middle ground, but when a step relies on one, make sure the agent has the skill it needs to run that command (assign it via the step's `skills` field, e.g. `skills: ["web-access"]`).
+
 ## When to use
 
 - When the user wants to create a new multi-step pipeline
@@ -72,26 +76,17 @@ A workflow is a set of named `steps` plus an `edges` array that wires them toget
 
 ## Steps map and edges
 
-The `steps` field is a map (object) keyed by slug. Each value is the step definition **without** a `slug` field — the map key is the slug.
-
-The `edges` array defines the execution graph. Each edge is an object:
-
-- `from` (required) - source step slug (must exist in `steps`)
-- `to` (required) - target step slug (must exist in `steps`)
-- `branch` (optional) - required only on edges leaving a control-flow node (`if`/`case`); forbidden on edges from any other step type
+`steps` is a map keyed by slug; the map key is the slug (no `slug` field inside the step). Each edge in `edges` has `from` and `to` (both must reference existing steps) plus an optional `branch` (required only on edges leaving a control-flow node, forbidden otherwise).
 
 ### Graph rules (validated at load time)
 
-- The graph must be acyclic (no cycles).
-- Every `from`/`to` must reference an existing step.
-- There must be at least one **root** step (no incoming edges). Roots are dispatched when the run starts.
-- Every step must be reachable from a root (no orphan steps).
-- A non-CF step's outgoing edges must NOT have a `branch` property.
-- A CF node (`if`/`case`/`iterator`) must have ONLY branch-labeled outgoing edges. For `if`, valid branches are `"then"` and `"else"`. For `case`, branches must match the declared `paths` keys. For `iterator`, the only valid branch is `"each"`.
+- Acyclic, with at least one **root** step (no incoming edges); roots are dispatched when the run starts.
+- Every step must be reachable from a root (no orphans).
+- Non-CF steps must NOT put `branch` on outgoing edges. CF nodes (`if`/`case`/`iterator`) must put a `branch` on every outgoing edge: `if` uses `"then"`/`"else"`, `case` uses the declared `paths` keys, `iterator` uses `"each"`.
 
 ### Fan-out and join
 
-A non-CF step may have multiple outgoing edges — all of its successors are dispatched in parallel:
+A non-CF step with multiple outgoing edges dispatches all successors in parallel. A step with multiple incoming edges is a join: it runs only once every incoming edge is resolved (`satisfied` when the predecessor completed, `dead` when a CF branch was not taken), with at least one `satisfied`.
 
 ```json5
 "edges": [
@@ -101,8 +96,6 @@ A non-CF step may have multiple outgoing edges — all of its successors are dis
   { "from": "enrich", "to": "combine" },    // combine waits for BOTH (join barrier)
 ]
 ```
-
-A step with multiple incoming edges is a join: it is dispatched only once all its incoming edges are resolved (either `satisfied` because the predecessor completed, or `dead` because a CF branch was not taken), with at least one `satisfied`.
 
 ## Prompt format
 
@@ -129,29 +122,18 @@ The `prompt` field accepts either a single string or an array of strings. Arrays
 
 ## Tools and skills per step
 
-Each agent step runs its own isolated agent instance. You can specify both tools and skills per step. When skills are specified, the `exec` tool is automatically included so the agent can read skill instructions.
+Each agent step runs its own isolated agent instance with the tools and skills you assign. Assigning any skill auto-includes `exec` so the agent can run `skill read <name>` to load its instructions; it receives the full skill-aware system prompt, same as the main agent. Any skill can be referenced by name (`webhooks`, `workflows`, `wiki`, etc.).
 
 ### Available tools
 
 - `exec` - shell commands (includes `filewatcher`, `webhook`, `skill`, `workflow`, etc.)
-- `read_file` - read file contents from the work directory
-- `write_file` - write/create files in the work directory
-- `list_files` - list directory contents
-- `create_directory` - create directories
+- `read_file`, `write_file`, `list_files`, `create_directory` - file operations in the work directory
 - `send_telegram_message` - send a Telegram message (telegram extension must be enabled)
-
-### Available skills
-
-Any skill can be referenced by name: `webhooks`, `workflows`, `wiki`, etc.
-
-When you assign skills to a step, the agent receives the full system prompt with skill context (same as the main agent) and can use `skill read <name>` to load detailed instructions.
 
 ### How to choose
 
-- Prompt says "read file X" -> needs `read_file`
-- Prompt says "run command Y" -> needs `exec`
-- Prompt says "manage webhooks" -> needs `exec` + skill `webhooks`
-- Prompt only reasons/summarizes/transforms -> no tools or skills needed
+- "read file X" -> `read_file`; "run command Y" -> `exec`; "manage webhooks" -> `exec` + skill `webhooks`
+- Only reasons/summarizes/transforms -> no tools or skills
 
 ## Template variables
 
@@ -195,10 +177,10 @@ Available built-in functions:
 
 Notes:
 
-- Functions are pure and side-effect-free (string/data/date transforms only). They cannot perform I/O, network, filesystem, or environment/secret access.
-- **JSON bodies:** substituted values are NOT auto-escaped, so a value containing a quote or newline can break a JSON `body`. Wrap such values in `jsonEscape(...)` — e.g. `"{\"text\": \"{{ jsonEscape(steps.extract.result) }}\"}"`.
-- **Security:** references to `constructor`, `prototype`, `__proto__`, or any `__dunder__` key are refused (left literal with a warning). Only the whitelisted namespaces (`trigger`, `steps`, `var`, the iterator alias, `itemIndex`) and the built-in functions are reachable; `secret`/`env` are resolved separately and are NOT accessible from function expressions.
-- If an expression references an unknown function or fails to evaluate, it is left literal (`{{...}}`) and a warning is logged — it never throws.
+- Functions are pure (string/data/date transforms only) — no I/O, network, filesystem, or secret/env access.
+- **JSON bodies:** substituted values are NOT auto-escaped, so wrap anything that might contain a quote or newline in `jsonEscape(...)` — e.g. `"{\"text\": \"{{ jsonEscape(steps.extract.result) }}\"}"`.
+- **Security:** `constructor`, `prototype`, `__proto__`, and any `__dunder__` key are refused. Only `trigger`, `steps`, `var`, the iterator alias, and `itemIndex` are reachable; `secret`/`env` are resolved separately and unreachable from function expressions.
+- An unknown function or failed evaluation is left literal (`{{...}}`) with a warning — it never throws.
 
 ### Accessing secrets
 
@@ -874,19 +856,13 @@ workflow validate "my-pipeline"
 
 ## Execution model
 
-- The engine dispatches all root steps (no incoming edges) in parallel when the run starts.
-- A step is dispatched only when all its incoming edges are resolved (`satisfied` or `dead`) with at least one `satisfied` (join barrier).
-- A non-CF step with multiple outgoing edges fans out — all successors are dispatched.
-- Independent branches execute concurrently on the queue.
-- Control flow nodes (`if`, `case`, `iterator`) are evaluated inline (not queued) and mark their branch edges `satisfied`/`dead`.
-- Dead edges propagate: a step reachable only through dead edges is skipped (marked `dead`), and its outgoing edges become dead too.
-- Iterator/aggregator pairs drive sequential iteration: the aggregator resets body steps between iterations and re-dispatches them until all items are processed.
-- Each step receives previous step results via `{{steps.<slug>.result}}`, resolved from the run store (any ancestor, not just the direct predecessor).
-- Fail-fast: if any step fails, the run fails, in-flight jobs are cancelled, and remaining pending steps are marked dead.
-- `waitFor` releases its worker slot while waiting (blocks only its own successors, not the whole run).
-- `emit` is fire-and-forget - the emitting branch continues immediately.
-- The run is marked completed when all terminal steps (no outgoing edges) are completed or dead, with at least one completed.
-- Workflow state (results, edge states, step statuses, run status) is persisted in SQLite and survives restarts.
+- Root steps dispatch in parallel at run start; every other step dispatches once all its incoming edges resolve (`satisfied`/`dead`, at least one `satisfied`). Independent branches run concurrently.
+- Control-flow nodes (`if`, `case`, `iterator`) are evaluated inline (not queued) and mark branch edges `satisfied`/`dead`. Dead edges propagate: a step reachable only through dead edges is skipped, and its outgoing edges go dead too.
+- Iterator/aggregator pairs iterate sequentially — the aggregator resets and re-dispatches body steps until all items are processed.
+- Each step reads any ancestor's result via `{{steps.<slug>.result}}` (resolved from the run store, not just the direct predecessor).
+- Fail-fast: any step failure fails the run, cancels in-flight jobs, and marks remaining steps dead.
+- `waitFor` releases its worker slot while waiting (blocks only its successors); `emit` is fire-and-forget.
+- A run completes when all terminal steps are completed or dead, with at least one completed. All run state is persisted in SQLite and survives restarts.
 
 ## Migrating legacy workflows
 
@@ -897,19 +873,13 @@ bun run migrate-workflows            # convert .work/workflows/*.json5
 bun run migrate-workflows <dir>      # convert a specific directory
 ```
 
-The tool skips files already in DAG format (steps object + edges array), converts sequential steps into chained edges, flattens `if`/`case` branches into top-level steps with branch edges, and reports a summary. It does not create backups (use version control for rollback).
+It skips files already in DAG format, chains sequential steps into edges, flattens `if`/`case` branches into top-level steps with branch edges, and reports a summary. No backups are created — use version control for rollback.
 
 ## Notes
 
-- Workflow names must be unique across all JSON5 files
-- Step slugs are the keys of the `steps` map and must match `^[a-z][a-z0-9-]*$`
-- The graph must be acyclic, fully connected (every step reachable from a root), and have at least one root
-- Disabled workflows (`enabled: false`) are skipped during loading
-- When no `tools` and no `skills` are specified, the agent runs with no tools (LLM-only reasoning)
-- When `skills` are specified, `exec` is automatically added to the tool list (even if `tools` is omitted)
-- JSON5 supports `//` and `/* */` comments — use them for documentation
-- Trailing commas are allowed in arrays and objects
-- Only edges from `if`/`case`/`iterator` nodes may carry a `branch` property; all other edges must omit it
-- If an `if`/`case` branch has no matching edge and no path is taken, the corresponding branch is simply skipped (dead)
-- Use a `fail` step on a branch to explicitly abort with a meaningful error message
+- Workflow names must be unique across all files; step slugs (the `steps` map keys) must match `^[a-z][a-z0-9-]*$`.
+- Disabled workflows (`enabled: false`) are skipped during loading.
+- With no `tools` and no `skills`, the agent runs LLM-only (no tools).
+- JSON5 allows `//` and `/* */` comments and trailing commas — use comments for documentation.
+- If an `if`/`case` branch has no matching edge, that branch is simply skipped (dead); use a `fail` step to abort with a meaningful error instead.
 - Always ask for approval before triggering a workflow run!
