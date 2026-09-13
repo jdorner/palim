@@ -6,7 +6,7 @@
  */
 
 import type { AgentEvent, AgentMessage, AgentTool, ThinkingLevel } from "@mariozechner/pi-agent-core";
-import type { StepIconName, WebSocketMessage } from "@shared/types";
+import type { StepTypeInfo as SerializedStepTypeInfo, StepIconName, WebSocketMessage } from "@shared/types";
 import { type Static, type TObject, type TSchema, Type } from "@sinclair/typebox";
 import type { ModelIntent } from "@src/models";
 import type { PushMessageOptions, PushMessageResult } from "@src/push";
@@ -881,6 +881,24 @@ export interface ExtensionContext {
      * @param type - The step type identifier to look up
      */
     get(type: string): StepTypeHandler | undefined;
+
+    /**
+     * List read-only serialized metadata for every custom workflow step type
+     * registered by ANY active extension (not just this one).
+     *
+     * Returns plain, serializable {@link SerializedStepTypeInfo} objects with
+     * `configSchema`/`outputSchema` already converted to JSON Schema. The live
+     * {@link StepTypeHandler} (and its `execute` function) is never exposed, so
+     * this is safe read-only introspection - use it to build documentation,
+     * validation, or discovery features over the available step types.
+     *
+     * Does NOT include the engine's built-in control-flow/agent step types
+     * (`agent`, `if`, `case`, `iterator`, `aggregator`, `waitFor`, `emit`),
+     * which are not registered through the step-type registry.
+     *
+     * @returns Serialized metadata for all registered step types
+     */
+    list(): SerializedStepTypeInfo[];
   };
 
   // -------------------------------------------------------------------------

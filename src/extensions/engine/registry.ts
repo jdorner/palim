@@ -6,6 +6,7 @@
 import type { FSWatcher } from "node:fs";
 import { watch as fsWatch } from "node:fs";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { StepTypeInfo } from "@shared/extensions";
 import type { ExtensionInfo, WebSocketMessage } from "@shared/types";
 import { PROJECT_DIR, serverOrigin } from "@src/config";
 import { getDb, schema } from "@src/db";
@@ -20,7 +21,6 @@ import {
 } from "@src/skills/loader";
 import type { SkillEntry } from "@src/tools/sandbox";
 import type { TemplateVariableResolver } from "@src/variables";
-import { enrichSchema } from "@src/web/dynamicProviders";
 import { FlowProducer } from "bunqueue/client";
 import { eq } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
@@ -40,6 +40,7 @@ import {
   type LifecycleState,
   type LoadedEntry,
 } from "./lifecycle";
+import { serializeStepTypes } from "./stepTypeSerialization";
 
 const logger = createLogger("ExtensionRegistry");
 
@@ -467,6 +468,28 @@ export class ExtensionRegistry {
   }
 
   /**
+   * Return read-only serialized metadata for every custom workflow step type
+   * registered by active extensions.
+   *
+   * This is the in-process counterpart to the `ui.stepTypes` data exposed over
+   * HTTP by {@link getLoadedExtensionInfo}; both share {@link serializeStepTypes},
+   * so the shapes cannot drift. Callers receive plain JSON-Schema/metadata
+   * objects (config + output schemas as JSON Schema), never the live handler,
+   * so the result is safe to hand to extensions without leaking `execute` or
+   * allowing mutation of registry internals.
+   *
+   * Note: this covers only extension-registered "action" step types. The
+   * engine's built-in control-flow/agent types (`agent`, `if`, `case`,
+   * `iterator`, `aggregator`, `waitFor`, `emit`) are not registered through the
+   * step-type registry and are therefore not included here.
+   *
+   * @returns Serialized {@link StepTypeInfo} for all registered step types
+   */
+  listStepTypes(): StepTypeInfo[] {
+    return serializeStepTypes(this.getRegisteredStepTypes());
+  }
+
+  /**
    * Check whether an extension is enabled by querying the
    * `extension_settings` table. Extensions with no row are
    * treated as disabled. Core extensions (manifest.core === true)
@@ -522,21 +545,7 @@ export class ExtensionRegistry {
         error: l.error ?? null,
         ui: (() => {
           const manifestUi = l.extension.manifest.ui ?? null;
-          const registeredStepTypes = l.stepTypes.map((st) => ({
-            type: st.type,
-            label: st.handler.label,
-            icon: st.handler.icon,
-            extensionName: st.extensionName,
-            terminal: st.handler.terminal ?? false,
-            category: st.handler.category,
-            configSchema: st.handler.schema ? enrichSchema(JSON.parse(JSON.stringify(st.handler.schema))) : undefined,
-            // Serialize the handler's output schema to JSON Schema, kept distinct from
-            // configSchema. Dynamic-item enrichment is a config-input concern and is
-            // deliberately not applied here (output schemas describe produced data).
-            outputSchema: st.handler.outputSchema
-              ? (JSON.parse(JSON.stringify(st.handler.outputSchema)) as Record<string, unknown>)
-              : undefined,
-          }));
+          const registeredStepTypes = serializeStepTypes(l.stepTypes);
           if (!manifestUi && registeredStepTypes.length === 0) return null;
           return {
             navigation: manifestUi?.navigation ?? [],
@@ -839,6 +848,7 @@ export class ExtensionRegistry {
         rescanSkillsFn: () => this.discoverAndLoadSkills(),
         getSkillNamesFn: () => this.getSkillNames(),
         getStepHandlerFn: (type) => this.getRegisteredStepTypes().find((st) => st.type === type)?.handler,
+        listStepTypesFn: () => this.listStepTypes(),
         settingsSchema: ext.manifest.settingsSchema as Record<string, unknown> | undefined,
       }),
       broadcastFn: deps.broadcastFn,
