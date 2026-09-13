@@ -7,7 +7,7 @@
 
 import type { RouteRegistry } from "@ext/types";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { WebSocketMessage } from "@shared/types";
+import type { StepTypeInfo, WebSocketMessage } from "@shared/types";
 import { serverOrigin } from "@src/config";
 import type { PushMessageFn } from "@src/push";
 import type { JobInfo, JobProcessor, ManagedQueueOptions, ManagedQueuePort, QueueJob, QueueJobLogs } from "@src/queue";
@@ -164,6 +164,8 @@ export interface ExtContextLifecycle {
   isExtensionEnabledFn: (name: string) => boolean;
   /** Look up a registered step type handler by type name. */
   getStepHandlerFn?: (type: string) => import("../types").StepTypeHandler | undefined;
+  /** List read-only serialized metadata for all registered step types. */
+  listStepTypesFn?: () => import("@shared/extensions").StepTypeInfo[];
 }
 
 /** Full dependency set for creating an extension context. */
@@ -224,6 +226,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     routeRegistry,
     stepTypeNameSet,
     getStepHandlerFn,
+    listStepTypesFn,
   } = deps;
 
   const tools: AgentTool[] = [];
@@ -359,6 +362,25 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
    */
   function getStepHandler(type: string): StepTypeHandler | undefined {
     return getStepHandlerFn?.(type);
+  }
+
+  /**
+   * List read-only serialized metadata for every custom workflow step type
+   * registered by active extensions (including those from other extensions).
+   *
+   * Delegates to the registry-provided function. Returns serialized
+   * {@link StepTypeInfo} objects (config/output schemas as plain JSON Schema),
+   * never the live handler, so callers cannot mutate registry internals or
+   * reach a handler's `execute`. Returns an empty array when the registry
+   * function is not configured.
+   *
+   * Note: this does not include the engine's built-in control-flow/agent step
+   * types, which are not registered through the step-type registry.
+   *
+   * @returns Serialized metadata for all registered step types
+   */
+  function listStepTypes(): StepTypeInfo[] {
+    return listStepTypesFn?.() ?? [];
   }
 
   /**
@@ -675,6 +697,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     stepTypes: {
       register: registerStepType,
       get: getStepHandler,
+      list: listStepTypes,
     },
     dynamicItems: {
       register: registerProviderFn,

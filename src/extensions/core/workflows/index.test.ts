@@ -3,8 +3,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { ExtensionContext } from "@ext/types";
-import { buildStepJobIdMap, validateWorkflowDependencies } from "./index";
+import type { ExtensionContext, StepTypeHandler } from "@ext/types";
+import { Type } from "@sinclair/typebox";
+import { buildStepJobIdMap, getDependencyWarnings, validateWorkflowDependencies } from "./index";
 import type { DagWorkflowDefinition } from "./schemas";
 
 // ---------------------------------------------------------------------------
@@ -197,5 +198,72 @@ describe("buildStepJobIdMap", () => {
       { stepSlug: "fetch", id: "job-new" },
     ]);
     expect(map.get("fetch")).toBe("job-new");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getDependencyWarnings - custom step-type config validation
+// ---------------------------------------------------------------------------
+
+describe("getDependencyWarnings (custom step-type config)", () => {
+  /** A handler whose config schema requires `command` to be a string. */
+  const commandHandler: StepTypeHandler = {
+    schema: Type.Object({ command: Type.String({ minLength: 1 }) }),
+    label: "Sandbox Command",
+    execute: async () => ({ exitCode: 0, stdout: "", stderr: "" }),
+  };
+
+  /** Builds a mock context exposing tools, skills, and a step-type registry. */
+  function mockCtx(handlers: Record<string, StepTypeHandler>): ExtensionContext {
+    return {
+      tools: { names: () => [] },
+      skills: { names: () => [] },
+      stepTypes: { get: (type: string) => handlers[type] },
+    } as unknown as ExtensionContext;
+  }
+
+  test("flags a registered custom step whose config violates the handler schema", () => {
+    // `command` given as an array; the handler requires a string. This is the
+    // exact class of bug that previously only failed at run time because the
+    // generic DAG step schema accepts any config for custom types.
+    const wf: DagWorkflowDefinition = {
+      name: "bad-config",
+      trigger: { type: "manual" },
+      steps: { convert: { type: "sandbox-exec", command: ["a", "b"] } as never },
+      edges: [],
+    };
+
+    const warnings = getDependencyWarnings(wf, mockCtx({ "sandbox-exec": commandHandler }));
+    expect(warnings.length).toBeGreaterThan(0);
+    expect(warnings[0]!.stepSlug).toBe("convert");
+    expect(warnings.some((w) => w.message.includes("sandbox-exec"))).toBe(true);
+    expect(warnings.some((w) => w.message.toLowerCase().includes("command"))).toBe(true);
+  });
+
+  test("passes a registered custom step with valid config", () => {
+    const wf: DagWorkflowDefinition = {
+      name: "good-config",
+      trigger: { type: "manual" },
+      steps: { convert: { type: "sandbox-exec", command: "echo hi" } as never },
+      edges: [],
+    };
+
+    const warnings = getDependencyWarnings(wf, mockCtx({ "sandbox-exec": commandHandler }));
+    expect(warnings).toEqual([]);
+  });
+
+  test("flags an unavailable custom step type without attempting config validation", () => {
+    const wf: DagWorkflowDefinition = {
+      name: "missing-type",
+      trigger: { type: "manual" },
+      steps: { convert: { type: "sandbox-exec", command: ["a"] } as never },
+      edges: [],
+    };
+
+    // No handler registered for the type.
+    const warnings = getDependencyWarnings(wf, mockCtx({}));
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.field).toBe("type");
+    expect(warnings[0]!.message).toContain("not available");
   });
 });

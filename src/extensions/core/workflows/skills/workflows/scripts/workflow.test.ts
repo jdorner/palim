@@ -86,6 +86,21 @@ const INVALID_WORKFLOW = `{
   "edges": []
 }`;
 
+/**
+ * A structurally valid DAG that uses a custom step type ("sandbox-exec") whose
+ * config the server rejects (the mock flags any step slug "bad-custom"). Passes
+ * local schema/DAG checks (custom types match the generic step schema) but must
+ * be blocked by the authoritative server-side validation.
+ */
+const BAD_CUSTOM_CONFIG_WORKFLOW = `{
+  "name": "bad-custom-wf",
+  "trigger": { "type": "manual" },
+  "steps": {
+    "bad-custom": { "type": "sandbox-exec", "command": ["mkdir -p outbox", "echo hi"] }
+  },
+  "edges": []
+}`;
+
 /** A workflow with additional properties not in the schema. */
 const EXTRA_PROPS_WORKFLOW = `{
   "name": "extra-props",
@@ -127,6 +142,53 @@ describe("workflow command", () => {
             return Response.json({ error: "Not found" }, { status: 404 });
           }
           return Response.json({ runId, cancelled: ["job-001", "job-002"], total: 2 });
+        }
+
+        // POST /meta/validate - authoritative server-side validation.
+        // Simulates a custom step-type config error for a step named
+        // "bad-custom" so the CLI's blocking behavior can be exercised.
+        if (reqPath === "/meta/validate" && req.method === "POST") {
+          const def = body as { steps?: Record<string, { type?: string }> };
+          const slugs = Object.keys(def?.steps ?? {});
+          const errors = slugs
+            .filter((slug) => slug === "bad-custom")
+            .map(
+              (slug) => `step "${slug}" (command): Invalid "sandbox-exec" step config: Expected string (at /command)`,
+            );
+          return Response.json({ valid: errors.length === 0, errors });
+        }
+
+        // GET /meta/step-types - custom step type metadata
+        if (reqPath === "/meta/step-types" && req.method === "GET") {
+          return Response.json([
+            {
+              type: "http-request",
+              label: "HTTP Request",
+              extensionName: "core-wf-steps",
+              terminal: false,
+              category: "action",
+              configSchema: {
+                type: "object",
+                properties: {
+                  url: { type: "string", description: "The URL to request" },
+                  method: { type: "string", description: "HTTP method (defaults to POST)" },
+                },
+                required: ["url"],
+              },
+              outputSchema: { type: "object", properties: { status: { type: "number" } } },
+            },
+            {
+              type: "fail",
+              label: "Fail",
+              extensionName: "core-wf-steps",
+              terminal: true,
+              category: "control-flow",
+              configSchema: {
+                type: "object",
+                properties: { message: { type: "string", description: "Error message to fail with" } },
+              },
+            },
+          ]);
         }
 
         // POST /run/:name - trigger
@@ -287,6 +349,61 @@ describe("workflow command", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // step-types
+  // ---------------------------------------------------------------------------
+
+  describe("step-types", () => {
+    test("lists built-in and custom step types with config fields", async () => {
+      const result = await command(["step-types"], makeCtx());
+      expect(result.exitCode).toBe(0);
+      // Built-in control-flow/agent types are always noted.
+      expect(result.stdout).toContain("Built-in step types");
+      expect(result.stdout).toContain("agent");
+      expect(result.stdout).toContain("iterator");
+      // Custom types from the registry, with owning extension.
+      expect(result.stdout).toContain("http-request - HTTP Request (from core-wf-steps)");
+      expect(result.stdout).toContain("url (string, required)");
+      expect(result.stdout).toContain("method (string)");
+      // Per-field descriptions are included so the author knows what each field means.
+      expect(result.stdout).toContain("The URL to request");
+      expect(result.stdout).toContain("HTTP method (defaults to POST)");
+      expect(result.stdout).toContain("produces a result");
+      // Terminal / category flags surface, with the field description.
+      expect(result.stdout).toContain("fail - Fail (from core-wf-steps)");
+      expect(result.stdout).toContain("terminal");
+      expect(result.stdout).toContain("Error message to fail with");
+
+      const req = received.find((r) => r.path === "/meta/step-types");
+      expect(req).toBeDefined();
+      expect(req!.method).toBe("GET");
+    });
+
+    test("shows a message when no custom step types are registered", async () => {
+      // Point at a server that returns an empty array for the endpoint.
+      const emptyServer = Bun.serve({
+        port: 0,
+        fetch: () => Response.json([]),
+      });
+      try {
+        const cmd = buildWorkflowCommand(makeScriptCtx(`http://localhost:${emptyServer.port}`));
+        const result = await cmd(["step-types"], makeCtx());
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout).toContain("Built-in step types");
+        expect(result.stdout).toContain("No custom step types are registered");
+      } finally {
+        emptyServer.stop();
+      }
+    });
+
+    test("reports an error when the endpoint fails", async () => {
+      const deadCommand = buildWorkflowCommand(makeScriptCtx("http://localhost:1"));
+      const result = await deadCommand(["step-types"], makeCtx());
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Error:");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // read
   // ---------------------------------------------------------------------------
 
@@ -362,6 +479,23 @@ describe("workflow command", () => {
       const exists = await ctx.fs.exists(markerPath);
       expect(exists).toBe(true);
     });
+
+    test("blocks write on invalid custom step-type config (server-side) and does not write the file", async () => {
+      const ctx = makeCtx();
+      const result = await command(["write", "bad-custom-wf", BAD_CUSTOM_CONFIG_WORKFLOW], ctx);
+
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Validation failed");
+      expect(result.stderr).toContain("sandbox-exec");
+      expect(result.stderr).toContain("command");
+
+      // The invalid workflow must NOT have been persisted.
+      const filePath = ctx.fs.resolvePath(WORKFLOWS_DIR, "bad-custom-wf.json5");
+      expect(await ctx.fs.exists(filePath)).toBe(false);
+
+      // The CLI called the authoritative validation endpoint.
+      expect(received.some((r) => r.path === "/meta/validate" && r.method === "POST")).toBe(true);
+    });
   });
 
   // ---------------------------------------------------------------------------
@@ -414,6 +548,15 @@ describe("workflow command", () => {
       const result = await command(["validate", "nonexistent"], makeCtx());
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('Workflow "nonexistent" not found');
+    });
+
+    test("reports invalid custom step-type config via server-side validation", async () => {
+      const ctx = await makeCtxWithFiles({ "bad-custom-wf.json5": BAD_CUSTOM_CONFIG_WORKFLOW });
+
+      const result = await command(["validate", "bad-custom-wf"], ctx);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain("Validation failed");
+      expect(result.stderr).toContain("command");
     });
   });
 

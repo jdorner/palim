@@ -62,6 +62,11 @@ export function buildWorkflowCommand(scriptCtx: SkillScriptContext) {
         handler: buildListHandler(),
       },
       {
+        name: "step-types",
+        description: "List available custom (extension-registered) workflow step types",
+        handler: buildStepTypesHandler(scriptCtx),
+      },
+      {
         name: "read",
         description: "Display the full JSON5 content of a workflow",
         args: [{ name: "name", description: "Workflow name (filename without .json5)" }],
@@ -155,6 +160,31 @@ async function fetchServerWarnings(
     if (!resp.ok) return null;
     const data = (await resp.json()) as { warnings?: ApiTemplateWarning[] };
     return data.warnings ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Runs authoritative server-side validation for a workflow definition, which
+ * includes custom step-type config checks against registered handler schemas
+ * (not available locally in the sandbox). Returns the list of blocking errors,
+ * or `null` if the server is unavailable (in which case the caller should fall
+ * back to local validation only).
+ */
+async function fetchServerValidationErrors(
+  scriptCtx: SkillScriptContext,
+  definition: DagWorkflowDefinition,
+): Promise<string[] | null> {
+  try {
+    const resp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/meta/validate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(definition),
+    });
+    if (!resp.ok) return null;
+    const data = (await resp.json()) as { valid?: boolean; errors?: string[] };
+    return data.errors ?? [];
   } catch {
     return null;
   }
@@ -264,6 +294,19 @@ function buildWriteHandler(scriptCtx: SkillScriptContext) {
       };
     }
 
+    // Authoritative server-side validation (includes custom step-type config
+    // checks against registered handler schemas, which are not available
+    // locally). Block the write on any hard error. If the server is
+    // unavailable, fall back to the local checks already performed above.
+    const serverErrors = await fetchServerValidationErrors(scriptCtx, definition);
+    if (serverErrors && serverErrors.length > 0) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `Validation failed:\n${serverErrors.map((e) => `  ${e}`).join("\n")}`,
+      };
+    }
+
     // Template expression validation (local check, then try server-side for secret validation)
     const localWarnings = await validateDagWorkflowTemplates(definition, { workflowName: definition.name });
 
@@ -333,6 +376,17 @@ function buildValidateHandler(scriptCtx: SkillScriptContext) {
       };
     }
 
+    // Authoritative server-side validation (includes custom step-type config
+    // checks). Report hard errors; fall back to local-only if unavailable.
+    const serverErrors = await fetchServerValidationErrors(scriptCtx, definition);
+    if (serverErrors && serverErrors.length > 0) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `Validation failed:\n${serverErrors.map((e) => `  ${e}`).join("\n")}`,
+      };
+    }
+
     // Template expression validation (try server-side first for secret checks, fallback to local)
     const serverWarnings = await fetchServerWarnings(scriptCtx, definition.name);
     const localWarnings = await validateDagWorkflowTemplates(definition, { workflowName: definition.name });
@@ -392,6 +446,90 @@ interface WorkflowRunLogsResponse {
   runId: string;
   steps: Array<{ slug: string; type: string; status: string; logs: unknown[]; count: number }>;
   error?: string;
+}
+
+/** A single JSON Schema property definition (subset we render). */
+interface SchemaProperty {
+  type?: string;
+  description?: string;
+  title?: string;
+}
+
+/** Response shape for a single entry from GET /ext/workflows/meta/step-types */
+interface StepTypeMetaEntry {
+  type: string;
+  label: string;
+  extensionName: string;
+  terminal?: boolean;
+  category?: string;
+  configSchema?: { properties?: Record<string, SchemaProperty>; required?: string[] };
+  outputSchema?: unknown;
+}
+
+/**
+ * Formats a step type's config schema into per-field description lines, e.g.:
+ *
+ *   - command (string, required): Shell command to execute in the sandbox...
+ *   - skills (array): Skill names to mount...
+ *
+ * Includes each field's `description` (falling back to `title`) so an author
+ * knows what to put in each field without opening the extension source. Returns
+ * an empty array when the schema declares no properties.
+ *
+ * @param configSchema - The serialized JSON Schema for the step's config
+ * @param indent - Leading whitespace applied to each rendered line
+ * @returns One formatted line per config field
+ */
+function formatConfigFields(configSchema: StepTypeMetaEntry["configSchema"], indent: string): string[] {
+  const properties = configSchema?.properties;
+  if (!properties || typeof properties !== "object") return [];
+  const required = new Set(configSchema?.required ?? []);
+  return Object.entries(properties).map(([key, def]) => {
+    const type = def?.type ?? "any";
+    const req = required.has(key) ? ", required" : "";
+    const desc = def?.description ?? def?.title;
+    const descSuffix = desc ? `: ${desc}` : "";
+    return `${indent}- ${key} (${type}${req})${descSuffix}`;
+  });
+}
+
+function buildStepTypesHandler(scriptCtx: SkillScriptContext) {
+  return async (_ctx: CommandContext): Promise<ExecResult> => {
+    let entries: StepTypeMetaEntry[];
+    try {
+      const resp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/meta/step-types`);
+      if (!resp.ok) {
+        return { exitCode: 1, stdout: "", stderr: `Error: HTTP ${resp.status} fetching step types` };
+      }
+      entries = (await resp.json()) as StepTypeMetaEntry[];
+    } catch (err) {
+      return { exitCode: 1, stdout: "", stderr: formatFetchError(err as Error) };
+    }
+
+    const lines: string[] = [
+      "Built-in step types (always available): agent, if, case, iterator, aggregator, waitFor, emit",
+      "",
+    ];
+
+    if (entries.length === 0) {
+      lines.push("No custom step types are registered by extensions.");
+      return { exitCode: 0, stdout: lines.join("\n"), stderr: "" };
+    }
+
+    lines.push("Custom step types (registered by extensions):");
+    for (const entry of entries) {
+      const flags = [entry.terminal ? "terminal" : "", entry.category ?? ""].filter(Boolean).join(", ");
+      const flagSuffix = flags ? ` [${flags}]` : "";
+      lines.push("", `  ${entry.type} - ${entry.label} (from ${entry.extensionName})${flagSuffix}`);
+      const fieldLines = formatConfigFields(entry.configSchema, "      ");
+      if (fieldLines.length > 0) {
+        lines.push("    config fields:", ...fieldLines);
+      }
+      if (entry.outputSchema) lines.push("    produces a result (usable via {{steps.<slug>.result}})");
+    }
+
+    return { exitCode: 0, stdout: lines.join("\n"), stderr: "" };
+  };
 }
 
 function buildTriggerHandler(scriptCtx: SkillScriptContext) {

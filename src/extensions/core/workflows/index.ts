@@ -250,7 +250,7 @@ export function buildOutputSchemas(
  * @param ctx - Extension context for querying available tools, skills, and step handlers
  * @returns Array of per-step warnings (empty if all dependencies are satisfied)
  */
-function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: ExtensionContext): TemplateWarning[] {
+export function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: ExtensionContext): TemplateWarning[] {
   const availableTools = new Set([...ctx.tools.names(), ...SANDBOX_TOOL_NAMES]);
   const availableSkills = new Set(ctx.skills.names());
   const warnings: TemplateWarning[] = [];
@@ -265,6 +265,24 @@ function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: Extension
           field: "type",
           message: `Step type "${stepDef.type}" is not available (extension disabled or not installed)`,
         });
+        continue;
+      }
+      // The step type exists: validate its config against the handler's own
+      // TypeBox schema. Otherwise a malformed custom step (e.g. a field with
+      // the wrong type) passes the generic DagStep schema at write time and
+      // only fails when the step actually runs. Mirror the handler's own
+      // validation contract: strip the keys the handler ignores (`type`,
+      // `slug`, `outputSchema`) and check the remaining config fields.
+      const { type: _type, slug: _slug, outputSchema: _os, ...configFields } = stepDef as Record<string, unknown>;
+      if (!Value.Check(handler.schema, configFields)) {
+        for (const err of Value.Errors(handler.schema, configFields)) {
+          const field = err.path ? err.path.replace(/^\//, "").replace(/\//g, ".") : stepDef.type;
+          warnings.push({
+            stepSlug: slug,
+            field: field || "config",
+            message: `Invalid "${stepDef.type}" step config: ${err.message}${err.path ? ` (at ${err.path})` : ""}`,
+          });
+        }
       }
       continue;
     }
@@ -640,6 +658,61 @@ export function createExtension(): Extension {
 
       ctx.routes.register("GET", "/meta/skills", async () => {
         return Response.json(ctx.skills.names().sort());
+      });
+
+      /**
+       * Returns read-only metadata for every custom (extension-registered)
+       * workflow step type, sorted by type. Backs the `workflow step-types`
+       * command so authors can discover step types contributed by external
+       * extensions without a static, hand-maintained list.
+       *
+       * Note: the engine's built-in control-flow/agent step types are not
+       * included here (they are not registered through the step-type registry).
+       */
+      ctx.routes.register("GET", "/meta/step-types", async () => {
+        const stepTypes = ctx.stepTypes
+          .list()
+          .slice()
+          .sort((a, b) => a.type.localeCompare(b.type));
+        return Response.json(stepTypes);
+      });
+
+      /**
+       * Validates a workflow definition without persisting it. Returns
+       * `{ valid, errors }` where `errors` covers schema, structural (DAG/CF),
+       * and per-step custom-step-type config problems.
+       *
+       * This is the authoritative validation the `workflow write`/`validate`
+       * CLI calls before writing, so an invalid custom step config (e.g. a
+       * `sandbox-exec` `command` given as an array) is rejected at authoring
+       * time rather than surfacing only when the step runs. Custom step config
+       * is checked against the registered handler's own TypeBox schema, which
+       * the CLI does not have access to locally.
+       */
+      ctx.routes.register("POST", "/meta/validate", async (reqCtx) => {
+        const body = reqCtx.body;
+        const errors: string[] = [];
+
+        if (!Value.Check(DagWorkflowDefinitionSchema, body)) {
+          for (const e of Value.Errors(DagWorkflowDefinitionSchema, body)) {
+            errors.push(`${e.path || "(root)"}: ${e.message}`);
+          }
+          return Response.json({ valid: false, errors });
+        }
+
+        const def = body as DagWorkflowDefinition;
+        for (const e of [...validateDag(def), ...validateCfEdges(def)]) {
+          errors.push(e.message);
+        }
+
+        // Per-step custom step-type config validation (handler schemas live here,
+        // not in the CLI). getDependencyWarnings emits these as warnings; treat
+        // config/type problems as hard errors for the validate endpoint.
+        for (const w of getDependencyWarnings(def, ctx)) {
+          errors.push(`step "${w.stepSlug}" (${w.field}): ${w.message}`);
+        }
+
+        return Response.json({ valid: errors.length === 0, errors });
       });
 
       /**
