@@ -39,6 +39,7 @@
     "cli": "bun src/sandboxCLI.ts",
     "dev": "bun run --watch src/main.ts",
     "migrate-workflows": "bun src/tools/migrateWorkflows.ts",
+    "publish": "bun scripts/publish.ts",
     "setup": "bun scripts/setup.ts",
     "start": "bun src/main.ts",
     "test": "AGENT=1 bun test src/"
