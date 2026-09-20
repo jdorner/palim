@@ -408,6 +408,20 @@ export function getByWorkflowName(name: string): DagWorkflowRun[] {
 }
 
 /**
+ * Retrieves all DAG runs across every workflow.
+ *
+ * Intended for lightweight bulk status lookups (e.g. enriching workflow
+ * group badges in the job list) so callers do not have to fan out one
+ * request per workflow definition.
+ *
+ * @returns Array of all persisted runs
+ */
+export function getAll(): DagWorkflowRun[] {
+  const rows = db.select().from(workflowRuns).all();
+  return rows.map(rowToRun);
+}
+
+/**
  * Deletes DAG workflow run records by their IDs.
  *
  * @param ids - Array of run IDs to delete

@@ -878,6 +878,16 @@ export function createExtension(): Extension {
         return Response.json({ ok: true, workflowRunId: result.workflowRunId, jobIds: result.jobIds }, { status: 202 });
       });
 
+      // Lightweight bulk run-status lookup. Returns one { runId, status }
+      // entry per persisted run across ALL workflows in a single request, so
+      // the job list can enrich workflow group badges without fanning out one
+      // detail request per workflow definition (which previously tripped the
+      // rate limiter after a few page loads).
+      ctx.routes.register("GET", "/runs", async () => {
+        const runs = dagRunStore.getAll().map((run) => ({ runId: run.id, status: run.status }));
+        return Response.json(runs);
+      });
+
       ctx.routes.register("GET", "/runs/:runId", async (reqCtx) => {
         const runId = (reqCtx.params as Record<string, string>).runId;
         if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
