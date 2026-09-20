@@ -12,6 +12,7 @@ import {
   type DagWorkflowRun,
   edgeId,
   get,
+  getAll,
   getReadySteps,
   initDagRunStore,
   isActiveRunStatus,
@@ -294,6 +295,27 @@ describe("dagRunStore", () => {
 
     test("failed is not active", () => {
       expect(isActiveRunStatus("failed")).toBe(false);
+    });
+  });
+
+  describe("getAll", () => {
+    test("returns an empty array when no runs exist", () => {
+      expect(getAll()).toEqual([]);
+    });
+
+    test("returns runs across multiple workflow names", () => {
+      makeRun({ workflowName: "wf-a", status: "running" });
+      makeRun({ workflowName: "wf-b", status: "completed" });
+      makeRun({ workflowName: "wf-b", status: "failed" });
+
+      const all = getAll();
+      expect(all).toHaveLength(3);
+
+      const names = all.map((r) => r.workflowName).sort();
+      expect(names).toEqual(["wf-a", "wf-b", "wf-b"]);
+
+      const statuses = all.map((r) => r.status).sort();
+      expect(statuses).toEqual(["completed", "failed", "running"]);
     });
   });
 });
