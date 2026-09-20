@@ -1,7 +1,7 @@
 {
   "name": "Palim",
   "short_name": "Palim",
-  "description": "Palim is a self-hosted AI agent platform tah let's you chat with a local LLM, run automated jobs and workflows.",
+  "description": "Palim is a self-hosted AI agent platform that lets you chat with a local LLM, run automated jobs and workflows.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
@@ -10,10 +10,22 @@
   "theme_color": "#f59e0b",
   "icons": [
     {
-      "src": "/favicon.svg",
-      "type": "image/svg+xml",
-      "sizes": "any",
+      "src": "/icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192",
       "purpose": "any"
+    },
+    {
+      "src": "/icon-512.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon-512-maskable.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "maskable"
     }
   ]
 }
