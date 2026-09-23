@@ -1,6 +1,6 @@
 {
   "dependencies": {
-    "@dotenvx/dotenvx": "^2.26.1",
+    "@dotenvx/dotenvx": "^2.29.0",
     "@elysia/cors": "^1.4.2",
     "@elysiajs/static": "^1.4.10",
     "@mariozechner/pi-agent-core": "^0.73.1",
@@ -9,10 +9,10 @@
     "@sinclair/typebox": "^0.34.52",
     "bunqueue": "^2.9.5",
     "chokidar": "^5.0.0",
-    "drizzle-orm": "^0.45.2",
+    "drizzle-orm": "^0.45.3",
     "elysia": "^1.4.30",
     "elysia-rate-limit": "^4.6.3",
-    "file-type": "^22.1.0",
+    "file-type": "^22.1.1",
     "heic-decode": "^2.1.0",
     "just-bash": "3.1.0",
     "logging": "^4.2.0",
@@ -20,7 +20,7 @@
     "node-telegram-bot-api": "^2.1.0",
     "pdf-to-img": "^7.0.0",
     "rezo": "^1.0.139",
-    "subscript": "10.7.3",
+    "subscript": "10.8.0",
     "turndown": "^7.2.4",
     "yaml": "^2.9.1"
   },
@@ -50,7 +50,7 @@
     "@types/heic-decode": "^2.0.0",
     "@types/turndown": "^5.0.6",
     "drizzle-kit": "^0.31.10",
-    "fast-check": "^4.10.1"
+    "fast-check": "^4.10.2"
   },
   "peerDependencies": {
     "typescript": "^7.0.2"
