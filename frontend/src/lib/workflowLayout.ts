@@ -58,13 +58,23 @@ const ADD_NODE_HEIGHT = 32;
  */
 const ADD_NODE_ATTACH_GAP = 32;
 
-/** Layout options for dagre. */
+/**
+ * Layout options for dagre.
+ *
+ * `ranker` selects dagre's rank-assignment algorithm. The default
+ * ("network-simplex") pushes join nodes (targets of multiple edges) to a rank
+ * past their longest feeder, which spreads asymmetric diamonds (e.g. an if/case
+ * whose branches have unequal lengths and re-converge) very wide. "tight-tree"
+ * assigns ranks from a tight spanning tree, pulling convergence nodes closer to
+ * their feeders and producing a more compact, readable layout for these graphs.
+ */
 const LAYOUT_OPTIONS: GraphLabel = {
   rankdir: "LR",
   nodesep: 56,
   ranksep: 96,
   marginx: 24,
   marginy: 24,
+  ranker: "tight-tree",
 };
 
 // ---------------------------------------------------------------------------
@@ -246,21 +256,34 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
     const cfPos = g.node(node.id);
     if (!cfPos) continue;
 
-    // Collect the node IDs that are EXCLUSIVE to each branch (+ its addStep node).
-    // Join nodes (reached by more than one edge, e.g. a follow-up node several
-    // branches converge on) are excluded: they belong to no single branch, so
-    // including them would skew a branch's computed center and, worse, cause the
-    // shared node to be shifted once per branch, fighting itself.
+    // Collect the node IDs that are EXCLUSIVE to each branch, descending through
+    // nested control-flow so a branch moves as a whole subtree (its add-step
+    // included). Join nodes (reached by more than one edge, e.g. a follow-up node
+    // several branches converge on) are excluded: they belong to no single
+    // branch, so including them would skew a branch's computed center and, worse,
+    // cause the shared node to be shifted once per branch, fighting itself.
     const joinNodeIds = nodesWithMultipleIncoming(graph);
     const branchNodeIds: string[][] = branchLabels.map((label) => {
-      const stepIds = branchChainNodeIds(graph, node.id, label).filter((id) => !joinNodeIds.has(id));
+      const stepIds = branchSubtreeNodeIds(graph, node.id, label, joinNodeIds);
       const addStepId = branchAddSteps.find((b) => b.parentNodeId === node.id && b.branch === label)?.nodeId;
       if (addStepId) stepIds.push(addStepId);
       return stepIds;
     });
 
-    // Calculate the vertical center (median Y) of each branch
-    const branchCenters = branchNodeIds.map((ids) => {
+    // Calculate each branch's vertical center from its IMMEDIATE entry node (the
+    // node the labeled edge points at), not the average of the whole subtree. A
+    // deep subtree (nested branches fanning out) would otherwise pull the center
+    // toward its bulk and misorder the outer branches. The entry node is the part
+    // that must line up cleanly against the CF node's branch handle.
+    const branchCenters = branchLabels.map((label) => {
+      const entryEdge = graph.edges.find((e) => e.source === node.id && e.branch === label);
+      const entryId = entryEdge?.target;
+      if (entryId && !joinNodeIds.has(entryId)) {
+        return g.node(entryId)?.y ?? cfPos.y;
+      }
+      // Empty branch or entry is a shared join: fall back to the add-step's y,
+      // else the CF node's own y.
+      const ids = branchNodeIds[branchLabels.indexOf(label)] ?? [];
       if (ids.length === 0) return cfPos.y;
       const ys = ids.map((id) => g.node(id)?.y ?? cfPos.y);
       return ys.reduce((sum, y) => sum + y, 0) / ys.length;
@@ -310,7 +333,71 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
       .map((e) => g.node(e.source)?.y)
       .filter((y): y is number => typeof y === "number");
     if (feederYs.length === 0) continue;
-    joinPos.y = feederYs.reduce((sum, y) => sum + y, 0) / feederYs.length;
+    const centeredY = feederYs.reduce((sum, y) => sum + y, 0) / feederYs.length;
+    joinPos.y = centeredY;
+
+    // Align the join's downstream sequential chain onto the join's row. The join
+    // is recentered on its feeders, but its lone successor (e.g. a "notify" step
+    // after a translate join) is NOT a join, so nothing else pulls it up: dagre
+    // parks it in whatever free row avoids a sibling branch node sharing its rank
+    // (observed hundreds of px below). Because a single-successor chain is a
+    // straight-line continuation of the join, snapping each chain node to the
+    // join's row (rather than shifting by the join's own small delta) removes the
+    // long vertical dogleg on the join -> successor edge. The chain excludes the
+    // join itself (index 0) and stops before any other join.
+    const chain = downstreamSequentialChain(graph, joinId, joinIds);
+    for (let i = 1; i < chain.length; i++) {
+      const pos = g.node(chain[i]!);
+      if (pos) pos.y = centeredY;
+    }
+  }
+
+  // Post-process: horizontally compact join nodes toward their feeders.
+  //
+  // Dagre assigns a join node (target of multiple edges) to a rank one step past
+  // its LONGEST incoming path. When a control-flow node's branches have unequal
+  // lengths and re-converge (e.g. one branch is a bare diamond, the other adds
+  // an extra agent step before rejoining), the join is pushed far to the right,
+  // its whole downstream chain trails after it, and any follow-up node spills
+  // into a separate row. This pass pulls each such join back to one clean
+  // rank-step past its RIGHTMOST feeder, then shifts its downstream sequential
+  // chain by the same delta so relative spacing is preserved. It only ever moves
+  // a join LEFT (never right), so it cannot overlap a feeder or fight dagre's
+  // ordering on already-compact graphs.
+  //
+  // Runs before the add-step re-anchor pass so add-steps follow their shifted
+  // sources; runs after the vertical join-centering pass so x/y are settled.
+  for (const joinId of joinIds) {
+    const joinPos = g.node(joinId);
+    if (!joinPos) continue;
+
+    // Rightmost feeder edge of the join's right edge, in dagre center coords.
+    const feederRightEdges = graph.edges
+      .filter((e) => e.target === joinId)
+      .map((e) => {
+        const srcPos = g.node(e.source);
+        if (!srcPos) return undefined;
+        const srcType = graph.nodes.find((n) => n.id === e.source)?.data.type ?? "agent";
+        return srcPos.x + nodeDimensions(srcType).width / 2;
+      })
+      .filter((x): x is number => typeof x === "number");
+    if (feederRightEdges.length === 0) continue;
+
+    const rightmostFeederEdge = Math.max(...feederRightEdges);
+    const joinWidth = nodeDimensions(graph.nodes.find((n) => n.id === joinId)?.data.type ?? "agent").width;
+    // Desired center: one clean rank separation past the rightmost feeder.
+    const desiredX = rightmostFeederEdge + LAYOUT_OPTIONS.ranksep! + joinWidth / 2;
+    const delta = joinPos.x - desiredX;
+    // Only compact leftward; never push a join further right than dagre placed it.
+    if (delta <= 0) continue;
+
+    // Shift the join and its downstream sequential (non-branch) chain left by
+    // `delta`. Following only unlabeled edges keeps the shift within the main
+    // continuation and stops at the next CF node (which owns its own branches).
+    for (const id of downstreamSequentialChain(graph, joinId, joinIds)) {
+      const pos = g.node(id);
+      if (pos) pos.x -= delta;
+    }
   }
 
   // Post-process: re-anchor every add-step node next to its resolved source
@@ -650,6 +737,42 @@ function nodesWithMultipleIncoming(graph: FlatGraph): Set<string> {
 }
 
 /**
+ * Returns a node and its downstream main-flow chain, following only sequential
+ * (unlabeled) edges. Traversal stops when the current node has anything other
+ * than exactly one non-branch outgoing edge (a CF node, a terminal, or a fan-out)
+ * and stops before entering another join node, which is repositioned on its own
+ * relative to its own feeders. The start node is always included.
+ *
+ * Used by the join post-processing passes to move a join together with the
+ * successor chain it owns, so both the horizontal-compaction and vertical-
+ * centering shifts keep the successor attached to the join instead of stranding
+ * it in a far-off rank or row.
+ *
+ * @param graph - The flat graph.
+ * @param startId - ID of the join (or start) node; always included in the result.
+ * @param joinIds - Set of nodes with multiple incoming edges (traversal boundary).
+ * @returns Ordered node IDs from `startId` down its sequential successor chain.
+ */
+function downstreamSequentialChain(graph: FlatGraph, startId: string, joinIds: Set<string>): string[] {
+  const chain: string[] = [];
+  const seen = new Set<string>();
+  let currentId: string | undefined = startId;
+
+  while (currentId && !seen.has(currentId)) {
+    seen.add(currentId);
+    chain.push(currentId);
+    const outgoing = graph.edges.filter((e) => e.source === currentId && !e.branch);
+    if (outgoing.length !== 1) break;
+    const nextId: string = outgoing[0]!.target;
+    // Stop before another join: it is positioned relative to its own feeders.
+    if (joinIds.has(nextId)) break;
+    currentId = nextId;
+  }
+
+  return chain;
+}
+
+/**
  * Follows the sequential chain starting at `startId` down non-branch edges and
  * returns the tail node's ID. Branch (labeled) edges are not followed, since a
  * CF node encountered along the way owns its own per-branch addStep nodes.
@@ -781,6 +904,53 @@ function branchChainNodeIds(graph: FlatGraph, cfNodeId: string, branch: string):
   }
 
   return ids;
+}
+
+/**
+ * Collects every node in a branch's full SUBTREE, descending through nested
+ * control-flow nodes (following BOTH sequential and branch edges), stopping only
+ * at join nodes (targets of multiple edges) which are shared between branches
+ * and must not be dragged by any single branch.
+ *
+ * This differs from `branchChainNodeIds`, which follows only the linear
+ * sequential chain and stops AT (without descending into) a nested CF node.
+ * Vertical branch separation needs the whole subtree: when an outer branch is
+ * shifted to clear its sibling, the nested CF node's own descendants (e.g. a
+ * `then` that goes to another `if`, whose branches fan out further) must move
+ * with it, or they get stranded on the row dagre first placed them on and the
+ * nested structure collapses visually.
+ *
+ * @param graph - The flat graph.
+ * @param cfNodeId - The control-flow node whose branch subtree is collected.
+ * @param branch - The branch label to descend from.
+ * @param joinNodeIds - Nodes with multiple incoming edges (traversal boundary;
+ *   excluded from the result so shared convergence points are never moved).
+ * @returns De-duplicated node IDs exclusive to this branch's subtree.
+ */
+function branchSubtreeNodeIds(graph: FlatGraph, cfNodeId: string, branch: string, joinNodeIds: Set<string>): string[] {
+  const branchEdge = graph.edges.find((e) => e.source === cfNodeId && e.branch === branch);
+  if (!branchEdge) return [];
+
+  const result: string[] = [];
+  const seen = new Set<string>();
+  const stack: string[] = [branchEdge.target];
+
+  while (stack.length > 0) {
+    const currentId = stack.pop()!;
+    if (seen.has(currentId)) continue;
+    seen.add(currentId);
+    // A join node belongs to no single branch; do not move it and do not
+    // traverse past it (its own successors are positioned by the join passes).
+    if (joinNodeIds.has(currentId)) continue;
+    result.push(currentId);
+    // Descend through ALL outgoing edges (sequential AND branch) so nested
+    // control-flow subtrees move as a unit with their ancestor branch.
+    for (const e of graph.edges) {
+      if (e.source === currentId && !seen.has(e.target)) stack.push(e.target);
+    }
+  }
+
+  return result;
 }
 
 /**
