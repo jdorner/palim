@@ -20,15 +20,30 @@ COPY frontend/ frontend/
 RUN cd frontend && bun run build
 
 # ============================================================
-# Stage 2: Production image
+# Stage 2: Production dependencies
+# ============================================================
+# Installing dependencies is isolated in its own stage so the large "just-bash"
+# tarball is extracted exactly once. Raising the open-file-descriptor limit for
+# the install avoids intermittent "Fail extracting tarball" errors on Alpine,
+# where Bun extracts many files concurrently (just-bash unpacks ~900 files).
+FROM docker.io/oven/bun:1.3-alpine AS deps
+
+WORKDIR /app
+
+COPY package.json bun.lock ./
+RUN ulimit -n 65535 && bun install --frozen-lockfile --production
+
+# ============================================================
+# Stage 3: Production image
 # ============================================================
 FROM docker.io/oven/bun:1.3-alpine
 
 WORKDIR /app
 
-# Copy dependency manifests and install production deps
+# Reuse the already-extracted production dependencies from the deps stage
+# instead of running a second install/extract in the final image.
 COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
+COPY --from=deps /app/node_modules node_modules
 
 # Copy application source
 COPY src/ src/
