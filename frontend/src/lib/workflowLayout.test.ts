@@ -610,3 +610,103 @@ describe("iterator/aggregator layout", () => {
     });
   });
 });
+
+describe("nested control-flow branch separation", () => {
+  /**
+   * Builds an `if` (`outer`) whose `then` branch is itself an `if` (`inner`),
+   * and whose `else` branch is a plain agent. The inner if fans out to two
+   * targets. Mirrors the MOTD workflow shape where a confidence gate (`step-7`)
+   * routes into a language check (`check-language`) on one side and a fallback
+   * agent on the other.
+   *
+   *   outer --then--> inner --then--> up
+   *         \                \--else--> down
+   *          \--else--> alt
+   */
+  function buildNestedIfGraph() {
+    const steps: Record<string, Record<string, unknown>> = {
+      outer: { type: "if", condition: {} },
+      inner: { type: "if", condition: {} },
+      alt: { type: "agent", prompt: "x" },
+      up: { type: "agent", prompt: "x" },
+      down: { type: "agent", prompt: "x" },
+    };
+    const edges: DagEdge[] = [
+      { from: "outer", to: "inner", branch: "then" },
+      { from: "outer", to: "alt", branch: "else" },
+      { from: "inner", to: "up", branch: "then" },
+      { from: "inner", to: "down", branch: "else" },
+    ];
+    return buildDagGraph(toStepArray(steps), edges);
+  }
+
+  const yOf = (layout: ReturnType<typeof computeLayout>, id: string) =>
+    layout.nodes.find((n) => n.id === id)!.position.y;
+
+  test("outer branch entry nodes are vertically separated (do not collapse onto one row)", () => {
+    // Regression: the separation pass moved only the linear branch chain, so a
+    // nested CF node (inner) on the `then` branch and the agent (alt) on the
+    // `else` branch landed on nearly the same row.
+    const layout = computeLayout(buildNestedIfGraph(), {});
+    expect(Math.abs(yOf(layout, "inner") - yOf(layout, "alt"))).toBeGreaterThanOrEqual(56);
+  });
+
+  test("nested subtree straddles its own parent (descendants are not stranded on a shared row)", () => {
+    // The inner if's descendants must move WITH the inner node so they straddle
+    // it: `up` (its then) above, `down` (its else) below. Regression: when only
+    // the linear chain moved, the inner node's descendants stayed on dagre's
+    // original row instead of following the inner node into the outer branch.
+    const layout = computeLayout(buildNestedIfGraph(), {});
+    const innerY = yOf(layout, "inner");
+    expect(yOf(layout, "up")).toBeLessThan(innerY);
+    expect(yOf(layout, "down")).toBeGreaterThan(innerY);
+  });
+
+  test("inner if's own branches are separated from each other", () => {
+    const layout = computeLayout(buildNestedIfGraph(), {});
+    expect(Math.abs(yOf(layout, "up") - yOf(layout, "down"))).toBeGreaterThanOrEqual(56);
+  });
+});
+
+describe("join successor alignment", () => {
+  /**
+   * Two branches of an `if` converge on `join`, which has a single downstream
+   * successor `after`. Mirrors the MOTD `translate-to-german -> notify` tail.
+   *
+   *   gate --then--> left  --> join --> after
+   *        \--else--> right --> join
+   */
+  function buildJoinSuccessorGraph() {
+    const steps: Record<string, Record<string, unknown>> = {
+      gate: { type: "if", condition: {} },
+      left: { type: "agent", prompt: "x" },
+      right: { type: "agent", prompt: "x" },
+      join: { type: "agent", prompt: "merge" },
+      after: { type: "agent", prompt: "x" },
+    };
+    const edges: DagEdge[] = [
+      { from: "gate", to: "left", branch: "then" },
+      { from: "gate", to: "right", branch: "else" },
+      { from: "left", to: "join" },
+      { from: "right", to: "join" },
+      { from: "join", to: "after" },
+    ];
+    return buildDagGraph(toStepArray(steps), edges);
+  }
+
+  test("the join's single successor is aligned on the join's row (no vertical dogleg)", () => {
+    // Regression: the successor of a recentered join was left in whatever row
+    // dagre parked it in (observed hundreds of px below), producing a long
+    // vertical dogleg on the join -> successor edge.
+    const layout = computeLayout(buildJoinSuccessorGraph(), {});
+    const y = (id: string) => layout.nodes.find((n) => n.id === id)!.position.y;
+    // join and after are the same node type, so equal position.y means aligned centers.
+    expect(Math.abs(y("after") - y("join"))).toBeLessThan(1);
+  });
+
+  test("the successor is placed to the right of the join", () => {
+    const layout = computeLayout(buildJoinSuccessorGraph(), {});
+    const x = (id: string) => layout.nodes.find((n) => n.id === id)!.position.x;
+    expect(x("after")).toBeGreaterThan(x("join"));
+  });
+});
