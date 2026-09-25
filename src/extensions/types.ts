@@ -381,14 +381,30 @@ export interface StepTypeHandler {
   inputSchema?: TSchema;
 
   /**
-   * Optional TypeBox schema describing the shape of the result this step
-   * produces. Serialized to JSON Schema by the registry and surfaced through
+   * Optional description of the shape of the result this step produces.
+   * Serialized to JSON Schema by the registry and surfaced through
    * {@link StepTypeInfo.outputSchema} so the editor can complete and validate
    * `{{steps.<slug>.result.<path>}}` references. When omitted, the step type
    * is treated as having no declared output schema, with no runtime effect
    * (the step produces the same runtime result and step status as before).
+   *
+   * Two forms are supported:
+   * - A static TypeBox `TSchema`: the shape is fixed for every step of this type.
+   * - A function `(stepDef) => TSchema | undefined`: the shape is derived from
+   *   the step's own configuration. This lets a step whose result structure
+   *   depends on config (e.g. a classifier whose result keys mirror the
+   *   configured questions) expose an accurate, per-instance schema so the
+   *   editor can complete and validate deep result paths. The function is
+   *   called with the serialized step definition (fields flat, `slug`/`type`
+   *   included) and MUST be pure and defensive: during editing it may receive a
+   *   partial or invalid config, in which case it should return a sensible base
+   *   schema or `undefined` rather than throw. A thrown error is caught and
+   *   treated as `undefined` (no schema). When the registry serializes the step
+   *   TYPE for the palette (no instance config exists yet), the function is
+   *   invoked with an empty object `{}`, so it should return a generic base
+   *   shape for that case.
    */
-  outputSchema?: TSchema;
+  outputSchema?: TSchema | ((stepDef: Record<string, unknown>) => TSchema | undefined);
 
   /**
    * Validate that data produced by the preceding step conforms to semantic
