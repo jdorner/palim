@@ -28,6 +28,7 @@ import type { OutputSchema, OutputSchemas } from "@shared/workflows";
 import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
+import { resolveHandlerOutputSchema } from "@src/extensions/engine/stepTypeSerialization";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { TemplateVariableResolver } from "@src/variables";
 import {
@@ -194,13 +195,18 @@ function serializeHandlerSchema(schema: TSchema): OutputSchema {
  * accumulated into the returned array rather than surfaced as exceptions.
  *
  * @param definition - The DAG workflow definition whose schemas are being built
- * @param getHandlerOutputSchema - Resolver returning a step type's handler-declared
- *   TypeBox `outputSchema`, or `undefined` when no handler (or no schema) exists
+ * @param getHandlerOutputSchema - Resolver returning the handler-declared TypeBox
+ *   schema already resolved for THIS step instance, or `undefined` when no handler
+ *   (or no schema) exists. Receives both the step type and the full step
+ *   definition so the caller can resolve a config-derived (function-form)
+ *   `outputSchema` against the instance's config. Because the resolution happens
+ *   in the injected resolver, {@link buildOutputSchemas} stays agnostic of the
+ *   static-vs-function distinction.
  * @returns The resolved `outputSchemas` payload and any accumulated warnings
  */
 export function buildOutputSchemas(
   definition: DagWorkflowDefinition,
-  getHandlerOutputSchema: (type: string) => TSchema | undefined,
+  getHandlerOutputSchema: (type: string, stepDef: Record<string, unknown>) => TSchema | undefined,
 ): BuildOutputSchemasResult {
   const warnings: TemplateWarning[] = [];
   const steps: Record<string, OutputSchema> = {};
@@ -215,8 +221,12 @@ export function buildOutputSchemas(
         });
         continue;
       }
-      // Precedence 2: handler-declared TypeBox schema, serialized to JSON Schema.
-      const handlerSchema = getHandlerOutputSchema((stepDef as { type: string }).type);
+      // Precedence 2: handler-declared TypeBox schema (static or config-derived),
+      // resolved for this instance and serialized to JSON Schema.
+      const handlerSchema = getHandlerOutputSchema(
+        (stepDef as { type: string }).type,
+        stepDef as Record<string, unknown>,
+      );
       if (handlerSchema) {
         steps[slug] = serializeHandlerSchema(handlerSchema);
       }
@@ -773,9 +783,8 @@ export function createExtension(): Extension {
             // view use the SAME resolution as the detail route (buildOutputSchemas
             // + handler precedence). The list route does not ship outputSchemas to
             // the client, but merges the compiler warnings for parity.
-            const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(
-              w,
-              (type) => ctx.stepTypes.get(type)?.outputSchema,
+            const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(w, (type, stepDef) =>
+              resolveHandlerOutputSchema(ctx.stepTypes.get(type)?.outputSchema, stepDef),
             );
 
             const templateWarnings = await validateDagWorkflowTemplates(w, {
@@ -841,9 +850,8 @@ export function createExtension(): Extension {
         // This must run BEFORE template validation so the same resolved schemas
         // can be injected into the validator: the validator and the detail API
         // then share one resolution and cannot diverge.
-        const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(
-          wf,
-          (type) => ctx.stepTypes.get(type)?.outputSchema,
+        const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(wf, (type, stepDef) =>
+          resolveHandlerOutputSchema(ctx.stepTypes.get(type)?.outputSchema, stepDef),
         );
 
         const templateWarnings = await validateDagWorkflowTemplates(wf, {

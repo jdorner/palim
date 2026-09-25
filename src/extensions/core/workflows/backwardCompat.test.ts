@@ -28,6 +28,7 @@ import type { TSchema } from "@sinclair/typebox";
 import { InMemoryFs } from "just-bash";
 import { createFailHandler } from "../../core-wf-steps/fail";
 import { createHttpRequestHandler } from "../../core-wf-steps/http-request";
+import { resolveHandlerOutputSchema } from "../../engine/stepTypeSerialization";
 import { createNotifyStepHandler } from "../../telegram/notifyStep";
 import { buildOutputSchemas } from "./index";
 import { compileOutputSchema } from "./outputSchemaCompiler";
@@ -353,17 +354,20 @@ describe("backward compatibility: outputSchema is declarative metadata only", ()
 
     test("http-request outputSchema declares exactly status and body", () => {
       const handler = createHttpRequestHandler();
-      expect(new Set(topLevelKeys(handler.outputSchema))).toEqual(new Set(["status", "body"]));
+      const schema = resolveHandlerOutputSchema(handler.outputSchema, {});
+      expect(new Set(topLevelKeys(schema))).toEqual(new Set(["status", "body"]));
     });
 
     test("fail outputSchema declares no properties", () => {
       const handler = createFailHandler();
-      expect(topLevelKeys(handler.outputSchema)).toEqual([]);
+      const schema = resolveHandlerOutputSchema(handler.outputSchema, {});
+      expect(topLevelKeys(schema)).toEqual([]);
     });
 
     test("notify-telegram outputSchema declares exactly sent and chatId", () => {
       const handler = createNotifyStepHandler(async () => "fake-chat-id");
-      expect(new Set(topLevelKeys(handler.outputSchema))).toEqual(new Set(["sent", "chatId"]));
+      const schema = resolveHandlerOutputSchema(handler.outputSchema, {});
+      expect(new Set(topLevelKeys(schema))).toEqual(new Set(["sent", "chatId"]));
     });
   });
 });
