@@ -115,6 +115,14 @@ export interface BranchAddStepInfo {
    * second edge out of the same branch, corrupting the graph.
    */
   lastNodeId: string | null;
+  /**
+   * True when `lastNodeId` is an aggregator that this branch reaches by
+   * threading through a nested iterator/aggregator pair. The add-step and its
+   * dashed edge must anchor to the aggregator itself (not the branch's linear
+   * tail), and a new step appended here connects sequentially after the
+   * aggregator (edge: aggregator -> newStep).
+   */
+  isAggregatorContinuation?: boolean;
 }
 
 /** Result of the layout computation. */
@@ -181,7 +189,10 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
     const branchInfos = discoverBranches(graph, options.terminalTypes);
     for (const info of branchInfos) {
       // Skip if the last node in this branch is terminal (no outgoing edge possible)
-      if (info.lastNodeId) {
+      // The aggregator-continuation case is exempt from the aggregator guards
+      // below: there the aggregator is the branch's genuine continuation tail and
+      // MUST own the add-step (nothing on the top-level flow anchors it).
+      if (info.lastNodeId && !info.isAggregatorContinuation) {
         const lastNode = graph.nodes.find((n) => n.id === info.lastNodeId);
         if (lastNode && options.terminalTypes?.has(lastNode.data.type)) continue;
 
@@ -207,6 +218,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
         parentNodeId: info.parentNodeId,
         branch: info.branch,
         lastNodeId: info.lastNodeId,
+        isAggregatorContinuation: info.isAggregatorContinuation,
       });
       g.setNode(addNodeId, { width: ADD_NODE_WIDTH, height: ADD_NODE_HEIGHT });
 
@@ -426,9 +438,16 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   }
   for (const info of branchAddSteps) {
     // The add-step's real source is the branch tail, or the CF node for an
-    // empty branch (mirrors the edge-building logic below).
-    const branchChain = branchChainNodeIds(graph, info.parentNodeId, info.branch);
-    const sourceId = branchChain[branchChain.length - 1] ?? info.parentNodeId;
+    // empty branch (mirrors the edge-building logic below). For an aggregator
+    // continuation the tail is the aggregator itself (reached by threading
+    // through a nested iterator), which the linear branch chain does not reach.
+    let sourceId: string;
+    if (info.isAggregatorContinuation && info.lastNodeId) {
+      sourceId = info.lastNodeId;
+    } else {
+      const branchChain = branchChainNodeIds(graph, info.parentNodeId, info.branch);
+      sourceId = branchChain[branchChain.length - 1] ?? info.parentNodeId;
+    }
     reanchorAddStep(info.nodeId, sourceId);
   }
 
@@ -550,8 +569,15 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
   for (const info of branchAddSteps) {
     // Resolve the branch's tail node via edges (DAG model). If the branch has
     // no target, the addStep hangs directly off the CF node (empty branch).
-    const branchChain = branchChainNodeIds(graph, info.parentNodeId, info.branch);
-    const lastInBranchId = branchChain[branchChain.length - 1];
+    // For an aggregator continuation the source is the aggregator itself, which
+    // the linear branch chain (stopping at the nested iterator) does not reach.
+    let lastInBranchId: string | undefined;
+    if (info.isAggregatorContinuation && info.lastNodeId) {
+      lastInBranchId = info.lastNodeId;
+    } else {
+      const branchChain = branchChainNodeIds(graph, info.parentNodeId, info.branch);
+      lastInBranchId = branchChain[branchChain.length - 1];
+    }
     const lastInBranch = lastInBranchId ? graph.nodes.find((n) => n.id === lastInBranchId) : undefined;
 
     // Skip edge if the source node is a terminal step type (no outgoing handle)
@@ -695,6 +721,15 @@ interface BranchDiscovery {
   parentNodeId: string;
   branch: string;
   lastNodeId: string | null;
+  /**
+   * True when `lastNodeId` was resolved by threading through an iterator/
+   * aggregator pair nested inside this branch (i.e. the branch's linear tail was
+   * an iterator, so the real continuation point is that iterator's paired
+   * aggregator). In this case the aggregator legitimately owns the branch's
+   * add-step and the aggregator-skip guards in `computeLayout` (which exist to
+   * avoid duplicating the TOP-LEVEL continuation's add-step) must NOT fire.
+   */
+  isAggregatorContinuation?: boolean;
 }
 
 /**
@@ -984,11 +1019,32 @@ function discoverBranches(graph: FlatGraph, terminalTypes?: Set<string>): Branch
     for (const branch of branchLabels) {
       // The branch's immediate target, resolved via the canonical branch key
       const branchEdge = graph.edges.find((e) => e.source === node.id && e.branch === branch);
-      const tailId = branchEdge ? branchTail(graph, branchEdge.target) : null;
-      const tailNode = tailId ? graph.nodes.find((n) => n.id === tailId) : null;
+      let tailId = branchEdge ? branchTail(graph, branchEdge.target) : null;
+      let tailNode = tailId ? graph.nodes.find((n) => n.id === tailId) : null;
 
-      // A CF tail owns its own per-branch addSteps; skip adding one here.
-      if (tailNode && isBranchingType(tailNode.data.type)) continue;
+      // If the branch's linear tail is an iterator, the branch does not actually
+      // end there: the iteration's continuation point is the iterator's paired
+      // aggregator. Thread through the pair (mirroring `mainFlowTail`) so the
+      // add-step attaches after the aggregator. Without this, an iterator/
+      // aggregator nested inside a control-flow branch produces no add-step at
+      // all -- the branch bails at the iterator (a CF tail owns its own
+      // per-branch add-steps), and the aggregator's continuation is only ever
+      // anchored for iterators that sit on the TOP-LEVEL flow.
+      let isAggregatorContinuation = false;
+      if (tailNode && tailNode.data.type === "iterator") {
+        const contId = mainFlowTail(graph, tailId!);
+        const contNode = graph.nodes.find((n) => n.id === contId);
+        if (contNode && contNode.data.type === "aggregator") {
+          tailId = contId;
+          tailNode = contNode;
+          isAggregatorContinuation = true;
+        }
+      }
+
+      // A CF tail owns its own per-branch addSteps; skip adding one here. (An
+      // aggregator continuation is exempt: the aggregator is the branch's real
+      // end point and is not itself a branching CF node.)
+      if (!isAggregatorContinuation && tailNode && isBranchingType(tailNode.data.type)) continue;
       // A terminal tail has no outgoing handle; no addStep possible.
       if (tailNode && terminalTypes?.has(tailNode.data.type)) continue;
 
@@ -1003,6 +1059,7 @@ function discoverBranches(graph: FlatGraph, terminalTypes?: Set<string>): Branch
         parentNodeId: node.id,
         branch,
         lastNodeId: tailId,
+        isAggregatorContinuation,
       });
     }
   }

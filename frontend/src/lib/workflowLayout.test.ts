@@ -710,3 +710,85 @@ describe("join successor alignment", () => {
     expect(x("after")).toBeGreaterThan(x("join"));
   });
 });
+
+describe("iterator/aggregator pair nested inside a control-flow branch", () => {
+  /**
+   * Reproduces the reported bug: an iterator/aggregator pair lives inside an
+   * `if`'s `then` branch rather than on the top-level flow. The aggregator is
+   * the true tail of the `then` branch, so it must own the branch's add-step.
+   * Previously no "+" appeared after the aggregator, because the branch bailed
+   * at the iterator (a CF tail owns its own per-branch add-steps) and the
+   * aggregator's continuation is only anchored for iterators on the TOP-LEVEL
+   * flow (via mainFlowTail), never inside a branch.
+   *
+   *   fetch --> gate --then--> ntfy --> loop --each--> classify --> agg
+   *                  \--else--> stop
+   */
+  function buildNestedIterAggGraph() {
+    const steps: Record<string, Record<string, unknown>> = {
+      fetch: { type: "agent", prompt: "fetch" },
+      gate: { type: "if", condition: {} },
+      stop: { type: "fail" },
+      ntfy: { type: "agent", prompt: "notify" },
+      loop: { type: "iterator", items: "{{steps.fetch.result.messages}}", as: "item" },
+      classify: { type: "agent", prompt: "classify" },
+      agg: { type: "aggregator", iterator: "loop" },
+    };
+    const edges: DagEdge[] = [
+      { from: "fetch", to: "gate" },
+      { from: "gate", to: "stop", branch: "else" },
+      { from: "gate", to: "ntfy", branch: "then" },
+      { from: "ntfy", to: "loop" },
+      { from: "loop", to: "classify", branch: "each" },
+      { from: "classify", to: "agg" },
+    ];
+    return buildDagGraph(toStepArray(steps), edges);
+  }
+
+  test("the aggregator gets an add-step (the previously-missing '+')", () => {
+    const layout = computeLayout(buildNestedIterAggGraph(), {
+      includeAddNode: true,
+      terminalTypes: new Set(["fail"]),
+    });
+    const aggAddStepEdge = layout.edges.find((e) => e.source === "agg" && e.target.startsWith("__addStep"));
+    expect(aggAddStepEdge).not.toBeUndefined();
+  });
+
+  test("exactly one add-step hangs off the aggregator", () => {
+    const layout = computeLayout(buildNestedIterAggGraph(), {
+      includeAddNode: true,
+      terminalTypes: new Set(["fail"]),
+    });
+    const aggAddStepEdges = layout.edges.filter((e) => e.source === "agg" && e.target.startsWith("__addStep"));
+    expect(aggAddStepEdges).toHaveLength(1);
+  });
+
+  test("the aggregator add-step carries the aggregator as its lastNodeId (new step appends after it)", () => {
+    const layout = computeLayout(buildNestedIterAggGraph(), {
+      includeAddNode: true,
+      terminalTypes: new Set(["fail"]),
+    });
+    const aggAddStep = layout.nodes.find(
+      (n) => n.id.startsWith("__addStep:") && (n.data as { lastNodeId?: string }).lastNodeId === "agg",
+    );
+    expect(aggAddStep).not.toBeUndefined();
+  });
+
+  test("no add-step hangs off the iterator body tail (classify feeds the aggregator)", () => {
+    const layout = computeLayout(buildNestedIterAggGraph(), {
+      includeAddNode: true,
+      terminalTypes: new Set(["fail"]),
+    });
+    const addStepSources = layout.edges.filter((e) => e.target.startsWith("__addStep:")).map((e) => e.source);
+    expect(addStepSources).not.toContain("classify");
+  });
+
+  test("the terminal else branch (fail) gets no add-step", () => {
+    const layout = computeLayout(buildNestedIterAggGraph(), {
+      includeAddNode: true,
+      terminalTypes: new Set(["fail"]),
+    });
+    const addStepSources = layout.edges.filter((e) => e.target.startsWith("__addStep:")).map((e) => e.source);
+    expect(addStepSources).not.toContain("stop");
+  });
+});
