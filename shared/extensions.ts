@@ -59,6 +59,7 @@ export const STEP_ICON_NAMES = [
   "ReceiptIcon",
   "RepeatIcon",
   "RobotIcon",
+  "SealQuestionIcon",
   "TableIcon",
   "TerminalWindowIcon",
   "TrayIcon",

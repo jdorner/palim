@@ -17,6 +17,7 @@ import ProhibitIcon from "phosphor-svelte/lib/ProhibitIcon";
 import ReceiptIcon from "phosphor-svelte/lib/ReceiptIcon";
 import RepeatIcon from "phosphor-svelte/lib/RepeatIcon";
 import RobotIcon from "phosphor-svelte/lib/RobotIcon";
+import SealQuestionIcon from "phosphor-svelte/lib/SealQuestionIcon";
 import StackIcon from "phosphor-svelte/lib/StackIcon";
 import TableIcon from "phosphor-svelte/lib/TableIcon";
 import TerminalWindowIcon from "phosphor-svelte/lib/TerminalWindowIcon";
@@ -56,6 +57,7 @@ export const iconRegistry: Record<StepIconName, Component> & Record<string, Comp
   ReceiptIcon,
   RepeatIcon,
   RobotIcon,
+  SealQuestionIcon,
   StackIcon,
   TableIcon,
   TerminalWindowIcon,
