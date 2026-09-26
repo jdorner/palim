@@ -14,6 +14,9 @@ import {
   OverlayFs,
   ReadWriteFs,
 } from "just-bash";
+import type { SkillEntry } from "./skillEntry";
+
+export type { SkillEntry } from "./skillEntry";
 
 const SANDBOX_HOME_DIR = "/home/user" as const;
 const SANDBOX_SKILLS_DIR = "/skills" as const;
@@ -22,20 +25,6 @@ const SANDBOX_SKILLS_DIR = "/skills" as const;
 interface ProgramEntry {
   name: string;
   callback: (args: string[], ctx: CommandContext) => Promise<ExecResult>;
-}
-
-/** A discovered skill entry with its physical location and metadata. */
-export interface SkillEntry {
-  /** Skill name from frontmatter. */
-  name: string;
-  /** Absolute path to the skill directory (parent of SKILL.md). */
-  directory: string;
-  /** Parsed YAML frontmatter from SKILL.md. */
-  frontmatter: { name: string; description: string; [key: string]: unknown };
-  /** Name of the extension that owns this skill. */
-  extensionName: string;
-  /** Program names registered by this skill's scripts. */
-  programNames: string[];
 }
 
 /** Module-level registry of programs keyed by skill name. */

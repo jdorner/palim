@@ -6,27 +6,33 @@
  */
 
 import type { AgentEvent, AgentMessage, AgentTool, ThinkingLevel } from "@mariozechner/pi-agent-core";
-import type { StepTypeInfo as SerializedStepTypeInfo, StepIconName, WebSocketMessage } from "@shared/types";
 import { type Static, type TObject, type TSchema, Type } from "@sinclair/typebox";
-import type { ModelIntent } from "@src/models";
-import type { PushMessageOptions, PushMessageResult } from "@src/push";
-import type {
-  JobInfo,
-  JobProcessor,
-  ManagedQueueOptions,
-  ManagedQueuePort,
-  QueueJob,
-  QueueJobLogs,
-  SchedulerInfo,
-} from "@src/queue";
-import type { SetSecretOptions } from "@src/secrets";
-import type { SessionStorePort } from "@src/session";
-import type { SkillEntry } from "@src/tools/sandbox";
 import type { FlowProducer } from "bunqueue/client";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import type { Context } from "elysia";
 import type { IFileSystem } from "just-bash";
 import type { Logger } from "logging";
+// Core/shared public types are re-exported through ./publicTypes using relative
+// paths so this module (aliased @ext/types) stays resolvable by external
+// extensions without any @src/@shared alias. See ./publicTypes for the rationale.
+import type {
+  JobInfo,
+  JobProcessor,
+  ManagedQueueOptions,
+  ManagedQueuePort,
+  ModelIntent,
+  PushMessageOptions,
+  PushMessageResult,
+  QueueJob,
+  QueueJobLogs,
+  SchedulerInfo,
+  StepTypeInfo as SerializedStepTypeInfo,
+  SessionStorePort,
+  SetSecretOptions,
+  SkillEntry,
+  StepIconName,
+  WebSocketMessage,
+} from "./publicTypes";
 
 export type { Logger } from "logging";
 
