@@ -12,6 +12,7 @@ import {
   isObjectSchemaNode,
   type OutputSchema,
   type OutputSchemas,
+  unwrapArrayItems,
   walkSchemaPath,
 } from "../../../shared/workflows";
 import { getEnumOptions, isEnum } from "./schemaForm";
@@ -52,6 +53,13 @@ export interface Suggestion {
 export interface SlugEdge {
   from: string;
   to: string;
+  /**
+   * Optional branch label carried from the draft edge (e.g. `"each"` on an
+   * iterator's body edge, `"then"`/`"else"` on an `if`). Preserved so scope
+   * computation can identify structural branches - notably the iterator `each`
+   * edge that starts a loop body. Dominator/ancestor computation ignores it.
+   */
+  branch?: string;
 }
 
 /**
@@ -453,6 +461,125 @@ export function computeValidResultRefs(
 }
 
 /**
+ * The iterator binding in scope for a given step: the loop-variable name and the
+ * `items` template expression whose array element the variable ranges over.
+ */
+interface IteratorBinding {
+  /** The loop-variable name (the iterator's `as`, default "item"). */
+  as: string;
+  /** The iterator's `items` field: a template expression resolving to an array. */
+  itemsExpr: string;
+}
+
+/**
+ * Finds the iterator binding in scope for the current step, if any.
+ *
+ * A step is "in scope" of an iterator when it sits on the iterator body: the
+ * subgraph forward-reachable from the iterator's `each` branch edge and
+ * backward-reachable from the paired aggregator (the aggregator whose
+ * `iterator` field names the iterator). This mirrors the backend's
+ * `computeBodySubgraph`/`getIterationPrefixesForStep`, so the editor offers the
+ * loop variable exactly where the runtime binds it. When branch labels are
+ * absent from the edges (older drafts), the `each` edge cannot be identified and
+ * no binding is returned - a conservative miss rather than a wrong offer.
+ *
+ * @param config - The scope configuration (steps, edges, current step index)
+ * @returns The in-scope iterator binding, or `undefined` when the current step is not in any iterator body
+ */
+function findEnclosingIterator(config: ScopeConfig): IteratorBinding | undefined {
+  const currentSlug = config.steps[config.currentStepIndex]?.slug;
+  if (!currentSlug || !config.edges) return undefined;
+
+  // Forward adjacency in slug space.
+  const forward = new Map<string, SlugEdge[]>();
+  for (const step of config.steps) forward.set(step.slug, []);
+  for (const e of config.edges) forward.get(e.from)?.push(e);
+
+  for (const iterStep of config.steps) {
+    if (iterStep.type !== "iterator") continue;
+    const iteratorSlug = iterStep.slug;
+
+    // The paired aggregator names this iterator via its `iterator` field.
+    const aggregator = config.steps.find((s) => s.type === "aggregator" && s.iterator === iteratorSlug);
+    if (!aggregator) continue;
+
+    // Forward BFS from the iterator's `each` target(s), stopping at (not through)
+    // the aggregator. Any visited step is inside this iterator's body.
+    const body = new Set<string>();
+    const queue: string[] = [];
+    for (const e of forward.get(iteratorSlug) ?? []) {
+      if (e.branch === "each") queue.push(e.to);
+    }
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      if (cur === aggregator.slug || body.has(cur)) continue;
+      body.add(cur);
+      for (const e of forward.get(cur) ?? []) queue.push(e.to);
+    }
+
+    if (body.has(currentSlug)) {
+      const itemsExpr = typeof iterStep.items === "string" ? iterStep.items : "";
+      const as = typeof iterStep.as === "string" && iterStep.as.length > 0 ? iterStep.as : "item";
+      return { as, itemsExpr };
+    }
+  }
+
+  return undefined;
+}
+
+/** Matches a single leading `{{ ... }}` template expression and captures its body. */
+const SINGLE_TEMPLATE_EXPR = /^\s*\{\{\s*([^}]+?)\s*\}\}\s*$/;
+
+/**
+ * Resolves the element schema of an iterator's `items` expression.
+ *
+ * The iterator's `items` is a template expression resolving to an array (e.g.
+ * `{{steps.fetch.result.messages}}` or `{{trigger.payload.rows}}`). This resolves
+ * the referenced array's JSON Schema via the workflow `outputSchemas`, then
+ * unwraps it to the array element schema so `{{item.<path>}}` completions can be
+ * derived from the element's `properties`.
+ *
+ * Only plain single-expression `items` are supported (a lone `{{ ... }}` naming a
+ * `steps.<slug>.result[.<path>]` or `trigger.payload[.<path>]`). Anything else -
+ * a function call, a literal, a compound string, an unresolved reference, or a
+ * non-array target - yields `null`, and the caller offers no `item` completions.
+ *
+ * @param config - The scope configuration (carries `outputSchemas`)
+ * @param itemsExpr - The iterator's raw `items` field value
+ * @returns The element JSON Schema, or `null` when it cannot be derived
+ */
+function resolveIteratorItemSchema(config: ScopeConfig, itemsExpr: string): OutputSchema | null {
+  const match = SINGLE_TEMPLATE_EXPR.exec(itemsExpr);
+  if (!match) return null;
+
+  const inner = match[1]!.trim();
+  // Reject function-call syntax and anything that is not a plain dot-path.
+  // Step slugs may contain hyphens (e.g. "fetch-mails"), so hyphens are allowed
+  // within segments alongside identifier characters.
+  if (!/^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(inner)) return null;
+
+  const parts = inner.split(".");
+  let arraySchema: OutputSchema | null = null;
+
+  if (parts[0] === "steps" && parts[2] === "result" && parts.length >= 3) {
+    const slug = parts[1]!;
+    const stepSchema = config.outputSchemas?.steps[slug];
+    if (!stepSchema) return null;
+    const walked = walkSchemaPath(stepSchema, parts.slice(3));
+    arraySchema = walked.resolved && walked.node !== undefined ? walked.node : null;
+  } else if (parts[0] === "trigger" && parts[1] === "payload") {
+    const triggerSchema = config.outputSchemas?.trigger;
+    if (!triggerSchema) return null;
+    const walked = walkSchemaPath(triggerSchema, parts.slice(2));
+    arraySchema = walked.resolved && walked.node !== undefined ? walked.node : null;
+  } else {
+    return null;
+  }
+
+  return unwrapArrayItems(arraySchema);
+}
+
+/**
  * Computes autocomplete suggestions for a given path and typed prefix.
  * Dispatches to the correct sub-function based on path segments.
  *
@@ -475,10 +602,38 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
       if (s.label === "var" && config.variableKeys.length === 0) return false;
       return true;
     });
-    return [...namespaces, ...getFunctionSuggestions(prefix)];
+    // Inside an iterator body, the loop variable (the iterator's `as`, e.g.
+    // "item") and "itemIndex" are also in scope, mirroring the runtime binding.
+    const iterator = findEnclosingIterator(config);
+    const iterationVars: Suggestion[] = iterator
+      ? [
+          // The loop variable is non-terminal only when its element type is a
+          // known object (so there are sub-properties to drill into).
+          {
+            label: iterator.as,
+            terminal: resolveIteratorItemSchema(config, iterator.itemsExpr) === null,
+          },
+          { label: "itemIndex", terminal: true, schemaType: "number" },
+        ].filter((s) => s.label.startsWith(prefix))
+      : [];
+    return [...namespaces, ...iterationVars, ...getFunctionSuggestions(prefix)];
   }
 
   const namespace = path[0];
+
+  // Iterator loop variable: `{{<as>.<path>}}` drills into the array element
+  // schema of the iterator's `items` expression. Checked before the fixed
+  // namespaces so a loop variable named like one of them is not shadowed only
+  // when actually in an iterator body; outside a body this falls through.
+  {
+    const iterator = findEnclosingIterator(config);
+    if (iterator && namespace === iterator.as) {
+      const elementSchema = resolveIteratorItemSchema(config, iterator.itemsExpr);
+      if (!elementSchema) return [];
+      const subPath = path.slice(1); // segments after the loop variable
+      return getOutputSchemaSuggestions(elementSchema, subPath, prefix);
+    }
+  }
 
   if (namespace === "steps") {
     if (path.length === 1) {

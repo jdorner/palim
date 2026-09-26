@@ -124,6 +124,40 @@ export function isObjectSchemaNode(node: OutputSchema): boolean {
 }
 
 /**
+ * Unwraps a JSON Schema array node to its element (item) schema.
+ *
+ * A node counts as an array when its `type` is `"array"` or when it exposes an
+ * `items` schema. The element schema is read from the `items` keyword, which for
+ * a homogeneous array (the shape `Type.Array(X)` serializes to) is a single
+ * schema object. Tuple form (`items` as an array of schemas) has no single
+ * element type and yields `null`, as do leaf/object/malformed nodes.
+ *
+ * This is the array counterpart to {@link isObjectSchemaNode}/{@link walkSchemaPath}'s
+ * object descent: those step into object `properties`, this steps into array
+ * `items`. Kept as a shared, dependency-free helper so the frontend autocomplete
+ * and any backend caller unwrap element types the same way.
+ *
+ * @param node - The schema node to inspect, or `null`/`undefined` when unavailable.
+ * @returns The element schema, or `null` when the node is not a single-element array.
+ */
+export function unwrapArrayItems(node: OutputSchema | null | undefined): OutputSchema | null {
+  if (node === null || node === undefined || typeof node !== "object") {
+    return null;
+  }
+  const items = node.items;
+  const isArrayNode = node.type === "array" || (items !== undefined && items !== null);
+  if (!isArrayNode) {
+    return null;
+  }
+  // Homogeneous array: `items` is a single schema object. Tuple form (an array
+  // of per-position schemas) has no single element type.
+  if (items === null || typeof items !== "object" || Array.isArray(items)) {
+    return null;
+  }
+  return items as OutputSchema;
+}
+
+/**
  * Extracts the `properties` map from a schema node when the node is an object.
  *
  * A node counts as an object per {@link isObjectSchemaNode}. Returns `null` for
