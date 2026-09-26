@@ -70,10 +70,11 @@ export interface StepDraft {
  *
  * Returns an empty array when a referenced id has no matching step, so a
  * partially-edited draft yields no spurious edges rather than a broken reference.
+ * Each edge's optional `branch` label is preserved on the slug edge.
  *
  * @param steps - Draft steps carrying both `id` and `slug`
  * @param edges - Draft edges referencing synthetic step ids
- * @returns Edges expressed in slugs
+ * @returns Edges expressed in slugs, each carrying its `branch` label when present
  */
 export function edgesToSlugEdges(steps: Array<{ id?: string; slug: string }>, edges: EdgeDraft[]): SlugEdge[] {
   const idToSlug = new Map(steps.filter((s) => s.id !== undefined).map((s) => [s.id, s.slug] as const));
@@ -81,7 +82,13 @@ export function edgesToSlugEdges(steps: Array<{ id?: string; slug: string }>, ed
   for (const e of edges) {
     const from = idToSlug.get(e.from);
     const to = idToSlug.get(e.to);
-    if (from !== undefined && to !== undefined) result.push({ from, to });
+    // Preserve the branch label so slug-space consumers (e.g. iterator body
+    // detection in the template scope) can identify structural branches like
+    // the iterator `each` edge. Omit it when absent rather than storing
+    // `undefined`, matching the serialized edge shape.
+    if (from !== undefined && to !== undefined) {
+      result.push(e.branch !== undefined ? { from, to, branch: e.branch } : { from, to });
+    }
   }
   return result;
 }

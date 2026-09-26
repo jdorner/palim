@@ -1305,3 +1305,142 @@ describe("getSuggestions offers functions in value positions", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// Iterator loop-variable suggestions ({{item.<path>}})
+// ---------------------------------------------------------------------------
+
+describe("iterator loop variable", () => {
+  /**
+   * Builds a scope config resembling the laya-test workflow:
+   *   fetch-mails -> iterate-mails --each--> classify-mail -> aggregate
+   * The current step is `classify-mail` (index 2), which sits in the iterator
+   * body. `fetch-mails`'s output schema declares `messages` as an array of
+   * objects with `subject`/`text`, so `item` ranges over that element type.
+   */
+  function buildConfig(overrides?: {
+    as?: string;
+    itemsExpr?: string;
+    currentStepIndex?: number;
+    includeEachBranch?: boolean;
+  }): ScopeConfig {
+    const as = overrides?.as ?? "item";
+    const itemsExpr = overrides?.itemsExpr ?? "{{steps.fetch-mails.result.messages}}";
+    const eachBranch = overrides?.includeEachBranch === false ? undefined : "each";
+    return {
+      steps: [
+        { slug: "fetch-mails", type: "imap-fetch" },
+        { slug: "iterate-mails", type: "iterator", items: itemsExpr, as },
+        { slug: "classify-mail", type: "laya-classify" },
+        { slug: "aggregate", type: "aggregator", iterator: "iterate-mails" },
+      ],
+      currentStepIndex: overrides?.currentStepIndex ?? 2,
+      edges: [
+        { from: "fetch-mails", to: "iterate-mails" },
+        { from: "iterate-mails", to: "classify-mail", branch: eachBranch },
+        { from: "classify-mail", to: "aggregate" },
+      ],
+      secretKeys: [],
+      variableKeys: [],
+      outputSchemas: {
+        trigger: null,
+        steps: {
+          "fetch-mails": {
+            type: "object",
+            properties: {
+              total: { type: "number" },
+              messages: {
+                type: "array",
+                items: {
+                  type: "object",
+                  properties: {
+                    subject: { type: "string", description: "The mail subject line." },
+                    text: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    };
+  }
+
+  test("offers the loop variable and itemIndex at the top level inside the body", () => {
+    const labels = getSuggestions(buildConfig(), [], "").map((s) => s.label);
+    expect(labels).toContain("item");
+    expect(labels).toContain("itemIndex");
+  });
+
+  test("the loop variable is non-terminal when its element type is an object", () => {
+    const item = getSuggestions(buildConfig(), [], "").find((s) => s.label === "item");
+    expect(item).not.toBeUndefined();
+    expect(item?.terminal).toBe(false);
+  });
+
+  test("drills into the element schema properties for {{item.<...>}}", () => {
+    const labels = getSuggestions(buildConfig(), ["item"], "").map((s) => s.label);
+    expect(labels).toEqual(["subject", "text"]);
+  });
+
+  test("carries element property metadata (description, schemaType)", () => {
+    const subject = getSuggestions(buildConfig(), ["item"], "").find((s) => s.label === "subject");
+    expect(subject?.schemaType).toBe("string");
+    expect(subject?.description).toBe("The mail subject line.");
+    expect(subject?.terminal).toBe(true);
+  });
+
+  test("filters element properties by prefix", () => {
+    const labels = getSuggestions(buildConfig(), ["item"], "sub").map((s) => s.label);
+    expect(labels).toEqual(["subject"]);
+  });
+
+  test("honors a custom `as` name", () => {
+    const config = buildConfig({ as: "mail" });
+    expect(getSuggestions(config, [], "").map((s) => s.label)).toContain("mail");
+    expect(getSuggestions(config, ["mail"], "").map((s) => s.label)).toEqual(["subject", "text"]);
+  });
+
+  test("offers nothing for the loop variable outside any iterator body", () => {
+    // Current step is `fetch-mails` (index 0), which precedes the iterator.
+    const config = buildConfig({ currentStepIndex: 0 });
+    expect(getSuggestions(config, [], "").map((s) => s.label)).not.toContain("item");
+    expect(getSuggestions(config, ["item"], "")).toEqual([]);
+  });
+
+  test("does not offer the loop variable when the `each` branch label is missing", () => {
+    // Without the branch label the body edge cannot be identified, so the
+    // binding is conservatively not offered.
+    const config = buildConfig({ includeEachBranch: false });
+    expect(getSuggestions(config, [], "").map((s) => s.label)).not.toContain("item");
+    expect(getSuggestions(config, ["item"], "")).toEqual([]);
+  });
+
+  test("offers nothing when the items expression does not resolve to a known array", () => {
+    const config = buildConfig({ itemsExpr: "{{steps.fetch-mails.result.total}}" });
+    // `total` is a number, not an array: no element type, no drill-in.
+    expect(getSuggestions(config, ["item"], "")).toEqual([]);
+    // The loop variable is still offered at top level, but as terminal.
+    const item = getSuggestions(config, [], "").find((s) => s.label === "item");
+    expect(item?.terminal).toBe(true);
+  });
+
+  test("offers nothing for a non-plain items expression (function call)", () => {
+    const config = buildConfig({ itemsExpr: "{{ jsonEscape(steps.fetch-mails.result.messages) }}" });
+    expect(getSuggestions(config, ["item"], "")).toEqual([]);
+  });
+
+  test("resolves an array referenced from the trigger payload", () => {
+    const config = buildConfig({ itemsExpr: "{{trigger.payload.rows}}" });
+    config.outputSchemas = {
+      trigger: {
+        type: "object",
+        properties: {
+          rows: { type: "array", items: { type: "object", properties: { id: { type: "string" } } } },
+        },
+      },
+      steps: {},
+    };
+    expect(getSuggestions(config, ["item"], "").map((s) => s.label)).toEqual(["id"]);
+  });
+});
