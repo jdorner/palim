@@ -1,4 +1,4 @@
-import type { SkillEntry } from "@src/tools/sandbox";
+import type { SkillEntry } from "../tools/skillEntry";
 
 /** Options for building skill context strings. */
 type SkillReadOptions = {

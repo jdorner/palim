@@ -12,22 +12,11 @@ import type { WebSocketMessage } from "@shared/types";
 import { getSessionStore } from "@src/session";
 import { resolveSessionChat } from "@src/web/sessionChatMap";
 import createLogger from "logging";
+import type { PushMessageOptions, PushMessageResult } from "./types";
+
+export type { PushMessageOptions, PushMessageResult } from "./types";
 
 const log = createLogger("PushService");
-
-/** Options for sending a push message. */
-export interface PushMessageOptions {
-  /** MIME type for content rendering. Defaults to "text/markdown". */
-  contentType?: "text/markdown" | "text/plain";
-}
-
-/** Result of a push message operation. */
-export interface PushMessageResult {
-  /** Whether the message was broadcast to an active chat or just stored. */
-  status: "broadcast" | "stored";
-  /** The chatId the message was broadcast to, if any. */
-  chatId?: string;
-}
 
 /** Dependencies injected into the push service. */
 export interface PushServiceDeps {
