@@ -1,8 +1,8 @@
 import EventEmitter from "node:events";
 import type { PathLike } from "node:fs";
 import fs from "node:fs";
-import { mainLogger as log } from "@src/utils/logger";
 import chokidar, { type FSWatcher } from "chokidar";
+import { mainLogger as log } from "./logger";
 
 interface FileWatcherEvents {
   new: [filename: string];

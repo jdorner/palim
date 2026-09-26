@@ -12,14 +12,22 @@
  * ```
  */
 
-export { parseSkillMd } from "@src/skills/frontmatter";
-export { getSkillsForContext } from "@src/skills/skills";
-export type { CreateShellOptions, SkillEntry } from "@src/tools/sandbox";
-export { createShell, registerProgram } from "@src/tools/sandbox";
-export type { ArgDef, CommandDef, OptionDef, SubcommandDef } from "@src/utils/command";
-export { createCommand, formatFetchError, formatHttpError, ParsedArgs } from "@src/utils/command";
-export { FileWatcher } from "@src/utils/fileWatcher";
-export type { JsonValidationFailure, JsonValidationResult, JsonValidationSuccess } from "@src/utils/json";
-export { extractJson, validateJsonInput, validateJsonOutput } from "@src/utils/json";
-export { formatValidationErrors } from "@src/utils/validation";
+// NOTE: imports here use RELATIVE paths into the core tree rather than the
+// `@src/*` alias. `@ext/sdk` maps to this real file, so an external extension
+// type-checking against it must resolve every re-exported module. Relative
+// paths resolve against the real filesystem regardless of the consumer's
+// tsconfig, keeping `@ext/sdk` resolvable with only the `@ext/*` aliases
+// (mirrors the approach in ./publicTypes for `@ext/types`). The modules in
+// this closure are correspondingly kept free of `@src`/`@shared` imports.
+export { parseSkillMd } from "../skills/frontmatter";
+export { getSkillsForContext } from "../skills/skills";
+export type { CreateShellOptions } from "../tools/sandbox";
+export { createShell, registerProgram } from "../tools/sandbox";
+export type { SkillEntry } from "../tools/skillEntry";
+export type { ArgDef, CommandDef, OptionDef, SubcommandDef } from "../utils/command";
+export { createCommand, formatFetchError, formatHttpError, ParsedArgs } from "../utils/command";
+export { FileWatcher } from "../utils/fileWatcher";
+export type { JsonValidationFailure, JsonValidationResult, JsonValidationSuccess } from "../utils/json";
+export { extractJson, validateJsonInput, validateJsonOutput } from "../utils/json";
+export { formatValidationErrors } from "../utils/validation";
 export type { SkillScriptContext } from "./types";

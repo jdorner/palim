@@ -1,8 +1,5 @@
 import { join, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
-import { serverOrigin, WORK_DIR } from "@src/config";
-import { parseSkillMd } from "@src/skills/frontmatter";
-import { createCommand, formatHttpError } from "@src/utils/command";
 import {
   Bash,
   type CommandContext,
@@ -14,6 +11,9 @@ import {
   OverlayFs,
   ReadWriteFs,
 } from "just-bash";
+import { serverOrigin, WORK_DIR } from "../config";
+import { parseSkillMd } from "../skills/frontmatter";
+import { createCommand, formatHttpError } from "../utils/command";
 import type { SkillEntry } from "./skillEntry";
 
 export type { SkillEntry } from "./skillEntry";
