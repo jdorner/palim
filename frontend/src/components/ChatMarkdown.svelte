@@ -25,6 +25,7 @@ import mermaid from "comark/plugins/mermaid";
 import taskList from "comark/plugins/task-list";
 import { githubDark, githubLight } from "rangi/themes";
 import CodeBlock from "./CodeBlock.svelte";
+import ProseLink from "./ProseLink.svelte";
 
 interface Props {
   /** Raw markdown text to render. */
@@ -60,9 +61,12 @@ const plugins: ComarkPlugin[] = [
 // supplies the ones we want (notably without `attributes`).
 const parserOptions = { registerDefaultPlugins: false };
 
-// Wrap Rangi's `<pre>` in CodeBlock (language label, copy button, scroll body)
-// via Comark's `Prose{Tag}` override convention.
-const components = { ProsePre: CodeBlock };
+// Prose overrides via Comark's `Prose{Tag}` convention:
+// - `ProsePre` wraps Rangi's `<pre>` in CodeBlock (language label, copy button,
+//   scroll body).
+// - `ProseA` renders links so they open in a new tab instead of replacing
+//   Palim's own tab.
+const components = { ProsePre: CodeBlock, ProseA: ProseLink };
 
 // Lazy-load the Mermaid renderer so `beautiful-mermaid` is code-split out of the
 // chat page's initial chunk and only loaded when a diagram appears.
