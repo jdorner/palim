@@ -5,7 +5,7 @@
     "": {
       "name": "palim",
       "dependencies": {
-        "@dotenvx/dotenvx": "^2.30.0",
+        "@dotenvx/dotenvx": "^2.31.1",
         "@elysia/cors": "^1.4.2",
         "@elysiajs/static": "^1.4.10",
         "@mariozechner/pi-agent-core": "^0.73.1",
@@ -25,7 +25,7 @@
         "node-telegram-bot-api": "^2.1.0",
         "pdf-to-img": "^7.0.0",
         "rezo": "^1.0.139",
-        "subscript": "10.8.0",
+        "subscript": "10.8.1",
         "turndown": "^7.2.4",
         "yaml": "^2.9.1",
       },
@@ -141,7 +141,7 @@
 
     "@borewit/text-codec": ["@borewit/text-codec@0.2.2", "", {}, "sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ=="],
 
-    "@dotenvx/dotenvx": ["@dotenvx/dotenvx@2.30.0", "", { "dependencies": { "@dotenvx/primitives": "^3.0.3", "@dotenvx/tooling": "^1.0.3", "global-agent": "^3.0.0", "node-forge": "^1.4.0", "undici": "^6.28.1", "yocto-spinner": "^1.2.1" }, "bin": { "dx": "src/cli/dotenvx.js", "dotenvx": "src/cli/dotenvx.js" } }, "sha512-+Rk8UhaD3WIREKJBPmH9HHUvKO+ggb4tJhzAoXiZNBjQv6nAiJmI953MQ6sC7msHjAvhRIFlyZT7Oe6bQPslAA=="],
+    "@dotenvx/dotenvx": ["@dotenvx/dotenvx@2.31.1", "", { "dependencies": { "@dotenvx/primitives": "^3.0.3", "@dotenvx/tooling": "^1.0.3", "global-agent": "^3.0.0", "node-forge": "^1.4.0", "undici": "^6.28.1", "yocto-spinner": "^1.2.1" }, "bin": { "dx": "src/cli/dotenvx.js", "dotenvx": "src/cli/dotenvx.js" } }, "sha512-Sen23BJL57MID4y7ATSHKokTYbJjsTqDWXOjDGBxydRddc2MEknaYMRz90LC7iTO9VXS5HyYBnA5N8oOKdUhug=="],
 
     "@dotenvx/primitives": ["@dotenvx/primitives@3.0.3", "", {}, "sha512-KodBtwW8IgXhDiic04+cMvMKGjGLLew3jJq2JUGmh7c0M7u+twSylCkygkixzDvIvXrugKcCUQLkvDhgK7RN2g=="],
 
@@ -887,7 +887,7 @@
 
     "strtok3": ["strtok3@10.3.5", "", { "dependencies": { "@tokenizer/token": "^0.3.0" } }, "sha512-ki4hZQfh5rX0QDLLkOCj+h+CVNkqmp/CMf8v8kZpkNVK6jGQooMytqzLZYUVYIZcFZ6yDB70EfD8POcFXiF5oA=="],
 
-    "subscript": ["subscript@10.8.0", "", {}, "sha512-VLCcGNU0Kl92imWxN0yUQstorsZFBDnx/hXb7yOGum7mzbcL7c/FsWYTDEr83nG+ZYBm0KdnTl01pW+AcaX1hw=="],
+    "subscript": ["subscript@10.8.1", "", {}, "sha512-aVBJ+SWY8J8ImNk9c1iM4AnK0NSkenyxYp+Msi+NudXCqIcn7Ka83D6agkkYpzq5WDUMk90y5yv1qpneaKP+hA=="],
 
     "tar-fs": ["tar-fs@2.1.4", "", { "dependencies": { "chownr": "^1.1.1", "mkdirp-classic": "^0.5.2", "pump": "^3.0.0", "tar-stream": "^2.1.4" } }, "sha512-mDAjwmZdh7LTT6pNleZ05Yt65HC3E+NiQzl672vQG38jIrehtJk/J3mNwIg+vShQPcLF/LV7CMnDW6vjj6sfYQ=="],
 
