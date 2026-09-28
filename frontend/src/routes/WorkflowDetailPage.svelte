@@ -1,9 +1,10 @@
 <script lang="ts">
 import type { Edge } from "@xyflow/svelte";
-import { Tabs } from "bits-ui";
+import { DropdownMenu, Tabs } from "bits-ui";
 import ArrowCounterClockwiseIcon from "phosphor-svelte/lib/ArrowCounterClockwiseIcon";
 import CaretLeftIcon from "phosphor-svelte/lib/CaretLeftIcon";
 import CaretRightIcon from "phosphor-svelte/lib/CaretRightIcon";
+import DotsThreeVerticalIcon from "phosphor-svelte/lib/DotsThreeVerticalIcon";
 import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import PlayIcon from "phosphor-svelte/lib/PlayIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
@@ -14,6 +15,7 @@ import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
+import { buttonVariants } from "$lib/components/ui/button/button.svelte";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { extensions } from "$lib/extensionStore";
@@ -1328,7 +1330,7 @@ onDestroy(() => {
   <p class="text-sm text-destructive">{error}</p>
 {:else if workflow}
   <div class="flex flex-col h-[calc(100vh-8rem)] overflow-hidden">
-    <div class="flex flex-wrap items-center justify-between gap-2 mb-4 shrink-0">
+    <div class="flex items-center justify-between gap-2 mb-4 shrink-0">
       <div class="flex items-center gap-3 min-w-0">
         <Button
           size="sm"
@@ -1344,7 +1346,7 @@ onDestroy(() => {
           <span class="hidden md:inline text-sm text-muted-foreground truncate">{workflow.description}</span>
         {/if}
       </div>
-      <div class="flex items-center gap-2 flex-wrap">
+      <div class="flex items-center gap-2 shrink-0">
         {#if editMode}
           <Button size="sm" variant="default" onclick={saveWorkflow} disabled={saveDisabled}>
             {#if saving}
@@ -1359,18 +1361,60 @@ onDestroy(() => {
           <Button size="sm" variant="destructive" onclick={() => deleteWorkflow()}>Confirm</Button>
           <Button size="sm" variant="outline" onclick={() => { confirmingDelete = false; }}>Cancel</Button>
         {:else}
-          <Button size="sm" variant="outline" onclick={enterEditMode}>
-            <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-            Edit
-          </Button>
-          <Button size="sm" variant="default" class="text-nowrap" onclick={triggerRun}>
-            <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-            Run Workflow
-          </Button>
-          <Button size="sm" variant="destructive" onclick={() => { confirmingDelete = true; }}>
-            <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-            Delete
-          </Button>
+          <!-- Wide: full inline buttons -->
+          <div class="hidden xl:flex items-center gap-2">
+            <Button size="sm" variant="outline" onclick={enterEditMode}>
+              <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
+              Edit
+            </Button>
+            <Button size="sm" variant="default" class="text-nowrap" onclick={triggerRun}>
+              <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
+              Run Workflow
+            </Button>
+            <Button size="sm" variant="destructive" onclick={() => { confirmingDelete = true; }}>
+              <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
+              Delete
+            </Button>
+          </div>
+
+          <!-- Narrow: primary action stays inline, the rest collapse into a menu -->
+          <div class="flex xl:hidden items-center gap-2">
+            <Button size="sm" variant="default" class="text-nowrap" onclick={triggerRun}>
+              <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
+              Run Workflow
+            </Button>
+            <DropdownMenu.Root>
+              <DropdownMenu.Trigger
+                class={`${buttonVariants({ variant: "outline", size: "sm" })} min-w-0! w-10! p-0! shrink-0`}
+                aria-label="More actions"
+              >
+                <DotsThreeVerticalIcon size={16} aria-hidden="true" />
+              </DropdownMenu.Trigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.Content
+                  align="end"
+                  sideOffset={4}
+                  class="z-9999 min-w-40 rounded-md border border-border bg-background p-1 shadow-lg"
+                >
+                  <DropdownMenu.Item
+                    class="flex items-center gap-2 px-2 py-1.5 text-sm rounded-sm cursor-pointer outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+                    onSelect={enterEditMode}
+                  >
+                    <PencilSimpleIcon size={14} aria-hidden="true" />
+                    Edit
+                  </DropdownMenu.Item>
+                  <DropdownMenu.Separator class="my-1 h-px bg-border" />
+                  <DropdownMenu.Item
+                    class="flex items-center gap-2 px-2 py-1.5 text-sm rounded-sm cursor-pointer outline-none text-destructive data-highlighted:bg-destructive/10"
+                    onSelect={() => { confirmingDelete = true; }}
+                  >
+                    <TrashIcon size={14} aria-hidden="true" />
+                    Delete
+                  </DropdownMenu.Item>
+                </DropdownMenu.Content>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Root>
+          </div>
         {/if}
       </div>
     </div>
