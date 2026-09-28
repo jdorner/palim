@@ -50,7 +50,7 @@ After first start, check Settings > Extensions in the web UI to enable the capab
 
 - **Conversational AI** - Multi-turn sessions with streamed responses and persistent chat history
 - **Local LLM support** - Use any inference engine with an OpenAI-compatible API (llama.cpp, llama-swap, vLLM, etc.)
-- **Extension system** - 12 built-in extensions covering webhooks, scheduling, Telegram, workflows, wiki, MCP bridging, and more
+- **Extension system** - 13 built-in extensions covering webhooks, scheduling, Telegram, workflows, wiki, MCP bridging, ntfy notifications, and more
 - **Sandboxed execution** - The agent's shell runs inside a virtual filesystem where only `AGENT_WORK_DIR` is mounted - file operations are real, but the agent cannot access anything outside that directory
 
 ## Scope
@@ -62,7 +62,7 @@ After first start, check Settings > Extensions in the web UI to enable the capab
 
 ## Extensions
 
-Palim ships with 12 built-in extensions (7 optional, 5 core):
+Palim ships with 13 built-in extensions (8 optional, 5 core):
 
 | Extension | Type | Purpose |
 | --------- | ---- | ------- |
@@ -70,10 +70,11 @@ Palim ships with 12 built-in extensions (7 optional, 5 core):
 | `scheduler` | Core | Cron and interval-based job scheduling with persistence |
 | `webhooks` | Core | Authenticated HTTP endpoints for receiving external service events |
 | `workflows` | Core | DAG job pipelines defined in JSON5 (parallel steps, joins, control flow, `{{...}}` template expressions with function calls) |
-| `core-wf-steps` | Core | Built-in workflow step types (HTTP Request) |
+| `core-wf-steps` | Core | Built-in workflow step types (HTTP request, fail, chunk, start-workflow) |
 | `converter` | Optional | Converts files (PDFs, images) to markdown via vision LLM |
 | `error-analyzer` | Optional | Automatic failure analysis and error reporting for jobs and workflows |
 | `mcp` | Optional | Bridges MCP (Model Context Protocol) servers into the skill system |
+| `ntfy` | Optional | Sends push notifications via ntfy.sh, exposed as a workflow step type |
 | `steering` | Optional | Injects additional system prompt text to steer agent behavior |
 | `telegram` | Optional | Telegram bot integration |
 | `web-fetch` | Optional | Fetch and read webpages (replacement for curl, wget, etc.) |
@@ -105,6 +106,8 @@ For writing your own extensions, see [docs/writing-extensions.md](docs/writing-e
 Palim reads secrets (API keys, tokens) from environment variables. Set them in your `.env` file and you're done.
 
 For runtime secrets used by extensions and workflows, Palim provides a SQLite-backed encrypted vault (AES-256-GCM) with per-row ACL and audit logging. Extensions access secrets via `ctx.secrets.get(key)` / `ctx.secrets.set(key, value)`, and workflows use `{{secret.KEY_NAME}}` template syntax. The vault requires `SECRETS_MASTER_KEY` (or derivation from `.env.keys`) for encryption. For production deployments with encrypted environment files, Palim optionally supports [dotenvx](https://dotenvx.com) - this activates automatically when a `.env.keys` file is present. See [docs/secrets.md](docs/secrets.md) for the full secrets architecture and [docs/api-security-model.md](docs/api-security-model.md) for the API authentication model.
+
+For **non-sensitive** shared configuration, Palim also has a plaintext global variable store (no encryption, no ACL) managed in the web UI. Workflows reference these via `{{var.KEY_NAME}}` template syntax.
 
 ## Current State
 
@@ -174,9 +177,10 @@ src/
 ├── jobs/          # Job queue definitions (agent, chat)
 ├── queue/         # ManagedQueue abstraction over bunqueue
 ├── web/           # Elysia HTTP server, WebSocket, REST routes
-├── extensions/    # Plugin system (12 built-in extensions)
+├── extensions/    # Plugin system (13 built-in extensions)
 │   └── core/      # Non-deactivatable infrastructure extensions
 ├── secrets/       # Encrypted vault, ACL, audit logging
+├── variables/     # Plaintext global variable store (no ACL, no encryption)
 ├── skills/        # Skill loading and YAML frontmatter parsing
 ├── tools/         # Agent tools (file ops, sandbox shell)
 └── utils/         # Shared utilities (logging, validation, commands)

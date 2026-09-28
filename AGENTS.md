@@ -103,20 +103,31 @@ src/
 │       ├── push.ts          # POST /api/push (out-of-band message injection)
 │       ├── secrets.ts       # Extension secret CRUD + audit log
 │       ├── globalSecrets.ts # Global secret CRUD + audit log
+│       ├── globalVariables.ts # Global variable CRUD (plaintext, no ACL)
 │       └── sessions.ts      # GET/DELETE /api/sessions/:id/messages
 ├── extensions/
 │   ├── types.ts             # Public extension API (Extension, ExtensionContext)
-│   ├── registry.ts          # Discovery, validation, dependency resolution, lifecycle
-│   ├── extensionContext.ts  # Scoped context factory per extension
-│   ├── eventBus.ts          # Agent lifecycle event dispatch
-│   ├── dependencyResolver.ts # Topological sort for load order
+│   ├── publicTypes.ts       # Public-facing type definitions for extension authors
 │   ├── internalTypes.ts     # Internal registry types (not for extension authors)
 │   ├── sdk.ts               # Extension SDK re-exports
+│   ├── index.ts             # Barrel re-export (registry + public types)
+│   ├── engine/              # Extension engine internals (not extension code)
+│   │   ├── registry.ts      # Discovery, validation, dependency resolution, lifecycle
+│   │   ├── discovery.ts     # Extension directory discovery (Bun.Glob)
+│   │   ├── lifecycle.ts     # Initialize/shutdown orchestration
+│   │   ├── extensionContext.ts # Scoped context factory per extension
+│   │   ├── eventBus.ts      # Agent lifecycle event dispatch
+│   │   ├── dependencyResolver.ts # Topological sort for load order
+│   │   ├── externalDependencyResolver.ts # Dependency resolution for external/dynamic extensions
+│   │   ├── extensionWatcher.ts # Hot-load/unload watcher for external extensions
+│   │   ├── configResolver.ts # Resolves EXT_<NAME>_<KEY> config from env
+│   │   └── stepTypeSerialization.ts # Serializes custom step types (with dynamic enrichment)
 │   ├── core/                # Core extensions (non-deactivatable infrastructure)
 │   │   ├── filewatcher/     # Directory watchers emitting domain events
 │   │   ├── scheduler/       # Cron/interval-based job scheduling
 │   │   ├── webhooks/        # Authenticated HTTP endpoints for external events
 │   │   └── workflows/       # DAG job pipelines (JSON5: steps map + edges array)
+│   ├── core-wf-steps/       # Core (top-level): built-in workflow step types
 │   └── <name>/index.ts      # Optional extensions (see list below)
 ├── secrets/
 │   ├── vault.ts             # SecretVault: SQLite-backed AES-256-GCM encrypted storage with per-row ACL
@@ -125,10 +136,17 @@ src/
 │   ├── audit.ts             # SQLite-backed secret access audit log
 │   ├── types.ts             # SecretResolution, SecretAclEntry, SecretAuditRecord, SetSecretOptions
 │   └── index.ts             # Re-exports
+├── variables/
+│   ├── store.ts             # VariableStore: SQLite-backed plaintext global variables (no ACL, no encryption)
+│   ├── variablesSchema.ts   # Drizzle schema for global_variables table
+│   ├── types.ts             # GlobalVariableEntry re-export for backend use
+│   └── index.ts             # Re-exports
 ├── skills/
 │   ├── skills.ts            # Skill directory loading and system prompt building
 │   ├── frontmatter.ts       # YAML frontmatter parsing for skill markdown
 │   └── index.ts             # Re-exports
+├── types/
+│   └── subscript-justin.d.ts # Ambient types for the subscript Justin preset
 ├── tools/
 │   ├── file.ts              # read_file, write_file, list_files, create_directory, edit
 │   └── sandbox.ts           # just-bash sandbox setup (virtual FS, built-in programs)
@@ -212,9 +230,10 @@ The `AppBootstrap` class separates construction from lifecycle:
 1. Fetch available LLM models (best-effort)
 2. Initialize session store and database (Drizzle migrations)
 3. Initialize secret store (plain or encrypted, based on `.env.keys` presence)
-4. Create extension registry and discover/load skills
-5. Create core queues (Agents, Chat)
-6. Create Elysia web server
+4. Initialize variable store (plaintext global variables, always available - no master key)
+5. Create extension registry and discover/load skills
+6. Create core queues (Agents, Chat)
+7. Create Elysia web server
 
 **Startup phase (`start()`):**
 
@@ -241,14 +260,15 @@ Job logs are persisted to SQLite (`src/queue/logStore.ts`) so they survive resta
 
 ### Workflows (DAG engine)
 
-Workflows (`src/extensions/core/workflows/`) are directed acyclic graphs: a `steps` map (keyed by slug) plus an `edges` array (`from`, `to`, optional `branch`). The engine dispatches all root steps in parallel, then dispatches each successor once all its incoming edges are resolved (`satisfied` or `dead`, at least one `satisfied` — the join barrier). Control-flow nodes (`if`/`case`) are evaluated inline and mark their branch edges satisfied/dead; dead edges propagate to skip unreachable steps. Any step failure fails the whole run (fail-fast) and cancels in-flight jobs. Per-run edge states, step statuses, and results are persisted in SQLite. The `http-request` and `fail` step types are provided by the `core-wf-steps` extension. Legacy sequential-format files are converted with `bun run migrate-workflows` (`src/tools/migrateWorkflows.ts`).
+Workflows (`src/extensions/core/workflows/`) are directed acyclic graphs: a `steps` map (keyed by slug) plus an `edges` array (`from`, `to`, optional `branch`). The engine dispatches all root steps in parallel, then dispatches each successor once all its incoming edges are resolved (`satisfied` or `dead`, at least one `satisfied` — the join barrier). Control-flow nodes (`if`/`case`) are evaluated inline and mark their branch edges satisfied/dead; dead edges propagate to skip unreachable steps. Any step failure fails the whole run (fail-fast) and cancels in-flight jobs. Per-run edge states, step statuses, and results are persisted in SQLite. The `http-request`, `fail`, `chunk`, and `start-workflow` step types are provided by the `core-wf-steps` extension. Legacy sequential-format files are converted with `bun run migrate-workflows` (`src/tools/migrateWorkflows.ts`).
 
 #### Template Expressions
 
 Workflow string fields, agent prompts, and `if`/`case`/`iterator` expressions support `{{...}}` template expressions resolved by `src/extensions/core/workflows/template.ts`. Beyond plain dot-path lookups (`{{ trigger.payload }}`, `{{ steps.fetch.result.data }}`), expressions support composable function calls (`{{ jsonEscape(stripDataUri(image.dataUrl)) }}`):
 
 - **Built-in function registry** (`templateFunctions.ts`): pure, deterministic helpers - `stripDataUri`, `base64Decode`, `jsonEscape`, `after`, `before`, `trim`, `nowIso`. The valid-name set is derived from the shared, pure metadata table `shared/templateFunctionMeta.ts` (a load-time assertion guards against drift), so the evaluator, the load-time validator, and the frontend autocomplete all agree on which functions exist.
-- **Sandboxed evaluation** (`templateEval.ts`): expressions are evaluated by `subscript` (Justin preset). Guarded namespaces (`secret`, `env`) are resolved (ACL/allowlist) BEFORE evaluation and never placed in the evaluated scope. Unresolvable paths, unknown functions, and parse errors leave the expression literal with a warning.
+- **Namespaces**: beyond `trigger`/`steps`, expressions resolve `{{env.<VAR>}}` (environment variable), `{{secret.<KEY>}}` (encrypted vault secret, ACL-checked, decrypted at access), and `{{var.<KEY>}}` (plaintext global variable from the `VariableStore` - no decryption, no ACL). Missing variables and secrets are left literal with a warning.
+- **Sandboxed evaluation** (`templateEval.ts`): expressions are evaluated by `subscript` (Justin preset). Guarded namespaces (`secret`, `env`) are resolved (ACL/allowlist) BEFORE evaluation and never placed in the evaluated scope; `var` is exposed as a lazy null-prototype proxy backed by the resolver. Unresolvable paths, unknown functions, and parse errors leave the expression literal with a warning.
 - **Load-time validation** (`dagTemplateValidation.ts`): parses function-call syntax and validates argument paths under the same namespace rules, sharing the function-name allowlist so validation cannot diverge from evaluation. Warnings are advisory (surfaced non-blocking on the workflow list/detail API).
 - **Frontend autocomplete** (`frontend/src/lib/autocompleteEngine.ts`, `templateScope.ts`): the `{{...}}` editor offers namespaces and built-in functions (sourced from the shared metadata) in value positions, classifies path vs function-argument cursor context, and closes open call parentheses when completing a value inside a call.
 
@@ -263,7 +283,7 @@ Extensions live in `src/extensions/<name>/index.ts` (or `src/extensions/core/<na
 
 Extensions can register: tools, HTTP routes (auto-prefixed `/ext/<name>/`), job queues, agent event listeners, skills, UI contributions (sidebar navigation entries), custom workflow step types (with optional input validation), and dynamic item providers for settings schema enrichment. Extension config is read from `EXT_<NAME>_<KEY>` env vars.
 
-Current extensions (12): **converter**, **error-analyzer**, **mcp**, **steering**, **telegram**, **web-fetch**, **wiki** | Core: **core-wf-steps**, **filewatcher**, **scheduler**, **webhooks**, **workflows**
+Current extensions (13): **converter**, **error-analyzer**, **mcp**, **ntfy**, **steering**, **telegram**, **web-fetch**, **wiki** | Core: **core-wf-steps**, **filewatcher**, **scheduler**, **webhooks**, **workflows**
 
 #### Dynamic Schema Enrichment
 
@@ -322,6 +342,9 @@ Elysia serves the built frontend as static files and exposes:
 - `PATCH /api/secrets/:key` - Update global secret metadata (consumers, description)
 - `DELETE /api/secrets/:key` - Remove a global secret
 - `GET /api/secrets/audit` - Global secret audit log
+- `GET /api/variables` - List global variables (full plaintext values)
+- `PUT /api/variables` - Upsert global variables with optional descriptions
+- `DELETE /api/variables/:key` - Remove a global variable (workflow-reference check; `confirm=true` to force)
 - `GET /api/models` - List available LLM models
 - `GET /api/models/selected` - Get currently selected model
 - `PUT /api/models/selected` - Change selected model
@@ -352,6 +375,15 @@ Palim has two layers of secret management:
 - Extensions access secrets via `ctx.secrets.get(key)` / `ctx.secrets.set(key, value)`
 - Workflows access secrets via `{{secret.KEY_NAME}}` template syntax
 - Requires `SECRETS_MASTER_KEY` (or derivation from `.env.keys`) for encryption
+
+### Global Variables
+
+Separate from the SecretVault, Palim has a `VariableStore` (`src/variables/`) for **non-sensitive** configuration shared across workflows:
+
+- SQLite-backed (`global_variables` table, Drizzle migration `0009`), stored in **plaintext** - no encryption, no per-row ACL, no audit logging
+- Managed via the web UI and the `GET/PUT/DELETE /api/variables` routes; listings return full unmasked values
+- Referenced in workflow templates via `{{var.KEY_NAME}}` syntax (resolved by the same template engine as `secret`/`env`)
+- Constructed unconditionally during boot (no master key required) and injected into the web server and extension contexts
 
 ## Coding Conventions
 
