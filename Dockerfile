@@ -1,7 +1,7 @@
 # ============================================================
 # Stage 1: Install dependencies and build frontend
 # ============================================================
-FROM docker.io/oven/bun:1.3-alpine AS builder
+FROM docker.io/oven/bun:1.3-debian AS builder
 
 WORKDIR /app
 
@@ -24,9 +24,9 @@ RUN cd frontend && bun run build
 # ============================================================
 # Installing dependencies is isolated in its own stage so the large "just-bash"
 # tarball is extracted exactly once. Raising the open-file-descriptor limit for
-# the install avoids intermittent "Fail extracting tarball" errors on Alpine,
+# the install avoids intermittent "Fail extracting tarball" errors,
 # where Bun extracts many files concurrently (just-bash unpacks ~900 files).
-FROM docker.io/oven/bun:1.3-alpine AS deps
+FROM docker.io/oven/bun:1.3-debian AS deps
 
 WORKDIR /app
 
@@ -36,7 +36,7 @@ RUN ulimit -n 65535 && bun install --frozen-lockfile --production
 # ============================================================
 # Stage 3: Production image
 # ============================================================
-FROM docker.io/oven/bun:1.3-alpine
+FROM docker.io/oven/bun:1.3-debian
 
 WORKDIR /app
 
