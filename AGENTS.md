@@ -260,7 +260,7 @@ Job logs are persisted to SQLite (`src/queue/logStore.ts`) so they survive resta
 
 ### Workflows (DAG engine)
 
-Workflows (`src/extensions/core/workflows/`) are directed acyclic graphs: a `steps` map (keyed by slug) plus an `edges` array (`from`, `to`, optional `branch`). The engine dispatches all root steps in parallel, then dispatches each successor once all its incoming edges are resolved (`satisfied` or `dead`, at least one `satisfied` — the join barrier). Control-flow nodes (`if`/`case`) are evaluated inline and mark their branch edges satisfied/dead; dead edges propagate to skip unreachable steps. Any step failure fails the whole run (fail-fast) and cancels in-flight jobs. Per-run edge states, step statuses, and results are persisted in SQLite. The `http-request`, `fail`, `chunk`, and `start-workflow` step types are provided by the `core-wf-steps` extension. Legacy sequential-format files are converted with `bun run migrate-workflows` (`src/tools/migrateWorkflows.ts`).
+Workflows (`src/extensions/core/workflows/`) are directed acyclic graphs: a `steps` map (keyed by slug) plus an `edges` array (`from`, `to`, optional `branch`). The engine dispatches all root steps in parallel, then dispatches each successor once all its incoming edges are resolved (`satisfied` or `dead`, at least one `satisfied` — the join barrier). Control-flow nodes (`if`/`case`) are evaluated inline and mark their branch edges satisfied/dead; dead edges propagate to skip unreachable steps. Any step failure fails the whole run (fail-fast) and cancels in-flight jobs. Per-run edge states, step statuses, and results are persisted in SQLite. The `http-request`, `fail`, `chunk`, and `start-workflow` step types are provided by the `core-wf-steps` extension.
 
 #### Template Expressions
 
@@ -407,6 +407,5 @@ bun run dev              # Start agent with file watching
 bun run check            # Lint and format (Biome)
 bun run cli              # Launch sandbox CLI (interactive shell)
 bun run test             # Run tests
-bun run migrate-workflows [dir]  # Convert legacy sequential workflows to DAG format
 cd frontend && bun run build  # Build frontend
 ```
