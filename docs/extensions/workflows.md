@@ -95,16 +95,6 @@ Each edge has `from` and `to` (step slugs) and an optional `branch` (only on edg
 
 Definitions are stored as `.json5` files in `workflows/` within the work directory.
 
-### Migrating legacy definitions
-
-Older workflows used a sequential `steps` array with inline `then`/`else`/`paths` branches. Convert them in place with:
-
-```bash
-bun run migrate-workflows [dir]   # defaults to .work/workflows/
-```
-
-The tool skips files already in DAG format and reports a summary of converted, skipped, and errored files.
-
 ## HTTP API
 
 ### GET /ext/workflows
