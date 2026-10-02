@@ -121,9 +121,6 @@ export class ExtensionRegistry {
   /** File watchers for hot-reloading skills when extensions change. One per directory. */
   private skillWatchers: Array<{ handle: FSWatcher; dir: string }> = [];
 
-  /** Route prefixes for unloaded extensions - checked by the web server route guard. */
-  private readonly disabledRoutePrefixes = new Set<string>();
-
   /** Debounce timer for skill map re-scans. */
   private skillWatcherTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -189,15 +186,6 @@ export class ExtensionRegistry {
   /** Returns the shared event bus for wiring events. */
   getEventBus(): EventBus {
     return this.eventBus;
-  }
-
-  /**
-   * Returns the set of disabled route prefixes (for unloaded extensions).
-   * The web server uses this to return 404 for routes belonging to
-   * extensions that have been unloaded at runtime.
-   */
-  getDisabledRoutePrefixes(): ReadonlySet<string> {
-    return this.disabledRoutePrefixes;
   }
 
   /**
@@ -819,7 +807,7 @@ export class ExtensionRegistry {
       toolNameSet: this.toolNameSet,
       routeKeySet: this.routeKeySet,
       stepTypeNameSet: this.stepTypeNameSet,
-      disabledRoutePrefixes: this.disabledRoutePrefixes,
+      routeRegistry: this.initDeps?.routeRegistry,
       eventBus: this.eventBus,
     };
   }

@@ -19,7 +19,7 @@ afterAll(() => {
 async function createTempExtension(
   baseDir: string,
   name: string,
-  opts?: { dependencies?: string[]; withSkill?: boolean },
+  opts?: { dependencies?: string[]; withSkill?: boolean; withRoute?: boolean },
 ): Promise<string> {
   const extDir = join(baseDir, name);
   mkdirSync(extDir, { recursive: true });
@@ -41,7 +41,7 @@ export default {
       description: "A test tool",
       parameters: {},
       execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
-    });
+    });${opts?.withRoute ? '\n    ctx.routes.register("GET", "ping", () => new Response("pong"));' : ""}
   },
   async shutdown() {},
 };
@@ -67,12 +67,19 @@ description: A test skill
 /**
  * Creates a minimal set of RegistryInitDeps fakes for testing.
  */
-function createFakeDeps(): { deps: RegistryInitDeps; broadcasts: WebSocketMessage[] } {
+function createFakeDeps(): { deps: RegistryInitDeps; broadcasts: WebSocketMessage[]; routes: Set<string> } {
   const broadcasts: WebSocketMessage[] = [];
+  // Currently mounted routes as "METHOD path" (mirrors the web server's extension router).
+  const routes = new Set<string>();
 
   const deps: RegistryInitDeps = {
     routeRegistry: {
-      registerRoute: () => {},
+      registerRoute: (method, path) => {
+        routes.add(`${method} ${path}`);
+      },
+      unregisterRoute: (method, path) => {
+        routes.delete(`${method} ${path}`);
+      },
     },
     broadcastFn: (msg: WebSocketMessage) => broadcasts.push(msg),
     onQueueCreated: () => {},
@@ -81,7 +88,7 @@ function createFakeDeps(): { deps: RegistryInitDeps; broadcasts: WebSocketMessag
     sessionStore: {} as any,
   };
 
-  return { deps, broadcasts };
+  return { deps, broadcasts, routes };
 }
 
 /**
@@ -211,6 +218,7 @@ describe("ExtensionRegistry.unloadOne", () => {
   let tempDir: string;
   let registry: ExtensionRegistry;
   let broadcasts: WebSocketMessage[];
+  let routes: Set<string>;
 
   beforeEach(async () => {
     tempDir = join(tmpdir(), `ext-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -229,6 +237,7 @@ describe("ExtensionRegistry.unloadOne", () => {
 
     const fakes = createFakeDeps();
     broadcasts = fakes.broadcasts;
+    routes = fakes.routes;
     await registry.initializeAll(fakes.deps);
   });
 
@@ -282,26 +291,25 @@ describe("ExtensionRegistry.unloadOne", () => {
     expect(registry.resolveSkill("skill-unload-ext-skill")).toBeUndefined();
   });
 
-  test("adds route prefix to disabled set", async () => {
-    const extDir = await createTempExtension(join(tempDir, "external"), "route-ext");
+  test("unregisters the extension's routes", async () => {
+    const extDir = await createTempExtension(join(tempDir, "external"), "route-ext", { withRoute: true });
     await registry.loadOne(join(extDir, "index.ts"));
+    expect(routes.has("GET /ext/route-ext/ping")).toBe(true);
 
     await registry.unloadOne("route-ext");
 
-    const disabled = registry.getDisabledRoutePrefixes();
-    expect(disabled.has("/ext/route-ext")).toBe(true);
+    expect(routes.has("GET /ext/route-ext/ping")).toBe(false);
   });
 
-  test("re-loading after unload clears disabled prefix", async () => {
-    const extDir = await createTempExtension(join(tempDir, "external"), "reload-ext");
+  test("re-loading after unload registers the routes again", async () => {
+    const extDir = await createTempExtension(join(tempDir, "external"), "reload-ext", { withRoute: true });
     await registry.loadOne(join(extDir, "index.ts"));
     await registry.unloadOne("reload-ext");
-
-    expect(registry.getDisabledRoutePrefixes().has("/ext/reload-ext")).toBe(true);
+    expect(routes.has("GET /ext/reload-ext/ping")).toBe(false);
 
     // Re-load
     await registry.loadOne(join(extDir, "index.ts"));
 
-    expect(registry.getDisabledRoutePrefixes().has("/ext/reload-ext")).toBe(false);
+    expect(routes.has("GET /ext/reload-ext/ping")).toBe(true);
   });
 });

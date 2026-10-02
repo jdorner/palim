@@ -226,10 +226,15 @@ export type RouteHandler = (ctx: Context) => Response | Promise<Response>;
 // HTTP server. Hides Elysia internals from the extension system.
 // ---------------------------------------------------------------------------
 
-/** Minimal route registration surface for wiring extension routes into the HTTP server. */
+/**
+ * Minimal route registration surface for wiring extension routes into the HTTP server.
+ * Routes may be registered and unregistered at any time, including after the server listens.
+ */
 export interface RouteRegistry {
   /** Register a single HTTP route handler for an extension. */
   registerRoute(method: HttpMethod, path: string, handler: RouteHandler, options?: RouteOptions): void;
+  /** Remove a previously registered route (no-op if unknown). */
+  unregisterRoute(method: HttpMethod, path: string): void;
 }
 
 /**

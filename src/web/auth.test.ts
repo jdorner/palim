@@ -3,17 +3,17 @@ import { PERMISSIONS, ROLE_ADMIN, ROLE_USER } from "@shared/auth";
 import { AuthService, UserStore } from "@src/auth";
 import { createTestDb, type TestDb } from "@src/auth/testDb";
 import { Elysia } from "elysia";
-import { PublicRouteTable } from "./publicRoutes";
+import { ExtensionRouter } from "./extensionRouter";
 import { authRoutes } from "./routes/auth";
 import { authCheck } from "./server";
 
 /** Builds a minimal Elysia app wiring the real authCheck hook + auth routes. */
 function buildApp(auth: AuthService) {
-  const publicRoutes = new PublicRouteTable();
-  publicRoutes.add("GET", "/ext/demo/public/:id");
+  const extensionRouter = new ExtensionRouter();
+  extensionRouter.add("GET", "/ext/demo/public/:id", () => new Response("ok"), { public: true });
   return (
     new Elysia()
-      .onBeforeHandle((ctx) => authCheck(ctx as never, auth, publicRoutes))
+      .onBeforeHandle((ctx) => authCheck(ctx as never, auth, extensionRouter))
       .use(authRoutes(() => auth))
       // A protected admin-only endpoint (matches the /api/users authorization rule).
       .get("/api/users", ({ status }) => status(200, { ok: true }))

@@ -13,7 +13,7 @@ import type { WebSocketMessage } from "@shared/types";
 import type { ManagedQueuePort } from "@src/queue";
 import createLogger from "logging";
 import type { LoadedExtension } from "../internalTypes";
-import type { Extension } from "../types";
+import type { Extension, RouteRegistry } from "../types";
 import type { EventBus } from "./eventBus";
 import type { ExtensionContextDeps } from "./extensionContext";
 import { createExtensionContext } from "./extensionContext";
@@ -35,8 +35,8 @@ export interface LifecycleState {
   routeKeySet: Set<string>;
   /** Global step type name set — prevents duplicates across extensions. */
   stepTypeNameSet: Set<string>;
-  /** Route prefixes for unloaded extensions — checked by the web server route guard. */
-  disabledRoutePrefixes: Set<string>;
+  /** HTTP route table; routes are removed from it on teardown. */
+  routeRegistry?: RouteRegistry;
   /** The shared event bus instance. */
   eventBus: EventBus;
 }
@@ -58,7 +58,7 @@ export interface ActivationDeps {
 /**
  * Tears down all registrations for a loaded extension entry.
  *
- * Removes tools, step types, and route keys from the global sets,
+ * Removes tools, step types, and route keys from the global sets, unmounts routes,
  * unsubscribes events, and closes queues. Does NOT call `shutdown()`
  * on the extension itself — callers handle that separately.
  *
@@ -74,6 +74,7 @@ export async function cleanupRegistrations(entry: LoadedEntry, state: LifecycleS
   }
   for (const route of entry.routes) {
     state.routeKeySet.delete(`${route.method}:${route.fullPath}`);
+    state.routeRegistry?.unregisterRoute(route.method, route.fullPath);
   }
   state.eventBus.unsubscribeAll(entry.name);
 
@@ -133,9 +134,6 @@ export async function activateExtension(
   entry.state = "active";
   entry.error = null;
 
-  // Remove from disabled route prefixes
-  state.disabledRoutePrefixes.delete(`/ext/${name}`);
-
   // Notify monitor about any queues created
   if (deps.onQueueCreated) {
     for (const mq of loaded.queues) {
@@ -189,7 +187,6 @@ export async function deactivateExtension(
 
   // Clean up all registrations
   await cleanupRegistrations(entry, state);
-  state.disabledRoutePrefixes.add(`/ext/${name}`);
 
   // Clear registrations and transition to suspended
   entry.tools = [];
@@ -232,6 +229,7 @@ async function cleanupPartialRegistrations(
   }
   for (const route of loaded.routes) {
     state.routeKeySet.delete(`${route.method}:${route.fullPath}`);
+    state.routeRegistry?.unregisterRoute(route.method, route.fullPath);
   }
   state.eventBus.unsubscribeAll(name);
   for (const q of loaded.queues) {
