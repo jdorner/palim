@@ -35,8 +35,6 @@ export interface LifecycleState {
   routeKeySet: Set<string>;
   /** Global step type name set — prevents duplicates across extensions. */
   stepTypeNameSet: Set<string>;
-  /** Route prefixes for unloaded extensions — checked by the web server route guard. */
-  disabledRoutePrefixes: Set<string>;
   /** HTTP route table; routes are removed from it on teardown. */
   routeRegistry?: RouteRegistry;
   /** The shared event bus instance. */
@@ -136,9 +134,6 @@ export async function activateExtension(
   entry.state = "active";
   entry.error = null;
 
-  // Remove from disabled route prefixes
-  state.disabledRoutePrefixes.delete(`/ext/${name}`);
-
   // Notify monitor about any queues created
   if (deps.onQueueCreated) {
     for (const mq of loaded.queues) {
@@ -192,7 +187,6 @@ export async function deactivateExtension(
 
   // Clean up all registrations
   await cleanupRegistrations(entry, state);
-  state.disabledRoutePrefixes.add(`/ext/${name}`);
 
   // Clear registrations and transition to suspended
   entry.tools = [];

@@ -107,7 +107,6 @@ export async function createWebServer(deps: WebServerDeps) {
       }),
     )
     .onBeforeHandle((ctx) => authCheck(ctx, authService, extensionRouter))
-    .onBeforeHandle(checkIfExtensionIsUnloaded(getRegistry))
     // --- Route modules ---
     .use(authRoutes(() => authService, revalidateSockets))
     .use(jobRoutes(monitor))
@@ -216,21 +215,4 @@ export function authCheck(
   if (!decision.allowed) {
     return params.status(403, { error: "Forbidden" });
   }
-}
-
-// Route guard for unloaded/disabled extensions
-function checkIfExtensionIsUnloaded(getRegistry: () => ExtensionRegistry | undefined) {
-  return (params: { request: Request; status: any }) => {
-    const url = new URL(params.request.url);
-    if (!url.pathname.startsWith("/ext/")) return;
-
-    const registry = getRegistry();
-    if (!registry) return;
-
-    for (const prefix of registry.getDisabledRoutePrefixes()) {
-      if (url.pathname === prefix || url.pathname.startsWith(`${prefix}/`)) {
-        return params.status(404, { error: "Extension not available" });
-      }
-    }
-  };
 }
