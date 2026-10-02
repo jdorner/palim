@@ -18,6 +18,10 @@ export type SchemaInputType =
   | "password"
   | "multiselect"
   | "tags"
+  | "numberlist"
+  | "keyvalue"
+  | "object"
+  | "objectlist"
   | "unsupported";
 
 /** A single property descriptor from a JSON Schema `properties` object. */
@@ -86,6 +90,10 @@ export function getInputType(prop: SchemaProperty): SchemaInputType {
   if (prop.sensitive === true) return "password";
   if (prop.type === "array" && Array.isArray(prop.availableItems)) return "multiselect";
   if (prop.type === "array" && isSimpleStringArray(prop)) return "tags";
+  if (prop.type === "array" && isNumberArray(prop)) return "numberlist";
+  if (prop.type === "array" && isObjectWithProperties(prop.items)) return "objectlist";
+  if (isObjectWithProperties(prop)) return "object";
+  if (isPrimitive(getRecordValueSchema(prop))) return "keyvalue";
   if (isEnum(prop)) return "enum";
   if (prop.type === "boolean") return "boolean";
   if (prop.type === "number" || prop.type === "integer") return "number";
@@ -108,6 +116,63 @@ function isSimpleStringArray(prop: SchemaProperty): boolean {
   const items = prop.items as SchemaProperty | undefined;
   if (!items) return false;
   return items.type === "string";
+}
+
+/**
+ * Check if an array property has number/integer items.
+ *
+ * @param prop - The property schema object with type "array"
+ * @returns True if items are numbers
+ */
+function isNumberArray(prop: SchemaProperty): boolean {
+  const items = prop.items as SchemaProperty | undefined;
+  if (!items) return false;
+  return items.type === "number" || items.type === "integer";
+}
+
+/**
+ * Check if a schema is an object with a declared `properties` map (a nested form).
+ *
+ * @param prop - The schema to check (may be undefined)
+ * @returns True if the schema is an object with named properties
+ */
+function isObjectWithProperties(prop: unknown): boolean {
+  if (!prop || typeof prop !== "object") return false;
+  const p = prop as SchemaProperty;
+  return p.type === "object" && !!p.properties && typeof p.properties === "object";
+}
+
+/**
+ * Check if a schema describes a primitive (string, number, integer, boolean) value.
+ *
+ * @param prop - The schema to check (may be undefined)
+ * @returns True if the schema is a primitive type
+ */
+function isPrimitive(prop: SchemaProperty | undefined): boolean {
+  if (!prop) return false;
+  return prop.type === "string" || prop.type === "number" || prop.type === "integer" || prop.type === "boolean";
+}
+
+/**
+ * Extract the value schema of a record/map property (`Type.Record(...)`).
+ *
+ * TypeBox serializes records as an object with a single `patternProperties`
+ * entry; plain JSON Schema maps use `additionalProperties`. Objects with named
+ * `properties` are not records.
+ *
+ * @param prop - The property schema object
+ * @returns The value schema, or undefined when the property is not a record
+ */
+export function getRecordValueSchema(prop: SchemaProperty): SchemaProperty | undefined {
+  if (prop.type !== "object" || prop.properties) return undefined;
+  const pattern = prop.patternProperties as Record<string, SchemaProperty> | undefined;
+  if (pattern && typeof pattern === "object") {
+    const values = Object.values(pattern);
+    return values.length === 1 ? values[0] : undefined;
+  }
+  const additional = prop.additionalProperties;
+  if (additional && typeof additional === "object") return additional as SchemaProperty;
+  return undefined;
 }
 
 /**

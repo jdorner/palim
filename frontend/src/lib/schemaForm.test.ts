@@ -1,5 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { buildInitialValues, getAvailableItems, getEmptyValue, getInputType, type SchemaProperty } from "./schemaForm";
+import {
+  buildInitialValues,
+  getAvailableItems,
+  getEmptyValue,
+  getInputType,
+  getRecordValueSchema,
+  type SchemaProperty,
+} from "./schemaForm";
 
 describe("getInputType", () => {
   describe("select (single string with availableItems)", () => {
@@ -44,6 +51,47 @@ describe("getInputType", () => {
       const prop: SchemaProperty = { anyOf: [{ const: "x" }, { const: "y" }] };
       expect(getInputType(prop)).toBe("enum");
     });
+  });
+});
+
+describe("complex field types", () => {
+  test("number array is 'numberlist'", () => {
+    expect(getInputType({ type: "array", items: { type: "number" } })).toBe("numberlist");
+    expect(getInputType({ type: "array", items: { type: "integer" } })).toBe("numberlist");
+  });
+
+  test("TypeBox record of strings (patternProperties) is 'keyvalue'", () => {
+    const prop: SchemaProperty = { type: "object", patternProperties: { "^.*$": { type: "string" } } };
+    expect(getInputType(prop)).toBe("keyvalue");
+    expect(getRecordValueSchema(prop)).toEqual({ type: "string" });
+  });
+
+  test("additionalProperties map of numbers is 'keyvalue'", () => {
+    const prop: SchemaProperty = { type: "object", additionalProperties: { type: "number" } };
+    expect(getInputType(prop)).toBe("keyvalue");
+  });
+
+  test("record with non-primitive values stays 'unsupported'", () => {
+    const prop: SchemaProperty = { type: "object", patternProperties: { "^.*$": { type: "array" } } };
+    expect(getInputType(prop)).toBe("unsupported");
+  });
+
+  test("object with properties is 'object' (not a record)", () => {
+    const prop: SchemaProperty = { type: "object", properties: { a: { type: "string" } } };
+    expect(getInputType(prop)).toBe("object");
+    expect(getRecordValueSchema(prop)).toBeUndefined();
+  });
+
+  test("array of objects with properties is 'objectlist'", () => {
+    const prop: SchemaProperty = {
+      type: "array",
+      items: { type: "object", properties: { a: { type: "string" } } },
+    };
+    expect(getInputType(prop)).toBe("objectlist");
+  });
+
+  test("array of nested arrays stays 'unsupported'", () => {
+    expect(getInputType({ type: "array", items: { type: "array", items: { type: "string" } } })).toBe("unsupported");
   });
 });
 
