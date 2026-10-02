@@ -94,7 +94,9 @@ function updateValue(key: string, value: unknown) {
 }
 </script>
 
-{#snippet infoTip(description: string)}
+{#snippet infoTip(
+  description: string,
+)}
   <Tooltip.Root delayDuration={0}>
     <Tooltip.Trigger
       class="inline-flex items-center pointer-events-auto cursor-help text-muted-foreground/60 hover:text-muted-foreground"
@@ -114,7 +116,11 @@ function updateValue(key: string, value: unknown) {
   </Tooltip.Root>
 {/snippet}
 
-{#snippet fieldLabel(key: string, label: string, description: string | null)}
+{#snippet fieldLabel(
+  key: string,
+  label: string,
+  description: string | null,
+)}
   <span class="inline-flex items-center gap-1">
     <label class="text-xs font-medium text-muted-foreground" for="step-config-{key}">{label}</label>
     {#if description}
@@ -123,7 +129,9 @@ function updateValue(key: string, value: unknown) {
   </span>
 {/snippet}
 
-{#snippet fieldError(key: string)}
+{#snippet fieldError(
+  key: string,
+)}
   {#if fieldErrors?.get(key)}
     <span class="text-xs text-destructive">{fieldErrors.get(key)}</span>
   {/if}
@@ -170,7 +178,7 @@ function updateValue(key: string, value: unknown) {
         <MultiSelect
           id="step-config-{key}"
           items={prop.availableItems as string[]}
-          selected={Array.isArray(formValues[key]) ? formValues[key] as string[] : []}
+          selected={Array.isArray(formValues[key]) ? (formValues[key] as string[]) : []}
           placeholder="Select items..."
           allowCustom={prop.allowCustomItems === true}
           labelFor={itemLabels ? (item) => itemLabels[item] : undefined}
@@ -181,7 +189,7 @@ function updateValue(key: string, value: unknown) {
         <MultiSelect
           id="step-config-{key}"
           items={itemOptions[key]!}
-          selected={Array.isArray(formValues[key]) ? formValues[key] as string[] : []}
+          selected={Array.isArray(formValues[key]) ? (formValues[key] as string[]) : []}
           placeholder="Select items..."
           onchange={(val) => updateValue(key, val)}
         />
@@ -195,7 +203,10 @@ function updateValue(key: string, value: unknown) {
           placeholder="value1, value2, ..."
           oninput={(e) => {
             const raw = e.currentTarget.value;
-            const items = raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+            const items = raw
+              .split(",")
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0);
             updateValue(key, items);
           }}
         >
@@ -208,7 +219,7 @@ function updateValue(key: string, value: unknown) {
           value={formValues[key] as number}
           min={prop.minimum as number | undefined}
           max={prop.maximum as number | undefined}
-          step={prop.multipleOf as number | undefined ?? "any"}
+          step={(prop.multipleOf as number | undefined) ?? "any"}
           oninput={(e) => updateValue(key, Number(e.currentTarget.value))}
         >
       {:else if inputType === "password"}

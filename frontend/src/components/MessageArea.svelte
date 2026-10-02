@@ -283,7 +283,9 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
       <!-- User message -->
       <div class="flex justify-end">
         <div
-          class="rounded-lg px-4 py-2 text-sm bg-primary text-primary-foreground {editingId === msg.id ? 'max-w-full w-full' : 'max-w-[80%]'}"
+          class="rounded-lg px-4 py-2 text-sm bg-primary text-primary-foreground {editingId === msg.id
+            ? "max-w-full w-full"
+            : "max-w-[80%]"}"
         >
           {#if editingId === msg.id}
             <textarea
@@ -412,9 +414,9 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
                   <button
                     type="button"
                     class="inline-flex items-center rounded-md px-3 py-1.5 text-sm font-medium transition-colors
-                      {action.variant === 'destructive'
-                        ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
-                        : 'bg-primary text-primary-foreground hover:bg-primary/90'}"
+                      {action.variant === "destructive"
+                      ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                      : "bg-primary text-primary-foreground hover:bg-primary/90"}"
                     onclick={() => handleActionClick(action.endpoint, action.method, msg.id, si)}
                   >
                     {action.label}
@@ -428,7 +430,10 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
         {/each}
       {/if}
       <!-- Assistant action buttons (hidden for system/action messages and executed actions) -->
-      {#if !streaming && msg.role === "assistant" && !msg.segments?.some((s) => s.type === "actions") && !msg.segments?.some((_, i) => executedActions.has(`${msg.id}-${i}`))}
+      {#if !streaming &&
+        msg.role === "assistant" &&
+        !msg.segments?.some((s) => s.type === "actions") &&
+        !msg.segments?.some((_, i) => executedActions.has(`${msg.id}-${i}`))}
         <div class="flex justify-start pl-1 gap-0.5">
           {#if onRegenerate}
             <button
@@ -489,7 +494,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
               {:else}
                 <CaretRightIcon class="w-3 h-3 shrink-0" aria-hidden="true" />
               {/if}
-              <BrainIcon class="w-3 h-3 shrink-0 {isActiveThinking ? 'animate-pulse' : ''}" aria-hidden="true" />
+              <BrainIcon class="w-3 h-3 shrink-0 {isActiveThinking ? "animate-pulse" : ""}" aria-hidden="true" />
               <span>{isActiveThinking ? "Thinking..." : "Thinking"}</span>
             </button>
             {#if isThinkingExpanded(`stream-${i}`)}
@@ -509,7 +514,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
                 <div
                   title={tc.summary}
                   class="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs font-mono border-muted border cursor-default
-                    {tc.running ? 'text-primary' : 'text-muted-foreground'}"
+                    {tc.running ? "text-primary" : "text-muted-foreground"}"
                 >
                   {#if tc.running}
                     <SpinnerGapIcon class="w-3 h-3 shrink-0 animate-spin" aria-hidden="true" />

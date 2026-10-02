@@ -56,7 +56,7 @@ let ringClass = $derived(
     <StatusIcon
       size={16}
       weight="fill"
-      class="shrink-0 {statusInfo.colorClass} {statusInfo.spin ? 'animate-spin' : ''}"
+      class="shrink-0 {statusInfo.colorClass} {statusInfo.spin ? "animate-spin" : ""}"
       aria-hidden="true"
     />
   {/if}

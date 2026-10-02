@@ -1316,7 +1316,9 @@ onDestroy(() => {
   The icon is resolved by trigger subtype (manual/webhook/schedule/filewatcher)
   via visualForStepType, matching the graph trigger node.
 -->
-{#snippet triggerChip(triggerType: string)}
+{#snippet triggerChip(
+  triggerType: string,
+)}
   {@const v = visualForStepType("trigger", { triggerType })}
   <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-white {v.tileClass}">
     <v.icon size={11} weight="bold" aria-hidden="true" />
@@ -1359,7 +1361,14 @@ onDestroy(() => {
         {:else if confirmingDelete}
           <span class="text-sm font-bold text-destructive">Delete this workflow?</span>
           <Button size="sm" variant="destructive" onclick={() => deleteWorkflow()}>Confirm</Button>
-          <Button size="sm" variant="outline" onclick={() => { confirmingDelete = false; }}>Cancel</Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onclick={() => {
+              confirmingDelete = false;
+            }}
+            >Cancel</Button
+          >
         {:else}
           <!-- Wide: full inline buttons -->
           <div class="hidden xl:flex items-center gap-2">
@@ -1371,7 +1380,13 @@ onDestroy(() => {
               <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
               Run Workflow
             </Button>
-            <Button size="sm" variant="destructive" onclick={() => { confirmingDelete = true; }}>
+            <Button
+              size="sm"
+              variant="destructive"
+              onclick={() => {
+                confirmingDelete = true;
+              }}
+            >
               <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
               Delete
             </Button>
@@ -1406,7 +1421,9 @@ onDestroy(() => {
                   <DropdownMenu.Separator class="my-1 h-px bg-border" />
                   <DropdownMenu.Item
                     class="flex items-center gap-2 px-2 py-1.5 text-sm rounded-sm cursor-pointer outline-none text-destructive data-highlighted:bg-destructive/10"
-                    onSelect={() => { confirmingDelete = true; }}
+                    onSelect={() => {
+                      confirmingDelete = true;
+                    }}
                   >
                     <TrashIcon size={14} aria-hidden="true" />
                     Delete
@@ -1440,12 +1457,14 @@ onDestroy(() => {
           type="button"
           class="flex w-full items-center gap-1.5 font-medium text-amber-500 text-left"
           aria-expanded={warningsExpanded}
-          onclick={() => { warningsExpanded = !warningsExpanded; }}
+          onclick={() => {
+            warningsExpanded = !warningsExpanded;
+          }}
         >
           <CaretRightIcon
             size={12}
             aria-hidden="true"
-            class="transition-transform {warningsExpanded ? 'rotate-90' : ''}"
+            class="transition-transform {warningsExpanded ? "rotate-90" : ""}"
           />
           <WarningIcon size={14} aria-hidden="true" />
           Template {workflow.warnings.length === 1 ? "Issue" : "Issues"} ({workflow.warnings.length})
@@ -1473,7 +1492,9 @@ onDestroy(() => {
             class="px-2 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
             value={editDraft.description}
             maxlength={256}
-            oninput={(e) => { editDraft = { ...editDraft!, description: (e.target as HTMLInputElement).value }; }}
+            oninput={(e) => {
+              editDraft = { ...editDraft!, description: (e.target as HTMLInputElement).value };
+            }}
             placeholder="Optional description"
           >
           {#if validationErrors.get("description")}
@@ -1557,10 +1578,16 @@ onDestroy(() => {
                 onSlugInput={onStepSlugInput}
                 onRemoveStep={removeStep}
                 onUpdateDraftStep={updateDraftStep}
-                onValidationErrorsChange={(errors) => { validationErrors = errors; }}
+                onValidationErrorsChange={(errors) => {
+                  validationErrors = errors;
+                }}
                 onStepTypeChange={handleStepTypeChange}
-                onEditAsJsonChange={(v) => { editAsJson = v; }}
-                onViewAsJsonChange={(v) => { viewAsJson = v; }}
+                onEditAsJsonChange={(v) => {
+                  editAsJson = v;
+                }}
+                onViewAsJsonChange={(v) => {
+                  viewAsJson = v;
+                }}
               />
             {:else if triggerSelected}
               <div class="w-95 h-full flex flex-col">
@@ -1632,7 +1659,10 @@ onDestroy(() => {
                           value={editDraft.trigger.ref}
                           disabled={metaLoading}
                           onchange={(e) => {
-                            editDraft = { ...editDraft!, trigger: { ...editDraft!.trigger, ref: (e.target as HTMLSelectElement).value } };
+                            editDraft = {
+                              ...editDraft!,
+                              trigger: { ...editDraft!.trigger, ref: (e.target as HTMLSelectElement).value },
+                            };
                             const newErrors = new Map(validationErrors);
                             if ((e.target as HTMLSelectElement).value) {
                               newErrors.delete("trigger.ref");
@@ -1833,13 +1863,18 @@ onDestroy(() => {
 {#if edgeInsertContext}
   <div
     class="fixed inset-0 z-9999"
-    onclick={() => { edgeInsertContext = null; }}
-    onkeydown={(e) => { if (e.key === "Escape") edgeInsertContext = null; }}
+    onclick={() => {
+      edgeInsertContext = null;
+    }}
+    onkeydown={(e) => {
+      if (e.key === "Escape") edgeInsertContext = null;
+    }}
     role="presentation"
   >
     <div
       class="fixed z-9999 min-w-52 max-h-80 overflow-y-auto rounded-xl border border-border bg-background p-1.5 shadow-lg text-sm"
-      style="left: {edgeInsertContext.position.x}px; top: {edgeInsertContext.position.y}px; transform: translateX(-50%);"
+      style="left: {edgeInsertContext.position.x}px; top: {edgeInsertContext.position
+        .y}px; transform: translateX(-50%);"
       onclick={(e) => e.stopPropagation()}
       onkeydown={(e) => e.stopPropagation()}
       role="menu"

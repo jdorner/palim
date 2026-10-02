@@ -339,7 +339,12 @@ function trackColumnWidths(container: HTMLElement) {
 </script>
 
 <svelte:window
-  onkeydown={(e) => { if (e.key === "Escape") { if (chainDialog.open) dismissChainDialog(); else if (selectedJobId) selectedJobId = null; } }}
+  onkeydown={(e) => {
+    if (e.key === "Escape") {
+      if (chainDialog.open) dismissChainDialog();
+      else if (selectedJobId) selectedJobId = null;
+    }
+  }}
 />
 
 <!-- Mobile & Tablet: Card layout -->
@@ -347,7 +352,7 @@ function trackColumnWidths(container: HTMLElement) {
   {#each paginatedItems as item}
     {#if item.type === "job"}
       {@const job = item.job}
-      <div class="rounded-md border border-border p-4 space-y-3 {job.error ? 'bg-destructive/5' : ''}">
+      <div class="rounded-md border border-border p-4 space-y-3 {job.error ? "bg-destructive/5" : ""}">
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
@@ -397,7 +402,12 @@ function trackColumnWidths(container: HTMLElement) {
       <div
         class="rounded-md border border-border overflow-hidden cursor-pointer hover:bg-muted/50 transition-colors"
         onclick={() => toggleWorkflow(item.workflowRunId)}
-        onkeydown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleWorkflow(item.workflowRunId); } }}
+        onkeydown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            toggleWorkflow(item.workflowRunId);
+          }
+        }}
         role="button"
         tabindex="0"
         aria-expanded={isExpanded}
@@ -420,7 +430,10 @@ function trackColumnWidths(container: HTMLElement) {
               type="button"
               class="inline-flex shrink-0 items-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted border-none bg-transparent cursor-pointer"
               title="Copy workflow ID: {item.workflowRunId}"
-              onclick={(e) => { e.stopPropagation(); copyWorkflowId(item.workflowRunId, item.workflowRunId); }}
+              onclick={(e) => {
+                e.stopPropagation();
+                copyWorkflowId(item.workflowRunId, item.workflowRunId);
+              }}
               aria-label="Copy workflow ID {item.workflowRunId}"
             >
               {#if copiedJobId === item.workflowRunId}
@@ -435,7 +448,9 @@ function trackColumnWidths(container: HTMLElement) {
           <span>Created: {formatTimestamp(Math.min(...item.jobs.map((j) => j.createdAt)))}</span>
           <span
             >Completed:
-            {item.jobs.every((j) => j.completedAt) ? formatTimestamp(Math.max(...item.jobs.map((j) => j.completedAt!))) : "\u2013"}</span
+            {item.jobs.every((j) => j.completedAt)
+              ? formatTimestamp(Math.max(...item.jobs.map((j) => j.completedAt!)))
+              : "\u2013"}</span
           >
         </div>
 
@@ -445,7 +460,10 @@ function trackColumnWidths(container: HTMLElement) {
               size="sm"
               variant="destructive"
               disabled={cancellingRunId === item.workflowRunId || cancellingJobId === item.jobs[0]?.id}
-              onclick={(e: Event) => { e.stopPropagation(); handleWorkflowCancel(item); }}
+              onclick={(e: Event) => {
+                e.stopPropagation();
+                handleWorkflowCancel(item);
+              }}
             >
               <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
               Cancel
@@ -462,7 +480,7 @@ function trackColumnWidths(container: HTMLElement) {
             onkeydown={(e) => e.stopPropagation()}
           >
             {#each item.jobs as job (job.id)}
-              <div class="px-4 py-3 space-y-2 {job.error ? 'bg-destructive/5' : 'bg-muted/30'}">
+              <div class="px-4 py-3 space-y-2 {job.error ? "bg-destructive/5" : "bg-muted/30"}">
                 <div class="flex items-center gap-3">
                   <div class="shrink-0 w-6 flex justify-center">
                     {#if job.stepIndex != null}
@@ -597,7 +615,12 @@ function trackColumnWidths(container: HTMLElement) {
           <TableRow
             class="cursor-pointer hover:bg-muted/50 h-15"
             onclick={() => toggleWorkflow(item.workflowRunId)}
-            onkeydown={(e: KeyboardEvent) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleWorkflow(item.workflowRunId); } }}
+            onkeydown={(e: KeyboardEvent) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                toggleWorkflow(item.workflowRunId);
+              }
+            }}
           >
             <TableCell class="w-8 pr-0">
               {#if isExpanded}
@@ -621,7 +644,10 @@ function trackColumnWidths(container: HTMLElement) {
                   type="button"
                   class="inline-flex shrink-0 items-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted border-none bg-transparent cursor-pointer"
                   title="Copy workflow ID: {item.workflowRunId}"
-                  onclick={(e) => { e.stopPropagation(); copyWorkflowId(item.workflowRunId, item.workflowRunId); }}
+                  onclick={(e) => {
+                    e.stopPropagation();
+                    copyWorkflowId(item.workflowRunId, item.workflowRunId);
+                  }}
                   aria-label="Copy workflow ID {item.workflowRunId}"
                 >
                   {#if copiedJobId === item.workflowRunId}
@@ -636,7 +662,9 @@ function trackColumnWidths(container: HTMLElement) {
               {formatTimestamp(Math.min(...item.jobs.map((j) => j.createdAt)))}
             </TableCell>
             <TableCell class="hidden xl:table-cell text-sm text-muted-foreground">
-              {item.jobs.every((j) => j.completedAt) ? formatTimestamp(Math.max(...item.jobs.map((j) => j.completedAt!))) : "\u2013"}
+              {item.jobs.every((j) => j.completedAt)
+                ? formatTimestamp(Math.max(...item.jobs.map((j) => j.completedAt!)))
+                : "\u2013"}
             </TableCell>
             <TableCell class="text-right w-1">
               <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
@@ -645,7 +673,10 @@ function trackColumnWidths(container: HTMLElement) {
                     size="sm"
                     variant="destructive"
                     disabled={cancellingRunId === item.workflowRunId || cancellingJobId === item.jobs[0]?.id}
-                    onclick={(e: Event) => { e.stopPropagation(); handleWorkflowCancel(item); }}
+                    onclick={(e: Event) => {
+                      e.stopPropagation();
+                      handleWorkflowCancel(item);
+                    }}
                   >
                     <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
                     Cancel
@@ -661,7 +692,9 @@ function trackColumnWidths(container: HTMLElement) {
                 <div transition:safeSlide={{ duration: 200 }}>
                   {#each item.jobs as job (job.id)}
                     <div
-                      class="flex items-center border-b border-border last:border-b-0 {job.error ? 'bg-destructive/5' : 'bg-muted/30'}"
+                      class="flex items-center border-b border-border last:border-b-0 {job.error
+                        ? "bg-destructive/5"
+                        : "bg-muted/30"}"
                     >
                       <div class="p-3 shrink-0" style="width: var(--col-0)"></div>
                       <div class="p-3 shrink-0" style="width: var(--col-1)">
@@ -786,8 +819,12 @@ function trackColumnWidths(container: HTMLElement) {
     role="dialog"
     aria-modal="true"
     aria-labelledby="chain-dialog-title"
-    onclick={(e) => { if (e.target === e.currentTarget) dismissChainDialog(); }}
-    onkeydown={(e) => { if (e.key === "Escape") dismissChainDialog(); }}
+    onclick={(e) => {
+      if (e.target === e.currentTarget) dismissChainDialog();
+    }}
+    onkeydown={(e) => {
+      if (e.key === "Escape") dismissChainDialog();
+    }}
   >
     <div class="bg-background border border-border rounded-lg shadow-lg p-6 max-w-md w-full mx-4 space-y-4">
       <h2 id="chain-dialog-title" class="text-lg font-semibold">Cancel Workflow Chain</h2>

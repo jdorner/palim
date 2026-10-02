@@ -206,7 +206,9 @@ function handleKeydown(event: KeyboardEvent) {
 
 <svelte:window onkeydown={handleKeydown} />
 
-{#snippet infoTip(description: string)}
+{#snippet infoTip(
+  description: string,
+)}
   <Tooltip.Root delayDuration={0}>
     <Tooltip.Trigger class="inline-flex items-center cursor-help text-muted-foreground/60 hover:text-muted-foreground">
       <InfoIcon class="w-4 h-4" />
@@ -224,7 +226,14 @@ function handleKeydown(event: KeyboardEvent) {
   </Tooltip.Root>
 {/snippet}
 
-<form bind:this={formEl} class="space-y-4" onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+<form
+  bind:this={formEl}
+  class="space-y-4"
+  onsubmit={(e) => {
+    e.preventDefault();
+    handleSubmit();
+  }}
+>
   {#each propertyKeys as key (key)}
     {@const prop = properties[key]!}
     {@const inputType = getInputType(prop)}
@@ -273,7 +282,7 @@ function handleKeydown(event: KeyboardEvent) {
         <MultiSelect
           id="settings-{key}"
           items={prop.availableItems as string[]}
-          selected={Array.isArray(formValues[key]) ? formValues[key] as string[] : []}
+          selected={Array.isArray(formValues[key]) ? (formValues[key] as string[]) : []}
           placeholder="Select items..."
           onchange={(val) => updateValue(key, val)}
         />
@@ -288,12 +297,15 @@ function handleKeydown(event: KeyboardEvent) {
           id="settings-{key}"
           type="text"
           class="block w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring
-            {error ? 'border-destructive' : ''}"
+            {error ? "border-destructive" : ""}"
           value={Array.isArray(formValues[key]) ? (formValues[key] as string[]).join(", ") : ""}
           placeholder="value1, value2, ..."
           oninput={(e) => {
             const raw = e.currentTarget.value;
-            const items = raw.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+            const items = raw
+              .split(",")
+              .map((s) => s.trim())
+              .filter((s) => s.length > 0);
             updateValue(key, items);
           }}
         >
@@ -308,11 +320,11 @@ function handleKeydown(event: KeyboardEvent) {
           id="settings-{key}"
           type="number"
           class="block w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring
-            {error ? 'border-destructive' : ''}"
+            {error ? "border-destructive" : ""}"
           value={formValues[key] as number}
           min={prop.minimum as number | undefined}
           max={prop.maximum as number | undefined}
-          step={prop.multipleOf as number | undefined ?? "any"}
+          step={(prop.multipleOf as number | undefined) ?? "any"}
           oninput={(e) => updateValue(key, Number(e.currentTarget.value))}
         >
       {:else if inputType === "password"}
@@ -326,7 +338,7 @@ function handleKeydown(event: KeyboardEvent) {
           id="settings-{key}"
           type="password"
           class="block w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring
-            {error ? 'border-destructive' : ''}"
+            {error ? "border-destructive" : ""}"
           value={String(formValues[key] ?? "")}
           minlength={prop.minLength as number | undefined}
           maxlength={prop.maxLength as number | undefined}
@@ -342,7 +354,7 @@ function handleKeydown(event: KeyboardEvent) {
         <textarea
           id="settings-{key}"
           class="block w-full rounded-md border border-border bg-background px-3 py-2 text-sm font-mono leading-relaxed focus:outline-none focus:ring-1 focus:ring-ring resize-y min-h-32
-            {error ? 'border-destructive' : ''}"
+            {error ? "border-destructive" : ""}"
           minlength={prop.minLength as number | undefined}
           maxlength={prop.maxLength as number | undefined}
           rows={8}
@@ -361,7 +373,7 @@ function handleKeydown(event: KeyboardEvent) {
           type="text"
           list="settings-{key}-options"
           class="block w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring
-            {error ? 'border-destructive' : ''}"
+            {error ? "border-destructive" : ""}"
           value={String(formValues[key] ?? "")}
           minlength={prop.minLength as number | undefined}
           maxlength={prop.maxLength as number | undefined}
@@ -383,7 +395,7 @@ function handleKeydown(event: KeyboardEvent) {
           id="settings-{key}"
           type="text"
           class="block w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring
-            {error ? 'border-destructive' : ''}"
+            {error ? "border-destructive" : ""}"
           value={String(formValues[key] ?? "")}
           minlength={prop.minLength as number | undefined}
           maxlength={prop.maxLength as number | undefined}

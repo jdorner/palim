@@ -238,8 +238,13 @@ function handleBlur(event: FocusEvent) {
                 class:hover:bg-accent={i !== highlightIndex}
                 class:hover:text-accent-foreground={i !== highlightIndex}
                 data-highlighted={i === highlightIndex ? "" : undefined}
-                onmousedown={(e) => { e.preventDefault(); select(item); }}
-                onmouseenter={() => { highlightIndex = i; }}
+                onmousedown={(e) => {
+                  e.preventDefault();
+                  select(item);
+                }}
+                onmouseenter={() => {
+                  highlightIndex = i;
+                }}
               >
                 {displayLabel(item)}
               </button>
@@ -251,7 +256,10 @@ function handleBlur(event: FocusEvent) {
                 tabindex="-1"
                 aria-selected={false}
                 class="w-full cursor-pointer rounded-sm px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
-                onmousedown={(e) => { e.preventDefault(); addCustom(); }}
+                onmousedown={(e) => {
+                  e.preventDefault();
+                  addCustom();
+                }}
               >
                 Add "{trimmedSearch}"
               </button>

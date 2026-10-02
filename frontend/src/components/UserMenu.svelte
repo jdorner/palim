@@ -53,7 +53,7 @@ function onWindowKeydown(event: KeyboardEvent) {
   >
     <UserIcon size={16} aria-hidden="true" />
     <span class="max-w-48 truncate">{label}</span>
-    <CaretDownIcon size={12} aria-hidden="true" class="opacity-70 {open ? 'rotate-180' : ''} transition-transform" />
+    <CaretDownIcon size={12} aria-hidden="true" class="opacity-70 {open ? "rotate-180" : ""} transition-transform" />
   </Button>
 
   {#if open}

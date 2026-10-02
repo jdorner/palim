@@ -414,7 +414,14 @@ $effect(() => {
           {#if confirmingDelete === watcher.slug}
             <div class="flex flex-wrap items-center gap-2">
               <Button size="sm" variant="destructive" onclick={() => deleteWatcher(watcher.slug)}>Confirm</Button>
-              <Button size="sm" variant="outline" onclick={() => { confirmingDelete = null; }}>Cancel</Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onclick={() => {
+                  confirmingDelete = null;
+                }}
+                >Cancel</Button
+              >
             </div>
           {:else}
             <div class="flex flex-wrap items-center gap-2">
@@ -422,7 +429,13 @@ $effect(() => {
                 <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
                 Edit
               </Button>
-              <Button size="sm" variant="destructive" onclick={() => { confirmingDelete = watcher.slug; }}>
+              <Button
+                size="sm"
+                variant="destructive"
+                onclick={() => {
+                  confirmingDelete = watcher.slug;
+                }}
+              >
                 <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
                 Delete
               </Button>
@@ -485,7 +498,15 @@ $effect(() => {
                     <Button size="sm" variant="destructive" onclick={() => deleteWatcher(watcher.slug)}>
                       Confirm
                     </Button>
-                    <Button size="sm" variant="outline" onclick={() => { confirmingDelete = null; }}> Cancel </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onclick={() => {
+                        confirmingDelete = null;
+                      }}
+                    >
+                      Cancel
+                    </Button>
                   </div>
                 {:else}
                   <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
@@ -493,7 +514,13 @@ $effect(() => {
                       <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
                       Edit
                     </Button>
-                    <Button size="sm" variant="destructive" onclick={() => { confirmingDelete = watcher.slug; }}>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onclick={() => {
+                        confirmingDelete = watcher.slug;
+                      }}
+                    >
                       <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
                       Delete
                     </Button>

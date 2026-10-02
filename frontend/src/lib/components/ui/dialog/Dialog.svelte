@@ -65,7 +65,10 @@ function handleKeydown(e: KeyboardEvent) {
   >
     <div
       bind:this={panelEl}
-      class={cn("bg-background border border-border rounded-lg shadow-lg w-full max-w-md max-h-full flex flex-col", className)}
+      class={cn(
+        "bg-background border border-border rounded-lg shadow-lg w-full max-w-md max-h-full flex flex-col",
+        className,
+      )}
     >
       <div class="px-6 pt-5 pb-3 flex items-start justify-between gap-4">
         <div class="min-w-0 space-y-1">

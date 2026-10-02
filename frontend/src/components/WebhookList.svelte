@@ -454,7 +454,14 @@ $effect(() => {
           {#if confirmingDelete === webhook.slug}
             <div class="flex flex-wrap items-center gap-2">
               <Button size="sm" variant="destructive" onclick={() => deleteWebhook(webhook.slug)}>Confirm</Button>
-              <Button size="sm" variant="outline" onclick={() => { confirmingDelete = null; }}>Cancel</Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onclick={() => {
+                  confirmingDelete = null;
+                }}
+                >Cancel</Button
+              >
             </div>
           {:else}
             <div class="flex flex-wrap items-center gap-2">
@@ -466,7 +473,13 @@ $effect(() => {
                 <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
                 Edit
               </Button>
-              <Button size="sm" variant="destructive" onclick={() => { confirmingDelete = webhook.slug; }}>
+              <Button
+                size="sm"
+                variant="destructive"
+                onclick={() => {
+                  confirmingDelete = webhook.slug;
+                }}
+              >
                 <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
                 Delete
               </Button>
@@ -540,9 +553,7 @@ $effect(() => {
                 <ToggleSwitch
                   checked={webhook.enabled}
                   onChange={() => toggleEnabled(webhook)}
-                  aria-label={webhook.enabled
-                    ? "Disable webhook"
-                    : "Enable webhook"}
+                  aria-label={webhook.enabled ? "Disable webhook" : "Enable webhook"}
                 />
               </TableCell>
               <TableCell class="w-1">
@@ -570,7 +581,13 @@ $effect(() => {
                       Edit
                     </Button>
                     <div>
-                      <Button size="sm" variant="destructive" onclick={() => { confirmingDelete = webhook.slug; }}>
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        onclick={() => {
+                          confirmingDelete = webhook.slug;
+                        }}
+                      >
                         <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
                         Delete
                       </Button>

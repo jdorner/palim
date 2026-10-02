@@ -221,12 +221,14 @@ onDestroy(() => {
       <!-- Graph area -->
       <div class="flex-1 min-w-0 overflow-auto transition-all duration-200">
         <WorkflowGraph
-          steps={(definitionSteps.length > 0 ? definitionSteps : run.steps.map((s) => ({
-            slug: s.slug,
-            type: s.type,
-            status: s.status,
-            jobId: s.jobId,
-          }))) as Array<{ slug: string; type: string; [key: string]: unknown }>}
+          steps={(definitionSteps.length > 0
+            ? definitionSteps
+            : run.steps.map((s) => ({
+                slug: s.slug,
+                type: s.type,
+                status: s.status,
+                jobId: s.jobId,
+              }))) as Array<{ slug: string; type: string; [key: string]: unknown }>}
           edges={definitionEdges}
           trigger={run.trigger ?? undefined}
           statusMap={definitionSteps.length > 0 ? statusMap : undefined}

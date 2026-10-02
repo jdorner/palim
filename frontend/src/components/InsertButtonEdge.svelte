@@ -145,7 +145,7 @@ function handleClick(e: MouseEvent) {
     along the edge so it appears where you hover, not only at the midpoint.
   -->
   <div
-    use:portal={'edge-labels'}
+    use:portal={"edge-labels"}
     class="insert-edge-wrap"
     role="presentation"
     style:z-index={zIndex + 1}

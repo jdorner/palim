@@ -493,8 +493,13 @@ $effect(() => {
             class:text-accent-foreground={i === highlightIndex}
             class:hover:bg-accent={i !== highlightIndex}
             class:hover:text-accent-foreground={i !== highlightIndex}
-            onmousedown={(e) => { e.preventDefault(); acceptSuggestion(i); }}
-            onmouseenter={() => { highlightIndex = i; }}
+            onmousedown={(e) => {
+              e.preventDefault();
+              acceptSuggestion(i);
+            }}
+            onmouseenter={() => {
+              highlightIndex = i;
+            }}
           >
             <span class="font-mono">{suggestion.label}</span>
             {#if suggestion.description}
