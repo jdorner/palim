@@ -3,7 +3,9 @@
 
   Renders form fields automatically from a JSON Schema (derived from the
   extension's TypeBox handler schema). Supports text, number, boolean, enum,
-  textarea, multiselect, tags, and password field types.
+  textarea, multiselect, tags, and password field types, plus complex fields:
+  number lists, key/value records, nested objects and lists of objects (the
+  latter two render this form recursively).
 
   Field descriptions are shown via an (i) icon with a CSS tooltip on hover.
   String fields support template autocomplete when autocomplete context is provided.
@@ -11,6 +13,8 @@
 <script lang="ts">
 import { Tooltip } from "bits-ui";
 import InfoIcon from "phosphor-svelte/lib/InfoIcon";
+import PlusIcon from "phosphor-svelte/lib/PlusIcon";
+import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import {
   buildInitialValues,
@@ -19,9 +23,13 @@ import {
   getInputType,
   getLabel,
   getProperties,
+  getRecordValueSchema,
+  type SchemaProperty,
 } from "$lib/schemaForm";
 import type { OutputSchemas, SlugEdge } from "$lib/templateScope";
+import KeyValueEditor from "./KeyValueEditor.svelte";
 import MultiSelect from "./MultiSelect.svelte";
+import StepConfigForm from "./StepConfigForm.svelte";
 import TemplateAutocomplete from "./TemplateAutocomplete.svelte";
 
 interface Props {
@@ -49,6 +57,8 @@ interface Props {
   itemOptions?: Record<string, string[]>;
   /** Validation errors keyed by config field name (e.g. "url", "timeout"). */
   fieldErrors?: Map<string, string>;
+  /** Prefix for element ids (nested forms use a distinct prefix to keep ids unique). */
+  idPrefix?: string;
 }
 
 let {
@@ -64,6 +74,7 @@ let {
   edges,
   itemOptions,
   fieldErrors,
+  idPrefix = "step-config-",
 }: Props = $props();
 
 /** Whether template autocomplete is available (all required context provided). */
@@ -84,13 +95,66 @@ $effect(() => {
   formValues = buildInitialValues(schema, values);
 });
 
+/** Names of required fields (from the schema's `required` list). */
+let requiredKeys = $derived(new Set(Array.isArray(schema.required) ? (schema.required as string[]) : []));
+
 /**
  * Update a single field and notify the parent.
+ *
+ * Emptying an optional field without a default (empty string or empty list)
+ * removes the key instead of persisting an empty placeholder.
  */
 function updateValue(key: string, value: unknown) {
   if (isReadonly) return;
+  const isEmpty = value === "" || (Array.isArray(value) && value.length === 0);
+  if (isEmpty && !requiredKeys.has(key) && properties[key]?.default === undefined) {
+    clearValue(key);
+    return;
+  }
   formValues = { ...formValues, [key]: value };
   onchange?.(formValues);
+}
+
+/**
+ * Remove a field from the values and notify the parent. The form then falls
+ * back to the schema default (if any) on the next sync.
+ */
+function clearValue(key: string) {
+  if (isReadonly) return;
+  const { [key]: _, ...rest } = formValues;
+  formValues = rest;
+  onchange?.(formValues);
+}
+
+/**
+ * Collect field errors below a nested path, re-keyed relative to that path.
+ *
+ * @param prefix - Path prefix including the trailing separator (e.g. "headers." or "items[0].")
+ * @returns Errors for the nested form, or undefined when there are none
+ */
+function nestedErrors(prefix: string): Map<string, string> | undefined {
+  if (!fieldErrors) return undefined;
+  const m = new Map<string, string>();
+  for (const [k, v] of fieldErrors) {
+    if (k.startsWith(prefix)) m.set(k.slice(prefix.length), v);
+  }
+  return m.size > 0 ? m : undefined;
+}
+
+/** Current array value of a list field (empty when unset). */
+function listValue(key: string): unknown[] {
+  const v = formValues[key];
+  return Array.isArray(v) ? v : [];
+}
+
+/** Parse a comma-separated number list, dropping tokens that are not numbers. */
+function parseNumberList(raw: string): number[] {
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0)
+    .map(Number)
+    .filter((n) => Number.isFinite(n));
 }
 </script>
 
@@ -122,7 +186,7 @@ function updateValue(key: string, value: unknown) {
   description: string | null,
 )}
   <span class="inline-flex items-center gap-1">
-    <label class="text-xs font-medium text-muted-foreground" for="step-config-{key}">{label}</label>
+    <label class="text-xs font-medium text-muted-foreground" for="{idPrefix}{key}">{label}</label>
     {#if description}
       {@render infoTip(description)}
     {/if}
@@ -148,13 +212,13 @@ function updateValue(key: string, value: unknown) {
       {#if inputType === "boolean"}
         <div class="flex items-center gap-2">
           <ToggleSwitch
-            id="step-config-{key}"
+            id="{idPrefix}{key}"
             checked={!!formValues[key]}
             onChange={(v) => updateValue(key, v)}
             aria-label={label}
           />
           <span class="inline-flex items-center gap-1">
-            <label class="text-xs font-medium" for="step-config-{key}">{label}</label>
+            <label class="text-xs font-medium" for="{idPrefix}{key}">{label}</label>
             {#if description}
               {@render infoTip(description)}
             {/if}
@@ -163,7 +227,7 @@ function updateValue(key: string, value: unknown) {
       {:else if inputType === "enum"}
         {@render fieldLabel(key, label, description)}
         <select
-          id="step-config-{key}"
+          id="{idPrefix}{key}"
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
           value={String(formValues[key] ?? "")}
           onchange={(e) => updateValue(key, e.currentTarget.value)}
@@ -176,7 +240,7 @@ function updateValue(key: string, value: unknown) {
         {@render fieldLabel(key, label, description)}
         {@const itemLabels = (prop.itemLabels ?? undefined) as Record<string, string> | undefined}
         <MultiSelect
-          id="step-config-{key}"
+          id="{idPrefix}{key}"
           items={prop.availableItems as string[]}
           selected={Array.isArray(formValues[key]) ? (formValues[key] as string[]) : []}
           placeholder="Select items..."
@@ -187,7 +251,7 @@ function updateValue(key: string, value: unknown) {
       {:else if inputType === "tags" && itemOptions?.[key]}
         {@render fieldLabel(key, label, description)}
         <MultiSelect
-          id="step-config-{key}"
+          id="{idPrefix}{key}"
           items={itemOptions[key]!}
           selected={Array.isArray(formValues[key]) ? (formValues[key] as string[]) : []}
           placeholder="Select items..."
@@ -196,7 +260,7 @@ function updateValue(key: string, value: unknown) {
       {:else if inputType === "tags"}
         {@render fieldLabel(key, label, description)}
         <input
-          id="step-config-{key}"
+          id="{idPrefix}{key}"
           type="text"
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
           value={Array.isArray(formValues[key]) ? (formValues[key] as string[]).join(", ") : ""}
@@ -213,19 +277,26 @@ function updateValue(key: string, value: unknown) {
       {:else if inputType === "number"}
         {@render fieldLabel(key, label, description)}
         <input
-          id="step-config-{key}"
+          id="{idPrefix}{key}"
           type="number"
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
           value={formValues[key] as number}
           min={prop.minimum as number | undefined}
           max={prop.maximum as number | undefined}
           step={(prop.multipleOf as number | undefined) ?? "any"}
-          oninput={(e) => updateValue(key, Number(e.currentTarget.value))}
+          oninput={(e) => {
+            // An empty input is not 0: it is committed as "unset" on change
+            // (blur/Enter), so a field with a default does not snap back mid-edit.
+            if (e.currentTarget.value !== "") updateValue(key, Number(e.currentTarget.value));
+          }}
+          onchange={(e) => {
+            if (e.currentTarget.value === "") clearValue(key);
+          }}
         >
       {:else if inputType === "password"}
         {@render fieldLabel(key, label, description)}
         <input
-          id="step-config-{key}"
+          id="{idPrefix}{key}"
           type="password"
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
           value={String(formValues[key] ?? "")}
@@ -236,7 +307,7 @@ function updateValue(key: string, value: unknown) {
       {:else if inputType === "textarea"}
         {@render fieldLabel(key, label, description)}
         <textarea
-          id="step-config-{key}"
+          id="{idPrefix}{key}"
           bind:this={fieldRefs[key]}
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-20"
           minlength={prop.minLength as number | undefined}
@@ -260,10 +331,10 @@ function updateValue(key: string, value: unknown) {
       {:else if inputType === "select"}
         {@render fieldLabel(key, label, description)}
         <input
-          id="step-config-{key}"
+          id="{idPrefix}{key}"
           bind:this={fieldRefs[key]}
           type="text"
-          list="step-config-{key}-options"
+          list="{idPrefix}{key}-options"
           autocomplete="off"
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
           value={String(formValues[key] ?? "")}
@@ -271,7 +342,7 @@ function updateValue(key: string, value: unknown) {
           maxlength={prop.maxLength as number | undefined}
           oninput={(e) => updateValue(key, (e.target as HTMLInputElement).value)}
         >
-        <datalist id="step-config-{key}-options">
+        <datalist id="{idPrefix}{key}-options">
           {#each getAvailableItems(prop) as option (option)}
             <option value={option}></option>
           {/each}
@@ -291,7 +362,7 @@ function updateValue(key: string, value: unknown) {
       {:else if inputType === "text"}
         {@render fieldLabel(key, label, description)}
         <input
-          id="step-config-{key}"
+          id="{idPrefix}{key}"
           bind:this={fieldRefs[key]}
           type="text"
           autocomplete="off"
@@ -313,6 +384,99 @@ function updateValue(key: string, value: unknown) {
             onChange={(newValue) => updateValue(key, newValue)}
           />
         {/if}
+      {:else if inputType === "numberlist"}
+        {@render fieldLabel(key, label, description)}
+        <input
+          id="{idPrefix}{key}"
+          type="text"
+          inputmode="numeric"
+          autocomplete="off"
+          class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+          value={listValue(key).join(", ")}
+          placeholder="200, 201, ..."
+          oninput={(e) => updateValue(key, parseNumberList(e.currentTarget.value))}
+        >
+      {:else if inputType === "keyvalue"}
+        {@render fieldLabel(key, label, description)}
+        <KeyValueEditor
+          id="{idPrefix}{key}"
+          valueSchema={getRecordValueSchema(prop)!}
+          value={formValues[key] as Record<string, unknown> | undefined}
+          onchange={(val) => updateValue(key, val)}
+          {autocompleteEnabled}
+          {steps}
+          {currentStepIndex}
+          {secretKeys}
+          {variableKeys}
+          {outputSchemas}
+          {edges}
+        />
+      {:else if inputType === "object"}
+        {@render fieldLabel(key, label, description)}
+        <div class="rounded-md border border-border p-2">
+          <StepConfigForm
+            schema={prop}
+            values={(formValues[key] ?? {}) as Record<string, unknown>}
+            onchange={(val) => updateValue(key, val)}
+            readonly={isReadonly}
+            {steps}
+            {currentStepIndex}
+            {secretKeys}
+            {variableKeys}
+            {outputSchemas}
+            {edges}
+            fieldErrors={nestedErrors(`${key}.`)}
+            idPrefix="{idPrefix}{key}-"
+          />
+        </div>
+      {:else if inputType === "objectlist"}
+        {@render fieldLabel(key, label, description)}
+        {@const itemSchema = prop.items as SchemaProperty}
+        <div class="space-y-2">
+          {#each listValue(key) as item, i (i)}
+            <div class="relative rounded-md border border-border p-2 pr-8">
+              <button
+                type="button"
+                class="absolute top-1.5 right-1.5 rounded p-1 text-muted-foreground hover:text-destructive hover:bg-muted"
+                aria-label="Remove item {i + 1}"
+                onclick={() =>
+                  updateValue(
+                    key,
+                    listValue(key).filter((_, j) => j !== i),
+                  )}
+              >
+                <TrashIcon class="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+              <StepConfigForm
+                schema={itemSchema}
+                values={(item ?? {}) as Record<string, unknown>}
+                onchange={(val) =>
+                  updateValue(
+                    key,
+                    listValue(key).map((v, j) => (j === i ? val : v)),
+                  )}
+                readonly={isReadonly}
+                {steps}
+                {currentStepIndex}
+                {secretKeys}
+                {variableKeys}
+                {outputSchemas}
+                {edges}
+                fieldErrors={nestedErrors(`${key}[${i}].`)}
+                idPrefix="{idPrefix}{key}-{i}-"
+              />
+            </div>
+          {/each}
+          <button
+            id="{idPrefix}{key}"
+            type="button"
+            class="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            onclick={() => updateValue(key, [...listValue(key), buildInitialValues(itemSchema)])}
+          >
+            <PlusIcon class="w-3.5 h-3.5" aria-hidden="true" />
+            Add item
+          </button>
+        </div>
       {:else}
         {@render fieldLabel(key, label, description)}
         <p class="text-xs text-muted-foreground italic">Complex field — use "Edit as JSON" to configure.</p>
