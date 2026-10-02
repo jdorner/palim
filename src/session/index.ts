@@ -149,3 +149,17 @@ export function getSessionStore(db?: AppDatabase): SessionStore {
   }
   return _store;
 }
+
+/**
+ * Rebinds the shared session-store singleton to a specific store.
+ *
+ * Intended for tests that need the route-facing `getSessionStore()` to resolve
+ * to a per-test database. Not used in production code paths. Tests that close
+ * their database afterwards must pass `null` to reset the singleton, otherwise
+ * later test files in the same process get a store bound to a closed database.
+ *
+ * @param store - The store instance to install as the singleton, or null to reset it.
+ */
+export function setSessionStoreForTests(store: SessionStore | null): void {
+  _store = store;
+}

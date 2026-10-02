@@ -4,10 +4,12 @@ import ArrowLineRightIcon from "phosphor-svelte/lib/ArrowLineRightIcon";
 import ChatTextIcon from "phosphor-svelte/lib/ChatTextIcon";
 import GearIcon from "phosphor-svelte/lib/GearIcon";
 import TrayIcon from "phosphor-svelte/lib/TrayIcon";
+import UsersIcon from "phosphor-svelte/lib/UsersIcon";
 import { derived } from "svelte/store";
 import { resolveBadge } from "$lib/badgeRegistry";
 import { extensionNavItems } from "$lib/extensionStore";
 import { resolveIcon } from "$lib/iconRegistry";
+import { identity } from "$lib/identity.svelte";
 import { settings } from "$lib/settingsStore.svelte";
 import { automationStyle } from "$lib/utils";
 import { navigate, pathname } from "../router";
@@ -24,6 +26,9 @@ let collapsed = $derived(settings.sidebarCollapsed);
 let isChatActive = $derived($pathname === "/" || $pathname === "/chat" || $pathname.startsWith("/chat/"));
 let isJobsActive = $derived($pathname === "/jobs");
 let isSettingsActive = $derived($pathname === "/settings");
+let isUsersActive = $derived($pathname === "/users");
+/** Whether the current user may manage users (admin), for the Users nav entry. */
+let canManageUsers = $derived(identity.can("manage", "User"));
 
 /**
  * Derived store that resolves badge counts for all current extension nav items.
@@ -188,6 +193,24 @@ const badgeCounts = derived(
         Collapse
       {/if}
     </button>
+
+    {#if canManageUsers}
+      <button
+        type="button"
+        class="relative flex items-center rounded-md text-sm font-medium transition-colors w-full
+          {collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2 text-left'}
+          {isUsersActive
+          ? 'bg-accent text-accent-foreground'
+          : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'}"
+        onclick={() => navigate("/users")}
+        title={collapsed ? "Users" : undefined}
+      >
+        <UsersIcon class="{collapsed ? 'w-6 h-6' : 'w-4 h-4'} shrink-0" aria-hidden="true" />
+        {#if !collapsed}
+          Users
+        {/if}
+      </button>
+    {/if}
 
     <button
       type="button"

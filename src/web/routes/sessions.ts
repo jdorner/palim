@@ -10,15 +10,44 @@
  */
 
 import { Type } from "@sinclair/typebox";
+import { ownedSubject } from "@src/auth";
 import { getSessionStore } from "@src/session";
 import { mainLogger as log } from "@src/utils/logger";
 import { Elysia } from "elysia";
+import { getPrincipal } from "../auth";
 
 /**
- * Guard: returns a 404 response if the session doesn't exist.
+ * Guard: resolves a session and enforces ownership.
+ *
+ * Returns a 404 when the session does not exist, or a 403 when the requesting
+ * principal may not act on it (a non-admin accessing another user's session).
+ * On success returns undefined and the caller may proceed.
+ *
+ * @param sessionStore - The session store.
+ * @param sessionId - The session id.
+ * @param request - The incoming request (carries the resolved principal).
+ * @param action - The CASL action being attempted ("read", "update", "delete").
+ * @param status - Elysia status helper.
+ * @returns A 404/403 response, or undefined when access is allowed.
  */
-function requireSession(sessionStore: ReturnType<typeof getSessionStore>, sessionId: string, status: any) {
-  if (!sessionStore.get(sessionId)) {
+function requireOwnedSession(
+  sessionStore: ReturnType<typeof getSessionStore>,
+  sessionId: string,
+  request: Request,
+  action: "read" | "update" | "delete",
+  status: any,
+) {
+  const session = sessionStore.get(sessionId);
+  if (!session) {
+    return status(404, { error: "Session not found" });
+  }
+  const principal = getPrincipal(request);
+  if (!principal) {
+    return status(401, { error: "Unauthorized" });
+  }
+  const allowed = principal.ability.can(action, ownedSubject("Session", { userId: session.userId }));
+  if (!allowed) {
+    // Do not reveal existence to non-owners: respond 404.
     return status(404, { error: "Session not found" });
   }
 }
@@ -32,11 +61,11 @@ export function sessionRoutes() {
   return new Elysia()
     .get(
       "/api/sessions/:id/messages",
-      ({ params, query, status }) => {
+      ({ params, query, request, status }) => {
         try {
           const sessionStore = getSessionStore();
-          const notFound = requireSession(sessionStore, params.id, status);
-          if (notFound) return notFound;
+          const denied = requireOwnedSession(sessionStore, params.id, request, "read", status);
+          if (denied) return denied;
 
           const messages = sessionStore.getMessages(params.id, {
             ...(query.limit !== undefined ? { limit: query.limit } : {}),
@@ -58,11 +87,11 @@ export function sessionRoutes() {
     )
     .delete(
       "/api/sessions/:id/messages",
-      ({ params, query, status }) => {
+      ({ params, query, request, status }) => {
         try {
           const sessionStore = getSessionStore();
-          const notFound = requireSession(sessionStore, params.id, status);
-          if (notFound) return notFound;
+          const denied = requireOwnedSession(sessionStore, params.id, request, "update", status);
+          if (denied) return denied;
 
           const keepTurns = query.keep ?? 0;
           const includeTrailing = query.includeTrailing === "true";
@@ -125,11 +154,11 @@ export function sessionRoutes() {
         }),
       },
     )
-    .delete("/api/sessions/:id", ({ params, status }) => {
+    .delete("/api/sessions/:id", ({ params, request, status }) => {
       try {
         const sessionStore = getSessionStore();
-        const notFound = requireSession(sessionStore, params.id, status);
-        if (notFound) return notFound;
+        const denied = requireOwnedSession(sessionStore, params.id, request, "delete", status);
+        if (denied) return denied;
 
         sessionStore.delete(params.id);
 

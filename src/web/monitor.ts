@@ -7,6 +7,7 @@
  */
 
 import type { JobEntry, WebSocketMessage } from "@shared/types";
+import type { AuthResolver, ResolvedPrincipal } from "@src/auth";
 import type { JobInfo, ManagedQueuePort, QueueJobLogs } from "@src/queue";
 import { getLogStore } from "@src/queue";
 import { mainLogger as log } from "@src/utils/logger";
@@ -29,11 +30,47 @@ function extractPrompt(data: unknown): string | null {
 }
 
 /**
+ * Extracts the chat ID from a job payload whose routing context is a chat.
+ *
+ * @param data - The raw job data
+ * @returns The chat ID, or `null` when the job is not chat-routed
+ */
+function extractChatId(data: unknown): string | null {
+  if (!data || typeof data !== "object") return null;
+  const context = (data as Record<string, unknown>).context as Record<string, unknown> | undefined;
+  if (context?.source === "chat" && typeof context.id === "string") return context.id;
+  return null;
+}
+
+/** WebSocket close code telling the client its credentials are no longer valid. */
+const WS_CLOSE_UNAUTHORIZED = 4001;
+
+/** Per-connection auth state tracked by the monitor. */
+interface ClientAuth {
+  /** The principal the connection currently acts as (null when unauthenticated). */
+  principal: ResolvedPrincipal | null;
+  /** The bearer token the connection opened with, re-resolved on revalidation. */
+  token?: string;
+}
+
+/**
  * Monitor class for tracking job status and broadcasting updates to WebSocket clients.
  */
 export class QueueMonitor {
-  private clients: Set<ServerWebSocket<unknown>> = new Set();
+  /** Connected clients mapped to their auth state. */
+  private clients: Map<ServerWebSocket<unknown>, ClientAuth> = new Map();
+  /** Resolver used to re-check client tokens; revalidation is a no-op without it. */
+  private authResolver: AuthResolver | null = null;
+  private revalidationTimer: ReturnType<typeof setInterval> | null = null;
   private jobCache: Map<string, JobEntry> = new Map();
+  /**
+   * Owner of each known chat stream, keyed by chatId (null = no recorded owner).
+   * The first claim wins so a later job naming the same chatId cannot hijack
+   * another user's stream.
+   */
+  private chatOwners: Map<string, string | null> = new Map();
+  /** Chat-routed job IDs mapped to their chatId, for evicting {@link chatOwners}. */
+  private jobChats: Map<string, string> = new Map();
   private queues: ManagedQueuePort[] = [];
   /** Handles job cancellation and workflow chain resolution. */
   private canceller: JobCanceller;
@@ -263,6 +300,15 @@ export class QueueMonitor {
     if (data && typeof data.sessionId === "string") {
       entry.sessionId = data.sessionId;
     }
+    // The initiating user id scopes visibility of chat jobs to their owner.
+    if (data && typeof data.initiatorUserId === "string") {
+      entry.userId = data.initiatorUserId;
+    }
+    const chatId = extractChatId(data);
+    if (chatId) {
+      this.registerChatOwner(chatId, entry.userId ?? null);
+      this.jobChats.set(job.id, chatId);
+    }
     if (data && typeof data.workflowRunId === "string") {
       entry.workflowRunId = data.workflowRunId;
       if (typeof data.workflowName === "string") entry.workflowName = data.workflowName;
@@ -272,6 +318,36 @@ export class QueueMonitor {
     }
 
     return entry;
+  }
+
+  /**
+   * Records the owner of a chat stream so `chat_event` and `push_message`
+   * broadcasts for it reach only that user (and admins).
+   *
+   * The first claim for a chatId wins; later claims are ignored. Callers that
+   * enqueue chat jobs should register before enqueueing so the owner is known
+   * before any streamed output is broadcast.
+   *
+   * @param chatId - The client-generated chat correlation ID
+   * @param userId - The owning user's id, or null when there is no initiator (delivered to no one)
+   */
+  registerChatOwner(chatId: string, userId: string | null): void {
+    if (!this.chatOwners.has(chatId)) this.chatOwners.set(chatId, userId);
+  }
+
+  /**
+   * Drops chat ownership for an evicted job once no remaining job references its chat.
+   *
+   * @param jobId - The evicted job's id
+   */
+  private forgetJobChat(jobId: string): void {
+    const chatId = this.jobChats.get(jobId);
+    if (!chatId) return;
+    this.jobChats.delete(jobId);
+    for (const other of this.jobChats.values()) {
+      if (other === chatId) return;
+    }
+    this.chatOwners.delete(chatId);
   }
 
   /** Lookup table mapping queue job states to frontend-facing statuses. */
@@ -298,15 +374,30 @@ export class QueueMonitor {
   /**
    * Adds a WebSocket client and sends the current job state snapshot.
    *
+   * Pass the connection's bearer token so {@link revalidateClients} can drop the
+   * connection once the token is revoked or expires, or its user is disabled.
+   *
    * @param ws - The WebSocket client to add
+   * @param principal - The authenticated principal for this connection (null when unauthenticated)
+   * @param token - The bearer token the connection authenticated with
    */
-  addClient(ws: ServerWebSocket<unknown>): void {
-    this.clients.add(ws);
+  addClient(ws: ServerWebSocket<unknown>, principal: ResolvedPrincipal | null = null, token?: string): void {
+    this.clients.set(ws, { principal, ...(token ? { token } : {}) });
     log.debug("New monitor client connected");
+    this.sendInitialState(ws, principal);
+  }
 
+  /**
+   * Sends the job cache, scoped to the given principal, as an `initial_state`
+   * snapshot. Clients replace their whole job list on receipt.
+   *
+   * @param ws - The WebSocket client to send to
+   * @param principal - The principal the snapshot is scoped to
+   */
+  private sendInitialState(ws: ServerWebSocket<unknown>, principal: ResolvedPrincipal | null): void {
     const initialState: WebSocketMessage = {
       type: "initial_state",
-      jobs: Array.from(this.jobCache.values()),
+      jobs: Array.from(this.jobCache.values()).filter((j) => this.isJobVisibleTo(j.id, principal)),
     };
     try {
       log.debug("Sending initial state", initialState);
@@ -327,6 +418,81 @@ export class QueueMonitor {
   }
 
   /**
+   * Sets the resolver used by {@link revalidateClients} to re-check client tokens.
+   *
+   * @param resolver - The token resolver (typically the auth service)
+   */
+  setAuthResolver(resolver: AuthResolver): void {
+    this.authResolver = resolver;
+  }
+
+  /**
+   * Re-resolves every token-bearing client against the auth resolver.
+   *
+   * A WebSocket otherwise keeps the identity it had when it opened. Clients
+   * whose token no longer resolves (logout, expiry, revoked sessions, disabled
+   * user) are closed with code 4001 and stop receiving broadcasts immediately;
+   * the rest pick up their current principal so role and permission changes
+   * apply to subsequent broadcasts, and receive a fresh `initial_state` when
+   * their admin status flips. Call after auth state changes, and
+   * periodically to catch expiry and out-of-process changes.
+   *
+   * @returns The number of clients that were disconnected
+   */
+  revalidateClients(): number {
+    const resolver = this.authResolver;
+    if (!resolver) return 0;
+
+    let closed = 0;
+    for (const [ws, auth] of this.clients) {
+      if (!auth.token) continue;
+      let principal: ResolvedPrincipal | null;
+      try {
+        principal = resolver.resolveToken(auth.token);
+      } catch (error) {
+        // Keep the connection on transient resolver failures; the next pass retries.
+        log.error("Failed to revalidate monitor client:", error);
+        continue;
+      }
+      if (principal) {
+        auth.principal = principal;
+        continue;
+      }
+      this.clients.delete(ws);
+      closed++;
+      try {
+        ws.close(WS_CLOSE_UNAUTHORIZED, "Unauthorized");
+      } catch (error) {
+        log.debug("Failed to close revoked monitor client:", error);
+      }
+    }
+    if (closed > 0) log.info(`Disconnected ${closed} WebSocket client(s) with revoked credentials`);
+    return closed;
+  }
+
+  /**
+   * Starts a periodic {@link revalidateClients} pass, replacing any running timer.
+   * The timer is unref'd so it never keeps the process alive on its own.
+   *
+   * @param intervalMs - Interval between revalidation passes, in ms
+   */
+  startRevalidationTimer(intervalMs: number): void {
+    this.stopRevalidationTimer();
+    this.revalidationTimer = setInterval(() => this.revalidateClients(), intervalMs);
+    this.revalidationTimer.unref();
+  }
+
+  /**
+   * Stops the periodic revalidation timer, if running.
+   */
+  stopRevalidationTimer(): void {
+    if (this.revalidationTimer) {
+      clearInterval(this.revalidationTimer);
+      this.revalidationTimer = null;
+    }
+  }
+
+  /**
    * Evicts the given job IDs from the cache and broadcasts the full job state
    * to all clients, avoiding incremental sync issues.
    *
@@ -335,6 +501,7 @@ export class QueueMonitor {
   removeJobs(jobIds: string[]): void {
     for (const id of jobIds) {
       this.jobCache.delete(id);
+      this.forgetJobChat(id);
     }
     this.broadcastFullState();
   }
@@ -406,20 +573,112 @@ export class QueueMonitor {
    * @param message - The message to broadcast
    */
   broadcast(message: WebSocketMessage): void {
-    // Keep cache consistent when extensions broadcast job_removed directly
+    // Keep cache consistent when extensions broadcast job_removed directly.
+    // Capture a chat job's owner BEFORE eviction so per-client filtering still works.
+    let removedChatOwner: string | null | undefined;
     if (message.type === "job_removed") {
+      if (this.jobChats.has(message.jobId)) removedChatOwner = this.jobCache.get(message.jobId)?.userId ?? null;
       this.jobCache.delete(message.jobId);
+      this.forgetJobChat(message.jobId);
     }
 
-    const payload = JSON.stringify(message);
-
-    for (const client of this.clients) {
+    for (const [client, { principal }] of this.clients) {
+      const scoped = this.scopeMessageForClient(message, principal, removedChatOwner);
+      if (scoped === null) continue;
       try {
-        client.send(payload);
+        client.send(JSON.stringify(scoped));
       } catch (error) {
         log.error("Failed to send message to client:", error);
       }
     }
+  }
+
+  /**
+   * Scopes a broadcast message to what a specific client is permitted to see.
+   *
+   * Chat streams (`chat_event`/`push_message`) and chat jobs are delivered only
+   * to the chat's owner, admins included; chats with no recorded or unknown
+   * owner reach no one. For job events this means:
+   * - `initial_state` has its `jobs` array filtered to the visible jobs.
+   * - `job_added`/`job_updated`/`job_log` are dropped for other users' chat jobs.
+   * - `job_removed` is dropped when the evicted job was another user's chat job.
+   *
+   * Every other event (non-chat jobs, schedules, reloads, extension lifecycle,
+   * approvals, workflows) is readable by all authenticated clients and passes through.
+   *
+   * @param message - The outgoing message.
+   * @param principal - The client's principal (null when unauthenticated).
+   * @param removedChatOwner - For `job_removed` of a chat job, its owner captured before
+   *   eviction (null when it had none); undefined when the removed job was not a chat job.
+   * @returns The (possibly filtered) message, or null to drop it for this client.
+   */
+  private scopeMessageForClient(
+    message: WebSocketMessage,
+    principal: ResolvedPrincipal | null,
+    removedChatOwner?: string | null,
+  ): WebSocketMessage | null {
+    switch (message.type) {
+      // Chat streams go to the chat's owner only - admins included. Clients only
+      // render streams they started (and surface unknown-chat errors as their own),
+      // so delivering other users' streams would leak content and show bogus errors.
+      case "chat_event":
+      case "push_message": {
+        const owner = this.chatOwners.get(message.chatId);
+        return owner != null && owner === principal?.user.id ? message : null;
+      }
+      case "initial_state":
+        return { type: "initial_state", jobs: message.jobs.filter((j) => this.isJobVisibleTo(j.id, principal)) };
+      case "job_added":
+      case "job_updated":
+        return this.isJobVisibleTo(message.job.id, principal) ? message : null;
+      case "job_log":
+        return this.isJobVisibleTo(message.jobId, principal) ? message : null;
+      case "job_removed":
+        if (removedChatOwner === undefined) return message;
+        return removedChatOwner !== null && removedChatOwner === principal?.user.id ? message : null;
+      default:
+        return message;
+    }
+  }
+
+  /**
+   * Whether a cached job is visible to a principal.
+   *
+   * Chat jobs are private to the user who started them (admins included), like
+   * the chat sessions and streams they belong to; a chat job with no recorded
+   * initiator is visible to no one. All other jobs are readable by everyone.
+   *
+   * @param jobId - The job's id.
+   * @param principal - The viewing principal (null when unauthenticated).
+   * @returns True when the principal may see the job.
+   */
+  private isJobVisibleTo(jobId: string, principal: ResolvedPrincipal | null): boolean {
+    if (!this.jobChats.has(jobId)) return true;
+    const owner = this.jobCache.get(jobId)?.userId;
+    return owner !== undefined && owner === principal?.user.id;
+  }
+
+  /**
+   * Whether a principal may see and act on a job, for the per-job HTTP routes.
+   *
+   * Applies the same rule as the WebSocket feed: chat jobs are private to their
+   * initiator, everything else is open. Falls back to the queues for jobs not in
+   * the cache. Unknown jobs count as accessible so callers keep their own 404.
+   *
+   * @param jobId - The job's id.
+   * @param principal - The requesting principal (undefined when unauthenticated).
+   * @returns True when the principal may access the job.
+   */
+  async canAccessJob(jobId: string, principal: ResolvedPrincipal | undefined): Promise<boolean> {
+    if (this.jobCache.has(jobId)) return this.isJobVisibleTo(jobId, principal ?? null);
+    for (const queue of this.queues) {
+      const job = await queue.getJob(jobId);
+      if (!job) continue;
+      if (!extractChatId(job.data)) return true;
+      const owner = (job.data as Record<string, unknown>).initiatorUserId;
+      return typeof owner === "string" && owner === principal?.user.id;
+    }
+    return true;
   }
 
   /**

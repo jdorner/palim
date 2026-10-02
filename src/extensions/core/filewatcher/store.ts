@@ -48,6 +48,7 @@ function rowToRegistration(row: typeof fileWatchers.$inferSelect): FileWatcherRe
     processExisting: row.processExisting,
     enabled: row.enabled,
     createdAt: row.createdAt,
+    createdByUserId: row.createdByUserId ?? null,
   };
 }
 
@@ -89,6 +90,7 @@ export function insertWatcher(reg: FileWatcherRegistration): void {
       processExisting: reg.processExisting,
       enabled: reg.enabled,
       createdAt: reg.createdAt,
+      createdByUserId: reg.createdByUserId ?? null,
     })
     .run();
 }
@@ -118,6 +120,7 @@ export function updateWatcher(
       recursive: merged.recursive,
       processExisting: merged.processExisting,
       enabled: merged.enabled,
+      createdByUserId: merged.createdByUserId ?? null,
     })
     .where(eq(fileWatchers.slug, slug))
     .run();

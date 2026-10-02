@@ -38,6 +38,7 @@ function rowToRegistration(row: typeof webhooks.$inferSelect): WebhookRegistrati
     headerName: row.headerName,
     enabled: row.enabled,
     createdAt: row.createdAt,
+    createdByUserId: row.createdByUserId ?? null,
   };
 }
 
@@ -77,6 +78,7 @@ export function insertWebhook(reg: WebhookRegistration): void {
       headerName: reg.headerName,
       enabled: reg.enabled,
       createdAt: reg.createdAt,
+      createdByUserId: reg.createdByUserId ?? null,
     })
     .run();
 }
@@ -104,6 +106,7 @@ export function updateWebhookRecord(
       secret: merged.secret,
       headerName: merged.headerName,
       enabled: merged.enabled,
+      createdByUserId: merged.createdByUserId ?? null,
     })
     .where(eq(webhooks.slug, slug))
     .run();

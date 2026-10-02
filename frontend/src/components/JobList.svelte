@@ -524,7 +524,7 @@ function trackColumnWidths(container: HTMLElement) {
 <!-- Desktop: Table layout -->
 <div class="responsive-table rounded-md border border-border" use:trackColumnWidths>
   <Table>
-    <TableHeader>
+    <TableHeader class="bg-muted/30">
       <TableRow>
         <TableHead class="w-8"></TableHead>
         <TableHead class="min-w-20">Queue</TableHead>

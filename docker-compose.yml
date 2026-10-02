@@ -22,7 +22,7 @@ services:
       OPENAI_API_BASE_URL: http://host.containers.internal:11434/v1
     # Uncomment and set as needed:
     #   OPENAI_API_KEY: sk-local
-    #   AUTH_TOKEN: ""
+    #   AUTH_ADMIN_PASSWORD: ""        # seeded admin password (empty = generated, printed to log once)
     #   SECRETS_MASTER_KEY: ""         # 32-byte key (hex or base64) for encrypted secret vault
     #   TELEGRAM_BOT_TOKEN: ""
     #   EXT_TELEGRAM_CHAT_ID: ""

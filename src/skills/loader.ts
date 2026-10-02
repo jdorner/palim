@@ -10,7 +10,7 @@ import { serverOrigin } from "@src/config";
 import type { SkillScriptContext } from "@src/extensions/types";
 import { parseSkillMd } from "@src/skills/frontmatter";
 import { registerProgram, type SkillEntry } from "@src/tools/sandbox";
-import { authenticatedFetch } from "@src/utils/fetch";
+import { createInternalFetch, resolveAmbientToken } from "@src/utils/fetch";
 import createLogger from "logging";
 
 const logger = createLogger("SkillLoader");
@@ -196,7 +196,13 @@ export async function loadSkillScripts(
       baseUrl: extensionBaseUrl(entry.extensionName),
       serverUrl: serverOrigin(),
       extensionsDir: primaryExtensionsDir,
-      fetch: authenticatedFetch,
+      // Confined to this skill's owning extension prefix (plus /api/push), and
+      // bound to the ambient per-job identity so internal calls authorize as the
+      // initiating user rather than a shared privileged token.
+      fetch: createInternalFetch({
+        tokenProvider: resolveAmbientToken,
+        prefix: `/ext/${entry.extensionName}`,
+      }),
       registerProgram,
     };
 

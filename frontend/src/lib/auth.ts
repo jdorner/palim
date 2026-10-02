@@ -20,6 +20,21 @@ let redirecting = false;
 /** Injected disconnect callback from the connection manager. */
 let disconnectFn: (() => void) | null = null;
 
+/** Injected callback to clear identity state on logout (set by app init). */
+let clearIdentityFn: (() => void) | null = null;
+
+/**
+ * Registers a callback that clears identity state on logout.
+ *
+ * Injected during app initialization to avoid a circular import between the
+ * identity store (which imports authFetch) and this module.
+ *
+ * @param fn - The identity-clearing function.
+ */
+export function registerClearIdentity(fn: () => void): void {
+  clearIdentityFn = fn;
+}
+
 /**
  * Registers the disconnect function from the connection manager.
  * Called once during app initialization to break the circular dependency.
@@ -70,7 +85,9 @@ export async function checkAuthRequired(): Promise<boolean> {
       return true;
     }
     const data = await res.json();
-    authRequired = !data.authDisabled;
+    // Auth is mandatory now; the server reports authRequired: true. Default to
+    // true when the field is absent so we fail closed toward the login page.
+    authRequired = data.authRequired !== false;
     return authRequired;
   } catch {
     // Network error - server unreachable, don't redirect to login
@@ -91,6 +108,7 @@ export function forceLogout(): void {
   if (redirecting) return;
   redirecting = true;
   disconnectFn?.();
+  clearIdentityFn?.();
   clearToken();
   resetAuthCache();
   navigate("/login");

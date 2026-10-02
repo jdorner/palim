@@ -166,7 +166,7 @@ $effect(() => {
     <!-- Desktop: Table layout -->
     <div class="responsive-table rounded-md border border-border">
       <Table>
-        <TableHeader>
+        <TableHeader class="bg-muted/30">
           <TableRow>
             <TableHead>Name</TableHead>
             <TableHead>Id</TableHead>

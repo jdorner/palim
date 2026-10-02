@@ -21,7 +21,9 @@ import { DAG_CF_TYPES } from "./schemas";
  * by the workflow engine to create per-step sessions.
  */
 export interface SessionFactory {
-  create(opts: { source: string; sourceId?: string; metadata?: Record<string, unknown> }): { id: string };
+  create(opts: { source: string; sourceId?: string; userId?: string; metadata?: Record<string, unknown> }): {
+    id: string;
+  };
 }
 
 /** Queue name used for all workflow step jobs. */
@@ -45,6 +47,12 @@ export interface DagStepJobData {
   triggerPayload?: unknown;
   /** Slug of the iterator this step belongs to (when inside an iteration body). */
   iteratorSlug?: string;
+  /**
+   * Id of the user who initiated the run (the trigger's creator or the user who
+   * started it). Internal calls made during step execution authorize as this
+   * user; absent for genuinely user-less runs (fall back to system).
+   */
+  initiatorUserId?: string;
 }
 
 /**
@@ -64,10 +72,12 @@ export function buildDagStepJob(
     sessionFactory: SessionFactory;
     triggerPayload?: unknown;
     iteratorSlug?: string;
+    initiatorUserId?: string;
   },
 ): FlowJob<DagStepJobData> {
   const session = opts.sessionFactory.create({
     source: "workflow",
+    ...(opts.initiatorUserId ? { userId: opts.initiatorUserId } : {}),
     metadata: {
       workflowName: opts.workflowName,
       workflowRunId: opts.workflowRunId,
@@ -84,6 +94,7 @@ export function buildDagStepJob(
     sessionId: session.id,
     triggerPayload: opts.triggerPayload,
     iteratorSlug: opts.iteratorSlug,
+    ...(opts.initiatorUserId ? { initiatorUserId: opts.initiatorUserId } : {}),
   };
 
   return {
@@ -115,6 +126,7 @@ export async function dispatchDagWorkflow(
   log: Logger,
   sessionStore: SessionFactory,
   onInlineRoots?: (runId: string, rootSlugs: string[]) => Promise<void>,
+  initiatorUserId?: string,
 ): Promise<WorkflowDispatchResult> {
   const workflowRunId = crypto.randomUUID();
   const { steps, edges } = definition;
@@ -149,6 +161,7 @@ export async function dispatchDagWorkflow(
       stepResults: {},
       triggerPayload,
       failureReason: null,
+      createdByUserId: initiatorUserId ?? null,
     });
   } catch (err) {
     log.error(`Failed to create DAG Run Store record for workflow "${definition.name}":`, err);
@@ -188,6 +201,7 @@ export async function dispatchDagWorkflow(
       allStepDefs,
       sessionFactory: sessionStore,
       triggerPayload: triggerPayload ?? undefined,
+      ...(initiatorUserId ? { initiatorUserId } : {}),
     });
 
     try {

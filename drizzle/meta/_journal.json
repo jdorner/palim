@@ -64,6 +64,27 @@
       "when": 1785100000000,
       "tag": "0009_add-global-variables",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "6",
+      "when": 1790759729357,
+      "tag": "0010_add-user-management",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "6",
+      "when": 1790759800000,
+      "tag": "0011_add-workflow-run-creator",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "6",
+      "when": 1790759900000,
+      "tag": "0012_drop-read-permissions",
+      "breakpoints": true
     }
   ]
 }

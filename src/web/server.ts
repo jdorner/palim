@@ -5,16 +5,19 @@
 
 import { cors } from "@elysia/cors";
 import { staticPlugin } from "@elysiajs/static";
+import type { AuthService, UserStore } from "@src/auth";
 import type { ExtensionRegistry } from "@src/extensions";
 import type { AgentJob, ChatJob } from "@src/jobs";
 import { createPushService } from "@src/push";
 import type { ManagedQueuePort } from "@src/queue";
 import type { SecretVault } from "@src/secrets/vault";
+import { getSessionStore } from "@src/session";
 import { mainLogger as log } from "@src/utils/logger";
 import type { VariableStore } from "@src/variables/store";
 import { type AnyElysia, Elysia } from "elysia";
 import { rateLimit } from "elysia-rate-limit";
-import { authEnabled, extractBearerToken, validateToken } from "./auth";
+import { extractBearerToken, extractWsToken, setPrincipal } from "./auth";
+import { authorizeRequest } from "./authorize";
 import { compression } from "./compression";
 import { QueueMonitor } from "./monitor";
 import { authRoutes } from "./routes/auth";
@@ -27,9 +30,7 @@ import { modelRoutes } from "./routes/models";
 import { pushRoutes } from "./routes/push";
 import { secretRoutes } from "./routes/secrets";
 import { sessionRoutes } from "./routes/sessions";
-
-/** WebSocket auth protocol prefix. */
-const WS_AUTH_PREFIX = "auth-";
+import { userRoutes } from "./routes/users";
 
 /** Dependencies injected into the web server factory. */
 interface WebServerDeps {
@@ -43,6 +44,10 @@ interface WebServerDeps {
   secretVault?: SecretVault;
   /** VariableStore instance for plaintext global variables (always available). */
   variableStore?: VariableStore;
+  /** Authentication service resolving bearer tokens to principals and issuing logins. */
+  authService?: AuthService;
+  /** User store for account/role lookups (used by admin routes). */
+  userStore?: UserStore;
 }
 
 /** Options for starting the web server. */
@@ -51,23 +56,6 @@ interface WebServerListenOptions {
   hostname?: string;
   /** Port number to listen on. */
   port?: number;
-}
-
-/**
- * Extracts an auth token from the WebSocket `Sec-WebSocket-Protocol` header.
- *
- * Clients send the token as a sub-protocol in the format `auth-<token>`.
- *
- * @param protocolHeader - Raw `Sec-WebSocket-Protocol` header value
- * @returns The extracted token, or empty string if none found
- */
-function extractWsToken(protocolHeader: string | null): string {
-  if (!protocolHeader) return "";
-  const authProtocol = protocolHeader
-    .split(",")
-    .map((p) => p.trim())
-    .find((p) => p.startsWith(WS_AUTH_PREFIX));
-  return authProtocol?.slice(WS_AUTH_PREFIX.length) ?? "";
 }
 
 /**
@@ -81,10 +69,13 @@ function extractWsToken(protocolHeader: string | null): string {
  * @returns Object containing the Elysia app instance and QueueMonitor
  */
 export async function createWebServer(deps: WebServerDeps) {
-  const { agentQueue, chatQueue, getRegistry } = deps;
+  const { agentQueue, chatQueue, getRegistry, authService } = deps;
 
   // Feed managed queues to the monitor for event-based tracking
   const monitor = new QueueMonitor([agentQueue, chatQueue]);
+  // Lets the monitor drop or re-scope open sockets when their credentials change.
+  if (authService) monitor.setAuthResolver(authService);
+  const revalidateSockets = () => monitor.revalidateClients();
 
   // Create the push service with broadcast wired to the monitor
   const pushService = createPushService({ broadcastFn: (msg) => monitor.broadcast(msg) });
@@ -108,30 +99,40 @@ export async function createWebServer(deps: WebServerDeps) {
         },
       }),
     )
-    .onBeforeHandle(authCheck)
+    .onBeforeHandle((ctx) => authCheck(ctx, authService))
     .onBeforeHandle(checkIfExtensionIsUnloaded(getRegistry))
     // --- Route modules ---
-    .use(authRoutes())
+    .use(authRoutes(() => authService, revalidateSockets))
     .use(jobRoutes(monitor))
     .use(extensionRoutes(getRegistry))
     .use(modelRoutes(getRegistry))
-    .use(chatRoutes(chatQueue))
+    .use(chatRoutes(chatQueue, (chatId, userId) => monitor.registerChatOwner(chatId, userId)))
     .use(sessionRoutes())
     .use(pushRoutes(pushService.pushMessage))
     .use(secretRoutes(getRegistry, () => deps.secretVault))
     .use(globalSecretRoutes(() => deps.secretVault))
     .use(globalVariableRoutes(() => deps.variableStore))
+    .use(
+      userRoutes(
+        () => deps.userStore,
+        () => authService,
+        revalidateSockets,
+        (userId) => getSessionStore().deleteByUser(userId),
+      ),
+    )
     // --- WebSocket ---
     .ws("/ws", {
       async open(ws) {
-        if (authEnabled) {
-          const token = extractWsToken(ws.data.request.headers.get("sec-websocket-protocol"));
-          if (!validateToken(token)) {
-            ws.close(4001, "Unauthorized");
-            return;
-          }
+        // Resolve the per-user identity from the auth subprotocol. When no auth
+        // service is wired (should not happen in production), reject to fail closed.
+        const token = extractWsToken(ws.data.request.headers.get("sec-websocket-protocol"));
+        const principal = authService?.resolveToken(token) ?? null;
+        if (!principal) {
+          ws.close(4001, "Unauthorized");
+          return;
         }
-        monitor.addClient(ws);
+        // Keep the token so the monitor can revalidate this connection later.
+        monitor.addClient(ws, principal, token);
       },
       close(ws) {
         monitor.removeClient(ws);
@@ -154,25 +155,48 @@ export function startWebServer(app: AnyElysia, opts: WebServerListenOptions) {
 }
 
 /**
- * HTTP request middleware to check for a valid auth token on protected routes.
+ * HTTP request middleware: authenticates the bearer token to a per-user
+ * principal, attaches it to the request, and enforces coarse route
+ * authorization via the central rule table.
  *
- * @param params - Elysia handler parameters including the request and status
- * @returns 401 Unauthorized response if token is missing or invalid
+ * Public paths (static assets, `/api/auth/login`, webhook receive routes) are
+ * exempt. Protected paths require a resolvable token (else 401) and must pass
+ * the authorization rules for the method+path (else 403). Fine-grained
+ * ownership checks live in the individual route handlers.
+ *
+ * @param params - Elysia handler parameters (request + status helper).
+ * @param authService - The resolver mapping tokens to principals.
+ * @returns A 401/403 response when unauthenticated/unauthorized; otherwise undefined.
  */
-function authCheck(params: { request: Request; status: any }) {
-  if (!authEnabled) return;
-
+export function authCheck(params: { request: Request; status: any }, authService: WebServerDeps["authService"]) {
   const url = new URL(params.request.url);
   const path = url.pathname;
 
-  // Skip auth for static files, the validate endpoint, and webhook receive routes
+  // Only /api/ and /ext/ paths are protected; everything else (static assets,
+  // health) is public.
   if (!path.startsWith("/api/") && !path.startsWith("/ext/")) return;
-  if (path === "/api/auth/validate") return;
+  // Public auth endpoints (login/validate) and machine-facing webhook ingress.
+  if (path === "/api/auth/login" || path === "/api/auth/validate") return;
   if (path.startsWith("/ext/webhooks/receive/")) return;
 
+  // Fail closed if the auth service is missing (misconfiguration).
+  if (!authService) {
+    return params.status(503, { error: "Auth service unavailable" });
+  }
+
   const token = extractBearerToken(params.request.headers.get("authorization"));
-  if (!validateToken(token)) {
+  const principal = authService.resolveToken(token);
+  if (!principal) {
     return params.status(401, { error: "Unauthorized" });
+  }
+
+  // Attach identity for downstream handlers (ownership checks, admin routes).
+  setPrincipal(params.request, principal);
+
+  // Coarse, feature-level authorization from the central rule table.
+  const decision = authorizeRequest(params.request.method, path, principal.ability);
+  if (!decision.allowed) {
+    return params.status(403, { error: "Forbidden" });
   }
 }
 

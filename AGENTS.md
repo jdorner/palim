@@ -47,7 +47,9 @@ The web UI is served at `http://localhost:3000` by default (configurable via `WE
 | `WEB_HOST`             | Web server bind address                        | `localhost`                |
 | `WEB_PORT`             | Web server port                                | `3000`                     |
 | `EXTENSIONS_DIR`       | Custom extensions directory                    | `src/extensions`           |
-| `AUTH_TOKEN`           | Bearer token for API/WS auth (empty = disabled)| -                          |
+| `AUTH_ADMIN_USER`      | Username of the admin seeded on first boot     | `admin`                    |
+| `AUTH_ADMIN_PASSWORD`  | Seeded admin password (empty = generate + log) | -                          |
+| `AUTH_SESSION_TTL_MS`  | Login token lifetime (ms)                      | `604800000` (7 days)       |
 | `DATA_DIR`             | Directory for databases and generated content  | `<AGENT_WORK_DIR>/.palim/` |
 | `TELEGRAM_BOT_TOKEN`   | Telegram bot token                             | -                          |
 | `EXT_TELEGRAM_CHAT_ID` | Default Telegram chat ID                       | -                          |
@@ -95,7 +97,7 @@ src/
 │   ├── chatEvents.ts        # Agent event to chat WS event mappingg
 │   ├── sessionChatMap.ts    # In-memory session-to-chat mapping for push routing
 │   └── routes/
-│       ├── auth.ts          # POST /api/auth/validate
+│       ├── auth.ts          # POST /api/auth/login|logout|validate, GET /api/auth/me
 │       ├── chat.ts          # POST /api/chat
 │       ├── extensions.ts    # GET/PUT /api/extensions (settings with dynamic item enrichment)
 │       ├── jobs.ts          # Job cancel, logs, queue clean endpoints
@@ -330,7 +332,12 @@ Elysia serves the built frontend as static files and exposes:
 - `POST /api/queues/clean` - Clean completed/failed jobs
 - `POST /api/jobs/:jobId/cancel` - Cancel a job
 - `GET /api/jobs/:jobId/logs` - Retrieve job logs
-- `POST /api/auth/validate` - Validate auth token
+- `POST /api/auth/login` - Exchange username/password for a bearer token
+- `POST /api/auth/logout` - Revoke the presented token
+- `GET /api/auth/me` - Current user and serialized ability
+- `POST /api/auth/validate` - Legacy probe (always reports that auth is required)
+- `GET/POST/PATCH/DELETE /api/users` - User management (admin; delete also removes the user's chat sessions and is refused while they still own webhooks, file watchers, or schedules)
+- `GET/POST /api/roles`, `PATCH/DELETE /api/roles/:id`, `PUT /api/roles/:id/permissions` - Role management (admin; delete only for unassigned custom roles)
 - `GET /api/extensions` - List loaded extensions
 - `PUT /api/extensions/:name` - Enable/disable an extension
 - `GET /api/extensions/:name/secrets` - List extension secret status (metadata only)
@@ -353,7 +360,7 @@ Elysia serves the built frontend as static files and exposes:
 - `WS /ws` - Real-time job state, chat streaming, workflow events, and extension lifecycle events
 - `/ext/<name>/...` - Extension-registered routes
 
-Auth is optional: set `AUTH_TOKEN` to enable Bearer token validation on API/WS/extension routes.
+Auth is always on: all `/api/` and `/ext/` routes (except login, health, and webhook receive) and the WebSocket require a per-user bearer token. Every user can read everything except other users' chat sessions; roles map to write/management permissions (RBAC). See `docs/api-security-model.md`.
 
 ### Secrets Management
 
@@ -364,7 +371,7 @@ Palim has two layers of secret management:
 - Loaded once at startup via `dotenvx.config()` (imported in `main.ts`)
 - If `.env.keys` is present, dotenvx decrypts the `.env` file and injects all values into `process.env`
 - If `.env.keys` is absent, Bun's built-in `.env` loading provides values directly
-- Used for infrastructure config: `OPENAI_API_KEY`, `AUTH_TOKEN`, etc.
+- Used for infrastructure config: `OPENAI_API_KEY`, `AUTH_ADMIN_PASSWORD`, etc.
 - No per-key ACL or audit logging (trusted core code only)
 
 **SecretVault** (SQLite-backed, AES-256-GCM encrypted):
@@ -407,5 +414,6 @@ bun run dev              # Start agent with file watching
 bun run check            # Lint and format (Biome)
 bun run cli              # Launch sandbox CLI (interactive shell)
 bun run test             # Run tests
+bun run reset-admin [username]   # Break-glass: re-enable user, grant admin, print new password
 cd frontend && bun run build  # Build frontend
 ```

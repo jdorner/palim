@@ -63,3 +63,33 @@ export const DATA_DIR: string = (() => {
 
 /** Directory for dynamically generated/external extensions (e.g. MCP skills). */
 export const EXTERNAL_EXTENSIONS_DIR = join(DATA_DIR, "extensions");
+
+// ---------------------------------------------------------------------------
+// Authentication / user management
+// ---------------------------------------------------------------------------
+
+/** Username for the admin account seeded on first boot (empty users table). */
+export const AUTH_ADMIN_USER = process.env.AUTH_ADMIN_USER || "admin";
+
+/**
+ * Password for the seeded admin account. When empty, a strong one-time password
+ * is generated and logged once at boot so the operator can log in and change it.
+ */
+export const AUTH_ADMIN_PASSWORD = process.env.AUTH_ADMIN_PASSWORD || "";
+
+/**
+ * Session token lifetime in milliseconds. Defaults to 7 days. Controls how long
+ * an issued login token remains valid before requiring re-authentication.
+ */
+export const AUTH_SESSION_TTL_MS: number = (() => {
+  const raw = process.env.AUTH_SESSION_TTL_MS?.trim();
+  if (!raw) return 7 * 24 * 60 * 60 * 1000;
+  // Strict digits-only check: parseInt would silently accept "7d" as 7 ms.
+  assert(/^\d+$/.test(raw), `Invalid AUTH_SESSION_TTL_MS: "${raw}" (must be a positive integer in milliseconds)`);
+  const ttl = Number(raw);
+  assert(
+    ttl > 0 && Number.isSafeInteger(ttl),
+    `Invalid AUTH_SESSION_TTL_MS: "${raw}" (must be a positive integer in milliseconds)`,
+  );
+  return ttl;
+})();

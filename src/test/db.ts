@@ -19,10 +19,15 @@ import {
   extensionSettings,
   globalVariables,
   jobLogs,
+  rolePermissions,
+  roles,
   secretAuditLog,
   secretsVault,
   sessionMessages,
   sessions,
+  userRoles,
+  userSessions,
+  users,
 } from "@src/db/schema";
 import { fileWatchers as extFilewatcherWatchers } from "@src/extensions/core/filewatcher/schema";
 import { webhooks as extWebhooksRegistrations } from "@src/extensions/core/webhooks/schema";
@@ -55,6 +60,11 @@ const schema = {
   secretAuditLog,
   secretsVault,
   globalVariables,
+  users,
+  roles,
+  rolePermissions,
+  userRoles,
+  userSessions,
 } as const;
 
 /**

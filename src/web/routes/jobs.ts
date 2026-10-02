@@ -6,11 +6,15 @@
  * - `GET  /api/jobs/:jobId/chain`
  * - `GET  /api/jobs/:jobId/logs`
  * - `POST /api/queues/clean`
+ *
+ * Per-job routes treat other users' chat jobs as nonexistent (404), matching
+ * their visibility in the WebSocket job feed.
  */
 
 import { Type } from "@sinclair/typebox";
 import { mainLogger as log } from "@src/utils/logger";
 import { Elysia } from "elysia";
+import { getPrincipal } from "../auth";
 import type { QueueMonitor } from "../monitor";
 
 /**
@@ -52,9 +56,12 @@ export function jobRoutes(monitor: QueueMonitor) {
     )
     .post(
       "/api/jobs/:jobId/cancel",
-      async ({ params, status }) => {
+      async ({ params, request, status }) => {
         try {
           const { jobId } = params;
+          if (!(await monitor.canAccessJob(jobId, getPrincipal(request)))) {
+            return status(404, { error: `Job ${jobId} not found` });
+          }
           const cancelled = await monitor.cancelJob(jobId);
 
           if (!cancelled) {
@@ -76,9 +83,12 @@ export function jobRoutes(monitor: QueueMonitor) {
     )
     .get(
       "/api/jobs/:jobId/chain",
-      async ({ params, status }) => {
+      async ({ params, request, status }) => {
         try {
           const { jobId } = params;
+          if (!(await monitor.canAccessJob(jobId, getPrincipal(request)))) {
+            return status(404, { error: `Job ${jobId} not found` });
+          }
           const result = await monitor.getChainSiblings(jobId);
 
           if (!result) {
@@ -102,9 +112,12 @@ export function jobRoutes(monitor: QueueMonitor) {
     )
     .get(
       "/api/jobs/:jobId/logs",
-      async ({ params, status }) => {
+      async ({ params, request, status }) => {
         try {
           const { jobId } = params;
+          if (!(await monitor.canAccessJob(jobId, getPrincipal(request)))) {
+            return status(404, { error: `Job ${jobId} not found` });
+          }
           const logs = await monitor.getJobLogs(jobId);
           if (!logs) return status(404, { error: `Job ${jobId} not found` });
 
@@ -122,9 +135,12 @@ export function jobRoutes(monitor: QueueMonitor) {
     )
     .post(
       "/api/jobs/:jobId/retry",
-      async ({ params, status }) => {
+      async ({ params, request, status }) => {
         try {
           const { jobId } = params;
+          if (!(await monitor.canAccessJob(jobId, getPrincipal(request)))) {
+            return status(404, { error: `Job ${jobId} not found` });
+          }
           const retried = await monitor.retryJob(jobId);
 
           if (!retried) {

@@ -1,28 +1,33 @@
 <script lang="ts">
 import { resetAuthCache, setToken } from "$lib/auth";
 import { Button } from "$lib/components/ui/button";
+import { identity } from "$lib/identity.svelte";
 import { navigate } from "../router";
 
-let token = "";
-let error = "";
-let submitting = false;
+let username = $state("");
+let password = $state("");
+let error = $state("");
+let submitting = $state(false);
 
 async function handleSubmit() {
   error = "";
   submitting = true;
   try {
-    const res = await fetch("/api/auth/validate", {
+    const res = await fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
+      body: JSON.stringify({ username, password }),
     });
-    const data = await res.json();
-    if (data.valid) {
-      setToken(token);
+    if (res.ok) {
+      const data = await res.json();
+      setToken(data.token);
       resetAuthCache();
+      identity.set(data.user, data.ability);
       navigate("/");
+    } else if (res.status === 401) {
+      error = "Invalid username or password.";
     } else {
-      error = "Invalid token. Please try again.";
+      error = "Sign in failed. Please try again.";
     }
   } catch {
     error = "Could not reach the server.";
@@ -39,19 +44,36 @@ function handleKeydown(e: KeyboardEvent) {
 <div class="flex items-center justify-center min-h-screen bg-background">
   <div class="w-full max-w-sm p-6 space-y-6">
     <div class="text-center space-y-2">
-      <h1 class="text-2xl font-bold">Authentication Required</h1>
-      <p class="text-sm text-muted-foreground">Enter the access token to continue.</p>
+      <h1 class="text-2xl font-bold">Sign In</h1>
+      <p class="text-sm text-muted-foreground">Enter your username and password to continue.</p>
     </div>
 
     <div class="space-y-4">
       <div class="space-y-2">
-        <label for="auth-token" class="text-sm font-medium">Access Token</label>
+        <label for="username" class="text-sm font-medium">Username</label>
         <input
-          id="auth-token"
-          type="password"
-          bind:value={token}
+          id="username"
+          type="text"
+          autocomplete="username"
+          bind:value={username}
           onkeydown={handleKeydown}
-          placeholder="Enter token"
+          placeholder="Enter username"
+          class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background
+            placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2
+            focus-visible:ring-ring focus-visible:ring-offset-2"
+          disabled={submitting}
+        >
+      </div>
+
+      <div class="space-y-2">
+        <label for="password" class="text-sm font-medium">Password</label>
+        <input
+          id="password"
+          type="password"
+          autocomplete="current-password"
+          bind:value={password}
+          onkeydown={handleKeydown}
+          placeholder="Enter password"
           class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background
             placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2
             focus-visible:ring-ring focus-visible:ring-offset-2"
@@ -63,8 +85,8 @@ function handleKeydown(e: KeyboardEvent) {
         <p class="text-sm text-destructive">{error}</p>
       {/if}
 
-      <Button size="default" class="w-full" disabled={submitting || !token} onclick={handleSubmit}>
-        {submitting ? "Validating..." : "Sign In"}
+      <Button size="default" class="w-full" disabled={submitting || !username || !password} onclick={handleSubmit}>
+        {submitting ? "Signing in..." : "Sign In"}
       </Button>
     </div>
   </div>

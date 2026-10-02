@@ -887,6 +887,7 @@ async function dispatchStep(
     sessionFactory,
     triggerPayload: run.triggerPayload ?? undefined,
     iteratorSlug: findIteratorForBodyStep(slug, definition),
+    ...(run.createdByUserId ? { initiatorUserId: run.createdByUserId } : {}),
   });
 
   try {

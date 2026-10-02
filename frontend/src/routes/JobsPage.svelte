@@ -1,6 +1,7 @@
 <script lang="ts">
 import CheckCircleIcon from "phosphor-svelte/lib/CheckCircleIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
+// biome-ignore lint/correctness/noUnusedImports: cancelJob is used as `onCancelJob={cancelJob}` in the template (Biome does not track Svelte template usage)
 import { cancelJob, cleaning, cleanQueue, jobs } from "$lib/appStore";
 import { authFetch } from "$lib/auth";
 import { Button } from "$lib/components/ui/button";

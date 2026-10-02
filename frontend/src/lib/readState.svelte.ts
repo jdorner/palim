@@ -3,12 +3,16 @@
  * Backed by localStorage for persistence
  */
 
-const STORAGE_KEY = "conversation-read-state";
+const STORAGE_KEY_PREFIX = "conversation-read-state";
+
+/** The localStorage key for the current user, or null when logged out. */
+let storageKey: string | null = null;
 
 /** Loads the read-state map from localStorage. */
 function load(): Record<string, number> {
+  if (!storageKey) return {};
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(storageKey);
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
@@ -17,7 +21,8 @@ function load(): Record<string, number> {
 
 /** Persists the read-state map to localStorage. */
 function persist(state: Record<string, number>): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  if (!storageKey) return;
+  localStorage.setItem(storageKey, JSON.stringify(state));
 }
 
 /**
@@ -27,6 +32,16 @@ function persist(state: Record<string, number>): void {
 class ReadState {
   /** Per-conversation last-read timestamps. Reactive - triggers derived re-evaluation on mutation. */
   timestamps = $state<Record<string, number>>(load());
+
+  /**
+   * Scopes read state to a user so accounts sharing a browser don't see or
+   * prune each other's entries.
+   * @param userId - The authenticated user's id, or null when logged out.
+   */
+  setUser(userId: string | null): void {
+    storageKey = userId ? `${STORAGE_KEY_PREFIX}:${userId}` : null;
+    this.timestamps = load();
+  }
 
   /**
    * Marks a conversation as read at the current time.

@@ -321,7 +321,10 @@ export function createExtension(): Extension {
       // --- POST /ext/converter/convert ---
       ctx.routes.register("POST", "convert", async (elysiaCtx) => {
         try {
-          const body = await elysiaCtx.request.json();
+          // Use Elysia's already-parsed body. Reading `elysiaCtx.request.json()`
+          // here would throw "Body already used" because Elysia has already
+          // consumed the request stream to populate `elysiaCtx.body`.
+          const body = elysiaCtx.body;
 
           if (!Value.Check(ConvertPayloadSchema, body)) {
             const errorMsg = formatValidationErrors(ConvertPayloadSchema, body);

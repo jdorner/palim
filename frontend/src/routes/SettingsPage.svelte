@@ -310,7 +310,7 @@ $effect(() => {
     {:else}
       <div class="rounded-md border border-border">
         <Table>
-          <TableHeader>
+          <TableHeader class="bg-muted/30">
             <TableRow>
               <TableHead class="w-4 text-center"></TableHead>
               <TableHead>Name</TableHead>

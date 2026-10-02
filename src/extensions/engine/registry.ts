@@ -8,6 +8,7 @@ import { watch as fsWatch } from "node:fs";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { StepTypeInfo } from "@shared/extensions";
 import type { ExtensionInfo, WebSocketMessage } from "@shared/types";
+import type { AuthResolver, UserStore } from "@src/auth";
 import { PROJECT_DIR, serverOrigin } from "@src/config";
 import { getDb, schema } from "@src/db";
 import type { PushMessageFn } from "@src/push";
@@ -68,6 +69,10 @@ export interface RegistryInitDeps {
   secretVault?: SecretVault;
   /** The SQLite-backed plaintext variable store (optional - always available in practice, no master key needed). */
   variableStore?: TemplateVariableResolver;
+  /** The authentication service resolving tokens to principals (optional in tests). */
+  authService?: AuthResolver;
+  /** The user store for account/role lookups (optional in tests). */
+  userStore?: UserStore;
 }
 
 export interface ExtensionRegistryConfig {

@@ -2,6 +2,7 @@ import { createRouter } from "sv-router";
 import { get, readable } from "svelte/store";
 import { checkAuthRequired, getToken } from "$lib/auth";
 import { disabledExtensionRoutes } from "$lib/extensionStore";
+import { identity } from "$lib/identity.svelte";
 
 export const { p, navigate, isActive, route } = createRouter({
   "/": () => import("./routes/ChatPage.svelte"),
@@ -13,6 +14,7 @@ export const { p, navigate, isActive, route } = createRouter({
   "/mcp": () => import("./routes/McpServersPage.svelte"),
   "/schedules": () => import("./routes/SchedulesPage.svelte"),
   "/settings": () => import("./routes/SettingsPage.svelte"),
+  "/users": () => import("./routes/UsersPage.svelte"),
   "/webhooks": () => import("./routes/WebhooksPage.svelte"),
   "/workflows": () => import("./routes/WorkflowsPage.svelte"),
   "/workflows/:name": () => import("./routes/WorkflowDetailPage.svelte"),
@@ -26,6 +28,17 @@ export const { p, navigate, isActive, route } = createRouter({
       const isAuthRequired = await checkAuthRequired();
       if (isAuthRequired && !getToken()) {
         throw navigate("/login");
+      }
+
+      // Role-gated routes: the admin Users/Roles page requires users:manage.
+      // Ensure identity is loaded, then redirect non-admins away.
+      if (context.pathname === "/users" || context.pathname.startsWith("/users/")) {
+        if (!identity.isAuthenticated) {
+          await identity.refresh();
+        }
+        if (!identity.can("manage", "User")) {
+          throw navigate("/");
+        }
       }
 
       // Extension route guard: redirect away from disabled extension routes.

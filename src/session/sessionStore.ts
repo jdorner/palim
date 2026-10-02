@@ -75,6 +75,7 @@ function rowToSession(row: typeof schema.sessions.$inferSelect): SessionData {
     id: row.id,
     source: row.source,
     sourceId: row.sourceId,
+    userId: row.userId,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     metadata,
@@ -239,6 +240,7 @@ export class SessionStore implements SessionStorePort {
         id,
         source: opts.source,
         sourceId: opts.sourceId ?? null,
+        userId: opts.userId ?? null,
         createdAt: now,
         updatedAt: now,
         metadata: metadataJson,
@@ -251,6 +253,7 @@ export class SessionStore implements SessionStorePort {
       id,
       source: opts.source,
       sourceId: opts.sourceId ?? null,
+      userId: opts.userId ?? null,
       createdAt: now,
       updatedAt: now,
       metadata: opts.metadata ?? null,
@@ -303,7 +306,12 @@ export class SessionStore implements SessionStorePort {
     if (existing) return existing;
 
     try {
-      return this.create({ source: opts.source, sourceId: opts.sourceId, metadata: opts.metadata });
+      return this.create({
+        source: opts.source,
+        sourceId: opts.sourceId,
+        ...(opts.userId !== undefined ? { userId: opts.userId } : {}),
+        metadata: opts.metadata,
+      });
     } catch (err) {
       // Handle race condition: another caller created it between our check and insert
       const raced = this.findBySource(opts.source, opts.sourceId);
@@ -323,6 +331,33 @@ export class SessionStore implements SessionStorePort {
       tx.delete(schema.sessions).where(eq(schema.sessions.id, sessionId)).run();
     });
     logger.debug(`Deleted session ${sessionId}`);
+  }
+
+  /**
+   * Delete every session (and its messages) owned by a user, regardless of source.
+   *
+   * Used when the user account itself is deleted.
+   *
+   * @param userId - The owning user id
+   * @returns The number of sessions deleted
+   */
+  deleteByUser(userId: string): number {
+    const ids = this.db
+      .select({ id: schema.sessions.id })
+      .from(schema.sessions)
+      .where(eq(schema.sessions.userId, userId))
+      .all()
+      .map((row) => row.id);
+
+    if (ids.length === 0) return 0;
+
+    this.db.transaction((tx) => {
+      tx.delete(schema.sessionMessages).where(inArray(schema.sessionMessages.sessionId, ids)).run();
+      tx.delete(schema.sessions).where(inArray(schema.sessions.id, ids)).run();
+    });
+
+    logger.debug(`Deleted ${ids.length} session(s) of user ${userId}`);
+    return ids.length;
   }
 
   /**
@@ -375,8 +410,15 @@ export class SessionStore implements SessionStorePort {
   list(opts?: ListSessionsOptions): Session[] {
     let query = this.db.select().from(schema.sessions).orderBy(desc(schema.sessions.updatedAt)).$dynamic();
 
+    const conditions = [];
     if (opts?.source) {
-      query = query.where(eq(schema.sessions.source, opts.source));
+      conditions.push(eq(schema.sessions.source, opts.source));
+    }
+    if (opts?.userId) {
+      conditions.push(eq(schema.sessions.userId, opts.userId));
+    }
+    if (conditions.length > 0) {
+      query = query.where(and(...conditions));
     }
     if (opts?.limit) {
       query = query.limit(opts.limit);

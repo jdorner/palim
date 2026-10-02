@@ -10,7 +10,9 @@
 import { mkdirSync } from "node:fs";
 import type { ExtensionContext, Logger, QueueJob, StepTypeHandler } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
+import { mintIdentityToken, resolveInitiatorToken } from "@src/auth";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
+import { runWithIdentity } from "@src/utils/fetch";
 import type { TemplateVariableResolver } from "@src/variables";
 import { type IFileSystem, ReadWriteFs } from "just-bash";
 import type { DagStepJobData } from "./dagEngine";
@@ -172,7 +174,14 @@ export function createDagStepProcessor(deps: DagStepWorkerDeps) {
     return stepFs;
   };
 
-  return async (job: QueueJob<DagStepJobData>): Promise<unknown> => {
+  /**
+   * Executes a single DAG step (template resolution + agent/custom handler).
+   * Closes over the worker deps and the lazy step filesystem.
+   *
+   * @param job - The DAG step job.
+   * @returns The step's result value.
+   */
+  async function processStep(job: QueueJob<DagStepJobData>): Promise<unknown> {
     const { stepDef, stepSlug, workflowName } = job.data;
 
     await job.log(`[${workflowName}] DAG step: ${stepSlug} (${stepDef.type})`);
@@ -223,6 +232,18 @@ export function createDagStepProcessor(deps: DagStepWorkerDeps) {
     }
 
     return value;
+  }
+
+  return async (job: QueueJob<DagStepJobData>): Promise<unknown> => {
+    // Bind the run's initiating identity for the whole step so any internal call
+    // (agent skills, ctx.fetch, custom step handlers hitting /ext or /api) is
+    // authorized as that user rather than a shared privileged identity. If the
+    // initiator can no longer be authenticated (disabled/deleted) the step is
+    // refused instead of escalating to the ambient/system identity; only runs
+    // with no recorded initiator execute as system.
+    const { initiatorUserId } = job.data;
+    const token = resolveInitiatorToken(initiatorUserId, mintIdentityToken);
+    return token ? runWithIdentity(token, () => processStep(job), initiatorUserId) : processStep(job);
   };
 }
 

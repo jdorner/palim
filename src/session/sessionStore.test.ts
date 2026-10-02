@@ -405,3 +405,31 @@ describe("SessionStore.purgeStaleSessions", () => {
     expect(purged).toBe(0);
   });
 });
+
+describe("SessionStore.deleteByUser", () => {
+  let store: SessionStore;
+
+  beforeEach(() => {
+    store = new SessionStore(createTestDb());
+  });
+
+  test("deletes only the user's sessions and their messages", () => {
+    const mine = store.create({ source: "chat", sourceId: "a", userId: "u1" });
+    const mineTelegram = store.create({ source: "telegram", sourceId: "b", userId: "u1" });
+    const theirs = store.create({ source: "chat", sourceId: "c", userId: "u2" });
+    store.append(mine.id, makeTextMessage("user", "hi"));
+    store.append(theirs.id, makeTextMessage("user", "hello"));
+
+    expect(store.deleteByUser("u1")).toBe(2);
+
+    expect(store.get(mine.id)).toBeUndefined();
+    expect(store.get(mineTelegram.id)).toBeUndefined();
+    expect(store.getMessages(mine.id)).toEqual([]);
+    expect(store.get(theirs.id)).toBeDefined();
+    expect(store.getMessages(theirs.id)).toHaveLength(1);
+  });
+
+  test("returns 0 when the user owns no sessions", () => {
+    expect(store.deleteByUser("nobody")).toBe(0);
+  });
+});

@@ -1,6 +1,6 @@
 /**
  * IndexedDB persistence layer for chat conversations and messages.
- * Database: "chat-store", version 1.
+ * Database: "chat-store:<userId>" (one per user, see `setChatStoreUser`), version 1.
  * Object stores: "conversations" (idx_updatedAt), "messages" (idx_conversationId).
  */
 
@@ -48,21 +48,67 @@ export interface Message {
   usage?: { input: number; output: number; cacheRead: number; cacheWrite: number; totalTokens: number };
 }
 
-const DB_NAME = "chat-store";
+const DB_NAME_PREFIX = "chat-store";
 const DB_VERSION = 1;
 
-let dbInstance: IDBDatabase | null = null;
+/** The user whose database all operations target, or null when logged out. */
+let scopeUserId: string | null = null;
+/** Callers waiting for a user scope to be set (e.g. during page load before identity resolves). */
+let scopeWaiters: ((userId: string) => void)[] = [];
+/** The open (or opening) database for the current user scope. */
+let dbEntry: { userId: string; db: Promise<IDBDatabase> } | null = null;
 
 /**
- * Opens or upgrades the IndexedDB database.
- * Creates "conversations" and "messages" object stores on first run.
+ * Scopes the chat store to a user. Each user gets a separate IndexedDB
+ * database, so conversations never leak between accounts sharing a browser.
+ * Passing null (logout) closes the current database; subsequent operations
+ * wait until a user is set again.
+ * @param userId - The authenticated user's id, or null when logged out.
+ */
+export function setChatStoreUser(userId: string | null): void {
+  if (userId === scopeUserId) return;
+  if (dbEntry) {
+    dbEntry.db.then((db) => db.close()).catch(() => {});
+    dbEntry = null;
+  }
+  scopeUserId = userId;
+  if (userId) {
+    const waiters = scopeWaiters;
+    scopeWaiters = [];
+    for (const resolve of waiters) resolve(userId);
+  }
+}
+
+/**
+ * Resolves with the current user scope, waiting until one is set.
+ * @returns The scoped user id.
+ */
+function waitForUser(): Promise<string> {
+  if (scopeUserId) return Promise.resolve(scopeUserId);
+  return new Promise((resolve) => scopeWaiters.push(resolve));
+}
+
+/**
+ * Returns the database for the current user scope, opening it if needed.
  * @returns The opened IDBDatabase instance.
  */
-function initDB(): Promise<IDBDatabase> {
-  if (dbInstance) return Promise.resolve(dbInstance);
+async function initDB(): Promise<IDBDatabase> {
+  const userId = await waitForUser();
+  if (dbEntry?.userId !== userId) {
+    dbEntry = { userId, db: openDB(`${DB_NAME_PREFIX}:${userId}`) };
+  }
+  return dbEntry.db;
+}
 
+/**
+ * Opens or upgrades an IndexedDB database.
+ * Creates "conversations" and "messages" object stores on first run.
+ * @param name - The database name.
+ * @returns The opened IDBDatabase instance.
+ */
+function openDB(name: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DB_NAME, DB_VERSION);
+    const request = indexedDB.open(name, DB_VERSION);
 
     request.onupgradeneeded = () => {
       const db = request.result;
@@ -78,10 +124,7 @@ function initDB(): Promise<IDBDatabase> {
       }
     };
 
-    request.onsuccess = () => {
-      dbInstance = request.result;
-      resolve(dbInstance);
-    };
+    request.onsuccess = () => resolve(request.result);
 
     request.onerror = () => reject(request.error);
   });

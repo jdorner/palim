@@ -8,6 +8,7 @@ import GearIcon from "phosphor-svelte/lib/GearIcon";
 import LinkIcon from "phosphor-svelte/lib/LinkIcon";
 import PlugIcon from "phosphor-svelte/lib/PlugIcon";
 import TrayIcon from "phosphor-svelte/lib/TrayIcon";
+import UsersIcon from "phosphor-svelte/lib/UsersIcon";
 import { Router } from "sv-router";
 import { onDestroy, onMount } from "svelte";
 import { get } from "svelte/store";
@@ -20,17 +21,18 @@ import {
   jobs,
   schedules,
 } from "$lib/appStore";
-import { checkAuthRequired, forceLogout, registerDisconnect } from "$lib/auth";
+import { registerClearIdentity, registerDisconnect } from "$lib/auth";
 import { chatStream } from "$lib/chatStreamStore.svelte";
-import { Button } from "$lib/components/ui/button";
 import { connectionManager } from "$lib/connectionStore.svelte";
 import { extensionNavItems, extensions, fetchBadgesForEnabledExtensions, fetchExtensions } from "$lib/extensionStore";
 import { resolveIcon } from "$lib/iconRegistry";
+import { identity } from "$lib/identity.svelte";
 import { readState } from "$lib/readState.svelte";
 import { automationStyle } from "$lib/utils";
 import { workflowStore } from "$lib/workflowRunStore.svelte";
 import type { WebSocketMessage } from "../../shared/types";
 import Sidebar from "./components/Sidebar.svelte";
+import UserMenu from "./components/UserMenu.svelte";
 import ConnectionError from "./lib/components/ConnectionError.svelte";
 import ConnectionStatus from "./lib/components/ConnectionStatus.svelte";
 import ThemeToggle from "./lib/components/ThemeToggle.svelte";
@@ -38,6 +40,8 @@ import { navigate, pathname } from "./router";
 
 // Wire up the disconnect callback so auth.ts can close the WebSocket on logout
 registerDisconnect(() => connectionManager.disconnect());
+// Clear identity state on logout (avoids a circular import via a callback seam).
+registerClearIdentity(() => identity.clear());
 
 // Register the message handler before connecting
 connectionManager.onMessage(handleMessage);
@@ -144,7 +148,18 @@ $effect(() => {
     connectionManager.disconnect();
   } else {
     connectionManager.connect();
+    // Ensure the identity (user + ability) is loaded for UI gating. Safe to call
+    // repeatedly; it no-ops the network only when already authenticated.
+    if (!identity.isAuthenticated) {
+      identity.refresh();
+    }
   }
+});
+
+// Scope client-side chat history to the logged-in user; resets on logout/user switch.
+let currentUserId = $derived(identity.user?.id ?? null);
+$effect(() => {
+  chatStream.setUser(currentUserId);
 });
 
 let initialGracePeriod = $state(true);
@@ -204,6 +219,9 @@ let currentExtNavItem = $derived.by(() => {
               {:else if $pathname === "/settings"}
                 <GearIcon class="w-6 h-6 " aria-hidden="true" />
                 Settings
+              {:else if $pathname === "/users"}
+                <UsersIcon class="w-6 h-6" aria-hidden="true" />
+                Users &amp; Roles
               {:else if $pathname === "/mcp"}
                 <PlugIcon class="w-6 h-6 {automationStyle('mcp').color}" aria-hidden="true" />
                 MCP Servers
@@ -221,18 +239,9 @@ let currentExtNavItem = $derived.by(() => {
             <div class="flex items-center gap-3">
               <ConnectionStatus connected={$connected} />
               <ThemeToggle />
-              {#await checkAuthRequired() then isAuthRequired}
-                {#if isAuthRequired}
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onclick={forceLogout}
-                    class="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    Logout
-                  </Button>
-                {/if}
-              {/await}
+              {#if identity.isAuthenticated}
+                <UserMenu />
+              {/if}
             </div>
           </header>
         {/if}

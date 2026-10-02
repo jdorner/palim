@@ -240,16 +240,16 @@ Every extension receives a scoped `ExtensionContext` during `initialize()`. The 
 | `ctx.paths.data` | `string` | Absolute path to the data directory (databases, generated content) |
 | `ctx.paths.extensions` | `string` | Absolute path to the extensions directory |
 | `ctx.db` | `BunSQLiteDatabase` | Shared Drizzle database instance |
-| `ctx.fetch` | `typeof fetch` | Authenticated fetch - auto-injects `Authorization` for internal URLs, passes through for external |
+| `ctx.fetch` | `typeof fetch` | Identity-bound fetch - authenticates internal calls as the initiating user, confined to this extension's routes; external URLs pass through |
 | `ctx.sessions` | `SessionStorePort` | Shared session store for conversation persistence |
 
-Use `ctx.fetch` instead of the global `fetch()` when calling other extension routes or internal API endpoints. It handles auth transparently:
+Use `ctx.fetch` instead of the global `fetch()` when calling your extension's own routes. It authenticates as the user who started the current job (or the built-in `system` account for background work) without exposing a token. Local requests are confined to `/ext/<name>/*` plus `/api/push`; any other local path returns `403`.
 
 ```typescript
 async initialize(ctx) {
-  // Call a sibling extension's route (works even when AUTH_TOKEN is set)
-  const res = await ctx.fetch("http://localhost:3000/ext/webhooks");
-  const webhooks = res.ok ? await res.json() : [];
+  // Call this extension's own route (ctx.urls.base = <origin>/ext/<name>)
+  const res = await ctx.fetch(`${ctx.urls.base}/items`);
+  const items = res.ok ? await res.json() : [];
 
   // External URLs pass through without modification
   const external = await ctx.fetch("https://api.example.com/data");
@@ -764,7 +764,7 @@ The `SkillScriptContext` provides:
 | `ctx.baseUrl` | `string` | Extension route prefix (e.g. `http://localhost:3000/ext/my-extension`) |
 | `ctx.serverUrl` | `string` | Server origin without trailing slash |
 | `ctx.extensionsDir` | `string` | Absolute path to the built-in extensions directory |
-| `ctx.fetch` | `typeof fetch` | Authenticated fetch (same as `ExtensionContext.fetch`) |
+| `ctx.fetch` | `typeof fetch` | Identity-bound fetch confined to the owning extension's routes plus `/api/push` (same rules as `ExtensionContext.fetch`) |
 | `ctx.registerProgram` | `(name, callback, skillName) => void` | Registers a shell program in the agent sandbox |
 
 ### Using `ctx.registerProgram`

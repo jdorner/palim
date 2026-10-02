@@ -72,6 +72,8 @@ export interface DagWorkflowRun {
   triggerPayload: unknown;
   /** Failure reason (when status is "failed"). */
   failureReason: string | null;
+  /** Id of the user who initiated the run (null for user-less runs). */
+  createdByUserId: string | null;
   /** Creation timestamp (epoch ms). */
   createdAt: number;
   /** Last update timestamp (epoch ms). */
@@ -168,6 +170,7 @@ function rowToRun(row: typeof workflowRuns.$inferSelect): DagWorkflowRun {
     stepResults,
     triggerPayload,
     failureReason: row.failureReason,
+    createdByUserId: row.createdByUserId ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -196,7 +199,9 @@ function serializeState(run: Pick<DagWorkflowRun, "edgeStates" | "stepStatuses" 
  * @param run - The run data (timestamps are auto-generated)
  * @returns The created run with timestamps
  */
-export function create(run: Omit<DagWorkflowRun, "createdAt" | "updatedAt">): DagWorkflowRun {
+export function create(
+  run: Omit<DagWorkflowRun, "createdAt" | "updatedAt" | "createdByUserId"> & { createdByUserId?: string | null },
+): DagWorkflowRun {
   const now = Date.now();
   const record = {
     id: run.id,
@@ -207,6 +212,7 @@ export function create(run: Omit<DagWorkflowRun, "createdAt" | "updatedAt">): Da
     currentStepIndex: 0,
     fullStepOrder: JSON.stringify([]), // unused for DAG runs
     failureReason: run.failureReason,
+    createdByUserId: run.createdByUserId ?? null,
     createdAt: now,
     updatedAt: now,
   };
@@ -215,6 +221,7 @@ export function create(run: Omit<DagWorkflowRun, "createdAt" | "updatedAt">): Da
 
   return {
     ...run,
+    createdByUserId: run.createdByUserId ?? null,
     createdAt: now,
     updatedAt: now,
   };
