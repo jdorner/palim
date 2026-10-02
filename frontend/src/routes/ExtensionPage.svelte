@@ -122,7 +122,7 @@ async function loadPage(name: string) {
   <iframe
     srcdoc={htmlContent}
     class="w-full h-full border-0"
-    sandbox="allow-scripts allow-same-origin allow-forms"
+    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
     title="Extension page: {extensionName}"
   ></iframe>
 {/if}

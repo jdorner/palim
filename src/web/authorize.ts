@@ -106,7 +106,7 @@ const RULES: readonly AuthorizationRule[] = [
 
   // Triggers: any principal with triggers:write may change any trigger; the
   // handlers re-bind an edited trigger to the editor.
-  // (Webhook receive routes are public and never reach this table.)
+  // (Webhook receive routes are registered public and never reach this table.)
   { methods: ["POST"], pattern: /^\/ext\/scheduler\/schedules\/[^/]+\/trigger$/, action: "update", subject: "Trigger" },
   {
     methods: ["POST"],

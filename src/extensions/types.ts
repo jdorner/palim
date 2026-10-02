@@ -243,6 +243,13 @@ export interface RouteOptions {
    * Can also be a specific content type like `"json"`, `"text"`, `"formdata"`, `"urlencoded"`.
    */
   parse?: "none" | "json" | "text" | "formdata" | "urlencoded" | string;
+  /**
+   * Serve this route without bearer-token authentication. Use only for
+   * machine- or browser-facing callbacks that verify the caller themselves
+   * (webhook signatures, OAuth `state` nonces). Requests to a disabled
+   * extension are still rejected.
+   */
+  public?: boolean;
 }
 
 // ---------------------------------------------------------------------------

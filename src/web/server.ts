@@ -20,6 +20,7 @@ import { extractBearerToken, extractWsToken, setPrincipal } from "./auth";
 import { authorizeRequest } from "./authorize";
 import { compression } from "./compression";
 import { QueueMonitor } from "./monitor";
+import { PublicRouteTable } from "./publicRoutes";
 import { authRoutes } from "./routes/auth";
 import { chatRoutes } from "./routes/chat";
 import { extensionRoutes } from "./routes/extensions";
@@ -66,10 +67,13 @@ interface WebServerListenOptions {
  * @param deps.agentQueue - Queue for general agent prompt jobs
  * @param deps.chatQueue - Queue for conversational chat jobs
  * @param deps.getRegistry - Getter for the extension registry
- * @returns Object containing the Elysia app instance and QueueMonitor
+ * @returns Object containing the Elysia app instance, QueueMonitor, push function, and public route table
  */
 export async function createWebServer(deps: WebServerDeps) {
   const { agentQueue, chatQueue, getRegistry, authService } = deps;
+
+  // Extension routes registered with `{ public: true }` (filled by the route registry).
+  const publicRoutes = new PublicRouteTable();
 
   // Feed managed queues to the monitor for event-based tracking
   const monitor = new QueueMonitor([agentQueue, chatQueue]);
@@ -99,7 +103,7 @@ export async function createWebServer(deps: WebServerDeps) {
         },
       }),
     )
-    .onBeforeHandle((ctx) => authCheck(ctx, authService))
+    .onBeforeHandle((ctx) => authCheck(ctx, authService, publicRoutes))
     .onBeforeHandle(checkIfExtensionIsUnloaded(getRegistry))
     // --- Route modules ---
     .use(authRoutes(() => authService, revalidateSockets))
@@ -139,7 +143,7 @@ export async function createWebServer(deps: WebServerDeps) {
       },
     });
 
-  return { app, monitor, pushMessage: pushService.pushMessage };
+  return { app, monitor, pushMessage: pushService.pushMessage, publicRoutes };
 }
 
 /**
@@ -159,25 +163,31 @@ export function startWebServer(app: AnyElysia, opts: WebServerListenOptions) {
  * principal, attaches it to the request, and enforces coarse route
  * authorization via the central rule table.
  *
- * Public paths (static assets, `/api/auth/login`, webhook receive routes) are
- * exempt. Protected paths require a resolvable token (else 401) and must pass
+ * Public paths (static assets, `/api/auth/login`, extension routes registered
+ * with `{ public: true }` such as webhook receive) are exempt. Protected paths require a resolvable token (else 401) and must pass
  * the authorization rules for the method+path (else 403). Fine-grained
  * ownership checks live in the individual route handlers.
  *
  * @param params - Elysia handler parameters (request + status helper).
  * @param authService - The resolver mapping tokens to principals.
+ * @param publicRoutes - Extension routes that opted out of token auth.
  * @returns A 401/403 response when unauthenticated/unauthorized; otherwise undefined.
  */
-export function authCheck(params: { request: Request; status: any }, authService: WebServerDeps["authService"]) {
+export function authCheck(
+  params: { request: Request; status: any },
+  authService: WebServerDeps["authService"],
+  publicRoutes?: PublicRouteTable,
+) {
   const url = new URL(params.request.url);
   const path = url.pathname;
 
   // Only /api/ and /ext/ paths are protected; everything else (static assets,
   // health) is public.
   if (!path.startsWith("/api/") && !path.startsWith("/ext/")) return;
-  // Public auth endpoints (login/validate) and machine-facing webhook ingress.
+  // Public auth endpoints (login/validate).
   if (path === "/api/auth/login" || path === "/api/auth/validate") return;
-  if (path.startsWith("/ext/webhooks/receive/")) return;
+  // Extension routes that authenticate callers themselves (webhook HMAC, OAuth state).
+  if (publicRoutes?.matches(params.request.method, path)) return;
 
   // Fail closed if the auth service is missing (misconfiguration).
   if (!authService) {
