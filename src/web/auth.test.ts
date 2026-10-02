@@ -3,19 +3,26 @@ import { PERMISSIONS, ROLE_ADMIN, ROLE_USER } from "@shared/auth";
 import { AuthService, UserStore } from "@src/auth";
 import { createTestDb, type TestDb } from "@src/auth/testDb";
 import { Elysia } from "elysia";
+import { PublicRouteTable } from "./publicRoutes";
 import { authRoutes } from "./routes/auth";
 import { authCheck } from "./server";
 
 /** Builds a minimal Elysia app wiring the real authCheck hook + auth routes. */
 function buildApp(auth: AuthService) {
+  const publicRoutes = new PublicRouteTable();
+  publicRoutes.add("GET", "/ext/demo/public/:id");
   return (
     new Elysia()
-      .onBeforeHandle((ctx) => authCheck(ctx as never, auth))
+      .onBeforeHandle((ctx) => authCheck(ctx as never, auth, publicRoutes))
       .use(authRoutes(() => auth))
       // A protected admin-only endpoint (matches the /api/users authorization rule).
       .get("/api/users", ({ status }) => status(200, { ok: true }))
       // A protected non-admin endpoint that matches no rule (auth only).
       .post("/api/chat", ({ status }) => status(200, { ok: true }))
+      // An extension route registered public, and its protected sibling.
+      .get("/ext/demo/public/:id", ({ status }) => status(200, { ok: true }))
+      .post("/ext/demo/public/:id", ({ status }) => status(200, { ok: true }))
+      .get("/ext/demo/private", ({ status }) => status(200, { ok: true }))
   );
 }
 
@@ -178,6 +185,23 @@ describe("web auth (authCheck + auth routes)", () => {
         }),
       );
       expect(meRes.status).toBe(401);
+    });
+  });
+
+  describe("public extension routes", () => {
+    test("serves a public route without a token", async () => {
+      const res = await app.handle(new Request("http://localhost/ext/demo/public/abc"));
+      expect(res.status).toBe(200);
+    });
+
+    test("only exempts the registered method", async () => {
+      const res = await app.handle(new Request("http://localhost/ext/demo/public/abc", { method: "POST" }));
+      expect(res.status).toBe(401);
+    });
+
+    test("still protects non-public extension routes", async () => {
+      const res = await app.handle(new Request("http://localhost/ext/demo/private"));
+      expect(res.status).toBe(401);
     });
   });
 });

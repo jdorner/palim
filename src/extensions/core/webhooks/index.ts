@@ -99,6 +99,7 @@ export function createExtension(): Extension {
       // ---------------------------------------------------------------
       // Receiver route: POST /ext/webhooks/receive/:slug
       // Body parsing is disabled so we receive the raw bytes for HMAC verification.
+      // Public (no bearer token): each webhook authenticates the sender itself.
       // ---------------------------------------------------------------
       ctx.routes.register(
         "POST",
@@ -159,7 +160,7 @@ export function createExtension(): Extension {
           logger.info(`Webhook "${slug}" received -> event emitted`);
           return Response.json({ ok: true }, { status: 202 });
         },
-        { parse: "none" },
+        { parse: "none", public: true },
       );
 
       // ---------------------------------------------------------------

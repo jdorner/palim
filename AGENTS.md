@@ -283,7 +283,7 @@ Extensions live in `src/extensions/<name>/index.ts` (or `src/extensions/core/<na
 3. Resolves dependencies (topological sort)
 4. Initializes in dependency order with a scoped `ExtensionContext`
 
-Extensions can register: tools, HTTP routes (auto-prefixed `/ext/<name>/`), job queues, agent event listeners, skills, UI contributions (sidebar navigation entries), custom workflow step types (with optional input validation), and dynamic item providers for settings schema enrichment. Extension config is read from `EXT_<NAME>_<KEY>` env vars.
+Extensions can register: tools, HTTP routes (auto-prefixed `/ext/<name>/`; pass `{ public: true }` for self-authenticating callbacks), job queues, agent event listeners, skills, UI contributions (sidebar navigation entries), custom workflow step types (with optional input validation), and dynamic item providers for settings schema enrichment. Extension config is read from `EXT_<NAME>_<KEY>` env vars.
 
 Current extensions (13): **converter**, **error-analyzer**, **mcp**, **ntfy**, **steering**, **telegram**, **web-fetch**, **wiki** | Core: **core-wf-steps**, **filewatcher**, **scheduler**, **webhooks**, **workflows**
 
@@ -360,7 +360,7 @@ Elysia serves the built frontend as static files and exposes:
 - `WS /ws` - Real-time job state, chat streaming, workflow events, and extension lifecycle events
 - `/ext/<name>/...` - Extension-registered routes
 
-Auth is always on: all `/api/` and `/ext/` routes (except login, health, and webhook receive) and the WebSocket require a per-user bearer token. Every user can read everything except other users' chat sessions; roles map to write/management permissions (RBAC). See `docs/api-security-model.md`.
+Auth is always on: all `/api/` and `/ext/` routes (except login, health, and extension routes registered with `{ public: true }`, such as webhook receive) and the WebSocket require a per-user bearer token. Every user can read everything except other users' chat sessions; roles map to write/management permissions (RBAC). See `docs/api-security-model.md`.
 
 ### Secrets Management
 

@@ -374,6 +374,7 @@ export class AppBootstrap {
       app: elysiaApp,
       monitor: monitoring,
       pushMessage,
+      publicRoutes,
     } = await createWebServer({
       agentQueue,
       chatQueue,
@@ -393,8 +394,11 @@ export class AppBootstrap {
           log.error(`RouteRegistry: Elysia does not support method "${method}"`);
           return;
         }
+        // `public` is ours, not Elysia's: record it and pass the rest through.
+        const { public: isPublic, ...elysiaOptions } = options ?? {};
+        if (isPublic) publicRoutes.add(method, path);
         if (options) {
-          app[m](path, handler, options);
+          app[m](path, handler, elysiaOptions);
         } else {
           app[m](path, handler);
         }
