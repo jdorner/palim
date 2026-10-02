@@ -63,7 +63,7 @@ git clone https://github.com/jdorner/palim.git
 
 cd palim
 bun install        # Install dependencies
-bun run setup      # Interactive configuration (LLM endpoint, API key, frontend build)
+bun run setup      # Interactive configuration (LLM endpoint, API key, admin password, frontend build)
 bun run start      # Start Palim
 ```
 
