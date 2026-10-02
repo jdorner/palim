@@ -5,7 +5,6 @@ import {
   type CommandContext,
   defineCommand,
   type ExecResult,
-  getCommandNames,
   InMemoryFs,
   MountableFs,
   OverlayFs,
@@ -302,20 +301,6 @@ export async function createShell(options: CreateShellOptions): Promise<Bash> {
 
   const basefs = new InMemoryFs();
   basefs.mkdirSync("/tmp", { recursive: true });
-  basefs.mkdirSync("/dev", { recursive: true });
-  basefs.writeFileSync("/dev/null", "");
-
-  // Populate /bin and /usr/bin with symlinks for just-bash built-in commands
-  // so agents can discover available commands via directory listing.
-  basefs.mkdirSync("/bin", { recursive: true });
-  basefs.mkdirSync("/usr/bin", { recursive: true });
-  const binCommands = getCommandNames();
-  await Promise.all(
-    binCommands.flatMap((cmd) => [
-      basefs.symlink("/dev/null", `/bin/${cmd}`),
-      basefs.symlink("/dev/null", `/usr/bin/${cmd}`),
-    ]),
-  );
 
   const fs = new MountableFs({ base: basefs });
   fs.mount(agentWorkDir, new ReadWriteFs({ root: hostWorkDir }));
@@ -367,15 +352,6 @@ export async function createShell(options: CreateShellOptions): Promise<Bash> {
       }
     }
   }
-
-  // Seed /bin and /usr/bin with symlinks for custom (Palim-registered) commands
-  // so agents can discover them via directory listing.
-  await Promise.all(
-    Array.from(customCommands).flatMap((cmd) => [
-      basefs.symlink("/dev/null", `/bin/${cmd}`),
-      basefs.symlink("/dev/null", `/usr/bin/${cmd}`),
-    ]),
-  );
 
   return sh;
 }
