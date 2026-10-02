@@ -10,6 +10,6 @@ interface Props extends Record<string, any> {
 let { class: className, children, ...restProps }: Props = $props();
 </script>
 
-<h3 class={cn('text-2xl font-semibold leading-none tracking-tight', className)} {...restProps}>
+<h3 class={cn("text-2xl font-semibold leading-none tracking-tight", className)} {...restProps}>
   {@render children?.()}
 </h3>

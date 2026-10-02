@@ -18,7 +18,10 @@ const sizeClass = $derived(size === "md" ? "w-2.5 h-2.5" : "w-2 h-2");
 
 <span
   class="{sizeClass} rounded-full shrink-0 inline-block"
-  class:bg-muted-foreground={status !== "active" && status !== "completed" && status !== "failed" && status !== "waiting-signal"}
+  class:bg-muted-foreground={status !== "active" &&
+    status !== "completed" &&
+    status !== "failed" &&
+    status !== "waiting-signal"}
   class:bg-blue-500={status === "active"}
   class:animate-pulse={status === "active"}
   class:bg-amber-400={status === "waiting-signal"}

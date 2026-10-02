@@ -56,7 +56,9 @@ onMount(() => {
     aria-label="Job logs"
     class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
     onclick={onClose}
-    onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}
+    onkeydown={(e) => {
+      if (e.key === "Escape") onClose();
+    }}
     tabindex="-1"
   >
     <div

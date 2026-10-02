@@ -285,7 +285,13 @@ function showSuccess(msg: string) {
 {:else if fetchError}
   <p class="text-sm text-destructive">{fetchError}</p>
 {:else}
-  <form class="space-y-4" onsubmit={(e) => { e.preventDefault(); handleSubmit(); }}>
+  <form
+    class="space-y-4"
+    onsubmit={(e) => {
+      e.preventDefault();
+      handleSubmit();
+    }}
+  >
     {#each groups as group (group.label ?? "__ungrouped")}
       {#if group.label}
         <div class="flex items-center gap-2 pt-2">
@@ -438,5 +444,8 @@ function showSuccess(msg: string) {
   cancelLabel="Cancel"
   confirmVariant="destructive"
   onConfirm={executeDelete}
-  onCancel={() => { deleteDialogOpen = false; deleteTargetKey = null; }}
+  onCancel={() => {
+    deleteDialogOpen = false;
+    deleteTargetKey = null;
+  }}
 />

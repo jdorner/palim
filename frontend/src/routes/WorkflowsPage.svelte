@@ -146,7 +146,7 @@ $effect(() => {
               {#if wf.warnings.length > 0}
                 <span
                   class="inline-flex items-center gap-1 text-xs text-amber-500 mt-1"
-                  title={wf.warnings.map(w => `[${w.stepSlug}.${w.field}] ${w.message}`).join("\n")}
+                  title={wf.warnings.map((w) => `[${w.stepSlug}.${w.field}] ${w.message}`).join("\n")}
                 >
                   <WarningIcon size={12} aria-hidden="true" />
                   {wf.warnings.length}
@@ -208,7 +208,14 @@ $effect(() => {
           {#if confirmingDelete === wf.name}
             <div class="flex flex-wrap items-center gap-2">
               <Button size="sm" variant="destructive" onclick={() => deleteWorkflow(wf.name)}>Confirm</Button>
-              <Button size="sm" variant="outline" onclick={() => { confirmingDelete = null; }}>Cancel</Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onclick={() => {
+                  confirmingDelete = null;
+                }}
+                >Cancel</Button
+              >
             </div>
           {:else}
             <div class="flex flex-wrap items-center gap-2">
@@ -216,7 +223,13 @@ $effect(() => {
                 <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
                 Run
               </Button>
-              <Button size="sm" variant="destructive" onclick={() => { confirmingDelete = wf.name; }}>
+              <Button
+                size="sm"
+                variant="destructive"
+                onclick={() => {
+                  confirmingDelete = wf.name;
+                }}
+              >
                 <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
                 Delete
               </Button>
@@ -252,7 +265,7 @@ $effect(() => {
                 {#if wf.warnings.length > 0}
                   <span
                     class="flex items-center gap-1 text-xs text-amber-500 mt-0.5"
-                    title={wf.warnings.map(w => `[${w.stepSlug}.${w.field}] ${w.message}`).join("\n")}
+                    title={wf.warnings.map((w) => `[${w.stepSlug}.${w.field}] ${w.message}`).join("\n")}
                   >
                     <WarningIcon size={12} aria-hidden="true" />
                     {wf.warnings.length}
@@ -304,7 +317,15 @@ $effect(() => {
                 {#if confirmingDelete === wf.name}
                   <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
                     <Button size="sm" variant="destructive" onclick={() => deleteWorkflow(wf.name)}> Confirm </Button>
-                    <Button size="sm" variant="outline" onclick={() => { confirmingDelete = null; }}> Cancel </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onclick={() => {
+                        confirmingDelete = null;
+                      }}
+                    >
+                      Cancel
+                    </Button>
                   </div>
                 {:else}
                   <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
@@ -312,7 +333,13 @@ $effect(() => {
                       <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
                       Run
                     </Button>
-                    <Button size="sm" variant="destructive" onclick={() => { confirmingDelete = wf.name; }}>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onclick={() => {
+                        confirmingDelete = wf.name;
+                      }}
+                    >
                       <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
                       Delete
                     </Button>

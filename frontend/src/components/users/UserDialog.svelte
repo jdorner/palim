@@ -153,7 +153,7 @@ const inputClass = "w-full rounded-md border border-input bg-background px-3 py-
       <div class="rounded-md border border-border divide-y divide-border">
         {#each roles as role (role.id)}
           {@const lock = lockReason(role)}
-          <label class="flex items-start gap-3 px-3 py-2 {lock ? 'opacity-70' : 'cursor-pointer hover:bg-muted/50'}">
+          <label class="flex items-start gap-3 px-3 py-2 {lock ? "opacity-70" : "cursor-pointer hover:bg-muted/50"}">
             <input
               type="checkbox"
               class="mt-0.5"

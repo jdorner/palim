@@ -63,10 +63,10 @@ const badgeCounts = derived(
 
 <nav
   class="shrink-0 sticky top-0 h-screen overflow-y-auto overflow-x-hidden bg-muted/50 border-r border-border flex flex-col gap-1 transition-all duration-200
-    {collapsed ? 'w-14 py-4 px-2' : 'w-56 p-4'}"
+    {collapsed ? "w-14 py-4 px-2" : "w-56 p-4"}"
 >
   <!-- Header: favicon only when collapsed, full branding when expanded -->
-  <div class="flex items-center mb-3 {collapsed ? 'justify-center' : 'pl-2'}">
+  <div class="flex items-center mb-3 {collapsed ? "justify-center" : "pl-2"}">
     <a href="#/" class="flex items-center gap-2 leading-2 no-underline">
       <img src="/favicon.svg" alt="Palim" class="w-7 h-7 shrink-0">
       {#if !collapsed}
@@ -83,29 +83,30 @@ const badgeCounts = derived(
   <button
     type="button"
     class="relative flex items-center rounded-md text-sm font-medium transition-colors w-full
-      {collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2 text-left'}
+      {collapsed ? "justify-center p-2" : "gap-2 px-3 py-2 text-left"}
       {isChatActive
-      ? 'bg-accent text-accent-foreground'
-      : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'}"
+      ? "bg-accent text-accent-foreground"
+      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"}"
     onclick={() => navigate("/chat")}
     title={collapsed ? "Chat" : undefined}
   >
     {#if hasUnreadChats && collapsed}
       <span
-        class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full {automationStyle('chat').bg} animate-pulse ring-2 ring-background"
+        class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full {automationStyle("chat")
+          .bg} animate-pulse ring-2 ring-background"
         role="status"
         aria-label="Unread messages"
       ></span>
     {/if}
     <ChatTextIcon
-      class="{collapsed ? 'w-6 h-6' : 'w-4 h-4'} shrink-0 {automationStyle('chat').color}"
+      class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0 {automationStyle("chat").color}"
       aria-hidden="true"
     />
     {#if !collapsed}
       Chat
       {#if hasUnreadChats}
         <span
-          class="ml-auto mr-2 mt-1 w-2 h-2 rounded-full {automationStyle('chat').bg} animate-pulse"
+          class="ml-auto mr-2 mt-1 w-2 h-2 rounded-full {automationStyle("chat").bg} animate-pulse"
           role="status"
           aria-label="Unread messages"
         ></span>
@@ -121,10 +122,10 @@ const badgeCounts = derived(
     <button
       type="button"
       class="relative flex items-center rounded-md text-sm font-medium transition-colors w-full
-        {collapsed ? 'justify-center p-2 leading-2' : 'gap-2 px-3 py-2 text-left'}
+        {collapsed ? "justify-center p-2 leading-2" : "gap-2 px-3 py-2 text-left"}
         {isActive
-        ? 'bg-accent text-accent-foreground'
-        : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'}"
+        ? "bg-accent text-accent-foreground"
+        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"}"
       onclick={() => navigate(item.route as any)}
       title={collapsed ? item.label : undefined}
     >
@@ -135,7 +136,7 @@ const badgeCounts = derived(
         >
       {/if}
       {#if IconComponent}
-        <IconComponent class="{collapsed ? 'w-6 h-6' : 'w-4 h-4'} shrink-0 {item.iconColor ?? ''}" aria-hidden="true" />
+        <IconComponent class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0 {item.iconColor ?? ""}" aria-hidden="true" />
       {/if}
       {#if !collapsed}
         <span class="text-nowrap">{item.label}</span>
@@ -152,10 +153,10 @@ const badgeCounts = derived(
   <button
     type="button"
     class="relative flex items-center rounded-md text-sm font-medium transition-colors w-full
-      {collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2 text-left'}
+      {collapsed ? "justify-center p-2" : "gap-2 px-3 py-2 text-left"}
       {isJobsActive
-      ? 'bg-accent text-accent-foreground'
-      : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'}"
+      ? "bg-accent text-accent-foreground"
+      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"}"
     onclick={() => navigate("/jobs")}
     title={collapsed ? "Job Queues" : undefined}
   >
@@ -165,7 +166,7 @@ const badgeCounts = derived(
         >{jobCount > 99 ? "99+" : jobCount}</span
       >
     {/if}
-    <TrayIcon class="{collapsed ? 'w-6 h-6' : 'w-4 h-4'} shrink-0" aria-hidden="true" />
+    <TrayIcon class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0" aria-hidden="true" />
     {#if !collapsed}
       <span class="text-nowrap">Job Queues</span>
       {#if jobCount > 0}
@@ -181,15 +182,15 @@ const badgeCounts = derived(
     <button
       type="button"
       class="flex items-center rounded-md text-sm font-medium transition-colors w-full text-muted-foreground hover:bg-accent/50 hover:text-foreground
-        {collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2 text-left'}"
+        {collapsed ? "justify-center p-2" : "gap-2 px-3 py-2 text-left"}"
       onclick={() => settings.toggleSidebarCollapsed()}
       title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
       aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
     >
       {#if collapsed}
-        <ArrowLineRightIcon class="{collapsed ? 'w-6 h-6' : 'w-4 h-4'} shrink-0" aria-hidden="true" />
+        <ArrowLineRightIcon class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0" aria-hidden="true" />
       {:else}
-        <ArrowLineLeftIcon class="{collapsed ? 'w-6 h-6' : 'w-4 h-4'} shrink-0" aria-hidden="true" />
+        <ArrowLineLeftIcon class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0" aria-hidden="true" />
         Collapse
       {/if}
     </button>
@@ -198,14 +199,14 @@ const badgeCounts = derived(
       <button
         type="button"
         class="relative flex items-center rounded-md text-sm font-medium transition-colors w-full
-          {collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2 text-left'}
+          {collapsed ? "justify-center p-2" : "gap-2 px-3 py-2 text-left"}
           {isUsersActive
-          ? 'bg-accent text-accent-foreground'
-          : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'}"
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"}"
         onclick={() => navigate("/users")}
         title={collapsed ? "Users" : undefined}
       >
-        <UsersIcon class="{collapsed ? 'w-6 h-6' : 'w-4 h-4'} shrink-0" aria-hidden="true" />
+        <UsersIcon class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0" aria-hidden="true" />
         {#if !collapsed}
           Users
         {/if}
@@ -215,14 +216,14 @@ const badgeCounts = derived(
     <button
       type="button"
       class="relative flex items-center rounded-md text-sm font-medium transition-colors w-full
-        {collapsed ? 'justify-center p-2' : 'gap-2 px-3 py-2 text-left'}
+        {collapsed ? "justify-center p-2" : "gap-2 px-3 py-2 text-left"}
         {isSettingsActive
-        ? 'bg-accent text-accent-foreground'
-        : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'}"
+        ? "bg-accent text-accent-foreground"
+        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"}"
       onclick={() => navigate("/settings")}
       title={collapsed ? "Settings" : undefined}
     >
-      <GearIcon class="{collapsed ? 'w-6 h-6' : 'w-4 h-4'} shrink-0" aria-hidden="true" />
+      <GearIcon class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0" aria-hidden="true" />
       {#if !collapsed}
         Settings
       {/if}

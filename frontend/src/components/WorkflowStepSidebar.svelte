@@ -208,7 +208,10 @@ function clearConditionError(index: number) {
   Custom extension icons are resolved from the extensions store via iconIdForType;
   built-in types resolve their icon directly in visualForStepType.
 -->
-{#snippet stepTypeChip(type: string, size: number)}
+{#snippet stepTypeChip(
+  type: string,
+  size: number,
+)}
   {@const v = visualForStepType(type, { iconId: iconIdForType(type), category: categoryForType(type) })}
   <span
     class="flex shrink-0 items-center justify-center rounded text-white {v.tileClass}"
@@ -249,9 +252,14 @@ function clearConditionError(index: number) {
           type="button"
           class="shrink-0 p-1 rounded hover:bg-destructive/10 text-muted-foreground hover:text-destructive transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           disabled={!editDraft || editDraft.steps.length <= 1}
-          onclick={() => { onRemoveStep(editDraftStep?.id ?? selectedStep.id); onclose(); }}
+          onclick={() => {
+            onRemoveStep(editDraftStep?.id ?? selectedStep.id);
+            onclose();
+          }}
           aria-label="Remove step"
-          title={!editDraft || editDraft.steps.length <= 1 ? "At least one step is required" : `Remove step ${editDraftStep?.slug || "(unnamed)"}`}
+          title={!editDraft || editDraft.steps.length <= 1
+            ? "At least one step is required"
+            : `Remove step ${editDraftStep?.slug || "(unnamed)"}`}
         >
           <TrashIcon size={14} aria-hidden="true" />
         </button>
@@ -318,7 +326,10 @@ function clearConditionError(index: number) {
             selected={editDraftStep.tools ?? []}
             placeholder="Search tools..."
             disabled={metaLoading || availableTools.length === 0}
-            onchange={(newSelected) => onUpdateDraftStep(selectedStepIndex, (s) => { s.tools = newSelected; })}
+            onchange={(newSelected) =>
+              onUpdateDraftStep(selectedStepIndex, (s) => {
+                s.tools = newSelected;
+              })}
           />
         </div>
 
@@ -329,7 +340,10 @@ function clearConditionError(index: number) {
             selected={editDraftStep.skills ?? []}
             placeholder="Search skills..."
             disabled={metaLoading || availableSkills.length === 0}
-            onchange={(newSelected) => onUpdateDraftStep(selectedStepIndex, (s) => { s.skills = newSelected; })}
+            onchange={(newSelected) =>
+              onUpdateDraftStep(selectedStepIndex, (s) => {
+                s.skills = newSelected;
+              })}
           />
         </div>
 
@@ -345,7 +359,9 @@ function clearConditionError(index: number) {
             maxlength={10000}
             value={editDraftStep.prompt ?? ""}
             oninput={(e) => {
-              onUpdateDraftStep(selectedStepIndex, (s) => { s.prompt = (e.target as HTMLTextAreaElement).value; });
+              onUpdateDraftStep(selectedStepIndex, (s) => {
+                s.prompt = (e.target as HTMLTextAreaElement).value;
+              });
               const newErrors = new Map(validationErrors);
               newErrors.delete(`steps[${selectedStepIndex}].prompt`);
               onValidationErrorsChange(newErrors);
@@ -365,7 +381,10 @@ function clearConditionError(index: number) {
             variableKeys={cachedVariableKeys}
             {outputSchemas}
             edges={slugEdges}
-            onChange={(newValue) => onUpdateDraftStep(selectedStepIndex, (s) => { s.prompt = newValue; })}
+            onChange={(newValue) =>
+              onUpdateDraftStep(selectedStepIndex, (s) => {
+                s.prompt = newValue;
+              })}
           />
         </div>
       </div>
@@ -420,7 +439,9 @@ function clearConditionError(index: number) {
               {outputSchemas}
               edges={slugEdges}
               onchange={(cond) => {
-                onUpdateDraftStep(selectedStepIndex, (s) => { s.condition = cond; });
+                onUpdateDraftStep(selectedStepIndex, (s) => {
+                  s.condition = cond;
+                });
                 clearConditionError(selectedStepIndex);
               }}
             />
@@ -474,7 +495,9 @@ function clearConditionError(index: number) {
             <button
               type="button"
               class="text-xs text-muted-foreground underline hover:text-foreground self-start"
-              onclick={() => { onEditAsJsonChange(true); }}
+              onclick={() => {
+                onEditAsJsonChange(true);
+              }}
             >
               Edit as JSON
             </button>
@@ -508,7 +531,9 @@ function clearConditionError(index: number) {
             <button
               type="button"
               class="text-xs text-muted-foreground underline hover:text-foreground self-start"
-              onclick={() => { onEditAsJsonChange(true); }}
+              onclick={() => {
+                onEditAsJsonChange(true);
+              }}
             >
               Edit as JSON
             </button>
@@ -522,7 +547,9 @@ function clearConditionError(index: number) {
                 <button
                   type="button"
                   class="text-xs text-muted-foreground underline hover:text-foreground"
-                  onclick={() => { onEditAsJsonChange(false); }}
+                  onclick={() => {
+                    onEditAsJsonChange(false);
+                  }}
                 >
                   Use form editor
                 </button>
@@ -546,28 +573,30 @@ function clearConditionError(index: number) {
         </div>
       {:else}
         <!-- Custom step type - schema-driven form or JSON fallback -->
-        {@const stepTypeInfo = customStepTypes.find(st => st.type === stepType)}
+        {@const stepTypeInfo = customStepTypes.find((st) => st.type === stepType)}
         <div class="flex flex-col flex-1 min-h-0 gap-4">
           {#if stepTypeInfo?.configSchema && !editAsJson}
             <StepConfigForm
               schema={stepTypeInfo.configSchema}
               values={editDraftStep.config ?? {}}
               onchange={(vals) => {
-              onUpdateDraftStep(selectedStepIndex, (s) => { s.config = vals; });
-              // Live validation: re-check config against schema and update errors
-              const prefix = `steps[${selectedStepIndex}].config.`;
-              const newErrors = new Map(validationErrors);
-              // Remove old config errors for this step
-              for (const k of [...newErrors.keys()]) {
-                if (k.startsWith(prefix)) newErrors.delete(k);
-              }
-              // Run validation and add fresh errors
-              const configErrors = validateStepConfig(vals ?? {}, stepTypeInfo.configSchema!);
-              for (const [field, msg] of configErrors) {
-                newErrors.set(`${prefix}${field}`, msg);
-              }
-              onValidationErrorsChange(newErrors);
-            }}
+                onUpdateDraftStep(selectedStepIndex, (s) => {
+                  s.config = vals;
+                });
+                // Live validation: re-check config against schema and update errors
+                const prefix = `steps[${selectedStepIndex}].config.`;
+                const newErrors = new Map(validationErrors);
+                // Remove old config errors for this step
+                for (const k of [...newErrors.keys()]) {
+                  if (k.startsWith(prefix)) newErrors.delete(k);
+                }
+                // Run validation and add fresh errors
+                const configErrors = validateStepConfig(vals ?? {}, stepTypeInfo.configSchema!);
+                for (const [field, msg] of configErrors) {
+                  newErrors.set(`${prefix}${field}`, msg);
+                }
+                onValidationErrorsChange(newErrors);
+              }}
               steps={editDraft?.steps ?? []}
               currentStepIndex={selectedStepIndex}
               secretKeys={cachedSecretKeys}
@@ -576,18 +605,20 @@ function clearConditionError(index: number) {
               edges={slugEdges}
               itemOptions={{ skills: availableSkills }}
               fieldErrors={(() => {
-              const prefix = `steps[${selectedStepIndex}].config.`;
-              const m = new Map<string, string>();
-              for (const [k, v] of validationErrors) {
-                if (k.startsWith(prefix)) m.set(k.slice(prefix.length), v);
-              }
-              return m;
-            })()}
+                const prefix = `steps[${selectedStepIndex}].config.`;
+                const m = new Map<string, string>();
+                for (const [k, v] of validationErrors) {
+                  if (k.startsWith(prefix)) m.set(k.slice(prefix.length), v);
+                }
+                return m;
+              })()}
             />
             <button
               type="button"
               class="text-xs text-muted-foreground underline hover:text-foreground"
-              onclick={() => { onEditAsJsonChange(true); }}
+              onclick={() => {
+                onEditAsJsonChange(true);
+              }}
             >
               Edit as JSON
             </button>
@@ -599,7 +630,9 @@ function clearConditionError(index: number) {
                   <button
                     type="button"
                     class="text-xs text-muted-foreground underline hover:text-foreground"
-                    onclick={() => { onEditAsJsonChange(false); }}
+                    onclick={() => {
+                      onEditAsJsonChange(false);
+                    }}
                   >
                     Use form editor
                   </button>
@@ -610,30 +643,32 @@ function clearConditionError(index: number) {
                 class="w-full flex-1 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
                 value={JSON.stringify(editDraftStep.config ?? {}, null, 2)}
                 oninput={(e) => {
-                const raw = (e.target as HTMLTextAreaElement).value;
-                try {
-                  const parsed = JSON.parse(raw);
-                  onUpdateDraftStep(selectedStepIndex, (s) => { s.config = parsed; });
-                  const newErrors = new Map(validationErrors);
-                  newErrors.delete(`steps[${selectedStepIndex}].config`);
-                  // Live schema validation for JSON editor
-                  const prefix = `steps[${selectedStepIndex}].config.`;
-                  for (const k of [...newErrors.keys()]) {
-                    if (k.startsWith(prefix)) newErrors.delete(k);
-                  }
-                  if (stepTypeInfo?.configSchema) {
-                    const configErrors = validateStepConfig(parsed, stepTypeInfo.configSchema);
-                    for (const [field, msg] of configErrors) {
-                      newErrors.set(`${prefix}${field}`, msg);
+                  const raw = (e.target as HTMLTextAreaElement).value;
+                  try {
+                    const parsed = JSON.parse(raw);
+                    onUpdateDraftStep(selectedStepIndex, (s) => {
+                      s.config = parsed;
+                    });
+                    const newErrors = new Map(validationErrors);
+                    newErrors.delete(`steps[${selectedStepIndex}].config`);
+                    // Live schema validation for JSON editor
+                    const prefix = `steps[${selectedStepIndex}].config.`;
+                    for (const k of [...newErrors.keys()]) {
+                      if (k.startsWith(prefix)) newErrors.delete(k);
                     }
+                    if (stepTypeInfo?.configSchema) {
+                      const configErrors = validateStepConfig(parsed, stepTypeInfo.configSchema);
+                      for (const [field, msg] of configErrors) {
+                        newErrors.set(`${prefix}${field}`, msg);
+                      }
+                    }
+                    onValidationErrorsChange(newErrors);
+                  } catch {
+                    const newErrors = new Map(validationErrors);
+                    newErrors.set(`steps[${selectedStepIndex}].config`, "Invalid JSON");
+                    onValidationErrorsChange(newErrors);
                   }
-                  onValidationErrorsChange(newErrors);
-                } catch {
-                  const newErrors = new Map(validationErrors);
-                  newErrors.set(`steps[${selectedStepIndex}].config`, "Invalid JSON");
-                  onValidationErrorsChange(newErrors);
-                }
-              }}
+                }}
               ></textarea>
               {#if validationErrors.get(`steps[${selectedStepIndex}].config`)}
                 <span class="text-xs text-destructive"
@@ -644,7 +679,13 @@ function clearConditionError(index: number) {
           {/if}
         </div>
       {/if}
-    {:else if !editMode && (selectedStep.type === "if" || selectedStep.type === "case" || selectedStep.type === "waitFor" || selectedStep.type === "emit" || selectedStep.type === "iterator" || selectedStep.type === "aggregator")}
+    {:else if !editMode &&
+      (selectedStep.type === "if" ||
+        selectedStep.type === "case" ||
+        selectedStep.type === "waitFor" ||
+        selectedStep.type === "emit" ||
+        selectedStep.type === "iterator" ||
+        selectedStep.type === "aggregator")}
       <!-- Read-only: built-in control-flow step config -->
       {@const roCfType = selectedStep.type}
       {@const roCfSchema = builtinConfigSchema(roCfType)}
@@ -655,7 +696,9 @@ function clearConditionError(index: number) {
             <button
               type="button"
               class="text-xs text-muted-foreground underline hover:text-foreground"
-              onclick={() => { onViewAsJsonChange(false); }}
+              onclick={() => {
+                onViewAsJsonChange(false);
+              }}
             >
               View as form
             </button>
@@ -669,7 +712,9 @@ function clearConditionError(index: number) {
           condition={((selectedStep as unknown as StepDraft).condition as Record<string, unknown>) ?? { ref: "" }}
           readonly={true}
         />
-        {@const roBl = (selectedStep as unknown as StepDraft).branchLabels as { then?: string; else?: string } | undefined}
+        {@const roBl = (selectedStep as unknown as StepDraft).branchLabels as
+          | { then?: string; else?: string }
+          | undefined}
         {#if roBl && (roBl.then || roBl.else)}
           <div class="flex flex-col gap-1.5 mt-3">
             <span class="text-xs font-medium text-muted-foreground">Branch edge labels</span>
@@ -686,7 +731,9 @@ function clearConditionError(index: number) {
         <button
           type="button"
           class="text-xs text-muted-foreground underline hover:text-foreground mt-3 self-start"
-          onclick={() => { onViewAsJsonChange(true); }}
+          onclick={() => {
+            onViewAsJsonChange(true);
+          }}
         >
           View as JSON
         </button>
@@ -699,7 +746,9 @@ function clearConditionError(index: number) {
         <button
           type="button"
           class="text-xs text-muted-foreground underline hover:text-foreground mt-3 self-start"
-          onclick={() => { onViewAsJsonChange(true); }}
+          onclick={() => {
+            onViewAsJsonChange(true);
+          }}
         >
           View as JSON
         </button>
@@ -707,7 +756,7 @@ function clearConditionError(index: number) {
     {:else if !editMode && selectedStep.type !== "agent"}
       <!-- Read-only: custom step type config -->
       {@const roStepType = selectedStep.type}
-      {@const roStepTypeInfo = customStepTypes.find(st => st.type === roStepType)}
+      {@const roStepTypeInfo = customStepTypes.find((st) => st.type === roStepType)}
       {#if viewAsJson}
         <div class="flex flex-col gap-1.5 flex-1 min-h-0">
           <div class="flex items-center justify-between">
@@ -716,7 +765,9 @@ function clearConditionError(index: number) {
               <button
                 type="button"
                 class="text-xs text-muted-foreground underline hover:text-foreground"
-                onclick={() => { onViewAsJsonChange(false); }}
+                onclick={() => {
+                  onViewAsJsonChange(false);
+                }}
               >
                 View as form
               </button>
@@ -727,7 +778,10 @@ function clearConditionError(index: number) {
           >{JSON.stringify(selectedStep, null, 2)}</pre>
         </div>
       {:else if roStepTypeInfo?.configSchema}
-        {@const roConfig = (() => { const { slug: _s, type: _t, ...rest } = selectedStep; return rest; })()}
+        {@const roConfig = (() => {
+          const { slug: _s, type: _t, ...rest } = selectedStep;
+          return rest;
+        })()}
         <StepConfigForm
           schema={roStepTypeInfo.configSchema}
           values={roConfig}
@@ -737,7 +791,9 @@ function clearConditionError(index: number) {
         <button
           type="button"
           class="text-xs text-muted-foreground underline hover:text-foreground mt-3"
-          onclick={() => { onViewAsJsonChange(true); }}
+          onclick={() => {
+            onViewAsJsonChange(true);
+          }}
         >
           View as JSON
         </button>
@@ -748,14 +804,20 @@ function clearConditionError(index: number) {
             <pre
               class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-64 overflow-y-auto mt-0.5"
             >{JSON.stringify(
-              (() => { const { slug: _s, type: _t, ...rest } = selectedStep; return rest; })(),
-              null, 2
-            )}</pre>
+  (() => {
+    const { slug: _s, type: _t, ...rest } = selectedStep;
+    return rest;
+  })(),
+  null,
+  2,
+)}</pre>
           </div>
           <button
             type="button"
             class="text-xs text-muted-foreground underline hover:text-foreground"
-            onclick={() => { onViewAsJsonChange(true); }}
+            onclick={() => {
+              onViewAsJsonChange(true);
+            }}
           >
             View as JSON
           </button>

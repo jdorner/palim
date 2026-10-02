@@ -19,12 +19,14 @@ let {
   bind:checked
   {onCheckedChange}
   class={cn(
-    'peer h-4 w-4 shrink-0 rounded-sm border border-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground',
-    className
+    "peer h-4 w-4 shrink-0 rounded-sm border border-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground",
+    className,
   )}
   {...restProps}
 >
-  {#snippet children({ checked: _isChecked })}
+  {#snippet children({
+    checked: _isChecked,
+  })}
     {#if _isChecked}
       <div class="flex items-center justify-center text-current"><CheckIcon class="h-4 w-4" /></div>
     {/if}

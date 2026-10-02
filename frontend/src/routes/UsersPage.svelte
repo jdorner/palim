@@ -168,7 +168,9 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
 {#if notice}
   <div
     class="fixed bottom-4 right-4 z-40 flex max-w-sm items-start gap-2 rounded-md border px-3 py-2 text-sm shadow-md bg-background
-      {notice.kind === 'success' ? 'border-green-600/40 text-green-700 dark:text-green-400' : 'border-destructive/50 text-destructive'}"
+      {notice.kind === "success"
+      ? "border-green-600/40 text-green-700 dark:text-green-400"
+      : "border-destructive/50 text-destructive"}"
     role={notice.kind === "error" ? "alert" : "status"}
   >
     {#if notice.kind === "success"}

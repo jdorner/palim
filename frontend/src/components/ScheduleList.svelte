@@ -140,7 +140,14 @@ $effect(() => {
           {#if confirmingDelete === schedule.id}
             <div class="flex flex-wrap items-center gap-2">
               <Button size="sm" variant="destructive" onclick={() => deleteSchedule(schedule.id)}>Confirm</Button>
-              <Button size="sm" variant="outline" onclick={() => { confirmingDelete = null; }}>Cancel</Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onclick={() => {
+                  confirmingDelete = null;
+                }}
+                >Cancel</Button
+              >
             </div>
           {:else}
             <div class="flex flex-wrap items-center gap-2">
@@ -153,7 +160,13 @@ $effect(() => {
                 <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
                 {triggeringId === schedule.id ? "Triggering..." : "Trigger"}
               </Button>
-              <Button size="sm" variant="destructive" onclick={() => { confirmingDelete = schedule.id; }}>
+              <Button
+                size="sm"
+                variant="destructive"
+                onclick={() => {
+                  confirmingDelete = schedule.id;
+                }}
+              >
                 <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
                 Delete
               </Button>
@@ -203,7 +216,15 @@ $effect(() => {
                     <Button size="sm" variant="destructive" onclick={() => deleteSchedule(schedule.id)}>
                       Confirm
                     </Button>
-                    <Button size="sm" variant="outline" onclick={() => { confirmingDelete = null; }}> Cancel </Button>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onclick={() => {
+                        confirmingDelete = null;
+                      }}
+                    >
+                      Cancel
+                    </Button>
                   </div>
                 {:else}
                   <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
@@ -216,7 +237,13 @@ $effect(() => {
                       <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
                       {triggeringId === schedule.id ? "Triggering..." : "Trigger"}
                     </Button>
-                    <Button size="sm" variant="destructive" onclick={() => { confirmingDelete = schedule.id; }}>
+                    <Button
+                      size="sm"
+                      variant="destructive"
+                      onclick={() => {
+                        confirmingDelete = schedule.id;
+                      }}
+                    >
                       <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
                       Delete
                     </Button>

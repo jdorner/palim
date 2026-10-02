@@ -421,7 +421,7 @@ function handleKeydown(event: KeyboardEvent) {
       <div class="space-y-2">
         {#each variables as entry (entry.key)}
           <div
-            class="rounded-md border border-border px-3 py-2 space-y-1.5 {editingKey === entry.key ? 'bg-accent' : ''}"
+            class="rounded-md border border-border px-3 py-2 space-y-1.5 {editingKey === entry.key ? "bg-accent" : ""}"
           >
             <!-- Header row -->
             <div class="flex items-center gap-2">
@@ -493,11 +493,7 @@ function handleKeydown(event: KeyboardEvent) {
   description={deleteReferencingWorkflows.length > 0
     ? `"${deleteTargetKey}" is referenced by ${deleteReferencingWorkflows.length} workflow(s): ${deleteReferencingWorkflows.join(", ")}. Deleting it may break those workflows. Confirm to delete anyway.`
     : `Are you sure you want to delete "${deleteTargetKey}"? This action is irreversible.`}
-  confirmLabel={deleting
-    ? "Deleting..."
-    : deleteReferencingWorkflows.length > 0
-      ? "Delete anyway"
-      : "Delete"}
+  confirmLabel={deleting ? "Deleting..." : deleteReferencingWorkflows.length > 0 ? "Delete anyway" : "Delete"}
   cancelLabel="Cancel"
   confirmVariant="destructive"
   onConfirm={executeDelete}

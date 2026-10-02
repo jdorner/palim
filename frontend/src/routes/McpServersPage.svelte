@@ -221,11 +221,23 @@ $effect(() => {
 
 <div class="space-y-4">
   <div class="flex items-center gap-2">
-    <Button size="sm" onclick={() => { showAddForm = !showAddForm; showImportForm = false; }}>
+    <Button
+      size="sm"
+      onclick={() => {
+        showAddForm = !showAddForm;
+        showImportForm = false;
+      }}
+    >
       <PlusIcon size={14} class="mr-1.5" aria-hidden="true" />
       Add Server
     </Button>
-    <Button size="sm" onclick={() => { showImportForm = !showImportForm; showAddForm = false; }}>
+    <Button
+      size="sm"
+      onclick={() => {
+        showImportForm = !showImportForm;
+        showAddForm = false;
+      }}
+    >
       <ClipboardTextIcon size={14} class="mr-1.5" aria-hidden="true" />
       Import
     </Button>
@@ -264,7 +276,11 @@ $effect(() => {
           <Button
             size="sm"
             variant="outline"
-            onclick={() => { showImportForm = false; importError = null; notificationMessage = null; }}
+            onclick={() => {
+              showImportForm = false;
+              importError = null;
+              notificationMessage = null;
+            }}
             >Cancel</Button
           >
         </div>
@@ -402,12 +418,12 @@ $effect(() => {
             >
               <ArrowsClockwiseIcon
                 size={14}
-                class="mr-1.5 {syncing === server.name ? 'animate-spin' : ''}"
+                class="mr-1.5 {syncing === server.name ? "animate-spin" : ""}"
                 aria-hidden="true"
               />
               Sync
             </Button>
-            <Button size="sm" variant="destructive" onclick={() => confirmDeleteName = server.name}>
+            <Button size="sm" variant="destructive" onclick={() => (confirmDeleteName = server.name)}>
               <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
               Delete
             </Button>
@@ -460,12 +476,12 @@ $effect(() => {
                   >
                     <ArrowsClockwiseIcon
                       size={14}
-                      class="mr-1.5 {syncing === server.name ? 'animate-spin' : ''}"
+                      class="mr-1.5 {syncing === server.name ? "animate-spin" : ""}"
                       aria-hidden="true"
                     />
                     Sync
                   </Button>
-                  <Button size="sm" variant="destructive" onclick={() => confirmDeleteName = server.name}>
+                  <Button size="sm" variant="destructive" onclick={() => (confirmDeleteName = server.name)}>
                     <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
                     Delete
                   </Button>
@@ -489,6 +505,8 @@ $effect(() => {
       if (confirmDeleteName) deleteServer(confirmDeleteName);
       confirmDeleteName = null;
     }}
-    onCancel={() => { confirmDeleteName = null; }}
+    onCancel={() => {
+      confirmDeleteName = null;
+    }}
   />
 </div>

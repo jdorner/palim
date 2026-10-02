@@ -26,7 +26,10 @@ let { class: className, value, label, children, ...restProps }: Props = $props()
   )}
   {...restProps}
 >
-  {#snippet children({ selected, highlighted })}
+  {#snippet children({
+    selected,
+    highlighted,
+  })}
     {#if children}
       {@render children({ selected, highlighted })}
     {:else}

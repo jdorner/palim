@@ -588,7 +588,7 @@ onMount(() => {
   <SvelteFlow
     bind:nodes
     bind:edges
-    class="transition-opacity duration-150 {initialFitDone ? 'opacity-100' : 'opacity-0'}"
+    class="transition-opacity duration-150 {initialFitDone ? "opacity-100" : "opacity-0"}"
     {nodeTypes}
     {edgeTypes}
     {colorMode}

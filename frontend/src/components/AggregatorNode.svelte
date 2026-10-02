@@ -57,7 +57,7 @@ let strokeClass = $derived(data.selected ? "stroke-primary" : "stroke-sky-400/70
       <StatusIcon
         size={16}
         weight="fill"
-        class="{statusInfo.colorClass} {statusInfo.spin ? 'animate-spin' : ''}"
+        class="{statusInfo.colorClass} {statusInfo.spin ? "animate-spin" : ""}"
         aria-hidden="true"
       />
     </div>

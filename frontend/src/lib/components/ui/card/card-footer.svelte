@@ -10,4 +10,4 @@ interface Props extends Record<string, any> {
 let { class: className, children, ...restProps }: Props = $props();
 </script>
 
-<div class={cn('flex items-center p-6 pt-0', className)} {...restProps}>{@render children?.()}</div>
+<div class={cn("flex items-center p-6 pt-0", className)} {...restProps}>{@render children?.()}</div>

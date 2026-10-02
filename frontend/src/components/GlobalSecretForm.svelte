@@ -410,7 +410,7 @@ function handleKeydown(event: KeyboardEvent) {
       <div class="space-y-2">
         {#each secrets as entry (entry.key)}
           <div
-            class="rounded-md border border-border px-3 py-2 space-y-1.5 {editingKey === entry.key ? 'bg-accent' : ''}"
+            class="rounded-md border border-border px-3 py-2 space-y-1.5 {editingKey === entry.key ? "bg-accent" : ""}"
           >
             <!-- Header row -->
             <div class="flex items-center gap-2">
@@ -484,5 +484,8 @@ function handleKeydown(event: KeyboardEvent) {
   cancelLabel="Cancel"
   confirmVariant="destructive"
   onConfirm={executeDelete}
-  onCancel={() => { deleteDialogOpen = false; deleteTargetKey = null; }}
+  onCancel={() => {
+    deleteDialogOpen = false;
+    deleteTargetKey = null;
+  }}
 />

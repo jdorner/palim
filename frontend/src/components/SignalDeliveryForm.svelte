@@ -121,7 +121,9 @@ async function handleSubmit() {
         rows={4}
         disabled={submitting || submitted}
         bind:value={rawJson}
-        oninput={() => { errorMessage = null; }}
+        oninput={() => {
+          errorMessage = null;
+        }}
       ></textarea>
     </div>
   {/if}

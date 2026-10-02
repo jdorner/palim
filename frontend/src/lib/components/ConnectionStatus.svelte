@@ -3,8 +3,8 @@ let { connected }: { connected: boolean } = $props();
 </script>
 
 <div class="connection-status">
-  <div class="status-indicator {connected ? 'connected' : 'disconnected'}"></div>
-  <span class="status-text"> {connected ? 'Connected' : 'Disconnected'} </span>
+  <div class="status-indicator {connected ? "connected" : "disconnected"}"></div>
+  <span class="status-text"> {connected ? "Connected" : "Disconnected"} </span>
 </div>
 
 <style>

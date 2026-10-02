@@ -128,7 +128,9 @@ function inAsText(): string {
 }
 </script>
 
-{#snippet infoTip(description: string)}
+{#snippet infoTip(
+  description: string,
+)}
   <Tooltip.Root delayDuration={0}>
     <Tooltip.Trigger
       class="inline-flex items-center pointer-events-auto cursor-help text-muted-foreground/60 hover:text-muted-foreground"
@@ -163,7 +165,7 @@ function inAsText(): string {
       disabled={isReadonly}
       class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-70"
       value={refValue}
-      placeholder="{'{{'}steps.slug.output{'}}'}"
+      placeholder="{"{{"}steps.slug.output{"}}"}"
       oninput={(e) => updateRef(e.currentTarget.value)}
     >
     {#if autocompleteEnabled && !isReadonly}
@@ -225,7 +227,10 @@ function inAsText(): string {
         value={inAsText()}
         placeholder="value1, value2, ..."
         oninput={(e) => {
-          const items = e.currentTarget.value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+          const items = e.currentTarget.value
+            .split(",")
+            .map((s) => s.trim())
+            .filter((s) => s.length > 0);
           updateValue(items);
         }}
       >

@@ -86,10 +86,15 @@ let deleteTitle = $derived(
         tabindex="0"
         class="group flex items-center gap-1 px-3 py-2.5 text-sm cursor-pointer transition-colors
           {conv.id === activeId
-          ? 'bg-accent text-accent-foreground'
-          : 'text-muted-foreground hover:bg-accent/50 hover:text-foreground'}"
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"}"
         onclick={() => onSelect?.(conv.id)}
-        onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect?.(conv.id); } }}
+        onkeydown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onSelect?.(conv.id);
+          }
+        }}
       >
         {#if renamingId === conv.id}
           <input
@@ -105,14 +110,19 @@ let deleteTitle = $derived(
           <!-- svelte-ignore a11y_click_events_have_key_events -->
           <!-- svelte-ignore a11y_no_static_element_interactions -->
           <span
-            class="flex-1 min-w-0 border border-transparent {readState.isUnread(conv.id, conv.updatedAt) && conv.id !== activeId ? 'font-bold text-foreground' : ''}"
+            class="flex-1 min-w-0 border border-transparent {readState.isUnread(conv.id, conv.updatedAt) &&
+            conv.id !== activeId
+              ? "font-bold text-foreground"
+              : ""}"
             title={conv.title}
           >
             <span class="block truncate">{conv.title}</span>
           </span>
 
           <div
-            class="items-center gap-0.5 shrink-0 {conv.id === activeId ? 'flex' : 'hidden group-hover:flex group-focus-within:flex'}"
+            class="items-center gap-0.5 shrink-0 {conv.id === activeId
+              ? "flex"
+              : "hidden group-hover:flex group-focus-within:flex"}"
           >
             <button
               type="button"
@@ -156,5 +166,7 @@ let deleteTitle = $derived(
     if (confirmDeleteId) onDelete?.(confirmDeleteId);
     confirmDeleteId = null;
   }}
-  onCancel={() => { confirmDeleteId = null; }}
+  onCancel={() => {
+    confirmDeleteId = null;
+  }}
 />

@@ -71,7 +71,7 @@ let ringClass = $derived(data.selected ? "ring-2 ring-primary" : `ring-2 ${statu
     <StatusIcon
       size={16}
       weight="fill"
-      class="shrink-0 {statusInfo.colorClass} {statusInfo.spin ? 'animate-spin' : ''}"
+      class="shrink-0 {statusInfo.colorClass} {statusInfo.spin ? "animate-spin" : ""}"
       aria-hidden="true"
     />
   {/if}

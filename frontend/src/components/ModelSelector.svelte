@@ -152,7 +152,7 @@ $effect(() => {
       disabled={loading}
       aria-label="Refresh model list"
     >
-      <ArrowsClockwiseIcon class="w-4 h-4 {loading ? 'animate-spin' : ''}" aria-hidden="true" />
+      <ArrowsClockwiseIcon class="w-4 h-4 {loading ? "animate-spin" : ""}" aria-hidden="true" />
     </button>
   </div>
 

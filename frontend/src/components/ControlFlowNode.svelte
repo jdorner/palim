@@ -57,7 +57,7 @@ let ringClass = $derived(data.selected ? "ring-2 ring-primary" : `ring-2 ${statu
       <StatusIcon
         size={14}
         weight="fill"
-        class="{statusInfo.colorClass} {statusInfo.spin ? 'animate-spin' : ''}"
+        class="{statusInfo.colorClass} {statusInfo.spin ? "animate-spin" : ""}"
         aria-hidden="true"
       />
     </div>
@@ -95,7 +95,7 @@ let ringClass = $derived(data.selected ? "ring-2 ring-primary" : `ring-2 ${statu
       <Handle
         type="source"
         position={Position.Right}
-        id="{id}-{data.type === 'case' && branch !== 'default' ? `path-${branch}` : branch}"
+        id="{id}-{data.type === "case" && branch !== "default" ? `path-${branch}` : branch}"
         style="right: 0px; top: calc(50% + {yOffset}px);"
         class="h-2.5! w-2.5! border-2! border-background! bg-sky-500!"
       />

@@ -343,7 +343,10 @@ $effect(() => {
                       <a
                         href="#settings-{ext.name}"
                         class="text-left"
-                        onclick={(e) => { e.preventDefault(); openSettings(ext); }}
+                        onclick={(e) => {
+                          e.preventDefault();
+                          openSettings(ext);
+                        }}
                       >
                         {ext.name}
                       </a>
