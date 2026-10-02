@@ -820,6 +820,7 @@ export class ExtensionRegistry {
       routeKeySet: this.routeKeySet,
       stepTypeNameSet: this.stepTypeNameSet,
       disabledRoutePrefixes: this.disabledRoutePrefixes,
+      routeRegistry: this.initDeps?.routeRegistry,
       eventBus: this.eventBus,
     };
   }

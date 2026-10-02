@@ -96,6 +96,7 @@ function createFakeDeps(): RegistryInitDeps {
   return {
     routeRegistry: {
       registerRoute: () => {},
+      unregisterRoute: () => {},
     },
     broadcastFn: (_msg: WebSocketMessage) => {},
     onQueueCreated: () => {},

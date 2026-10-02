@@ -91,6 +91,7 @@ src/
 ├── web/
 │   ├── server.ts            # Elysia HTTP + WebSocket server factory
 │   ├── compression.ts       # Elysia compression plugin (gzip, deflate, brotli with LRU cache)
+│   ├── extensionRouter.ts   # Runtime extension route table, dispatched via a fixed /ext/* mount
 │   ├── dynamicProviders.ts  # Provider registry for dynamic schema enrichment (items + defaults)
 │   ├── monitor.ts           # Real-time job state push to WS clients
 │   ├── auth.ts              # Bearer token auth middleware
@@ -284,6 +285,8 @@ Extensions live in `src/extensions/<name>/index.ts` (or `src/extensions/core/<na
 4. Initializes in dependency order with a scoped `ExtensionContext`
 
 Extensions can register: tools, HTTP routes (auto-prefixed `/ext/<name>/`; pass `{ public: true }` for self-authenticating callbacks), job queues, agent event listeners, skills, UI contributions (sidebar navigation entries), custom workflow step types (with optional input validation), and dynamic item providers for settings schema enrichment. Extension config is read from `EXT_<NAME>_<KEY>` env vars.
+
+Extension routes are not mounted on Elysia directly (Elysia cannot add routes after `listen()`). The web server mounts a fixed `/ext/*` catch-all that dispatches through `ExtensionRouter` (`src/web/extensionRouter.ts`); routes are added on registration and removed on deactivate/unload, so enabling, re-enabling, or hot-loading an extension at runtime takes effect immediately. The router parses the body per the route's `parse` option from a clone of the request, so handlers can still read `request` directly.
 
 Current extensions (13): **converter**, **error-analyzer**, **mcp**, **ntfy**, **steering**, **telegram**, **web-fetch**, **wiki** | Core: **core-wf-steps**, **filewatcher**, **scheduler**, **webhooks**, **workflows**
 

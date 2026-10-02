@@ -374,7 +374,7 @@ export class AppBootstrap {
       app: elysiaApp,
       monitor: monitoring,
       pushMessage,
-      publicRoutes,
+      extensionRouter,
     } = await createWebServer({
       agentQueue,
       chatQueue,
@@ -385,23 +385,14 @@ export class AppBootstrap {
       userStore,
     });
 
-    // Route registry that wraps Elysia for extension route wiring.
+    // Route registry backed by the runtime extension router (served via `/ext/*`),
+    // so routes can be (un)registered while the server is already listening.
     const routeRegistry: RouteRegistry = {
       registerRoute(method: HttpMethod, path: string, handler: RouteHandler, options?: RouteOptions) {
-        const m = method.toLowerCase() as "get" | "post" | "put" | "delete";
-        const app = elysiaApp as any;
-        if (typeof app[m] !== "function") {
-          log.error(`RouteRegistry: Elysia does not support method "${method}"`);
-          return;
-        }
-        // `public` is ours, not Elysia's: record it and pass the rest through.
-        const { public: isPublic, ...elysiaOptions } = options ?? {};
-        if (isPublic) publicRoutes.add(method, path);
-        if (options) {
-          app[m](path, handler, elysiaOptions);
-        } else {
-          app[m](path, handler);
-        }
+        extensionRouter.add(method, path, handler, options);
+      },
+      unregisterRoute(method: HttpMethod, path: string) {
+        extensionRouter.remove(method, path);
       },
     };
 

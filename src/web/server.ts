@@ -14,13 +14,13 @@ import type { SecretVault } from "@src/secrets/vault";
 import { getSessionStore } from "@src/session";
 import { mainLogger as log } from "@src/utils/logger";
 import type { VariableStore } from "@src/variables/store";
-import { type AnyElysia, Elysia } from "elysia";
+import { type AnyElysia, type Context, Elysia } from "elysia";
 import { rateLimit } from "elysia-rate-limit";
 import { extractBearerToken, extractWsToken, setPrincipal } from "./auth";
 import { authorizeRequest } from "./authorize";
 import { compression } from "./compression";
+import { ExtensionRouter } from "./extensionRouter";
 import { QueueMonitor } from "./monitor";
-import { PublicRouteTable } from "./publicRoutes";
 import { authRoutes } from "./routes/auth";
 import { chatRoutes } from "./routes/chat";
 import { extensionRoutes } from "./routes/extensions";
@@ -61,19 +61,22 @@ interface WebServerListenOptions {
 
 /**
  * Creates the Elysia web server with WebSocket support but does NOT start listening.
- * Call {@link startWebServer} after all routes (including extension routes) are registered.
+ * Call {@link startWebServer} once core setup is done. Extension routes live in the returned
+ * {@link ExtensionRouter} and may be added or removed at any time, including after listen.
  *
  * @param deps - The managed queues and registry getter to wire into the server
  * @param deps.agentQueue - Queue for general agent prompt jobs
  * @param deps.chatQueue - Queue for conversational chat jobs
  * @param deps.getRegistry - Getter for the extension registry
- * @returns Object containing the Elysia app instance, QueueMonitor, push function, and public route table
+ * @returns Object containing the Elysia app instance, QueueMonitor, push function, and extension router
  */
 export async function createWebServer(deps: WebServerDeps) {
   const { agentQueue, chatQueue, getRegistry, authService } = deps;
 
-  // Extension routes registered with `{ public: true }` (filled by the route registry).
-  const publicRoutes = new PublicRouteTable();
+  // Runtime table of extension routes (filled by the route registry). Dispatched
+  // through the fixed `/ext/*` mount below so routes can change after listen().
+  const extensionRouter = new ExtensionRouter();
+  const dispatchExtension = (ctx: Context) => extensionRouter.dispatch(ctx);
 
   // Feed managed queues to the monitor for event-based tracking
   const monitor = new QueueMonitor([agentQueue, chatQueue]);
@@ -103,7 +106,7 @@ export async function createWebServer(deps: WebServerDeps) {
         },
       }),
     )
-    .onBeforeHandle((ctx) => authCheck(ctx, authService, publicRoutes))
+    .onBeforeHandle((ctx) => authCheck(ctx, authService, extensionRouter))
     .onBeforeHandle(checkIfExtensionIsUnloaded(getRegistry))
     // --- Route modules ---
     .use(authRoutes(() => authService, revalidateSockets))
@@ -124,6 +127,11 @@ export async function createWebServer(deps: WebServerDeps) {
         (userId) => getSessionStore().deleteByUser(userId),
       ),
     )
+    // --- Extension routes (dynamic; body parsing is done per route by the router) ---
+    .get("/ext/*", dispatchExtension, { parse: "none" })
+    .post("/ext/*", dispatchExtension, { parse: "none" })
+    .put("/ext/*", dispatchExtension, { parse: "none" })
+    .delete("/ext/*", dispatchExtension, { parse: "none" })
     // --- WebSocket ---
     .ws("/ws", {
       async open(ws) {
@@ -143,12 +151,12 @@ export async function createWebServer(deps: WebServerDeps) {
       },
     });
 
-  return { app, monitor, pushMessage: pushService.pushMessage, publicRoutes };
+  return { app, monitor, pushMessage: pushService.pushMessage, extensionRouter };
 }
 
 /**
  * Starts the Elysia server listening on the given host and port.
- * Call this after all routes (including extension routes) have been registered.
+ * Extension routes are dispatched dynamically and need not be registered beforehand.
  *
  * @param app - The Elysia app instance from {@link createWebServer}
  * @param opts - Server listen options (hostname, port)
@@ -170,13 +178,13 @@ export function startWebServer(app: AnyElysia, opts: WebServerListenOptions) {
  *
  * @param params - Elysia handler parameters (request + status helper).
  * @param authService - The resolver mapping tokens to principals.
- * @param publicRoutes - Extension routes that opted out of token auth.
+ * @param extensionRouter - Extension route table (identifies routes that opted out of token auth).
  * @returns A 401/403 response when unauthenticated/unauthorized; otherwise undefined.
  */
 export function authCheck(
   params: { request: Request; status: any },
   authService: WebServerDeps["authService"],
-  publicRoutes?: PublicRouteTable,
+  extensionRouter?: ExtensionRouter,
 ) {
   const url = new URL(params.request.url);
   const path = url.pathname;
@@ -187,7 +195,7 @@ export function authCheck(
   // Public auth endpoints (login/validate).
   if (path === "/api/auth/login" || path === "/api/auth/validate") return;
   // Extension routes that authenticate callers themselves (webhook HMAC, OAuth state).
-  if (publicRoutes?.matches(params.request.method, path)) return;
+  if (extensionRouter?.isPublic(params.request.method, path)) return;
 
   // Fail closed if the auth service is missing (misconfiguration).
   if (!authService) {

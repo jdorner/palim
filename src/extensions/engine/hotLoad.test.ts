@@ -73,6 +73,7 @@ function createFakeDeps(): { deps: RegistryInitDeps; broadcasts: WebSocketMessag
   const deps: RegistryInitDeps = {
     routeRegistry: {
       registerRoute: () => {},
+      unregisterRoute: () => {},
     },
     broadcastFn: (msg: WebSocketMessage) => broadcasts.push(msg),
     onQueueCreated: () => {},
