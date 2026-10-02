@@ -14,6 +14,7 @@ import {
 import { serverOrigin, WORK_DIR } from "../config";
 import { parseSkillMd } from "../skills/frontmatter";
 import { createCommand, formatHttpError } from "../utils/command";
+import { resolveAmbientToken } from "../utils/fetch";
 import type { SkillEntry } from "./skillEntry";
 
 export type { SkillEntry } from "./skillEntry";
@@ -205,7 +206,9 @@ function registerCorePrograms(sh: Bash): void {
  * ```
  *
  * Reads `PALIM_PUSH_URL` and `PALIM_SESSION_ID` from the shell environment.
- * Includes an `Authorization: Bearer` header when `AUTH_TOKEN` is set in process.env.
+ * Attaches an `Authorization: Bearer` header carrying the ambient per-job
+ * identity token (falling back to the system token) so the push call authorizes
+ * as the initiating user rather than a shared privileged identity.
  *
  * @returns A command handler suitable for `defineCommand()`
  */
@@ -245,9 +248,10 @@ export function buildPushCommand(): (args: string[], ctx: CommandContext) => Pro
     const body = JSON.stringify({ sessionId, content, contentType });
     const headers: Record<string, string> = { "Content-Type": "application/json" };
 
-    // Include auth token if configured
-    if (process.env.AUTH_TOKEN) {
-      headers.Authorization = `Bearer ${process.env.AUTH_TOKEN}`;
+    // Attach the ambient per-job identity token (falls back to the system token).
+    const token = resolveAmbientToken();
+    if (token) {
+      headers.Authorization = `Bearer ${token}`;
     }
 
     try {

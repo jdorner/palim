@@ -11,7 +11,11 @@ import { join } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
 import type { WebSocketMessage } from "@shared/types";
+import { AuthService, seedAuth, setIdentityMinter, UserStore } from "@src/auth";
 import {
+  AUTH_ADMIN_PASSWORD,
+  AUTH_ADMIN_USER,
+  AUTH_SESSION_TTL_MS,
   DATA_DIR,
   EXTENSIONS_DIR,
   EXTERNAL_EXTENSIONS_DIR,
@@ -51,6 +55,7 @@ import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { SkillEntry } from "@src/tools/sandbox";
 import { createShell } from "@src/tools/sandbox";
 import { isLLMConnectionError } from "@src/utils/error";
+import { setSystemToken } from "@src/utils/fetch";
 import { mainLogger as log } from "@src/utils/logger";
 import { VariableStore } from "@src/variables/store";
 import { mapAgentEventToChatEvent } from "@src/web/chatEvents";
@@ -176,6 +181,7 @@ export class AppBootstrap {
     private monitor: QueueMonitor,
     private app: AnyElysia,
     private registryInitDeps: RegistryInitDeps,
+    private authService: AuthService,
   ) {}
 
   /**
@@ -238,6 +244,50 @@ export class AppBootstrap {
     // Initialize variable store (plaintext, always available - no master key)
     // ---------------------------------------------------------------------------
     const variableStore = new VariableStore(getDb());
+
+    // ---------------------------------------------------------------------------
+    // Initialize user management (users, roles, RBAC) and seed the admin.
+    // Replaces the legacy shared AUTH_TOKEN with per-user accounts.
+    // ---------------------------------------------------------------------------
+    const userStore = new UserStore(getDb());
+    const authService = new AuthService(userStore, { sessionTtlMs: AUTH_SESSION_TTL_MS });
+    try {
+      const seed = await seedAuth({
+        userStore,
+        authService,
+        db: getDb(),
+        adminUsername: AUTH_ADMIN_USER,
+        adminPassword: AUTH_ADMIN_PASSWORD,
+      });
+      if (seed.createdAdmin) {
+        log.info(
+          `Seeded admin user "${AUTH_ADMIN_USER}" (claimed ${seed.claimedSessions} session(s), ${seed.claimedTriggers} trigger(s))`,
+        );
+        if (seed.generatedPassword) {
+          log.warn(
+            `Generated one-time admin password for "${AUTH_ADMIN_USER}": ${seed.generatedPassword} - log in and change it now (set AUTH_ADMIN_PASSWORD to avoid this).`,
+          );
+        }
+      }
+      // Wire the narrow system-principal token for genuine background/boot
+      // internal calls (no originating user) into the fetch layer. The provider
+      // mints short-lived tokens on demand; mintInternalToken caches and renews
+      // them, so the system token never goes stale on a long-running process.
+      const systemUserId = seed.systemUserId;
+      if (!authService.mintInternalToken(systemUserId, 60 * 60 * 1000)) {
+        log.warn("Failed to mint system internal token - background internal calls will be unauthenticated");
+      }
+      setSystemToken(() => authService.mintInternalToken(systemUserId, 60 * 60 * 1000)?.token ?? "");
+      // Install the process-wide identity minter so job producers deep in
+      // extension code (e.g. the workflows DAG step worker) can bind per-job
+      // identity without threading the auth service through every layer.
+      setIdentityMinter(
+        (userId, ttlMs) => authService.mintInternalToken(userId, ttlMs ?? 60 * 60 * 1000)?.token ?? null,
+      );
+    } catch (err) {
+      log.error("Auth seeding failed:", (err as Error).message);
+      throw err;
+    }
 
     // Core queue lookup for extensions
     const coreQueues = new Map<CoreQueueName, ManagedQueuePort>();
@@ -309,6 +359,9 @@ export class AppBootstrap {
       registry,
       openaiApiKey,
       getSelectedModel,
+      // Per-job identity: mint a short-lived (1h) internal token bound to the
+      // job's initiating user so internal calls authorize as that user.
+      mintIdentityToken: (userId: string) => authService.mintInternalToken(userId, 60 * 60 * 1000)?.token ?? null,
     });
 
     coreQueues.set("agents", agentQueue);
@@ -327,6 +380,8 @@ export class AppBootstrap {
       getRegistry: () => registry,
       secretVault,
       variableStore,
+      authService,
+      userStore,
     });
 
     // Route registry that wraps Elysia for extension route wiring.
@@ -362,9 +417,11 @@ export class AppBootstrap {
       pushMessageFn: pushMessage,
       secretVault,
       variableStore,
+      authService,
+      userStore,
     };
 
-    return new AppBootstrap(registry, agentQueue, chatQueue, monitoring, elysiaApp, registryInitDeps);
+    return new AppBootstrap(registry, agentQueue, chatQueue, monitoring, elysiaApp, registryInitDeps, authService);
   }
 
   /**
@@ -560,6 +617,24 @@ export class AppBootstrap {
     });
 
     // ---------------------------------------------------------------------------
+    // Periodic auth-token cleanup - remove expired login and internal (per-job)
+    // session tokens from user_sessions every hour.
+    // ---------------------------------------------------------------------------
+    this.authService.startPurgeTimer(
+      60 * 60 * 1000,
+      (err) => log.warn("Expired auth session purge failed:", err),
+      (count) => {
+        if (count > 0) log.info(`Purged ${count} expired auth session(s)`);
+      },
+    );
+
+    // ---------------------------------------------------------------------------
+    // Periodic WebSocket revalidation - closes sockets whose token expired or was
+    // revoked outside the web routes (e.g. `bun run reset-admin`).
+    // ---------------------------------------------------------------------------
+    this.monitor.startRevalidationTimer(60 * 1000);
+
+    // ---------------------------------------------------------------------------
     // Graceful shutdown
     // ---------------------------------------------------------------------------
     process.on("SIGTERM", this.shutdown);
@@ -584,6 +659,8 @@ export class AppBootstrap {
     await Promise.all(this.getCoreQueues().map((q) => q?.close()));
     shutdownManager();
     stopSessionPurgeTimer();
+    this.authService.stopPurgeTimer();
+    this.monitor.stopRevalidationTimer();
     closeLogStore();
     closeDb();
 

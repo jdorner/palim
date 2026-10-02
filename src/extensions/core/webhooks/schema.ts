@@ -28,4 +28,6 @@ export const webhooks = sqliteTable("ext_webhooks_registrations", {
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   /** Creation timestamp (ms). */
   createdAt: integer("created_at").notNull(),
+  /** Id of the user who created this webhook (references users.id); null for pre-migration rows. */
+  createdByUserId: text("created_by_user_id"),
 });

@@ -21,6 +21,7 @@ import { formatValidationErrors } from "@ext/sdk";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import { registerTriggerOwnerCounter, requestUserId } from "@src/web/triggerOwnership";
 import { verifyAuth } from "./auth";
 import { CreateWebhookPayload, UpdateWebhookPayload } from "./schemas";
 import { deleteWebhook, findWebhook, initStore, insertWebhook, loadAll, updateWebhookRecord } from "./store";
@@ -68,6 +69,7 @@ const manifest = {
  */
 export function createExtension(): Extension {
   let logger: Logger;
+  let unregisterOwnerCounter: (() => void) | undefined;
   let maxPayloadSize = 1024 * 1024; // 1 MB default
 
   return {
@@ -87,6 +89,12 @@ export function createExtension(): Extension {
       // Load registrations
       const all = loadAll();
       logger.info(`Loaded ${all.length} webhook registration(s)`);
+
+      // Lets user deletion refuse while the user still owns webhooks.
+      unregisterOwnerCounter = registerTriggerOwnerCounter(
+        "webhook",
+        (userId) => loadAll().filter((w) => w.createdByUserId === userId).length,
+      );
 
       // ---------------------------------------------------------------
       // Receiver route: POST /ext/webhooks/receive/:slug
@@ -135,10 +143,17 @@ export function createExtension(): Extension {
             payload = rawBody;
           }
 
-          // Emit domain event for downstream consumers (e.g. workflow engine)
+          // Emit domain event for downstream consumers (e.g. workflow engine).
+          // Carry the creator's id so a triggered run acts with their authority.
           ctx.events.emit({
             type: "webhook:received",
-            context: { source: "webhooks", id: slug, slug, payload },
+            context: {
+              source: "webhooks",
+              id: slug,
+              slug,
+              payload,
+              ...(registration.createdByUserId ? { initiatorUserId: registration.createdByUserId } : {}),
+            },
           });
 
           logger.info(`Webhook "${slug}" received -> event emitted`);
@@ -208,6 +223,7 @@ export function createExtension(): Extension {
           headerName: data.headerName || defaultHeader,
           enabled: data.enabled ?? true,
           createdAt: Date.now(),
+          createdByUserId: requestUserId(reqCtx.request) ?? null,
         };
 
         insertWebhook(registration);
@@ -234,6 +250,9 @@ export function createExtension(): Extension {
       ctx.routes.register("DELETE", "/:slug", async (reqCtx) => {
         const slug = (reqCtx.params as Record<string, string>).slug;
         if (!slug) return Response.json({ error: "Missing slug" }, { status: 400 });
+
+        const existing = findWebhook(slug);
+        if (!existing) return Response.json({ error: "Not found" }, { status: 404 });
 
         if (!deleteWebhook(slug)) {
           return Response.json({ error: "Not found" }, { status: 404 });
@@ -306,6 +325,9 @@ export function createExtension(): Extension {
         if (updates.secret !== undefined && effectiveAuthType !== "none") mergeUpdates.secret = updates.secret;
         if (updates.headerName !== undefined) mergeUpdates.headerName = updates.headerName;
         if (updates.enabled !== undefined) mergeUpdates.enabled = updates.enabled;
+        // The editor becomes the owner, so the webhook never runs edited config
+        // with the previous owner's authority.
+        mergeUpdates.createdByUserId = requestUserId(reqCtx.request) ?? null;
 
         const updated = updateWebhookRecord(slug, mergeUpdates);
         if (!updated) return Response.json({ error: "Not found" }, { status: 404 });
@@ -316,7 +338,9 @@ export function createExtension(): Extension {
       });
     },
 
-    async shutdown() {},
+    async shutdown() {
+      unregisterOwnerCounter?.();
+    },
   };
 }
 

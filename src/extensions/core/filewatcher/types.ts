@@ -28,4 +28,6 @@ export interface FileWatcherRegistration {
   enabled: boolean;
   /** Creation timestamp (ms). */
   createdAt: number;
+  /** Id of the user who created or last edited this watcher (null for pre-migration rows). */
+  createdByUserId?: string | null;
 }

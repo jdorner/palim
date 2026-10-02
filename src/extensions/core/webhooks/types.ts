@@ -21,4 +21,6 @@ export interface WebhookRegistration {
   enabled: boolean;
   /** Creation timestamp (ms). */
   createdAt: number;
+  /** Id of the user who created or last edited this webhook (null for pre-migration rows). */
+  createdByUserId?: string | null;
 }

@@ -20,6 +20,7 @@ import {
   getMessages,
   type Message,
   type MessageSegment,
+  setChatStoreUser,
   updateConversationSessionId,
   updateConversationTitle,
   updateMessageContent,
@@ -130,6 +131,9 @@ class ChatStreamStore {
   /** The server-side session ID for the active conversation. */
   private currentSessionId: string | null = null;
 
+  /** The user whose conversations are loaded (null when logged out or unknown). */
+  private userId: string | null = null;
+
   // -------------------------------------------------------------------------
   // Derived state for the active conversation's stream
   // -------------------------------------------------------------------------
@@ -177,6 +181,31 @@ class ChatStreamStore {
   // -------------------------------------------------------------------------
   // Conversation management
   // -------------------------------------------------------------------------
+
+  /**
+   * Switches the store to a different user (or none, on logout). Clears all
+   * in-memory conversation/stream state and re-scopes persistence so one
+   * user's conversations never appear for another user in the same browser.
+   * @param userId - The authenticated user's id, or null when logged out.
+   */
+  async setUser(userId: string | null): Promise<void> {
+    if (userId === this.userId) return;
+    this.userId = userId;
+    setChatStoreUser(userId);
+    readState.setUser(userId);
+    this.conversations = [];
+    this.activeConversationId = null;
+    this.loadingConversationId = null;
+    this.messages = [];
+    this.error = null;
+    this.streams = new Map();
+    this.convToChatId = new Map();
+    this.currentSessionId = null;
+    this.activeStreamContent = "";
+    this.activeStreamTool = null;
+    this.activeStreamSegments = [];
+    if (userId) await this.loadConversations();
+  }
 
   /** Loads all conversations from IndexedDB. */
   async loadConversations(): Promise<void> {

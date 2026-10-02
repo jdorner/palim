@@ -32,4 +32,6 @@ export const fileWatchers = sqliteTable("ext_filewatcher_watchers", {
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   /** Creation timestamp (ms). */
   createdAt: integer("created_at").notNull(),
+  /** Id of the user who created this watcher (references users.id); null for pre-migration rows. */
+  createdByUserId: text("created_by_user_id"),
 });

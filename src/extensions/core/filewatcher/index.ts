@@ -18,6 +18,7 @@ import path from "node:path";
 import { FileWatcher, formatValidationErrors } from "@ext/sdk";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import { Value } from "@sinclair/typebox/value";
+import { registerTriggerOwnerCounter, requestUserId } from "@src/web/triggerOwnership";
 import { CreateFileWatcherPayload, UpdateFileWatcherPayload } from "./schemas";
 import {
   deleteWatcher as deleteWatcherRecord,
@@ -92,6 +93,7 @@ const manifest = {
  */
 export function createExtension(): Extension {
   let logger: Logger;
+  let unregisterOwnerCounter: (() => void) | undefined;
   const activeWatchers = new Map<string, FileWatcher>();
 
   /**
@@ -136,6 +138,7 @@ export function createExtension(): Extension {
           slug: registration.slug,
           filename: relativePath,
           event,
+          ...(registration.createdByUserId ? { initiatorUserId: registration.createdByUserId } : {}),
         },
       });
     }
@@ -183,6 +186,12 @@ export function createExtension(): Extension {
       // Load registrations and start enabled watchers
       const watchers = loadAll();
       logger.info(`Loaded ${watchers.length} file watcher registration(s)`);
+
+      // Lets user deletion refuse while the user still owns file watchers.
+      unregisterOwnerCounter = registerTriggerOwnerCounter(
+        "file watcher",
+        (userId) => loadAll().filter((w) => w.createdByUserId === userId).length,
+      );
 
       for (const registration of watchers) {
         if (!registration.enabled) continue;
@@ -233,6 +242,7 @@ export function createExtension(): Extension {
           events: (body.events as FileWatcherEventType[] | undefined) ?? ["new"],
           enabled: (body.enabled as boolean | undefined) ?? true,
           createdAt: Date.now(),
+          createdByUserId: requestUserId(reqCtx.request) ?? null,
         };
 
         insertWatcher(registration);
@@ -274,7 +284,14 @@ export function createExtension(): Extension {
           }
         }
 
-        const updates = body as Partial<FileWatcherRegistration>;
+        const existing = findWatcher(slug);
+        if (!existing) return Response.json({ error: "Not found" }, { status: 404 });
+        // The editor becomes the owner, so the watcher never runs edited config
+        // with the previous owner's authority.
+        const updates: Partial<FileWatcherRegistration> = {
+          ...(body as Partial<FileWatcherRegistration>),
+          createdByUserId: requestUserId(reqCtx.request) ?? null,
+        };
         const updated = updateWatcher(slug, updates);
         if (!updated) return Response.json({ error: "Not found" }, { status: 404 });
 
@@ -300,6 +317,9 @@ export function createExtension(): Extension {
         const slug = (reqCtx.params as Record<string, string>).slug;
         if (!slug) return Response.json({ error: "Missing slug" }, { status: 400 });
 
+        const existing = findWatcher(slug);
+        if (!existing) return Response.json({ error: "Not found" }, { status: 404 });
+
         if (!deleteWatcherRecord(slug)) {
           return Response.json({ error: "Not found" }, { status: 404 });
         }
@@ -313,6 +333,7 @@ export function createExtension(): Extension {
     },
 
     async shutdown() {
+      unregisterOwnerCounter?.();
       for (const slug of activeWatchers.keys()) {
         await stopWatcher(slug);
       }

@@ -1,5 +1,6 @@
 {
   "dependencies": {
+    "@casl/ability": "^7.0.1",
     "@dotenvx/dotenvx": "^2.31.1",
     "@elysia/cors": "^1.4.2",
     "@elysiajs/static": "^1.4.10",
@@ -38,6 +39,7 @@
     "check": "bunx biome check --write",
     "cli": "bun src/sandboxCLI.ts",
     "dev": "bun run --watch src/main.ts",
+    "reset-admin": "bun src/tools/resetAdmin.ts",
     "publish": "bun scripts/publish.ts",
     "setup": "bun scripts/setup.ts",
     "start": "bun src/main.ts",

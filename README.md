@@ -96,7 +96,9 @@ For writing your own extensions, see [docs/writing-extensions.md](docs/writing-e
 | `AGENT_WORK_DIR` | Agent working directory (mounted into the sandbox) | `.work/` |
 | `WEB_HOST` | Web server bind address | `localhost` |
 | `WEB_PORT` | Web server port | `3000` |
-| `AUTH_TOKEN` | Bearer token for API/WS auth (empty = disabled) | - |
+| `AUTH_ADMIN_USER` | Username of the admin account seeded on first boot | `admin` |
+| `AUTH_ADMIN_PASSWORD` | Password for the seeded admin (empty = generate a one-time password and log it once) | - |
+| `AUTH_SESSION_TTL_MS` | Login token lifetime in ms | `604800000` (7 days) |
 | `DATA_DIR` | Directory for databases and generated content | `<AGENT_WORK_DIR>/.palim/` |
 | `EXTENSIONS_DIR` | Custom extensions directory | `src/extensions` |
 | `SECRETS_MASTER_KEY` | Derivation key for SecretVault encryption | - |
@@ -152,7 +154,8 @@ bun run start
 
 Recommendations:
 
-- Set `AUTH_TOKEN` to protect the API and WebSocket endpoints (see [docs/api-security-model.md](docs/api-security-model.md) for the full security model)
+- Set `AUTH_ADMIN_PASSWORD` before first boot (or note the generated one-time password in the log) and change it after logging in. All API and WebSocket endpoints require a user login; see [docs/api-security-model.md](docs/api-security-model.md) for the full security model
+- If you lose admin access, run `bun run reset-admin [username]` on the host
 - Use a reverse proxy (nginx, Caddy) for TLS termination
 
 ## Docker / Podman

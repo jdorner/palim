@@ -14,6 +14,8 @@ export interface SessionData {
   source: string;
   /** Caller's own identifier for the session (e.g. frontend conversation UUID, Telegram chat ID). */
   sourceId: string | null;
+  /** Owning user id (references users.id); null for system/pre-migration sessions. */
+  userId: string | null;
   /** Epoch timestamp (ms) when the session was created. */
   createdAt: number;
   /** Epoch timestamp (ms) of the last modification. */
@@ -55,6 +57,8 @@ export interface CreateSessionOptions {
   source: string;
   /** Caller's own identifier for the session. */
   sourceId?: string;
+  /** Owning user id (references users.id). Omit for system-owned sessions. */
+  userId?: string;
   /** Optional metadata to attach to the session. */
   metadata?: Record<string, unknown>;
 }
@@ -65,6 +69,8 @@ export interface GetOrCreateSessionOptions {
   source: string;
   /** Caller's own identifier - required for lookup. */
   sourceId: string;
+  /** Owning user id (references users.id). Applied only when creating a new session. */
+  userId?: string;
   /** Optional metadata used only when creating a new session. */
   metadata?: Record<string, unknown>;
 }
@@ -73,6 +79,8 @@ export interface GetOrCreateSessionOptions {
 export interface ListSessionsOptions {
   /** Filter by source. */
   source?: string;
+  /** Filter by owning user id (when set, only that user's sessions are returned). */
+  userId?: string;
   /** Maximum number of sessions to return. */
   limit?: number;
   /** Number of sessions to skip. */

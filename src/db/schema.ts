@@ -81,6 +81,8 @@ export const sessions = sqliteTable(
     source: text("source").notNull(),
     /** Caller's own identifier for the session (e.g. frontend conversation UUID, Telegram chat ID). */
     sourceId: text("source_id"),
+    /** Owning user id (references users.id); null for pre-migration/system sessions. */
+    userId: text("user_id"),
     /** Epoch timestamp (ms) when the session was created. */
     createdAt: integer("created_at").notNull(),
     /** Epoch timestamp (ms) of the last modification. */
@@ -137,6 +139,8 @@ export const sessionMessages = sqliteTable(
   (table) => [index("idx_session_messages_session_seq").on(table.sessionId, table.seq)],
 );
 
+// Re-export auth/RBAC tables so drizzle-kit sees the complete schema.
+export { rolePermissions, roles, userRoles, userSessions, users } from "@src/auth/schema";
 export { fileWatchers as extFilewatcherWatchers } from "@src/extensions/core/filewatcher/schema";
 export { webhooks as extWebhooksRegistrations } from "@src/extensions/core/webhooks/schema";
 export { workflowRuns as extWorkflowRuns } from "@src/extensions/core/workflows/runSchema";

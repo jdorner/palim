@@ -7,12 +7,19 @@
  * Because `getSessionStore()` is a module-level singleton that only
  * initializes once, we call it once with the first DB and then use
  * unique sourceIds per test to avoid conflicts.
+ *
+ * Requests run as an admin principal so these tests exercise the truncation
+ * and deletion logic only; ownership checks are covered in
+ * `src/web/sessionsRoute.test.ts`.
  */
 
 import { beforeAll, describe, expect, test } from "bun:test";
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import { buildAbility } from "@src/auth/ability";
 import { getSessionStore, type SessionStore } from "@src/session";
 import { createTestDb } from "@src/test/db";
+import { Elysia } from "elysia";
+import { setPrincipal } from "../auth";
 import { sessionRoutes } from "./sessions";
 
 function userMsg(text: string): AgentMessage {
@@ -41,15 +48,30 @@ function textOf(msg: AgentMessage): string {
   return content[0]?.text ?? "";
 }
 
+/** Builds the session routes with every request authenticated as an admin. */
+function buildAdminApp() {
+  const adminId = "test-admin";
+  return new Elysia()
+    .onRequest(({ request }) =>
+      setPrincipal(request, {
+        user: { id: adminId, username: "admin", roles: ["admin"] },
+        isAdmin: true,
+        permissions: [],
+        ability: buildAbility({ userId: adminId, isAdmin: true, permissions: [] }),
+      }),
+    )
+    .use(sessionRoutes());
+}
+
 describe("DELETE /api/sessions/:id/messages (turn-based truncation)", () => {
   let store: SessionStore;
-  let app: ReturnType<typeof sessionRoutes>;
+  let app: ReturnType<typeof buildAdminApp>;
 
   beforeAll(() => {
     // Initialize the singleton once - all tests share this DB instance
     const db = createTestDb();
     store = getSessionStore(db);
-    app = sessionRoutes();
+    app = buildAdminApp();
   });
 
   /**
@@ -299,13 +321,13 @@ describe("DELETE /api/sessions/:id/messages (turn-based truncation)", () => {
 
 describe("DELETE /api/sessions/:id (session deletion)", () => {
   let store: SessionStore;
-  let app: ReturnType<typeof sessionRoutes>;
+  let app: ReturnType<typeof buildAdminApp>;
 
   beforeAll(() => {
     // Reuse the shared singleton (initialized by the suite above). Passing a db
     // is a no-op once the singleton exists, so this is safe regardless of order.
     store = getSessionStore(createTestDb());
-    app = sessionRoutes();
+    app = buildAdminApp();
   });
 
   async function deleteSession(sessionId: string): Promise<Response> {

@@ -35,6 +35,8 @@ export const workflowRuns = sqliteTable(
     fullStepOrder: text("full_step_order").notNull(),
     /** Failure reason (null unless status is failed). */
     failureReason: text("failure_reason"),
+    /** Id of the user who initiated the run (trigger creator or starter); null for user-less runs. */
+    createdByUserId: text("created_by_user_id"),
     /** Creation timestamp (epoch ms). */
     createdAt: integer("created_at").notNull(),
     /** Last update timestamp (epoch ms). */

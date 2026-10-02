@@ -13,10 +13,12 @@
  * Uses in-memory SQLite for the run store, per project testing conventions.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { StepExecutionContext, StepTypeHandler } from "@ext/types";
 import { Type } from "@sinclair/typebox";
+import { setIdentityMinter } from "@src/auth";
 import { createTestDb } from "@src/test/db";
+import { resolveAmbientUserId } from "@src/utils/fetch";
 import type { DagStepJobData } from "./dagEngine";
 import * as dagRunStore from "./dagRunStore";
 import { createDagStepProcessor, type DagStepWorkerDeps } from "./dagWorker";
@@ -181,5 +183,93 @@ describe("createDagStepProcessor - custom step template handling", () => {
     await expect(processor(fakeJob({ slug: "probe-consumer", type: "unknown" }, runId))).rejects.toThrow(
       'No handler registered for step type "unknown"',
     );
+  });
+});
+
+describe("createDagStepProcessor - initiator identity", () => {
+  afterEach(() => {
+    setIdentityMinter(() => null);
+  });
+
+  test("refuses the step without running the handler when the initiator is disabled/deleted", async () => {
+    const runId = "run-disabled-initiator";
+    seedRunWithProbeResult(runId, "x");
+    setIdentityMinter((userId) => (userId === "disabled-user" ? null : `tok-${userId}`));
+
+    let ran = false;
+    const handler: StepTypeHandler = {
+      schema: Type.Object({}),
+      label: "Fake",
+      async execute() {
+        ran = true;
+        return null;
+      },
+    };
+    const deps: DagStepWorkerDeps = {
+      ctx: fakeCtx(),
+      emitEvent: () => {},
+      log: fakeLog,
+      getStepHandler: () => handler,
+    };
+    const processor = createDagStepProcessor(deps);
+    const job = fakeJob({ slug: "probe-consumer", type: "fake" }, runId);
+    job.data.initiatorUserId = "disabled-user";
+
+    await expect(processor(job)).rejects.toThrow(/disabled, deleted/);
+    expect(ran).toBe(false);
+  });
+
+  test("runs the step when the initiator is active", async () => {
+    const runId = "run-active-initiator";
+    seedRunWithProbeResult(runId, "x");
+    setIdentityMinter((userId) => `tok-${userId}`);
+
+    const handler: StepTypeHandler = {
+      schema: Type.Object({}),
+      label: "Fake",
+      async execute() {
+        return "ok";
+      },
+    };
+    const deps: DagStepWorkerDeps = {
+      ctx: fakeCtx(),
+      emitEvent: () => {},
+      log: fakeLog,
+      getStepHandler: () => handler,
+    };
+    const processor = createDagStepProcessor(deps);
+    const job = fakeJob({ slug: "probe-consumer", type: "fake" }, runId);
+    job.data.initiatorUserId = "active-user";
+
+    expect(await processor(job)).toBe("ok");
+  });
+
+  test("exposes the initiator to the handler so dispatched workflows inherit it", async () => {
+    const runId = "run-inherit-initiator";
+    seedRunWithProbeResult(runId, "x");
+    setIdentityMinter((userId) => `tok-${userId}`);
+
+    let seenUserId: string | undefined;
+    const handler: StepTypeHandler = {
+      schema: Type.Object({}),
+      label: "Fake",
+      async execute() {
+        await Promise.resolve();
+        seenUserId = resolveAmbientUserId();
+        return null;
+      },
+    };
+    const deps: DagStepWorkerDeps = {
+      ctx: fakeCtx(),
+      emitEvent: () => {},
+      log: fakeLog,
+      getStepHandler: () => handler,
+    };
+    const processor = createDagStepProcessor(deps);
+    const job = fakeJob({ slug: "probe-consumer", type: "fake" }, runId);
+    job.data.initiatorUserId = "alice";
+
+    await processor(job);
+    expect(seenUserId).toBe("alice");
   });
 });

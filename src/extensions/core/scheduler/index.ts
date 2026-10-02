@@ -29,6 +29,7 @@ import type {
 } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import { registerTriggerOwnerCounter, requestUserId } from "@src/web/triggerOwnership";
 
 /** Payload for jobs produced by the scheduler. */
 interface ScheduledJobData {
@@ -36,6 +37,8 @@ interface ScheduledJobData {
   description?: string;
   /** Scheduler identifier. */
   schedulerId: string;
+  /** Id of the user who created this schedule (null for legacy schedules). */
+  createdByUserId?: string | null;
   /** Human-readable schedule label. */
   label?: string;
   /** IANA timezone for cron patterns (e.g. "Europe/Berlin"). */
@@ -90,6 +93,7 @@ const manifest = {
  */
 export function createExtension(): Extension {
   let logger: Logger;
+  let unregisterOwnerCounter: (() => void) | undefined;
   let emitEvent: (event: EventParam) => void;
   let queue: ManagedQueuePort<ScheduledJobData> | null = null;
 
@@ -101,7 +105,7 @@ export function createExtension(): Extension {
    * @returns The timestamp when the event was emitted
    */
   async function processScheduledJob(job: QueueJob<ScheduledJobData>): Promise<ScheduledJobResult> {
-    const { description, schedulerId, label } = job.data;
+    const { description, schedulerId, label, createdByUserId } = job.data;
 
     job.log(`Firing schedule "${schedulerId}"`);
 
@@ -113,6 +117,7 @@ export function createExtension(): Extension {
         slug: schedulerId,
         description,
         label,
+        ...(createdByUserId ? { initiatorUserId: createdByUserId } : {}),
       },
     });
 
@@ -164,6 +169,14 @@ export function createExtension(): Extension {
       const existing = await queue.getSchedulers();
       logger.info(`Loaded ${existing.length} existing scheduler(s)`);
 
+      // Lets user deletion refuse while the user still owns schedules.
+      unregisterOwnerCounter = registerTriggerOwnerCounter("schedule", async (userId) => {
+        if (!queue) return 0;
+        const schedulers = await queue.getSchedulers();
+        return schedulers.filter((s) => (s.data as Record<string, unknown> | undefined)?.createdByUserId === userId)
+          .length;
+      });
+
       // -- REST routes -------------------------------------------------------
 
       // GET /ext/scheduler/schedules - list all schedulers
@@ -204,10 +217,11 @@ export function createExtension(): Extension {
           return Response.json({ error: "Provide either pattern (cron) or every (ms interval)" }, { status: 400 });
         }
 
+        const createdByUserId = requestUserId(reqCtx.request) ?? null;
         const result = await queue.upsertScheduler(
           id,
           { pattern, every, limit, tz },
-          { name: `${id}`, data: { description, schedulerId: id, label: name, tz } },
+          { name: `${id}`, data: { description, schedulerId: id, label: name, tz, createdByUserId } },
         );
 
         await broadcastSchedules();
@@ -231,6 +245,7 @@ export function createExtension(): Extension {
         const data = info.data as Record<string, unknown> | undefined;
         const description = data?.description as string | undefined;
         const label = data?.label as string | undefined;
+        const createdByUserId = (data?.createdByUserId as string | null | undefined) ?? null;
 
         // Emit event directly - bypasses the scheduler queue so this
         // doesn't increment the scheduler's execution count.
@@ -242,6 +257,7 @@ export function createExtension(): Extension {
             slug: id,
             description,
             label,
+            ...(createdByUserId ? { initiatorUserId: createdByUserId } : {}),
           },
         });
 
@@ -256,6 +272,9 @@ export function createExtension(): Extension {
         const id = (reqCtx.params as Record<string, string>).id;
         if (!id) return Response.json({ error: "Missing scheduler ID" }, { status: 400 });
 
+        const info = await queue.getScheduler(id);
+        if (!info) return Response.json({ error: "Not found" }, { status: 404 });
+
         const removed = await queue.removeScheduler(id);
         if (!removed) return Response.json({ error: "Not found" }, { status: 404 });
 
@@ -265,6 +284,7 @@ export function createExtension(): Extension {
     },
 
     async shutdown() {
+      unregisterOwnerCounter?.();
       if (queue) {
         await queue.close();
         queue = null;

@@ -30,7 +30,9 @@ import { Value } from "@sinclair/typebox/value";
 import { setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
 import { resolveHandlerOutputSchema } from "@src/extensions/engine/stepTypeSerialization";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
+import { resolveAmbientUserId } from "@src/utils/fetch";
 import type { TemplateVariableResolver } from "@src/variables";
+import { requestUserId } from "@src/web/triggerOwnership";
 import {
   type DagCoordinatorDeps,
   evaluateInlineRoot,
@@ -483,6 +485,7 @@ export function createExtension(): Extension {
       async function dispatchAndAnnounce(
         wf: DagWorkflowDefinition,
         payload: unknown,
+        initiatorUserId?: string,
       ): Promise<{ workflowRunId: string; jobIds: string[] }> {
         const result = await dispatchDagWorkflow(
           flowProducer,
@@ -495,6 +498,7 @@ export function createExtension(): Extension {
               await evaluateInlineRoot(runId, slug, coordinatorDeps);
             }
           },
+          initiatorUserId,
         );
 
         ctx.messaging.broadcast({
@@ -516,7 +520,10 @@ export function createExtension(): Extension {
         if (wf.enabled === false) {
           throw new Error(`Workflow is disabled: ${name}`);
         }
-        return dispatchAndAnnounce(wf, payload);
+        // Runs started from within a user's job (e.g. a `start-workflow` step or
+        // an agent tool) inherit that user as initiator, so they stay scoped to
+        // them instead of becoming unowned runs visible to everyone.
+        return dispatchAndAnnounce(wf, payload, resolveAmbientUserId());
       });
 
       // Expose the loaded workflow names so other extensions (e.g. core-wf-steps)
@@ -609,11 +616,12 @@ export function createExtension(): Extension {
         slug: string,
         payload: unknown,
         sourceLabel: string,
+        initiatorUserId?: string,
       ): Promise<void> {
         for (const wf of store.values()) {
           if (wf.trigger.type === triggerType && wf.trigger.ref === slug && (wf.enabled ?? true)) {
             try {
-              const result = await dispatchAndAnnounce(wf, payload);
+              const result = await dispatchAndAnnounce(wf, payload, initiatorUserId);
               logger.info(`${sourceLabel} "${slug}" triggered workflow "${wf.name}" -> run ${result.workflowRunId}`);
             } catch (err) {
               logger.error(`Failed to dispatch workflow "${wf.name}" for ${sourceLabel.toLowerCase()} "${slug}":`, err);
@@ -625,19 +633,22 @@ export function createExtension(): Extension {
       ctx.events.on("webhook:received", async (event) => {
         const slug = event.context?.slug as string | undefined;
         if (!slug) return;
-        await matchAndDispatch("webhook", slug, event.context?.payload, "Webhook");
+        const initiatorUserId = event.context?.initiatorUserId as string | undefined;
+        await matchAndDispatch("webhook", slug, event.context?.payload, "Webhook", initiatorUserId);
       });
 
       ctx.events.on("filewatcher:detected", async (event) => {
         const slug = event.context?.slug as string | undefined;
         if (!slug) return;
-        await matchAndDispatch("filewatcher", slug, event.context, "File watcher");
+        const initiatorUserId = event.context?.initiatorUserId as string | undefined;
+        await matchAndDispatch("filewatcher", slug, event.context, "File watcher", initiatorUserId);
       });
 
       ctx.events.on("scheduler:fired", async (event) => {
         const slug = event.context?.slug as string | undefined;
         if (!slug) return;
-        await matchAndDispatch("schedule", slug, event.context, "Schedule");
+        const initiatorUserId = event.context?.initiatorUserId as string | undefined;
+        await matchAndDispatch("schedule", slug, event.context, "Schedule", initiatorUserId);
       });
 
       // --- Routes ---
@@ -882,7 +893,9 @@ export function createExtension(): Extension {
         if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
 
         const payload = reqCtx.body ?? null;
-        const result = await dispatchAndAnnounce(wf, payload);
+        // Record the requester as the run's initiator so the run is owned by
+        // (and its steps authorize as) them rather than being ownerless.
+        const result = await dispatchAndAnnounce(wf, payload, requestUserId(reqCtx.request));
         return Response.json({ ok: true, workflowRunId: result.workflowRunId, jobIds: result.jobIds }, { status: 202 });
       });
 
@@ -1009,7 +1022,9 @@ export function createExtension(): Extension {
           }
 
           const run = dagRunStore.get(runId);
-          if (!run) return Response.json({ error: "Run not found" }, { status: 404 });
+          if (!run) {
+            return Response.json({ error: "Run not found" }, { status: 404 });
+          }
 
           if (run.status !== "waiting-signal") {
             return Response.json(
@@ -1064,8 +1079,8 @@ export function createExtension(): Extension {
       ctx.routes.register("DELETE", "/runs/:runId", async (reqCtx) => {
         const runId = (reqCtx.params as Record<string, string>).runId;
         if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
-        const stepJobs = runJobs(await stepsQueue.getAllJobs(), runId);
         const run = dagRunStore.get(runId);
+        const stepJobs = runJobs(await stepsQueue.getAllJobs(), runId);
         if (stepJobs.length === 0 && !run) {
           return Response.json({ error: "Run not found" }, { status: 404 });
         }

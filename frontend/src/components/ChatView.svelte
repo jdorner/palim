@@ -1,6 +1,7 @@
 <script lang="ts">
 import ChatTextIcon from "phosphor-svelte/lib/ChatTextIcon";
 import { onDestroy, onMount } from "svelte";
+// biome-ignore lint/correctness/noUnusedImports: used as `$connected` store subscription in the template (Biome does not track Svelte template usage)
 import { connected } from "$lib/appStore";
 import { chatStream } from "$lib/chatStreamStore.svelte";
 import { modelStore } from "$lib/modelStore.svelte";

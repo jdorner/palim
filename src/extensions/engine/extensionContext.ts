@@ -16,7 +16,7 @@ import type { SetSecretOptions } from "@src/secrets";
 import type { SecretVault } from "@src/secrets/vault";
 import type { SessionStorePort } from "@src/session";
 import type { SkillEntry } from "@src/tools/sandbox";
-import { authenticatedFetch } from "@src/utils/fetch";
+import { createInternalFetch, resolveAmbientToken } from "@src/utils/fetch";
 import type { TemplateVariableResolver } from "@src/variables";
 import {
   registerDynamicDefaultProvider as registerDefaultProviderFn,
@@ -688,7 +688,10 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
       },
     },
     db: database,
-    fetch: authenticatedFetch,
+    fetch: createInternalFetch({
+      tokenProvider: resolveAmbientToken,
+      prefix: `/ext/${extensionName}`,
+    }),
     urls: {
       origin: serverOrigin(),
       base: `${serverOrigin()}/ext/${extensionName}`,

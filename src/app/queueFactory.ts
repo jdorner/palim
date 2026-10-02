@@ -26,6 +26,12 @@ export interface CoreQueueDeps {
   openaiApiKey: string;
   /** Resolves the currently selected model at job processing time. */
   getSelectedModel: () => Promise<Model<"openai-completions">>;
+  /**
+   * Mints a short-lived internal bearer token for a job's initiating user so
+   * internal calls during processing authorize as that user. Optional; when
+   * absent, jobs run under the ambient/system identity.
+   */
+  mintIdentityToken?: (userId: string) => string | null;
 }
 
 /** Result of core queue creation. */
@@ -52,7 +58,7 @@ export interface CoreQueues {
  * @returns The created queues and shared resolution helpers
  */
 export function createCoreQueues(deps: CoreQueueDeps): CoreQueues {
-  const { registry, openaiApiKey, getSelectedModel } = deps;
+  const { registry, openaiApiKey, getSelectedModel, mintIdentityToken } = deps;
 
   const resolveSkill = (name: string) => registry.resolveSkill(name);
   const shellFactory = (skills: string[], sessionId: string) => createShell({ skills, resolveSkill, sessionId });
@@ -78,6 +84,7 @@ export function createCoreQueues(deps: CoreQueueDeps): CoreQueues {
       };
     },
     getEventBus: () => registry.getEventBus(),
+    ...(mintIdentityToken ? { mintIdentityToken } : {}),
   });
 
   const chatQueue = createChatQueue({
@@ -98,6 +105,7 @@ export function createCoreQueues(deps: CoreQueueDeps): CoreQueues {
       };
     },
     getEventBus: () => registry.getEventBus(),
+    ...(mintIdentityToken ? { mintIdentityToken } : {}),
   });
 
   return { agentQueue, chatQueue, resolveSkill, getExtensionTools, shellFactory };

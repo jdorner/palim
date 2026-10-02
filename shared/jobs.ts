@@ -15,6 +15,8 @@ export interface JobEntry {
   error?: string;
   /** Conversation session ID this job is associated with, if any. */
   sessionId?: string;
+  /** Owning user id (the job's initiator); when set, only that user and admins see the job. */
+  userId?: string;
   /** Workflow run ID if this job is part of a workflow chain. */
   workflowRunId?: string;
   /** Workflow definition name if this job is part of a workflow chain. */

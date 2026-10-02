@@ -10,9 +10,11 @@
  * @module
  */
 
+import { resolveInitiatorToken } from "@src/auth/identityMinter";
 import type { AgentEventContext, EventBus } from "@src/extensions";
 import type { ManagedQueuePort, QueueJob } from "@src/queue";
 import { ManagedQueue } from "@src/queue";
+import { runWithIdentity } from "@src/utils/fetch";
 import type { AgentProcessorConfig, AgentProcessorResult } from "./agentProcessor";
 import { runAgent } from "./agentProcessor";
 import { AGENT_QUEUE_DEFAULTS } from "./defaults";
@@ -27,6 +29,13 @@ export interface BaseAgentJob {
   context?: AgentEventContext;
   /** Session ID for conversation context (callers must append user message before enqueuing). */
   sessionId: string;
+  /**
+   * Id of the user who initiated this job. Internal calls made while processing
+   * the job authorize as this user (confused-deputy fix). If the user can no
+   * longer be authenticated (disabled/deleted) the job is refused. Absent for
+   * genuine system-initiated background work, which runs as the system principal.
+   */
+  initiatorUserId?: string;
 }
 
 /**
@@ -41,6 +50,13 @@ export interface JobQueueDeps<T extends BaseAgentJob> {
   ) => Omit<AgentProcessorConfig, "sessionId"> | Promise<Omit<AgentProcessorConfig, "sessionId">>;
   /** Getter for the event bus (resolved at job processing time). */
   getEventBus: () => EventBus;
+  /**
+   * Mints a short-lived internal bearer token for the given initiating user, so
+   * internal calls during processing authorize as that user. Returns null when
+   * minting fails (e.g. the user is disabled or deleted), in which case a job
+   * that records an initiator is refused.
+   */
+  mintIdentityToken?: (userId: string) => string | null;
 }
 
 /**
@@ -57,19 +73,32 @@ export interface JobQueueDeps<T extends BaseAgentJob> {
  * @returns The managed queue instance
  */
 export function createJobQueue<T extends BaseAgentJob>(name: string, deps: JobQueueDeps<T>): ManagedQueuePort<T> {
-  const { buildProcessor, getEventBus } = deps;
+  const { buildProcessor, getEventBus, mintIdentityToken } = deps;
 
   return new ManagedQueue<T, AgentProcessorResult>(
     name,
     async (job: QueueJob<T>) => {
+      // Resolve identity before doing any work: throws (refusing the job) when
+      // the recorded initiator is disabled/deleted instead of running as system.
+      const token = resolveInitiatorToken(job.data.initiatorUserId, mintIdentityToken);
+
       const config = await buildProcessor(job);
 
-      return runAgent(job, {
-        ...config,
-        sessionId: job.data.sessionId,
-        eventBus: config.eventBus ?? getEventBus(),
-        context: config.context ?? job.data?.context,
-      });
+      const process = () =>
+        runAgent(job, {
+          ...config,
+          sessionId: job.data.sessionId,
+          eventBus: config.eventBus ?? getEventBus(),
+          context: config.context ?? job.data?.context,
+        });
+
+      // Bind the job's initiating identity for the duration of processing so any
+      // internal call (skills, ctx.fetch, push) authorizes as that user rather
+      // than a shared privileged identity.
+      if (token) {
+        return runWithIdentity(token, process, job.data.initiatorUserId);
+      }
+      return process();
     },
     AGENT_QUEUE_DEFAULTS,
   );

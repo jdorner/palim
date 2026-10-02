@@ -49,16 +49,22 @@ class ConnectionManager {
     this.intentionalDisconnect = false;
 
     const { url, protocols } = buildWsConnection();
-    this.ws = new WebSocket(url, protocols);
+    const socket = new WebSocket(url, protocols);
+    this.ws = socket;
 
-    this.ws.onopen = () => {
+    // Events from a superseded socket (closed via disconnect() or replaced by a
+    // reconnect) are ignored, so a late close can't clobber the current socket
+    // and a lingering socket can't deliver duplicate messages.
+    socket.onopen = () => {
+      if (this.ws !== socket) return;
       connected.set(true);
       hasConnected.set(true);
       this.reconnectDelay = 1000;
       this.fetchInitialData();
     };
 
-    this.ws.onclose = (event) => {
+    socket.onclose = (event) => {
+      if (this.ws !== socket) return;
       connected.set(false);
       this.ws = null;
       chatStream.handleWsClose();
@@ -73,12 +79,14 @@ class ConnectionManager {
       }
     };
 
-    this.ws.onerror = (error) => {
+    socket.onerror = (error) => {
+      if (this.ws !== socket) return;
       connected.set(false);
       console.error("WebSocket error:", error);
     };
 
-    this.ws.onmessage = (event) => {
+    socket.onmessage = (event) => {
+      if (this.ws !== socket) return;
       try {
         const message = JSON.parse(event.data);
         this.messageHandler?.(message);
@@ -99,8 +107,11 @@ class ConnectionManager {
       this.reconnectTimeout = null;
     }
     if (this.ws) {
-      this.ws.close();
+      const socket = this.ws;
+      // Detach first: the socket's own close handler ignores superseded sockets.
       this.ws = null;
+      socket.close();
+      chatStream.handleWsClose();
     }
     connected.set(false);
   }
