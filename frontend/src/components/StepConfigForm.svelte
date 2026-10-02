@@ -209,7 +209,25 @@ function parseNumberList(raw: string): number[] {
     {@const description = typeof prop.description === "string" ? prop.description : null}
 
     <div class="space-y-1">
-      {#if inputType === "boolean"}
+      {#if inputType === "boolean" && !requiredKeys.has(key) && prop.default === undefined}
+        <!-- Optional boolean without a default has three states: unset, true, false.
+             A toggle cannot express "unset", so render a select instead. -->
+        {@render fieldLabel(key, label, description)}
+        <select
+          id="{idPrefix}{key}"
+          class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
+          value={formValues[key] === undefined ? "" : String(formValues[key])}
+          onchange={(e) => {
+            const v = e.currentTarget.value;
+            if (v === "") clearValue(key);
+            else updateValue(key, v === "true");
+          }}
+        >
+          <option value="">Any (not set)</option>
+          <option value="true">Yes</option>
+          <option value="false">No</option>
+        </select>
+      {:else if inputType === "boolean"}
         <div class="flex items-center gap-2">
           <ToggleSwitch
             id="{idPrefix}{key}"
