@@ -42,7 +42,7 @@ bun run setup      # Interactive first-time configuration
 bun run start      # Start Palim
 ```
 
-The setup script creates your `.env`, asks for your LLM endpoint and API key, and builds the frontend. Once running, open `http://localhost:3000`.
+The setup script creates your `.env`, asks for your LLM endpoint and API key, generates the admin password, and builds the frontend. The admin credentials are printed at the end - once running, open `http://localhost:3000` and log in with them.
 
 After first start, check Settings > Extensions in the web UI to enable the capabilities you want (optional extensions are disabled by default).
 

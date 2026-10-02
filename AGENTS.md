@@ -12,7 +12,7 @@ The agent operates inside a sandboxed shell powered by just-bash. The configured
 # Install dependencies
 bun install
 
-# Interactive first-time setup (creates .env, prompts for LLM config, builds frontend)
+# Interactive first-time setup (creates .env, prompts for LLM config, generates admin password, builds frontend)
 bun run setup
 
 # Or manually:
@@ -411,7 +411,7 @@ Separate from the SecretVault, Palim has a `VariableStore` (`src/variables/`) fo
 
 ```bash
 bun install              # Install dependencies
-bun run setup            # Interactive first-time setup (env, LLM config, frontend build)
+bun run setup            # Interactive first-time setup (env, LLM config, admin password, frontend build)
 bun run start            # Start agent (no file watching)
 bun run dev              # Start agent with file watching
 bun run check            # Lint and format (Biome)
