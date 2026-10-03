@@ -41,7 +41,12 @@ describe("generateExtensionTsconfig", () => {
     expect(result.compilerOptions.paths["@ext/sdk"]).toEqual([`${relative}/src/extensions/sdk.ts`]);
     expect(result.compilerOptions.paths["@src/*"]).toBeUndefined();
     expect(result.compilerOptions.paths["@shared/*"]).toBeUndefined();
-    expect(result.compilerOptions.paths["*"]).toEqual(["./node_modules/*", `${relative}/node_modules/*`]);
+    expect(result.compilerOptions.paths["*"]).toEqual([
+      "./node_modules/@types/*",
+      "./node_modules/*",
+      `${relative}/node_modules/@types/*`,
+      `${relative}/node_modules/*`,
+    ]);
   });
 
   test("handles sibling directory layout", () => {
@@ -53,7 +58,12 @@ describe("generateExtensionTsconfig", () => {
 
     expect(result.compilerOptions.typeRoots).toEqual([`${relative}/node_modules/@types`]);
     expect(result.compilerOptions.paths["@ext/types"]).toEqual([`${relative}/src/extensions/types.ts`]);
-    expect(result.compilerOptions.paths["*"]).toEqual(["./node_modules/*", `${relative}/node_modules/*`]);
+    expect(result.compilerOptions.paths["*"]).toEqual([
+      "./node_modules/@types/*",
+      "./node_modules/*",
+      `${relative}/node_modules/@types/*`,
+      `${relative}/node_modules/*`,
+    ]);
   });
 
   test("handles same-parent directory", () => {
@@ -65,7 +75,12 @@ describe("generateExtensionTsconfig", () => {
 
     expect(result.compilerOptions.typeRoots).toEqual([`${relative}/node_modules/@types`]);
     expect(result.compilerOptions.paths["@src/*"]).toBeUndefined();
-    expect(result.compilerOptions.paths["*"]).toEqual(["./node_modules/*", `${relative}/node_modules/*`]);
+    expect(result.compilerOptions.paths["*"]).toEqual([
+      "./node_modules/@types/*",
+      "./node_modules/*",
+      `${relative}/node_modules/@types/*`,
+      `${relative}/node_modules/*`,
+    ]);
   });
 });
 
@@ -141,20 +156,21 @@ describe("generateExtensionTsconfig - Property Tests", () => {
       );
     });
 
-    test("* (node_modules) first entry is local, second resolves to coreProjectDir/node_modules/", () => {
+    test("* (node_modules) lists local @types, local, core @types, core node_modules in order", () => {
       fc.assert(
         fc.property(distinctPathPairArb, ([extensionDir, coreProjectDir]) => {
           const result = generateExtensionTsconfig(extensionDir, coreProjectDir);
           const nodeModulesEntries = result.compilerOptions.paths["*"]!;
-          expect(nodeModulesEntries.length).toBe(2);
+          expect(nodeModulesEntries.length).toBe(4);
 
-          // First entry: local node_modules
-          expect(nodeModulesEntries[0]).toBe("./node_modules/*");
+          // Local entries: @types before packages
+          expect(nodeModulesEntries[0]).toBe("./node_modules/@types/*");
+          expect(nodeModulesEntries[1]).toBe("./node_modules/*");
 
-          // Second entry: core project node_modules
-          const coreNodeModulesPrefix = nodeModulesEntries[1]!.replace(/\*$/, "");
-          const resolved = path.resolve(extensionDir, coreNodeModulesPrefix);
-          expect(resolved).toBe(path.join(coreProjectDir, "node_modules"));
+          // Core entries resolve into coreProjectDir/node_modules, @types first
+          const resolveEntry = (entry: string) => path.resolve(extensionDir, entry.replace(/\*$/, ""));
+          expect(resolveEntry(nodeModulesEntries[2]!)).toBe(path.join(coreProjectDir, "node_modules/@types"));
+          expect(resolveEntry(nodeModulesEntries[3]!)).toBe(path.join(coreProjectDir, "node_modules"));
         }),
       );
     });
