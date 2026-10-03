@@ -13,6 +13,9 @@
  *   fashion (no join, no result propagation, independent lifecycle).
  * - `chunk` - Splits a string or array into fixed-size batches, typically fed
  *   into an `iterator` so large inputs can be processed in manageable pieces.
+ * - `set-variables` - Defines workflow-local variables (literal or template
+ *   values, optionally typed) referenceable by successor steps; supports
+ *   accumulating values across iterations via self-reference.
  *
  * This extension is marked `core: true` and cannot be disabled since these
  * step types are fundamental workflow building blocks.
@@ -23,6 +26,7 @@ import { createChunkHandler } from "./chunk";
 import { createFailHandler } from "./fail";
 import { createHttpRequestHandler } from "./http-request";
 import { createNoopHandler } from "./noop";
+import { createSetVariablesHandler } from "./setVariables";
 import { createStartWorkflowHandler, WORKFLOW_NAMES_PROVIDER } from "./start-workflow";
 
 const manifest = {
@@ -41,6 +45,7 @@ const extension: Extension = {
     ctx.stepTypes.register("fail", createFailHandler());
     ctx.stepTypes.register("noop", createNoopHandler());
     ctx.stepTypes.register("chunk", createChunkHandler());
+    ctx.stepTypes.register("set-variables", createSetVariablesHandler());
 
     // Populate the start-workflow step's "Workflow Name" dropdown in the editor
     // with the current set of loaded workflow names, resolved at request time.

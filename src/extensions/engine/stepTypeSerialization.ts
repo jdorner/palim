@@ -13,7 +13,7 @@ import type { StepTypeInfo } from "@shared/extensions";
 import type { TSchema } from "@sinclair/typebox";
 import { enrichSchema } from "@src/web/dynamicProviders";
 import type { RegisteredStepType } from "../internalTypes";
-import type { StepTypeHandler } from "../types";
+import type { OutputSchemaContext, StepTypeHandler } from "../types";
 
 /**
  * Resolve a handler's `outputSchema` to a concrete TypeBox schema for a given
@@ -32,16 +32,19 @@ import type { StepTypeHandler } from "../types";
  * @param outputSchema - The handler's declared `outputSchema` (static, function, or absent)
  * @param stepDef - The serialized step definition passed to the function form.
  *   Pass `{}` when resolving a step TYPE (no instance config exists yet).
+ * @param ctx - Optional workflow-scoped context forwarded to the function form
+ *   (omitted when resolving a step TYPE for the palette).
  * @returns The resolved TypeBox schema, or `undefined` when none is declared
  *   or the function form declines / throws
  */
 export function resolveHandlerOutputSchema(
   outputSchema: StepTypeHandler["outputSchema"],
   stepDef: Record<string, unknown>,
+  ctx?: OutputSchemaContext,
 ): TSchema | undefined {
   if (typeof outputSchema === "function") {
     try {
-      return outputSchema(stepDef);
+      return outputSchema(stepDef, ctx);
     } catch {
       return undefined;
     }
@@ -73,6 +76,7 @@ export function serializeStepType(st: RegisteredStepType): StepTypeInfo {
     icon: st.handler.icon,
     extensionName: st.extensionName,
     terminal: st.handler.terminal ?? false,
+    selfReference: st.handler.selfReference ?? false,
     category: st.handler.category,
     configSchema: st.handler.schema ? enrichSchema(JSON.parse(JSON.stringify(st.handler.schema))) : undefined,
     outputSchema: resolvedOutputSchema

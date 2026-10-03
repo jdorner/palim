@@ -106,6 +106,67 @@ None.
 - It ends only its own branch. Other branches keep running, and the run finishes normally (unlike `fail`, which aborts the run).
 - Being terminal, a `noop` step should not have outgoing edges. In the DAG editor it has no "add step" button after it.
 
+### set-variables
+
+Defines workflow-local variables. Shown as **Set Variables** in the editor. The step takes an ordered list of `name -> value` entries, where each value is a literal or a `{{template}}` expression. Later steps reference the values as `{{steps.<slug>.result.<name>}}`. Use it to define a composed value (for example a string concatenation) in one place and reuse it in several steps, or to build up a value inside an iterator.
+
+```json5
+"steps": {
+  "names": {
+    "type": "set-variables",
+    "variables": [
+      { "name": "fileName", "value": "{{trigger.payload.user}}-{{nowIso()}}.md" },
+      { "name": "outPath", "value": "outbox/{{steps.names.result.fileName}}" },
+      { "name": "limit", "value": "25", "type": "number" },
+      { "name": "user", "value": "{{steps.lookup.result.user}}", "type": "json" }
+    ]
+  }
+}
+```
+
+#### Configuration
+
+| Field | Type | Required | Default | Description |
+| --- | --- | --- | --- | --- |
+| `variables` | array | Yes | - | Variables to set, evaluated in order (at least one). |
+| `variables[].name` | string | Yes | - | Variable name. Letters, digits and `_`, not starting with a digit. Names must be unique within the step. |
+| `variables[].value` | string | Yes | - | Literal value or `{{template}}` expression. |
+| `variables[].type` | `string` \| `number` \| `boolean` \| `json` | No | `string` | Type the resolved value is converted to. |
+
+#### Behavior
+
+- Entries are evaluated in order. Each value's templates are resolved, and the result is converted to the entry's type:
+  - `number`: must parse as a number.
+  - `boolean`: must be exactly `true` or `false`.
+  - `json`: parsed with `JSON.parse`. An empty string becomes `null`.
+  - `string`: used as is.
+
+  A value that can't be converted fails the step, and the error names the variable.
+- Inside the step, `{{steps.<slug>.result.<name>}}` (a self-reference) resolves to the variable's **current** value. That is the value an earlier entry of this execution assigned. If there is none, it's the value from the step's previous execution. If there is none of those either, it's the type's zero value: `""`, `0`, `false` or `null`. This means:
+  - A later entry can build on an earlier one from the same step (`outPath` above uses `fileName`).
+  - Inside an iterator body, a variable can **accumulate** across iterations. Body step results survive the reset between iterations, so each pass sees the previous pass's value:
+
+    ```json5
+    "acc": {
+      "type": "set-variables",
+      "variables": [{ "name": "text", "value": "{{steps.acc.result.text}}{{item.name}}, " }]
+    }
+    ```
+
+    After the iterator's aggregator, `{{steps.acc.result.text}}` holds the value from the last pass.
+
+  Outside an iterator body the step runs only once per run and values don't carry over between runs, so a self-reference to the step's own value always gives the zero value. The validator warns about it, and the editor offers self-references only inside an iterator body. Referencing an earlier entry of the same step is different: that works anywhere.
+- The output schema is derived from the configured entries, so the editor offers `steps.<slug>.result.<name>` completions and the validator flags unknown variable names. A `json` variable whose value is exactly one reference (for example `{{steps.lookup.result.user}}`) inherits that reference's schema, so you can autocomplete into it too. Any other `json` value is unconstrained.
+- Templates nested inside the entries are validated like any other step field (warnings point at e.g. `variables.0.value`), and count as references when deleting a global variable.
+
+#### Result Shape
+
+An object with one property per variable, holding the converted values:
+
+```json5
+{ "fileName": "ada-2026-10-03T08:00:00.000Z.md", "outPath": "outbox/ada-2026-10-03T08:00:00.000Z.md", "limit": 25, "user": { "id": 7 } }
+```
+
 ### start-workflow
 
 Starts another named workflow in a **fire-and-forget** fashion. The step dispatches the target workflow and returns immediately once the run has been created and its jobs enqueued. It does **not** wait for the started workflow to finish, and the started run is fully independent: its success or failure does not affect the current run.

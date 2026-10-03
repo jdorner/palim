@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { OutputSchemaContext } from "@ext/types";
 import { type TSchema, Type } from "@sinclair/typebox";
 import fc from "fast-check";
 import { buildOutputSchemas } from "./index";
@@ -214,6 +215,67 @@ describe("buildOutputSchemas", () => {
         }),
         { numRuns: 100 },
       );
+    });
+  });
+
+  describe("reference resolution", () => {
+    /** Resolver: "ref" steps derive their schema from the reference in their `ref` field. */
+    const resolver = (
+      type: string,
+      stepDef: Record<string, unknown>,
+      ctx: OutputSchemaContext,
+    ): TSchema | undefined => {
+      if (type === "fetch") return Type.Object({ data: Type.Object({ id: Type.Number() }) });
+      if (type === "ref") {
+        const inherited = ctx.resolveReferenceSchema(stepDef.ref as string);
+        return Type.Object({ value: inherited ?? Type.Unknown() });
+      }
+      return undefined;
+    };
+
+    test("resolves another step's result path regardless of declaration order", () => {
+      const definition = makeDefinition({
+        copy: { type: "ref", ref: "steps.fetch.result.data" },
+        fetch: { type: "fetch" },
+      } as unknown as Record<string, { type: string }>);
+      const { outputSchemas } = buildOutputSchemas(definition, resolver);
+      expect(outputSchemas.steps.copy).toEqual({
+        type: "object",
+        properties: { value: { type: "object", properties: { id: { type: "number" } }, required: ["id"] } },
+        required: ["value"],
+      });
+    });
+
+    test("resolves trigger payload paths", () => {
+      const definition = makeDefinition(
+        { copy: { type: "ref", ref: "trigger.payload.user" } } as unknown as Record<string, { type: string }>,
+        { type: "manual", outputSchema: { user: { name: "string" } } },
+      );
+      const { outputSchemas } = buildOutputSchemas(definition, resolver);
+      const value = (outputSchemas.steps.copy as { properties: Record<string, unknown> }).properties.value;
+      expect(value).toEqual(
+        outputSchemas.trigger?.properties && (outputSchemas.trigger.properties as Record<string, unknown>).user,
+      );
+    });
+
+    test("self-references, cycles, and unknown references resolve to no schema without throwing", () => {
+      const definition = makeDefinition({
+        self: { type: "ref", ref: "steps.self.result.value" },
+        a: { type: "ref", ref: "steps.b.result.value" },
+        b: { type: "ref", ref: "steps.a.result.value" },
+        unknown: { type: "ref", ref: "steps.missing.result" },
+        bad: { type: "ref", ref: "env.HOME" },
+      } as unknown as Record<string, { type: string }>);
+      const { outputSchemas } = buildOutputSchemas(definition, resolver);
+      const schemaValue = (slug: string) =>
+        (outputSchemas.steps[slug] as { properties: Record<string, unknown> }).properties.value;
+      expect(schemaValue("self")).toEqual({});
+      expect(schemaValue("unknown")).toEqual({});
+      expect(schemaValue("bad")).toEqual({});
+      // In a cycle, the inner lookup sees the in-progress step as having no
+      // schema, so both sides settle on the unconstrained fallback.
+      expect(schemaValue("a")).toEqual({});
+      expect(schemaValue("b")).toEqual({});
     });
   });
 });

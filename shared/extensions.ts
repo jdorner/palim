@@ -40,6 +40,7 @@ export interface ExtensionUiContribution {
  * Each name corresponds to a `phosphor-svelte` icon component.
  */
 export const STEP_ICON_NAMES = [
+  "BracketsCurlyIcon",
   "BroadcastIcon",
   "ChatTextIcon",
   "ClockIcon",
@@ -93,6 +94,11 @@ export interface StepTypeInfo {
    * produces a successor in the workflow graph.
    */
   terminal?: boolean;
+  /**
+   * When true, the step may reference its own result inside an iterator body
+   * (reading the previous pass's value). See `StepTypeHandler.selfReference`.
+   */
+  selfReference?: boolean;
   /** JSON Schema describing the step's configuration fields (derived from the handler's TypeBox schema). */
   configSchema?: Record<string, unknown>;
   /**

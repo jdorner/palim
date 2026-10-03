@@ -8,7 +8,14 @@
  */
 
 import { mkdirSync } from "node:fs";
-import type { ExtensionContext, Logger, QueueJob, StepTypeHandler } from "@ext/types";
+import type {
+  ExtensionContext,
+  Logger,
+  QueueJob,
+  StepExecutionContext,
+  StepTemplateOverrides,
+  StepTypeHandler,
+} from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import { mintIdentityToken, resolveInitiatorToken } from "@src/auth";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
@@ -212,13 +219,22 @@ export function createDagStepProcessor(deps: DagStepWorkerDeps) {
         // shell unquoted, corrupting the command. Handing over the raw stepDef
         // also matches the documented contract ("the full step definition
         // object from the workflow JSON5").
-        const context = {
-          resolveTemplate: async (template: string) => resolveTemplates(template, tmplCtx),
+        const context: StepExecutionContext & { triggerPayload: unknown } = {
+          // Overrides are overlaid onto a shallow copy so the shared context
+          // (and the run's accumulated results) is never mutated.
+          resolveTemplate: async (template: string, overrides?: StepTemplateOverrides) =>
+            resolveTemplates(
+              template,
+              overrides?.stepResults
+                ? { ...tmplCtx, stepResults: { ...tmplCtx.stepResults, ...overrides.stepResults } }
+                : tmplCtx,
+            ),
           log: deps.log,
           workDir: deps.ctx.paths.work,
           fs: getStepFs(),
           jobLog: async (msg: string) => job.log(msg),
           workflowRunId: job.data.workflowRunId,
+          stepSlug,
           stepResults: tmplCtx.stepResults,
           triggerPayload: tmplCtx.triggerPayload,
         };

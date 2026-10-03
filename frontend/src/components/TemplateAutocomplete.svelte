@@ -1,5 +1,6 @@
 <script lang="ts">
 import { computeInsertion, detectTrigger, navigateHighlight, type TriggerContext } from "../lib/autocompleteEngine";
+import { allowsSelfReference } from "../lib/stepTypes";
 import {
   type OutputSchemas,
   getSuggestions as querySuggestions,
@@ -277,6 +278,7 @@ function acceptSuggestion(index?: number): void {
         envAllowlist,
         outputSchemas,
         edges,
+        allowsSelfReference,
       };
       const newSuggestions = querySuggestions(config, newTrigger.path, newTrigger.prefix);
       if (newSuggestions.length > 0) {
@@ -311,6 +313,7 @@ function handleInput(): void {
       envAllowlist,
       outputSchemas,
       edges,
+      allowsSelfReference,
     };
     const newSuggestions = querySuggestions(config, trigger.path, trigger.prefix);
     if (newSuggestions.length > 0) {
@@ -411,9 +414,16 @@ function handleKeydown(event: KeyboardEvent): void {
 /**
  * Handles blur events on the target element.
  * Closes the popup without modifying content.
+ *
+ * Blur also fires when the focused input is removed from the DOM during a
+ * component teardown (e.g. leaving edit mode via a keyboard shortcut while the
+ * input still has focus). Mutating state synchronously at that point throws
+ * Svelte's `state_unsafe_mutation`, so the reset is deferred to a microtask and
+ * skipped entirely when the popup is not shown.
  */
 function handleBlur(): void {
-  hide();
+  if (!visible) return;
+  queueMicrotask(hide);
 }
 
 /**

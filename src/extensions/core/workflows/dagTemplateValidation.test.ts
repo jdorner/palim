@@ -750,4 +750,123 @@ describe("validateDagWorkflowTemplates (malformed var-expression properties)", (
       { numRuns: NUM_RUNS },
     );
   });
+
+  describe("nested custom step config fields", () => {
+    test("validates templates nested in arrays and objects under their dotted path", async () => {
+      const def = wf(
+        {
+          fetch: { type: "agent", prompt: "go" },
+          vars: {
+            type: "set-variables",
+            variables: [
+              { name: "ok", value: "{{steps.fetch.result}}" },
+              { name: "bad", value: "{{steps.nope.result}}" },
+            ],
+          },
+          call: { type: "http-request", url: "http://x", headers: { "X-Id": "{{unknown.thing}}" } },
+        } as unknown as DagWorkflowDefinition["steps"],
+        [
+          { from: "fetch", to: "vars" },
+          { from: "vars", to: "call" },
+        ],
+      );
+
+      const warnings = await validateDagWorkflowTemplates(def);
+      expect(warnings.map((w) => [w.stepSlug, w.field])).toEqual([
+        ["vars", "variables.1.value"],
+        ["call", "headers.X-Id"],
+      ]);
+    });
+
+    test("checks nested references against the referenced step's output schema, allowing self-references", async () => {
+      const varsSchema: OutputSchema = { type: "object", properties: { text: { type: "string" } } };
+      const def = wf(
+        {
+          loop: { type: "iterator", items: "{{trigger.payload}}" },
+          vars: {
+            type: "set-variables",
+            variables: [{ name: "text", value: "{{steps.vars.result.text}}{{steps.vars.result.missing}}" }],
+          },
+          done: { type: "aggregator", iterator: "loop" },
+        } as unknown as DagWorkflowDefinition["steps"],
+        [
+          { from: "loop", to: "vars", branch: "each" },
+          { from: "vars", to: "done" },
+        ],
+      );
+
+      const warnings = await validateDagWorkflowTemplates(def, {
+        resolveStepOutputSchema: (slug) => (slug === "vars" ? varsSchema : null),
+      });
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.field).toBe("variables.0.value");
+      expect(warnings[0]!.message).toContain('unknown result path "missing"');
+    });
+
+    test("warns about a self-reference from a step type without the selfReference flag", async () => {
+      const def = wf(
+        {
+          loop: { type: "iterator", items: "{{trigger.payload}}" },
+          vars: { type: "set-variables", variables: [{ name: "text", value: "{{steps.vars.result.text}}x" }] },
+          call: { type: "http-request", url: "http://x/?cursor={{steps.call.result.next}}" },
+          done: { type: "aggregator", iterator: "loop" },
+        } as unknown as DagWorkflowDefinition["steps"],
+        [
+          { from: "loop", to: "vars", branch: "each" },
+          { from: "vars", to: "call" },
+          { from: "call", to: "done" },
+        ],
+      );
+
+      const allowsSelfReference = (type: string) => type === "set-variables";
+      const warnings = await validateDagWorkflowTemplates(def, { allowsSelfReference });
+      expect(warnings.map((w) => w.stepSlug)).toEqual(["call"]);
+      expect(warnings[0]!.message).toContain('step type "http-request" has no result on the first iterator pass');
+
+      // Without the step-type predicate the type check is skipped.
+      expect(await validateDagWorkflowTemplates(def)).toEqual([]);
+    });
+
+    test("warns about a self-reference outside an iterator body", async () => {
+      const def = wf(
+        {
+          vars: { type: "set-variables", variables: [{ name: "text", value: "{{steps.vars.result.text}}x" }] },
+        } as unknown as DagWorkflowDefinition["steps"],
+        [],
+      );
+
+      const warnings = await validateDagWorkflowTemplates(def);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.message).toContain("outside an iterator body");
+    });
+  });
+
+  describe("hyphenated step slugs in function-call expressions", () => {
+    test("accepts a hyphenated slug as a function argument", async () => {
+      const def = wf(
+        {
+          "fetch-mails": { type: "agent", prompt: "go" },
+          "step-2": { type: "agent", prompt: "{{trim(steps.fetch-mails.result.subject)}}" },
+        } as unknown as DagWorkflowDefinition["steps"],
+        [{ from: "fetch-mails", to: "step-2" }],
+      );
+
+      expect(await validateDagWorkflowTemplates(def)).toEqual([]);
+    });
+
+    test("still applies the ancestor check to a hyphenated slug", async () => {
+      const def = wf(
+        {
+          "step-1": { type: "agent", prompt: "{{trim(steps.step-2.result)}}" },
+          "step-2": { type: "agent", prompt: "go" },
+        } as unknown as DagWorkflowDefinition["steps"],
+        [{ from: "step-1", to: "step-2" }],
+      );
+
+      const warnings = await validateDagWorkflowTemplates(def);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.message).toContain('step "step-2"');
+      expect(warnings[0]!.message).toContain("not an ancestor");
+    });
+  });
 });

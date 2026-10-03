@@ -26,7 +26,7 @@ When creating or modifying a workflow, be sure to follow these steps meticulousl
 
 Deciding between the two:
 
-- Deterministic work ("convert / fetch / move / read / write / transform this file", "call this API", "branch on a value", "loop over a list") -> a non-agent step type. Built-in options are `http-request`, `if`, `case`, `iterator`/`aggregator`, `fail`, `emit`, `waitFor`, and extensions may add more.
+- Deterministic work ("convert / fetch / move / read / write / transform this file", "call this API", "branch on a value", "loop over a list") -> a non-agent step type. Built-in options are `http-request`, `set-variables`, `if`, `case`, `iterator`/`aggregator`, `fail`, `emit`, `waitFor`, and extensions may add more.
 - Open-ended reasoning -> an `agent` step.
 
 Do not assume the only way to run a command or use a skill is inside an `agent` step. Run `workflow step-types` to see which step types this deployment actually has before defaulting to `agent`; a deployment may provide non-agent step types that run shell commands or skill programs directly.
@@ -181,6 +181,7 @@ Available built-in functions:
 Notes:
 
 - Functions are pure (string/data/date transforms only) — no I/O, network, filesystem, or secret/env access.
+- Hyphenated step slugs work as arguments as written (`trim(steps.fetch-mails.result.subject)`). The slug is matched against the workflow's steps, so the hyphen is not read as a minus sign.
 - **JSON bodies:** substituted values are NOT auto-escaped, so wrap anything that might contain a quote or newline in `jsonEscape(...)` — e.g. `"{\"text\": \"{{ jsonEscape(steps.extract.result) }}\"}"`.
 - **Security:** `constructor`, `prototype`, `__proto__`, and any `__dunder__` key are refused. Only `trigger`, `steps`, `var`, the iterator alias, and `itemIndex` are reachable; `secret`/`env` are resolved separately and unreachable from function expressions.
 - An unknown function or failed evaluation is left literal (`{{...}}`) with a warning — it never throws.

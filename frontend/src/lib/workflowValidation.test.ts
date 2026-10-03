@@ -719,6 +719,76 @@ describe("validateStepConfig", () => {
     const errors = validateStepConfig({ url: "http://x.com" }, schema);
     expect(errors).toEqual([]);
   });
+
+  describe("patterns and nested fields", () => {
+    // Mirrors the set-variables config schema as serialized by TypeBox.
+    const varsSchema = {
+      type: "object",
+      properties: {
+        variables: {
+          type: "array",
+          title: "Variables",
+          items: {
+            type: "object",
+            properties: {
+              name: { type: "string", title: "Name", pattern: "^[A-Za-z_][A-Za-z0-9_]*$" },
+              value: { type: "string", title: "Value" },
+              type: { anyOf: [{ const: "string" }, { const: "number" }] },
+            },
+            required: ["name", "value"],
+          },
+        },
+      },
+      required: ["variables"],
+    };
+
+    test("reports a pattern violation inside a list item under its form key", () => {
+      const errors = validateStepConfig(
+        {
+          variables: [
+            { name: "ok", value: "x" },
+            { name: "1bad", value: "x" },
+          ],
+        },
+        varsSchema,
+      );
+      expect(errors).toEqual([["variables[1].name", "Name must match the pattern ^[A-Za-z_][A-Za-z0-9_]*$"]]);
+    });
+
+    test("an empty string inside a list item is a value, not a missing field", () => {
+      expect(validateStepConfig({ variables: [{ name: "a", value: "" }] }, varsSchema)).toEqual([]);
+    });
+
+    test("an empty string violating a constraint is reported as required", () => {
+      expect(validateStepConfig({ variables: [{ name: "", value: "" }] }, varsSchema)).toEqual([
+        ["variables[0].name", "Name is required"],
+      ]);
+    });
+
+    test("a missing required field inside a list item is reported", () => {
+      expect(validateStepConfig({ variables: [{ name: "a" }] }, varsSchema)).toEqual([
+        ["variables[0].value", "Value is required"],
+      ]);
+    });
+
+    test("validates nested object properties under a dotted key", () => {
+      const schema = {
+        type: "object",
+        properties: {
+          auth: { type: "object", properties: { user: { type: "string", title: "User", minLength: 2 } } },
+        },
+      };
+      expect(validateStepConfig({ auth: { user: "a" } }, schema)).toEqual([
+        ["auth.user", "User must be at least 2 characters"],
+      ]);
+    });
+
+    test("does not apply a pattern to template values", () => {
+      const schema = { type: "object", properties: { id: { type: "string", pattern: "^[0-9]+$" } } };
+      expect(validateStepConfig({ id: "{{steps.a.result.id}}" }, schema)).toEqual([]);
+      expect(validateStepConfig({ id: "abc" }, schema)).toEqual([["id", "id must match the pattern ^[0-9]+$"]]);
+    });
+  });
 });
 
 describe("validateWorkflowDraft with step type schemas", () => {

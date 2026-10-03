@@ -86,6 +86,11 @@ export interface ScopeConfig {
   envAllowlist?: readonly string[];
   /** Resolved output schemas from the workflow API */
   outputSchemas?: OutputSchemas;
+  /**
+   * Whether a step type may reference its own result inside an iterator body
+   * (the step type's `selfReference` flag). When omitted, no step type may.
+   */
+  allowsSelfReference?: (stepType: string) => boolean;
 }
 
 /** Fixed set of top-level namespace names. */
@@ -461,6 +466,30 @@ export function computeValidResultRefs(
 }
 
 /**
+ * Whether `{{steps.<slug>.result}}` is a valid reference from the step being
+ * edited: the referenced step must be a preceding dominator (see
+ * {@link computeValidResultRefs}), or the current step itself when its type
+ * supports self-reference (`config.allowsSelfReference`) and it sits inside an
+ * iterator body, where it reads the previous pass's result.
+ *
+ * @param config - The scope configuration
+ * @param slug - Slug of the referenced step
+ * @returns True when the step's result is guaranteed available
+ */
+function isResultReferenceable(config: ScopeConfig, slug: string): boolean {
+  const current = config.steps[config.currentStepIndex];
+  if (!current) return false;
+  if (slug === current.slug) {
+    return (
+      typeof current.type === "string" &&
+      config.allowsSelfReference?.(current.type) === true &&
+      findEnclosingIterator(config) !== undefined
+    );
+  }
+  return computeValidResultRefs(config.steps, config.edges, current.slug).has(slug);
+}
+
+/**
  * The iterator binding in scope for a given step: the loop-variable name and the
  * `items` template expression whose array element the variable ranges over.
  */
@@ -637,16 +666,19 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
 
   if (namespace === "steps") {
     if (path.length === 1) {
-      // path=["steps"] -> show all step slugs except the current step.
+      // path=["steps"] -> show all step slugs, sorted alphabetically. The current
+      // step is listed only when it may reference its own result (a self-referencing
+      // step type inside an iterator body).
       // Config is accessible from any step (static); result only from preceding steps.
       // We show all slugs and rely on backend validation to flag forward result references.
       return config.steps
-        .filter((_, i) => i !== config.currentStepIndex)
+        .filter((step, i) => i !== config.currentStepIndex || isResultReferenceable(config, step.slug))
         .filter((step) => step.slug.startsWith(prefix))
         .map((step) => ({
           label: step.slug,
           terminal: false,
-        }));
+        }))
+        .sort((a, b) => a.label.localeCompare(b.label));
     }
     if (path.length === 2) {
       // path=["steps", slug] -> show result/config
@@ -657,19 +689,20 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
       // (e.g. a root step feeding a later node) still qualifies. Declaration order
       // alone is insufficient and would wrongly hide such references.
       const slug = path[1]!;
-      const currentSlug = config.steps[config.currentStepIndex]?.slug;
-      const validResultRefs = computeValidResultRefs(config.steps, config.edges, currentSlug);
-      const isPreceding = slug !== currentSlug && validResultRefs.has(slug);
+      if (!config.steps.some((s) => s.slug === slug)) return [];
       const stepSchema = config.outputSchemas?.steps[slug];
       const suggestions: Suggestion[] = [
-        ...(isPreceding ? [{ label: "result", terminal: !stepSchema }] : []),
+        ...(isResultReferenceable(config, slug) ? [{ label: "result", terminal: !stepSchema }] : []),
         { label: "config", terminal: false },
       ];
       return suggestions.filter((s) => s.label.startsWith(prefix));
     }
     if (path.length >= 3 && path[2] === "result") {
-      // path=["steps", slug, "result", ...] -> drill into step output schema
+      // path=["steps", slug, "result", ...] -> drill into step output schema.
+      // Gated like the `result` suggestion itself, so typing `.result.` by hand
+      // does not reveal the schema of a step that runs later or may be skipped.
       const slug = path[1]!;
+      if (!isResultReferenceable(config, slug)) return [];
       const stepSchema = config.outputSchemas?.steps[slug];
       if (!stepSchema) return [];
       const subPath = path.slice(3); // segments after "result"

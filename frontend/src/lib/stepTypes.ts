@@ -69,6 +69,24 @@ export function categoryForType(type: string): string | undefined {
 }
 
 /**
+ * Whether a step type may reference its own result inside an iterator body
+ * (declared by the handler's `selfReference` flag, e.g. `set-variables`).
+ * Built-in types never do.
+ *
+ * @param type - The step type identifier
+ * @returns True when the registered step type declares `selfReference`
+ */
+export function allowsSelfReference(type: string): boolean {
+  const allExtensions = get(extensions);
+  for (const ext of allExtensions) {
+    if (!ext.enabled || !ext.ui?.stepTypes) continue;
+    const match = ext.ui.stepTypes.find((st) => st.type === type);
+    if (match) return match.selfReference === true;
+  }
+  return false;
+}
+
+/**
  * Returns a plain-text human-readable label for a workflow step type.
  * Handles the built-in agent/control-flow types, triggers, and custom
  * extension types. Icons are rendered separately via the icon registry.

@@ -8,6 +8,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createWorkflowTestDb } from "@src/test/db";
+import { createSetVariablesHandler } from "../../core-wf-steps/setVariables";
 import {
   type DagCoordinatorDeps,
   evaluateInlineRoot,
@@ -17,6 +18,7 @@ import {
 } from "./dagCoordinator";
 import * as dagRunStore from "./dagRunStore";
 import { edgeId } from "./dagRunStore";
+import { createDagStepProcessor } from "./dagWorker";
 import type { DagWorkflowDefinition } from "./schemas";
 import * as signalStore from "./signalStore";
 
@@ -568,5 +570,71 @@ describe("waitFor nodes", () => {
     // Resume must not revive a failed run or dispatch the successor.
     expect(afterResume.status).toBe("failed");
     expect(deps.dispatched).not.toContain("b");
+  });
+});
+
+describe("set-variables accumulation inside an iterator", () => {
+  // End-to-end through coordinator + worker: a set-variables step in the body
+  // sees its own previous-iteration result (body results survive the reset),
+  // and a step after the aggregator sees the final accumulated value.
+  test("accumulates across iterations and exposes the final value downstream", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "acc-wf",
+      trigger: { type: "manual" },
+      steps: {
+        letters: { type: "iterator", items: "{{trigger.payload}}", as: "letter" },
+        acc: {
+          type: "set-variables",
+          variables: [
+            { name: "text", value: "{{steps.acc.result.text}}{{letter}}, " },
+            { name: "count", value: "{{itemIndex}}", type: "number" },
+          ],
+        },
+        collect: { type: "aggregator", iterator: "letters" },
+        after: { type: "set-variables", variables: [{ name: "final", value: "{{steps.acc.result.text}}" }] },
+      } as unknown as DagWorkflowDefinition["steps"],
+      edges: [
+        { from: "letters", to: "acc", branch: "each" },
+        { from: "acc", to: "collect" },
+        { from: "collect", to: "after" },
+      ],
+    };
+
+    const queued: { data: { stepSlug: string } & Record<string, unknown> }[] = [];
+    const deps = createTestDeps(def);
+    deps.flowProducer = {
+      add: async (job: any) => {
+        queued.push(job);
+        return { job: { id: `job-${queued.length}` } };
+      },
+    } as any;
+
+    const handler = createSetVariablesHandler();
+    const processor = createDagStepProcessor({
+      ctx: {
+        paths: { work: "/tmp/work" },
+        internal: undefined,
+        skills: { resolve: () => undefined, names: () => [] },
+      } as any,
+      emitEvent: () => {},
+      log: deps.log,
+      getStepHandler: () => handler,
+    });
+
+    const run = initRun(def, ["a", "b", "c"]);
+    await evaluateInlineRoot(run.id, "letters", deps);
+
+    // Drain the queue: execute each dispatched job and report its completion.
+    for (let i = 0; i < queued.length; i++) {
+      const job = queued[i]!;
+      const result = await processor({ id: `job-${i + 1}`, data: job.data, log: async () => {} } as any);
+      await handleDagStepCompletion(run.id, job.data.stepSlug, result, `job-${i + 1}`, deps);
+    }
+
+    const finalRun = dagRunStore.get(run.id)!;
+    expect(queued.map((j) => j.data.stepSlug)).toEqual(["acc", "acc", "acc", "after"]);
+    expect(finalRun.status).toBe("completed");
+    expect(finalRun.stepResults.acc).toEqual({ text: "a, b, c, ", count: 2 });
+    expect(finalRun.stepResults.after).toEqual({ final: "a, b, c, " });
   });
 });

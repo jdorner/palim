@@ -13,6 +13,7 @@
 
 import { DEFAULT_ENV_ALLOWLIST } from "@shared/workflows";
 import type { TemplateVariableResolver } from "@src/variables";
+import { quoteHyphenatedStepRefs } from "./stepRefs";
 import { evaluateExpression, isForbiddenKey, referencesForbiddenKey } from "./templateEval";
 
 /**
@@ -313,7 +314,8 @@ export async function resolveTemplates(
     // itemIndex when inside an iterator body.
     if (isExpressionSyntax(trimmed)) {
       const evalScope = buildExpressionScopeNamespaces(ctx);
-      const evalResult = evaluateExpression(trimmed, evalScope);
+      const knownSlugs = Object.keys(evalScope.steps as Record<string, unknown>);
+      const evalResult = evaluateExpression(quoteHyphenatedStepRefs(trimmed, knownSlugs), evalScope);
       if (evalResult.ok) {
         resolved += stringify(evalResult.value);
       } else {

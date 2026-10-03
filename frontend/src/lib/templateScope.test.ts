@@ -852,9 +852,108 @@ describe("getSuggestions derives precedence from the DAG, not declaration order"
 
   test("without an edge the result is not offered (not guaranteed to run first)", () => {
     const config: ScopeConfig = { steps, currentStepIndex: 0, secretKeys: [], variableKeys: [] };
-    const results = getSuggestions(config, ["steps", "onprodata-no-auth", "result"]);
+    const results = getSuggestions(config, ["steps", "onprodata-no-auth"], "");
     const labels = results.map((s) => s.label);
     expect(labels).not.toContain("result");
+    expect(labels).toContain("config");
+  });
+});
+
+describe("getSuggestions lists step slugs alphabetically", () => {
+  test("sorts slugs regardless of declaration order", () => {
+    const config: ScopeConfig = {
+      steps: [
+        { slug: "fetch-mails" },
+        { slug: "mails-exist" },
+        { slug: "aggregate" },
+        { slug: "current" },
+        { slug: "classify-mail" },
+      ],
+      currentStepIndex: 3,
+      secretKeys: [],
+      variableKeys: [],
+    };
+    expect(getSuggestions(config, ["steps"], "").map((s) => s.label)).toEqual([
+      "aggregate",
+      "classify-mail",
+      "fetch-mails",
+      "mails-exist",
+    ]);
+  });
+});
+
+describe("getSuggestions does not drill into results that are not referenceable", () => {
+  // Regression: typing `.result.` by hand used to reveal the output schema of a
+  // successor step even though `result` itself was (correctly) not offered.
+  const schema = { type: "object" as const, properties: { sent: { type: "boolean" } } };
+  const base: ScopeConfig = {
+    steps: [
+      { slug: "vars", type: "set-variables" },
+      { slug: "notify", type: "ntfy" },
+    ],
+    currentStepIndex: 0,
+    edges: [{ from: "vars", to: "notify" }],
+    secretKeys: [],
+    variableKeys: [],
+    outputSchemas: { trigger: null, steps: { vars: schema, notify: schema } },
+    allowsSelfReference: (type) => type === "set-variables",
+  };
+
+  test("successor step result is not drillable", () => {
+    expect(getSuggestions(base, ["steps", "notify", "result"], "")).toEqual([]);
+  });
+
+  test("predecessor step result is drillable", () => {
+    const labels = getSuggestions({ ...base, currentStepIndex: 1 }, ["steps", "vars", "result"], "").map(
+      (s) => s.label,
+    );
+    expect(labels).toEqual(["sent"]);
+  });
+
+  test("set-variables may reference its own result inside an iterator body", () => {
+    const config: ScopeConfig = {
+      ...base,
+      steps: [
+        ...base.steps,
+        { slug: "loop", type: "iterator", items: "{{trigger.payload}}" },
+        { slug: "done", type: "aggregator", iterator: "loop" },
+      ],
+      edges: [
+        { from: "loop", to: "vars", branch: "each" },
+        { from: "vars", to: "done" },
+      ],
+    };
+    expect(getSuggestions(config, ["steps"], "").map((s) => s.label)).toContain("vars");
+    expect(getSuggestions(config, ["steps", "vars"], "").map((s) => s.label)).toContain("result");
+    expect(getSuggestions(config, ["steps", "vars", "result"], "").map((s) => s.label)).toEqual(["sent"]);
+  });
+
+  test("set-variables may not reference its own result outside an iterator body", () => {
+    expect(getSuggestions(base, ["steps"], "").map((s) => s.label)).not.toContain("vars");
+    expect(getSuggestions(base, ["steps", "vars"], "").map((s) => s.label)).not.toContain("result");
+    expect(getSuggestions(base, ["steps", "vars", "result"], "")).toEqual([]);
+  });
+
+  test("an unknown step slug yields no suggestions", () => {
+    expect(getSuggestions(base, ["steps", "k"], "")).toEqual([]);
+  });
+
+  test("step types without the selfReference flag may not reference their own result, even in an iterator", () => {
+    const config: ScopeConfig = {
+      ...base,
+      currentStepIndex: 1,
+      steps: [
+        ...base.steps,
+        { slug: "loop", type: "iterator", items: "{{trigger.payload}}" },
+        { slug: "done", type: "aggregator", iterator: "loop" },
+      ],
+      edges: [
+        { from: "loop", to: "notify", branch: "each" },
+        { from: "notify", to: "done" },
+      ],
+    };
+    expect(getSuggestions(config, ["steps", "notify"], "").map((s) => s.label)).not.toContain("result");
+    expect(getSuggestions(config, ["steps", "notify", "result"], "")).toEqual([]);
   });
 });
 
@@ -1241,6 +1340,7 @@ describe("getSuggestions offers functions in value positions", () => {
   const config: ScopeConfig = {
     steps: [{ slug: "fetch" }, { slug: "process" }],
     currentStepIndex: 1,
+    edges: [{ from: "fetch", to: "process" }],
     secretKeys: ["API_KEY"],
     variableKeys: [],
     outputSchemas: {
