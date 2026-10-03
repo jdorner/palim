@@ -63,7 +63,6 @@ interface Props {
   selectedStepId?: string;
   /** Whether the trigger node is currently selected (shows orange highlight). */
   triggerSelected?: boolean;
-  fitViewTrigger?: number;
   customStepTypes?: Array<{ type: string; label: string; icon?: string; terminal?: boolean; category?: string }>;
   /**
    * Optional slug-based status map for runtime status overlay.
@@ -128,7 +127,6 @@ let {
   editMode,
   selectedStepId,
   triggerSelected = false,
-  fitViewTrigger = 0,
   customStepTypes = [],
   statusMap,
   errorSlugs,
@@ -603,7 +601,7 @@ onMount(() => {
     onnodedragstop={editMode ? handleNodeDragStop : undefined}
     onnodeclick={handleNodeClick}
   >
-    <FitViewOnInit {fitViewTrigger} onInitialFit={() => (initialFitDone = true)} />
+    <FitViewOnInit onInitialFit={() => (initialFitDone = true)} />
     <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} patternColor="hsl(var(--border))" />
     <Controls class="shadow-md! rounded-lg! border! border-border! overflow-hidden!" />
     <MiniMap

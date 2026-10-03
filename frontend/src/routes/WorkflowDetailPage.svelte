@@ -146,7 +146,6 @@ let activeTab = $state("definition");
 // Edit mode state
 let editMode = $state(false);
 let editDraft = $state<WorkflowDraft | null>(null);
-let fitViewTrigger = $state(0);
 let saving = $state(false);
 let saveError = $state<string | null>(null);
 /**
@@ -380,7 +379,6 @@ function enterEditMode() {
   saveErrorDetails = [];
   validationErrors = new Map();
   editMode = true;
-  fitViewTrigger++;
   fetchMeta();
   fetchSecretKeys();
   fetchVariableKeys();
@@ -395,7 +393,6 @@ function cancelEdit() {
   validationErrors = new Map();
   editAsJson = false;
   viewAsJson = false;
-  fitViewTrigger++;
   // Re-point sidebar to the original workflow step data
   if (sidebarOpen && selectedStepIndex >= 0 && workflow?.steps[selectedStepIndex]) {
     selectedStep = workflow.steps[selectedStepIndex] as StepDef;
@@ -951,7 +948,6 @@ async function saveWorkflow() {
     editMode = false;
     editDraft = null;
     validationErrors = new Map();
-    fitViewTrigger++;
     // Update sidebar step reference to fresh data
     if (sidebarOpen && selectedStepIndex >= 0 && workflow?.steps[selectedStepIndex]) {
       selectedStep = workflow.steps[selectedStepIndex] as StepDef;
@@ -1546,7 +1542,6 @@ onDestroy(() => {
               onInsertStepOnEdge={editMode ? insertStepOnEdge : undefined}
               onEdgesChange={editMode ? handleEdgesChange : undefined}
               onNodesDelete={editMode ? removeStepsByIds : undefined}
-              {fitViewTrigger}
             />
           </div>
 
