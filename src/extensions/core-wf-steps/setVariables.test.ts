@@ -57,6 +57,11 @@ describe("createSetVariablesHandler", () => {
     expect(handler.selfReference).toBe(true);
   });
 
+  test("declares string as the default variable type so new form rows preselect it", () => {
+    const schema = JSON.parse(JSON.stringify(handler.schema));
+    expect(schema.properties.variables.items.properties.type.default).toBe("string");
+  });
+
   describe("execute", () => {
     test("sets literal and template values", async () => {
       const ctx = createContext({ triggerPayload: { user: "ada" } });

@@ -63,6 +63,7 @@ const VariableEntrySchema = Type.Object(
       Type.Union([Type.Literal("string"), Type.Literal("number"), Type.Literal("boolean"), Type.Literal("json")], {
         title: "Type",
         description: "Type the resolved value is converted to. Defaults to string.",
+        default: "string",
       }),
     ),
   },
