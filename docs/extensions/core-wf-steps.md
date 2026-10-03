@@ -80,6 +80,32 @@ Immediately aborts the workflow run with a configurable error message. This is a
 - The error triggers the engine's fail-fast handling: the run is marked `failed`, in-flight jobs are cancelled, and remaining pending steps are marked dead.
 - Being terminal, a `fail` step should not have outgoing edges. In the DAG editor and graph it is rendered with a distinct terminal marker.
 
+### noop
+
+Does nothing and completes successfully. Shown as **End Branch** in the editor. This is a **terminal** step type, meant to mark a control-flow branch as intentionally ending. For example, if the `else` branch of an `if` has nothing to do, put a `noop` step on it so it doesn't look like a branch someone forgot to model.
+
+```json5
+"steps": {
+  "check": { "type": "if", "condition": { "ref": "{{trigger.payload.priority}}", "eq": "high" } },
+  "notify": { "type": "agent", "prompt": "Send an alert about {{trigger.payload.subject}}" },
+  "done": { "type": "noop" }
+},
+"edges": [
+  { "from": "check", "to": "notify", "branch": "then" },
+  { "from": "check", "to": "done", "branch": "else" }
+]
+```
+
+#### Configuration
+
+None.
+
+#### Behavior
+
+- Writes `No-op step: branch ended` to the job log and returns an empty result (`{}`).
+- It ends only its own branch. Other branches keep running, and the run finishes normally (unlike `fail`, which aborts the run).
+- Being terminal, a `noop` step should not have outgoing edges. In the DAG editor it has no "add step" button after it.
+
 ### start-workflow
 
 Starts another named workflow in a **fire-and-forget** fashion. The step dispatches the target workflow and returns immediately once the run has been created and its jobs enqueued. It does **not** wait for the started workflow to finish, and the started run is fully independent: its success or failure does not affect the current run.

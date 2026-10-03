@@ -48,6 +48,7 @@ export const STEP_ICON_NAMES = [
   "EyeIcon",
   "FileAudioIcon",
   "FileTextIcon",
+  "FlagCheckeredIcon",
   "FlowArrowIcon",
   "GearIcon",
   "GlobeIcon",
