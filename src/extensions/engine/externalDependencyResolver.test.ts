@@ -166,6 +166,21 @@ describe("ExternalDependencyResolver.writeTsconfig", () => {
     expect(content.compilerOptions.paths["@src/*"]).toBeUndefined();
     expect(content.compilerOptions.paths["@shared/*"]).toBeUndefined();
   });
+
+  test("maps @types before packages so untyped packages pick up DefinitelyTyped typings", async () => {
+    const resolver = new ExternalDependencyResolver({ coreProjectDir: CORE_DIR });
+    await resolver.writeTsconfig(EXT_DIR);
+
+    const content = JSON.parse(readFileSync(path.join(EXT_DIR, "tsconfig.json"), "utf-8"));
+
+    const relativePath = path.relative(EXT_DIR, CORE_DIR);
+    expect(content.compilerOptions.paths["*"]).toEqual([
+      "./node_modules/@types/*",
+      "./node_modules/*",
+      `${relativePath}/node_modules/@types/*`,
+      `${relativePath}/node_modules/*`,
+    ]);
+  });
 });
 
 describe("ExternalDependencyResolver.refreshTsconfig", () => {

@@ -142,7 +142,15 @@ export function generateExtensionTsconfig(extensionDir: string, coreProjectDir: 
       paths: {
         "@ext/types": [`${relativeToCoreProject}/src/extensions/types.ts`],
         "@ext/sdk": [`${relativeToCoreProject}/src/extensions/sdk.ts`],
-        "*": ["./node_modules/*", `${relativeToCoreProject}/node_modules/*`],
+        // `paths` matches are resolved as plain file lookups, so TypeScript never
+        // falls back to `@types/<pkg>` for an untyped package. List each
+        // `@types` folder before its packages so DefinitelyTyped typings win.
+        "*": [
+          "./node_modules/@types/*",
+          "./node_modules/*",
+          `${relativeToCoreProject}/node_modules/@types/*`,
+          `${relativeToCoreProject}/node_modules/*`,
+        ],
       },
     },
     include: ["./**/*.ts"],
