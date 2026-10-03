@@ -431,7 +431,7 @@ function parseNumberList(raw: string): number[] {
         />
       {:else if inputType === "object"}
         {@render fieldLabel(key, label, description)}
-        <div class="rounded-md border border-border p-2">
+        <div class="rounded-md border border-border bg-muted/40 p-2">
           <StepConfigForm
             schema={prop}
             values={(formValues[key] ?? {}) as Record<string, unknown>}
@@ -452,7 +452,7 @@ function parseNumberList(raw: string): number[] {
         {@const itemSchema = prop.items as SchemaProperty}
         <div class="space-y-2">
           {#each listValue(key) as item, i (i)}
-            <div class="relative rounded-md border border-border p-2 pr-8">
+            <div class="relative rounded-md border border-border bg-muted/40 p-2 pr-8">
               <button
                 type="button"
                 class="absolute top-1.5 right-1.5 rounded p-1 text-muted-foreground hover:text-destructive hover:bg-muted"
