@@ -7,6 +7,8 @@
  *   headers, body, timeout, and response format handling.
  * - `fail` - Immediately aborts the workflow run with a configurable error
  *   message. Useful in control-flow branches to signal unexpected states.
+ * - `noop` - Does nothing and succeeds. Marks a control-flow branch (e.g. the
+ *   `else` of an `if`) as intentionally ending.
  * - `start-workflow` - Dispatches another named workflow in a fire-and-forget
  *   fashion (no join, no result propagation, independent lifecycle).
  * - `chunk` - Splits a string or array into fixed-size batches, typically fed
@@ -20,6 +22,7 @@ import type { Extension, ExtensionContext, ExtensionManifest } from "@ext/types"
 import { createChunkHandler } from "./chunk";
 import { createFailHandler } from "./fail";
 import { createHttpRequestHandler } from "./http-request";
+import { createNoopHandler } from "./noop";
 import { createStartWorkflowHandler, WORKFLOW_NAMES_PROVIDER } from "./start-workflow";
 
 const manifest = {
@@ -36,6 +39,7 @@ const extension: Extension = {
   async initialize(ctx: ExtensionContext) {
     ctx.stepTypes.register("http-request", createHttpRequestHandler());
     ctx.stepTypes.register("fail", createFailHandler());
+    ctx.stepTypes.register("noop", createNoopHandler());
     ctx.stepTypes.register("chunk", createChunkHandler());
 
     // Populate the start-workflow step's "Workflow Name" dropdown in the editor

@@ -6,6 +6,7 @@ import EnvelopeIcon from "phosphor-svelte/lib/EnvelopeIcon";
 import EyeIcon from "phosphor-svelte/lib/EyeIcon";
 import FileAudioIcon from "phosphor-svelte/lib/FileAudioIcon";
 import FileTextIcon from "phosphor-svelte/lib/FileTextIcon";
+import FlagCheckeredIcon from "phosphor-svelte/lib/FlagCheckeredIcon";
 import FlowArrowIcon from "phosphor-svelte/lib/FlowArrowIcon";
 import GearIcon from "phosphor-svelte/lib/GearIcon";
 import GlobeIcon from "phosphor-svelte/lib/GlobeIcon";
@@ -47,6 +48,7 @@ export const iconRegistry: Record<StepIconName, Component> & Record<string, Comp
   EyeIcon,
   FileAudioIcon,
   FileTextIcon,
+  FlagCheckeredIcon,
   FlowArrowIcon,
   GearIcon,
   KnifeIcon,
