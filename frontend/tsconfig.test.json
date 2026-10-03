@@ -1,0 +1,10 @@
+{
+  "extends": "./tsconfig.app.json",
+  "compilerOptions": {
+    "outDir": "./node_modules/.tmp/test",
+    "types": ["bun"]
+  },
+  "include": ["src/**/*.test.ts"],
+  "exclude": [],
+  "references": [{ "path": "./tsconfig.app.json" }]
+}
