@@ -470,7 +470,7 @@ export function computeLayout(graph: FlatGraph, options: LayoutOptions = {}): La
       position: { x: pos.x - NODE_WIDTH / 2, y: pos.y - NODE_HEIGHT / 2 },
       deletable: false,
       data: {
-        slug: options.trigger.ref ?? options.trigger.type,
+        slug: options.trigger.ref || options.trigger.type,
         type: "trigger",
         status: "completed",
         triggerType: options.trigger.type,
