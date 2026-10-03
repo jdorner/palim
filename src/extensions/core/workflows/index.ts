@@ -22,9 +22,9 @@
 import { type FSWatcher, watch } from "node:fs";
 import { mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
-import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
+import type { Extension, ExtensionContext, ExtensionManifest, Logger, OutputSchemaContext } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
-import type { OutputSchema, OutputSchemas } from "@shared/workflows";
+import { type OutputSchema, type OutputSchemas, walkSchemaPath } from "@shared/workflows";
 import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
@@ -188,6 +188,11 @@ function serializeHandlerSchema(schema: TSchema): OutputSchema {
  *    serialized to JSON Schema.
  * 3. Neither: the slug is left absent from `outputSchemas.steps`.
  *
+ * Step schemas are resolved lazily and memoized, so a config-derived handler
+ * schema can look up other steps' (or the trigger's) schemas through the
+ * {@link OutputSchemaContext} it receives. A reference that leads back to a step
+ * currently being resolved (a self-reference or a cycle) resolves to `undefined`.
+ *
  * The trigger schema is resolved via {@link resolveTriggerOutputSchemaJson},
  * preferring an explicit shorthand over the built-in default and compiling the
  * chosen shorthand to JSON Schema.
@@ -199,44 +204,22 @@ function serializeHandlerSchema(schema: TSchema): OutputSchema {
  * @param definition - The DAG workflow definition whose schemas are being built
  * @param getHandlerOutputSchema - Resolver returning the handler-declared TypeBox
  *   schema already resolved for THIS step instance, or `undefined` when no handler
- *   (or no schema) exists. Receives both the step type and the full step
- *   definition so the caller can resolve a config-derived (function-form)
- *   `outputSchema` against the instance's config. Because the resolution happens
- *   in the injected resolver, {@link buildOutputSchemas} stays agnostic of the
- *   static-vs-function distinction.
+ *   (or no schema) exists. Receives the step type, the full step definition, and
+ *   the workflow-scoped {@link OutputSchemaContext} so the caller can resolve a
+ *   config-derived (function-form) `outputSchema` against the instance's config.
+ *   Because the resolution happens in the injected resolver,
+ *   {@link buildOutputSchemas} stays agnostic of the static-vs-function distinction.
  * @returns The resolved `outputSchemas` payload and any accumulated warnings
  */
 export function buildOutputSchemas(
   definition: DagWorkflowDefinition,
-  getHandlerOutputSchema: (type: string, stepDef: Record<string, unknown>) => TSchema | undefined,
+  getHandlerOutputSchema: (
+    type: string,
+    stepDef: Record<string, unknown>,
+    schemaCtx: OutputSchemaContext,
+  ) => TSchema | undefined,
 ): BuildOutputSchemasResult {
   const warnings: TemplateWarning[] = [];
-  const steps: Record<string, OutputSchema> = {};
-
-  for (const [slug, stepDef] of Object.entries(definition.steps)) {
-    try {
-      const handAuthored = (stepDef as { outputSchema?: OutputSchemaShorthand }).outputSchema;
-      if (handAuthored) {
-        // Precedence 1: hand-authored shorthand wins, compiled to JSON Schema.
-        steps[slug] = compileOutputSchema(handAuthored, (message) => {
-          warnings.push({ stepSlug: slug, field: "outputSchema", message });
-        });
-        continue;
-      }
-      // Precedence 2: handler-declared TypeBox schema (static or config-derived),
-      // resolved for this instance and serialized to JSON Schema.
-      const handlerSchema = getHandlerOutputSchema(
-        (stepDef as { type: string }).type,
-        stepDef as Record<string, unknown>,
-      );
-      if (handlerSchema) {
-        steps[slug] = serializeHandlerSchema(handlerSchema);
-      }
-      // Precedence 3: neither -> slug absent, no action.
-    } catch {
-      // Per-step resilience: skip this slug and continue with the rest.
-    }
-  }
 
   let trigger: OutputSchema | null = null;
   try {
@@ -250,6 +233,72 @@ export function buildOutputSchemas(
   } catch {
     // Trigger resolution is best-effort: fall back to null on any failure.
     trigger = null;
+  }
+
+  // Memoized per-step resolution. `null` marks a slug resolved to "no schema".
+  const resolvedSteps = new Map<string, OutputSchema | null>();
+  const visiting = new Set<string>();
+
+  const schemaCtx: OutputSchemaContext = {
+    resolveReferenceSchema(expr: string): TSchema | undefined {
+      const parts = expr.trim().split(".");
+      let root: OutputSchema | null = null;
+      let path: string[];
+      if (parts[0] === "trigger" && parts[1] === "payload") {
+        root = trigger;
+        path = parts.slice(2);
+      } else if (parts[0] === "steps" && parts.length >= 3 && parts[2] === "result") {
+        root = resolveStep(parts[1]!);
+        path = parts.slice(3);
+      } else {
+        return undefined;
+      }
+      const walked = walkSchemaPath(root, path);
+      return walked.resolved && walked.node ? (walked.node as TSchema) : undefined;
+    },
+  };
+
+  function resolveStep(slug: string): OutputSchema | null {
+    if (resolvedSteps.has(slug)) return resolvedSteps.get(slug)!;
+    const stepDef = definition.steps[slug];
+    // Unknown slug, self-reference, or cycle: no schema (not memoized for the
+    // in-progress slug so its own resolution still completes normally).
+    if (!stepDef || visiting.has(slug)) return null;
+
+    visiting.add(slug);
+    let schema: OutputSchema | null = null;
+    try {
+      const handAuthored = (stepDef as { outputSchema?: OutputSchemaShorthand }).outputSchema;
+      if (handAuthored) {
+        // Precedence 1: hand-authored shorthand wins, compiled to JSON Schema.
+        schema = compileOutputSchema(handAuthored, (message) => {
+          warnings.push({ stepSlug: slug, field: "outputSchema", message });
+        });
+      } else {
+        // Precedence 2: handler-declared TypeBox schema (static or config-derived),
+        // resolved for this instance and serialized to JSON Schema.
+        const handlerSchema = getHandlerOutputSchema(
+          (stepDef as { type: string }).type,
+          stepDef as Record<string, unknown>,
+          schemaCtx,
+        );
+        if (handlerSchema) schema = serializeHandlerSchema(handlerSchema);
+        // Precedence 3: neither -> slug absent, no action.
+      }
+    } catch {
+      // Per-step resilience: skip this slug and continue with the rest.
+      schema = null;
+    } finally {
+      visiting.delete(slug);
+    }
+    resolvedSteps.set(slug, schema);
+    return schema;
+  }
+
+  const steps: Record<string, OutputSchema> = {};
+  for (const slug of Object.keys(definition.steps)) {
+    const schema = resolveStep(slug);
+    if (schema) steps[slug] = schema;
   }
 
   return { outputSchemas: { trigger, steps }, warnings };
@@ -794,8 +843,8 @@ export function createExtension(): Extension {
             // view use the SAME resolution as the detail route (buildOutputSchemas
             // + handler precedence). The list route does not ship outputSchemas to
             // the client, but merges the compiler warnings for parity.
-            const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(w, (type, stepDef) =>
-              resolveHandlerOutputSchema(ctx.stepTypes.get(type)?.outputSchema, stepDef),
+            const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(w, (type, stepDef, schemaCtx) =>
+              resolveHandlerOutputSchema(ctx.stepTypes.get(type)?.outputSchema, stepDef, schemaCtx),
             );
 
             const templateWarnings = await validateDagWorkflowTemplates(w, {
@@ -804,6 +853,7 @@ export function createExtension(): Extension {
               variableStore: variableResolver,
               resolveStepOutputSchema: (slug) => outputSchemas.steps[slug] ?? null,
               resolveTriggerOutputSchema: () => outputSchemas.trigger,
+              allowsSelfReference: (type) => ctx.stepTypes.get(type)?.selfReference === true,
             });
             const depWarnings = getDependencyWarnings(w, ctx);
             const pairingWarnings: TemplateWarning[] = validateIteratorPairing(w).map((e) => ({
@@ -861,8 +911,8 @@ export function createExtension(): Extension {
         // This must run BEFORE template validation so the same resolved schemas
         // can be injected into the validator: the validator and the detail API
         // then share one resolution and cannot diverge.
-        const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(wf, (type, stepDef) =>
-          resolveHandlerOutputSchema(ctx.stepTypes.get(type)?.outputSchema, stepDef),
+        const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(wf, (type, stepDef, schemaCtx) =>
+          resolveHandlerOutputSchema(ctx.stepTypes.get(type)?.outputSchema, stepDef, schemaCtx),
         );
 
         const templateWarnings = await validateDagWorkflowTemplates(wf, {
@@ -871,6 +921,7 @@ export function createExtension(): Extension {
           variableStore: variableResolver,
           resolveStepOutputSchema: (slug) => outputSchemas.steps[slug] ?? null,
           resolveTriggerOutputSchema: () => outputSchemas.trigger,
+          allowsSelfReference: (type) => ctx.stepTypes.get(type)?.selfReference === true,
         });
         const depWarnings = getDependencyWarnings(wf, ctx);
         const pairingWarnings: TemplateWarning[] = validateIteratorPairing(wf).map((e) => ({

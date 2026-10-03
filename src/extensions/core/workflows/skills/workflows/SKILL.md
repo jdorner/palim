@@ -20,7 +20,7 @@ A workflow is a set of named `steps` plus an `edges` array that wires them toget
 This skill covers the concept and the CLI. For the details, read the companion skills:
 
 - **Authoring a definition** (schema, edges, prompts, per-step tools/skills, template variables, secrets, triggers, worked examples, execution model): run `skill read workflow-writing`
-- **Step type reference** (every step type's fields and behavior: `agent`, `http-request`, `fail`, `if`, `case`, `iterator`/`aggregator`, `waitFor`, `emit`): run `skill read workflow-step-types`
+- **Step type reference** (every step type's fields and behavior: `agent`, `http-request`, `fail`, `set-variables`, `if`, `case`, `iterator`/`aggregator`, `waitFor`, `emit`): run `skill read workflow-step-types`
 
 ## When to use
 

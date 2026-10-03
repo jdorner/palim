@@ -291,9 +291,15 @@ export interface StepExecutionContext {
    * template context (trigger payload, previous step results, env vars, secrets, step configs).
    *
    * @param template - The template string with `{{...}}` expressions
+   * @param overrides - Optional values overlaid onto the template context for
+   *   this call only. `stepResults` entries replace the same-slug entries of
+   *   the run's accumulated step results (the shared context is never mutated).
    * @returns The resolved string and any resolution warnings
    */
-  resolveTemplate(template: string): Promise<{ resolved: string; warnings: string[] }>;
+  resolveTemplate(
+    template: string,
+    overrides?: StepTemplateOverrides,
+  ): Promise<{ resolved: string; warnings: string[] }>;
 
   /** Logger scoped to the current step execution. */
   readonly log: Logger;
@@ -325,6 +331,45 @@ export interface StepExecutionContext {
 
   /** The workflow run ID this step belongs to (available for run-aware handlers). */
   readonly workflowRunId?: string;
+
+  /** The slug of the step being executed (available for self-referencing handlers). */
+  readonly stepSlug?: string;
+
+  /**
+   * Results of the run's steps accumulated so far, keyed by slug. Inside an
+   * iterator body this includes the results of body steps from the previous
+   * iteration (including this step's own previous result), since body results
+   * are only overwritten when a step completes again.
+   */
+  readonly stepResults?: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Per-call overrides for {@link StepExecutionContext.resolveTemplate}.
+ */
+export interface StepTemplateOverrides {
+  /** Step results overlaid onto the run's accumulated results, keyed by slug. */
+  stepResults?: Record<string, unknown>;
+}
+
+/**
+ * Context passed to the function form of {@link StepTypeHandler.outputSchema}
+ * when a step's schema is resolved within a workflow.
+ */
+export interface OutputSchemaContext {
+  /**
+   * Resolves the schema of a template reference within the workflow, so a
+   * step's output can inherit the shape of a value it copies.
+   *
+   * Supported references are `steps.<slug>.result[.<path>]` and
+   * `trigger.payload[.<path>]` (without braces). Returns `undefined` when the
+   * reference is not supported, the referenced schema is unknown, or the path
+   * does not resolve (including self-references and cycles).
+   *
+   * @param expr - The reference expression, e.g. `steps.fetch.result.data`
+   * @returns The referenced (JSON) schema, or `undefined` when unknown
+   */
+  resolveReferenceSchema(expr: string): TSchema | undefined;
 }
 
 /**
@@ -377,6 +422,16 @@ export interface StepTypeHandler {
   terminal?: boolean;
 
   /**
+   * When true, the step may reference its own result
+   * (`{{steps.<own-slug>.result...}}`) inside an iterator body to read the value
+   * from the previous pass. The handler must give such references a defined
+   * value on the first pass (e.g. `set-variables` supplies zero values), since
+   * no previous result exists yet. The editor offers self-references only for
+   * these step types, and the validator warns about them for all others.
+   */
+  selfReference?: boolean;
+
+  /**
    * Optional palette category hint for the workflow editor's "Add Step" menu.
    *
    * This is a UI-only grouping and does NOT affect engine execution semantics
@@ -420,9 +475,11 @@ export interface StepTypeHandler {
    *   treated as `undefined` (no schema). When the registry serializes the step
    *   TYPE for the palette (no instance config exists yet), the function is
    *   invoked with an empty object `{}`, so it should return a generic base
-   *   shape for that case.
+   *   shape for that case. When resolved within a workflow, the function also
+   *   receives an {@link OutputSchemaContext} for looking up the schemas of
+   *   other steps' results (absent for the palette).
    */
-  outputSchema?: TSchema | ((stepDef: Record<string, unknown>) => TSchema | undefined);
+  outputSchema?: TSchema | ((stepDef: Record<string, unknown>, ctx?: OutputSchemaContext) => TSchema | undefined);
 
   /**
    * Validate that data produced by the preceding step conforms to semantic

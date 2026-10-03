@@ -170,6 +170,40 @@ describe("createDagStepProcessor - custom step template handling", () => {
     expect(result).toEqual({ computed: 42 });
   });
 
+  test("exposes the step slug and overlays resolveTemplate overrides without mutating run results", async () => {
+    const runId = "run-overrides";
+    seedRunWithProbeResult(runId, "original");
+
+    let seen: { slug?: string; overridden?: string; plain?: string; shared?: unknown } = {};
+    const handler: StepTypeHandler = {
+      schema: Type.Object({}),
+      label: "Fake",
+      async execute(_stepDef, ctx: StepExecutionContext) {
+        const overridden = await ctx.resolveTemplate("{{steps.probe.result}}", {
+          stepResults: { probe: "overridden" },
+        });
+        const plain = await ctx.resolveTemplate("{{steps.probe.result}}");
+        seen = {
+          slug: ctx.stepSlug,
+          overridden: overridden.resolved,
+          plain: plain.resolved,
+          shared: ctx.stepResults?.probe,
+        };
+        return null;
+      },
+    };
+    const deps: DagStepWorkerDeps = {
+      ctx: fakeCtx(),
+      emitEvent: () => {},
+      log: fakeLog,
+      getStepHandler: () => handler,
+    };
+    const processor = createDagStepProcessor(deps);
+    await processor(fakeJob({ slug: "probe-consumer", type: "fake" }, runId));
+
+    expect(seen).toEqual({ slug: "probe-consumer", overridden: "overridden", plain: "original", shared: "original" });
+  });
+
   test("throws when no handler is registered for the step type", async () => {
     const runId = "run-nohandler";
     seedRunWithProbeResult(runId, "x");

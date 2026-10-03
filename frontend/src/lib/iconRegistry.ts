@@ -1,3 +1,4 @@
+import BracketsCurlyIcon from "phosphor-svelte/lib/BracketsCurlyIcon";
 import BroadcastIcon from "phosphor-svelte/lib/BroadcastIcon";
 import ChatTextIcon from "phosphor-svelte/lib/ChatTextIcon";
 import ClockIcon from "phosphor-svelte/lib/ClockIcon";
@@ -40,6 +41,7 @@ import type { StepIconName } from "../../../shared/extensions";
  * for navigation-only icons (e.g. GlobeIcon).
  */
 export const iconRegistry: Record<StepIconName, Component> & Record<string, Component> = {
+  BracketsCurlyIcon,
   BroadcastIcon,
   ChatTextIcon,
   ClockIcon,

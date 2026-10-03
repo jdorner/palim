@@ -198,6 +198,7 @@ describe("serializeStepType", () => {
       icon: "LinkIcon",
       extensionName: "core-wf-steps",
       terminal: false,
+      selfReference: false,
       category: "action",
       configSchema: { type: "object", properties: { url: { type: "string" } }, required: ["url"] },
       outputSchema: { type: "object", properties: { status: { type: "number" } }, required: ["status"] },
@@ -214,5 +215,15 @@ describe("serializeStepType", () => {
 
     expect(info.outputSchema).toBeUndefined();
     expect(info.terminal).toBe(true);
+  });
+
+  test("carries the selfReference flag", () => {
+    const info = serializeStepType({
+      type: "set-variables",
+      handler: { schema: Type.Object({}), label: "Set", selfReference: true, execute: async () => ({}) },
+      extensionName: "core-wf-steps",
+    });
+
+    expect(info.selfReference).toBe(true);
   });
 });

@@ -16,6 +16,7 @@
 
 import { DEFAULT_ENV_ALLOWLIST, type OutputSchema, walkSchemaPath } from "@shared/workflows";
 import type { DagStepDef, DagWorkflowDefinition } from "./schemas";
+import { findHyphenatedStepRefs } from "./stepRefs";
 import type { TemplateSecretResolver } from "./template";
 import { referencesForbiddenKey } from "./templateEval";
 import { TEMPLATE_FUNCTION_NAMES } from "./templateFunctions";
@@ -54,6 +55,13 @@ export interface TemplateValidationOptions {
    * Injected so the validator and the detail API share one resolution.
    */
   resolveTriggerOutputSchema?: () => OutputSchema | null;
+  /**
+   * Whether a step type may reference its own result inside an iterator body
+   * (the handler's `selfReference` flag). When provided, a self-reference from
+   * any other step type warns, because it is unresolved on the first pass. When
+   * omitted (e.g. no step-type registry available), that check is skipped.
+   */
+  allowsSelfReference?: (stepType: string) => boolean;
 }
 
 /** Regex matching `{{...}}` template expressions. */
@@ -80,11 +88,17 @@ function getEnvAllowlist(): Set<string> {
 /**
  * Extract all template-bearing fields from a DAG step definition.
  *
- * @param slug - The step slug
+ * Custom / emit / waitFor steps are scanned recursively: string values nested
+ * in objects and arrays (e.g. `http-request` headers or `set-variables`
+ * entries) are reported under their dotted path (e.g. `variables.0.value`).
+ *
+ * Shared with the global-variable reference scan so a reference is detected in
+ * exactly the fields validated here.
+ *
  * @param step - The DAG step definition (no slug field)
  * @returns Array of [fieldName, fieldValue] pairs that may contain templates
  */
-function getTemplateFields(step: DagStepDef): [string, string][] {
+export function getTemplateFields(step: DagStepDef): [string, string][] {
   const fields: [string, string][] = [];
   if (step.type === "agent") {
     const agentStep = step as { prompt: string | string[] };
@@ -97,13 +111,34 @@ function getTemplateFields(step: DagStepDef): [string, string][] {
     const caseStep = step as { match: string };
     if (caseStep.match) fields.push(["match", caseStep.match]);
   } else {
-    // Custom / emit / waitFor: scan all string-valued config fields
+    // Custom / emit / waitFor: scan all string values in the config, recursively
     const { type: _t, outputSchema: _os, ...config } = step as Record<string, unknown>;
     for (const [key, value] of Object.entries(config)) {
-      if (typeof value === "string") fields.push([key, value]);
+      collectStringFields(key, value, fields);
     }
   }
   return fields;
+}
+
+/**
+ * Recursively collects string values nested in objects and arrays.
+ *
+ * @param path - The dotted path of `value`
+ * @param value - The value to scan
+ * @param out - Accumulator for [path, string] pairs
+ */
+function collectStringFields(path: string, value: unknown, out: [string, string][]): void {
+  if (typeof value === "string") {
+    out.push([path, value]);
+  } else if (Array.isArray(value)) {
+    value.forEach((item, i) => {
+      collectStringFields(`${path}.${i}`, item, out);
+    });
+  } else if (value !== null && typeof value === "object") {
+    for (const [key, item] of Object.entries(value)) {
+      collectStringFields(`${path}.${key}`, item, out);
+    }
+  }
 }
 
 /**
@@ -298,21 +333,32 @@ interface ExprDecomposition {
  * names), and collects the function names separately. String and numeric
  * literals are ignored.
  *
+ * `steps.<slug>` references naming a known hyphenated slug (`steps.fetch-mails`)
+ * are extracted whole first, mirroring the evaluator, which quotes them.
+ *
  * @param expr - The trimmed expression text (without braces)
+ * @param slugs - The workflow's step slugs
  * @returns The extracted path references and function names
  */
-function decomposeExpression(expr: string): ExprDecomposition {
+function decomposeExpression(expr: string, slugs: Iterable<string>): ExprDecomposition {
   const functionNames: string[] = [];
   for (let m = CALL_HEAD.exec(expr); m !== null; m = CALL_HEAD.exec(expr)) {
     functionNames.push(m[1]!);
   }
   const fnSet = new Set(functionNames);
 
+  // Extract hyphenated step references, then blank them out (same length).
+  const pathRefs: string[] = [];
+  let masked = expr;
+  for (const ref of findHyphenatedStepRefs(expr, slugs)) {
+    pathRefs.push(expr.slice(ref.start, ref.pathEnd));
+    masked = masked.slice(0, ref.start) + " ".repeat(ref.pathEnd - ref.start) + masked.slice(ref.pathEnd);
+  }
+
   // Strip string literals so their contents are not mistaken for paths.
-  const withoutStrings = expr.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g, " ");
+  const withoutStrings = masked.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g, " ");
 
   // Extract identifier dot-paths.
-  const pathRefs: string[] = [];
   const PATH = /[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z0-9_$]+)*/g;
   for (let m = PATH.exec(withoutStrings); m !== null; m = PATH.exec(withoutStrings)) {
     const token = m[0]!;
@@ -339,7 +385,14 @@ export async function validateDagWorkflowTemplates(
   options: TemplateValidationOptions = {},
 ): Promise<TemplateWarning[]> {
   const warnings: TemplateWarning[] = [];
-  const { secretStore, workflowName, variableStore, resolveStepOutputSchema, resolveTriggerOutputSchema } = options;
+  const {
+    secretStore,
+    workflowName,
+    variableStore,
+    resolveStepOutputSchema,
+    resolveTriggerOutputSchema,
+    allowsSelfReference,
+  } = options;
 
   const slugs = new Set(Object.keys(definition.steps));
   const ancestors = computeAncestors(definition);
@@ -378,7 +431,7 @@ export async function validateDagWorkflowTemplates(
         // malformation is still reported exactly as before.
         const hasCallSyntax = expr.includes("(");
         const { pathRefs, functionNames } = hasCallSyntax
-          ? decomposeExpression(expr)
+          ? decomposeExpression(expr, slugs)
           : { pathRefs: [expr], functionNames: [] };
 
         // Validate any called functions against the built-in registry.
@@ -467,6 +520,35 @@ export async function validateDagWorkflowTemplates(
             //     case that slipped through before and blew up at runtime with
             //     "Unknown step slug in template" on a join node. Config is static
             //     (always present), so this only applies to result references.
+            // A self-reference reads the step's previous result, which only
+            // exists inside an iterator body (from the previous pass). Elsewhere
+            // the step runs once per run, so there is never a previous result.
+            if (accessor === "result" && referencedSlug === slug && iterPrefixes.size === 0) {
+              warnings.push({
+                stepSlug: slug,
+                field: fieldName,
+                message: `Self-reference "{{${expr}}}" outside an iterator body - there is no previous result (set-variables uses the zero value)`,
+              });
+              continue;
+            }
+
+            // Only step types that define a first-pass value (e.g. set-variables'
+            // zero values) can self-reference; for any other type the reference
+            // is left unresolved on the first pass.
+            if (
+              accessor === "result" &&
+              referencedSlug === slug &&
+              allowsSelfReference &&
+              !allowsSelfReference(step.type)
+            ) {
+              warnings.push({
+                stepSlug: slug,
+                field: fieldName,
+                message: `Self-reference "{{${expr}}}" is only supported by step types like set-variables - step type "${step.type}" has no result on the first iterator pass`,
+              });
+              continue;
+            }
+
             if (accessor === "result" && referencedSlug !== slug) {
               const stepAncestors = ancestors.get(slug) ?? new Set();
               if (!stepAncestors.has(referencedSlug)) {

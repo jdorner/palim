@@ -44,6 +44,18 @@ describe("findWorkflowsReferencingVariable", () => {
       expect(findWorkflowsReferencingVariable(defs, "MODE")).toEqual(["if-wf"]);
     });
 
+    test("finds references nested in custom step config arrays and objects", () => {
+      const defs = [
+        wf("vars-wf", {
+          v: { type: "set-variables", variables: [{ name: "url", value: `${varRef("BASE")}/api` }] },
+        } as unknown as DagWorkflowDefinition["steps"]),
+        wf("headers-wf", {
+          h: { type: "http-request", url: "http://x", headers: { Authorization: varRef("BASE") } },
+        } as unknown as DagWorkflowDefinition["steps"]),
+      ];
+      expect(findWorkflowsReferencingVariable(defs, "BASE")).toEqual(["vars-wf", "headers-wf"]);
+    });
+
     test("finds references in case match", () => {
       const defs = [wf("case-wf", { c: { type: "case", match: varRef("ENV"), paths: ["a"] } })];
       expect(findWorkflowsReferencingVariable(defs, "ENV")).toEqual(["case-wf"]);

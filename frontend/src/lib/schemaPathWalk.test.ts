@@ -162,6 +162,7 @@ describe("getOutputSchemaSuggestions", () => {
               steps: [{ slug: "a" }, { slug: "b" }],
               currentStepIndex: 1,
               secretKeys: [],
+              variableKeys: [],
             };
 
             // trigger.payload.<suffix> with a null trigger schema yields nothing.

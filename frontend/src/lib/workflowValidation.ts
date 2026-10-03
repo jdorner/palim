@@ -158,63 +158,111 @@ export function validateStepSlugsUnique(slugs: string[]): ValidationResult {
 
 /**
  * Validates a custom step's config values against a JSON Schema.
- * Checks required fields, minLength for strings, and minimum/maximum for numbers.
+ * Checks required fields, minLength/maxLength/pattern for strings, and
+ * minimum/maximum for numbers. Recurses into nested objects and arrays of
+ * objects, keying their errors the way the config form routes them
+ * (`headers.X-Id`, `variables[2].name`).
+ *
+ * At the top level an empty string counts as "not set" (the form's convention
+ * for optional inputs). Inside nested objects and list items every field is
+ * materialized by the form, so an empty string is a real value: it is only an
+ * error when it violates a string constraint, and is then reported as required.
  *
  * @param config - The step config values to validate
  * @param schema - The JSON Schema object describing expected config fields
+ * @param prefix - Key prefix for nested errors (internal)
  * @returns Array of [fieldName, errorMessage] tuples for each violation
  */
 export function validateStepConfig(
   config: Record<string, unknown>,
   schema: Record<string, unknown>,
+  prefix = "",
 ): [string, string][] {
   const errors: [string, string][] = [];
   const properties = (schema.properties ?? {}) as Record<string, Record<string, unknown>>;
   const required = (schema.required ?? []) as string[];
+  const nested = prefix !== "";
+  const labelOf = (key: string): string => (properties[key]?.title as string | undefined) ?? key;
 
   for (const key of required) {
     const value = config[key];
-    if (value === undefined || value === null || value === "") {
-      const prop = properties[key];
-      const label = (prop?.title as string) ?? key;
-      errors.push([key, `${label} is required`]);
+    if (value === undefined || value === null || (!nested && value === "")) {
+      errors.push([`${prefix}${key}`, `${labelOf(key)} is required`]);
     }
   }
 
   for (const [key, prop] of Object.entries(properties)) {
     const value = config[key];
+    const field = `${prefix}${key}`;
+    const label = labelOf(key);
 
     // Skip fields that are absent and not required (already caught above if required)
-    if (value === undefined || value === null || value === "") continue;
+    if (value === undefined || value === null || (!nested && value === "")) continue;
 
     if (prop.type === "string" && typeof value === "string") {
-      const minLength = prop.minLength as number | undefined;
-      if (minLength && value.length < minLength) {
-        const label = (prop.title as string) ?? key;
-        errors.push([key, `${label} must be at least ${minLength} characters`]);
-      }
-      const maxLength = prop.maxLength as number | undefined;
-      if (maxLength && value.length > maxLength) {
-        const label = (prop.title as string) ?? key;
-        errors.push([key, `${label} must not exceed ${maxLength} characters`]);
+      const message = stringConstraintError(value, prop, label);
+      if (message) {
+        errors.push([field, value === "" && required.includes(key) ? `${label} is required` : message]);
       }
     }
 
     if ((prop.type === "number" || prop.type === "integer") && typeof value === "number") {
       const minimum = prop.minimum as number | undefined;
       if (minimum !== undefined && value < minimum) {
-        const label = (prop.title as string) ?? key;
-        errors.push([key, `${label} must be at least ${minimum}`]);
+        errors.push([field, `${label} must be at least ${minimum}`]);
       }
       const maximum = prop.maximum as number | undefined;
       if (maximum !== undefined && value > maximum) {
-        const label = (prop.title as string) ?? key;
-        errors.push([key, `${label} must not exceed ${maximum}`]);
+        errors.push([field, `${label} must not exceed ${maximum}`]);
       }
+    }
+
+    if (prop.type === "object" && prop.properties && isPlainObject(value)) {
+      errors.push(...validateStepConfig(value, prop, `${field}.`));
+    }
+
+    const items = prop.items as Record<string, unknown> | undefined;
+    if (prop.type === "array" && Array.isArray(value) && items?.type === "object" && items.properties) {
+      value.forEach((item, i) => {
+        if (isPlainObject(item)) errors.push(...validateStepConfig(item, items, `${field}[${i}].`));
+      });
     }
   }
 
   return errors;
+}
+
+/**
+ * Checks a string value against its schema's length and pattern constraints.
+ * The pattern is not applied to values containing a `{{...}}` template, since
+ * step types may resolve templates before validating.
+ *
+ * @param value - The string value
+ * @param prop - The property's JSON Schema
+ * @param label - The field label used in messages
+ * @returns The first violation's message, or undefined when the value is valid
+ */
+function stringConstraintError(value: string, prop: Record<string, unknown>, label: string): string | undefined {
+  const minLength = prop.minLength as number | undefined;
+  if (minLength && value.length < minLength) return `${label} must be at least ${minLength} characters`;
+  const maxLength = prop.maxLength as number | undefined;
+  if (maxLength && value.length > maxLength) return `${label} must not exceed ${maxLength} characters`;
+  const pattern = prop.pattern as string | undefined;
+  if (pattern && !value.includes("{{")) {
+    let regex: RegExp | undefined;
+    try {
+      regex = new RegExp(pattern);
+    } catch {
+      // An invalid pattern cannot be checked client-side; the backend reports it.
+    }
+    if (regex && !regex.test(value)) return `${label} must match the pattern ${pattern}`;
+  }
+  return undefined;
+}
+
+/** Whether a value is a plain (non-array) object. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Schema metadata for a custom step type, used for config validation. */
