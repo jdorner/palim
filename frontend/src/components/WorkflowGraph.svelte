@@ -9,10 +9,12 @@ import {
   MarkerType,
   MiniMap,
   type Node,
+  NodeToolbar,
+  Position,
   SvelteFlow,
 } from "@xyflow/svelte";
 import "@xyflow/svelte/dist/style.css";
-import { onMount, untrack } from "svelte";
+import { onMount, type Snippet, untrack } from "svelte";
 import { visualForStepType } from "$lib/nodeVisuals";
 import { buildDagGraph, type DagEdge, type StepData } from "$lib/workflowGraph";
 import { computeLayout } from "$lib/workflowLayout";
@@ -63,6 +65,12 @@ interface Props {
   selectedStepId?: string;
   /** Whether the trigger node is currently selected (shows orange highlight). */
   triggerSelected?: boolean;
+  /**
+   * Optional content rendered in a floating panel anchored beneath the
+   * selected node (step or trigger). The panel follows pan/zoom but is not
+   * scaled. Omit to render no panel (e.g. when details live in a sidebar).
+   */
+  nodePanel?: Snippet;
   customStepTypes?: Array<{ type: string; label: string; icon?: string; terminal?: boolean; category?: string }>;
   /**
    * Optional slug-based status map for runtime status overlay.
@@ -94,6 +102,8 @@ interface Props {
   onNodeClick?: (step: StepInfo, index: number) => void;
   /** Fired when the trigger node is clicked. */
   onTriggerClick?: () => void;
+  /** Fired when empty canvas (the pane, not a node or edge) is clicked. */
+  onPaneClick?: () => void;
   onAddStep?: (
     type?: string,
     branchContext?: { parentNodeId: string; branch?: string; lastNodeId: string | null },
@@ -127,6 +137,7 @@ let {
   editMode,
   selectedStepId,
   triggerSelected = false,
+  nodePanel,
   customStepTypes = [],
   statusMap,
   errorSlugs,
@@ -134,6 +145,7 @@ let {
   triggerHasError = false,
   onNodeClick,
   onTriggerClick,
+  onPaneClick,
   onAddStep,
   onEdgesChange,
   onNodesDelete,
@@ -141,6 +153,9 @@ let {
 }: Props = $props();
 
 let colorMode = $state<ColorMode>("light");
+
+/** Node id the floating detail panel is anchored to, if any. */
+const panelNodeId = $derived(triggerSelected ? "__trigger__" : selectedStepId);
 
 /**
  * Whether the initial fit-view has completed. The flow is rendered but kept
@@ -600,6 +615,7 @@ onMount(() => {
     onreconnect={editMode ? handleReconnect : undefined}
     onnodedragstop={editMode ? handleNodeDragStop : undefined}
     onnodeclick={handleNodeClick}
+    onpaneclick={() => onPaneClick?.()}
   >
     <FitViewOnInit onInitialFit={() => (initialFitDone = true)} />
     <Background variant={BackgroundVariant.Dots} gap={20} size={1.5} patternColor="hsl(var(--border))" />
@@ -611,5 +627,12 @@ onMount(() => {
       nodeColor={miniMapNodeColor}
       nodeStrokeWidth={0}
     />
+    {#if nodePanel && panelNodeId}
+      <!-- nowheel/nodrag/nopan keep scrolling and text selection inside the
+           panel from panning or zooming the canvas. -->
+      <NodeToolbar nodeId={panelNodeId} isVisible position={Position.Bottom} offset={12} class="nowheel nodrag nopan">
+        {@render nodePanel()}
+      </NodeToolbar>
+    {/if}
   </SvelteFlow>
 </div>
