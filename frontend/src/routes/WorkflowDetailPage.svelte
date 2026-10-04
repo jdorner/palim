@@ -1,33 +1,32 @@
 <script lang="ts">
 import type { Edge } from "@xyflow/svelte";
-import { DropdownMenu, Tabs } from "bits-ui";
-import ArrowCounterClockwiseIcon from "phosphor-svelte/lib/ArrowCounterClockwiseIcon";
-import CaretLeftIcon from "phosphor-svelte/lib/CaretLeftIcon";
-import CaretRightIcon from "phosphor-svelte/lib/CaretRightIcon";
-import DotsThreeVerticalIcon from "phosphor-svelte/lib/DotsThreeVerticalIcon";
-import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
-import PlayIcon from "phosphor-svelte/lib/PlayIcon";
-import TrashIcon from "phosphor-svelte/lib/TrashIcon";
-import WarningIcon from "phosphor-svelte/lib/WarningIcon";
+import { Tabs } from "bits-ui";
 import { onDestroy, onMount } from "svelte";
 import { slide } from "svelte/transition";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
-import { Badge } from "$lib/components/ui/badge";
-import { Button } from "$lib/components/ui/button";
-import { buttonVariants } from "$lib/components/ui/button/button.svelte";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { detailPanelMode } from "$lib/detailPanelMode.svelte";
 import { extensions } from "$lib/extensionStore";
-import { visualForStepType } from "$lib/nodeVisuals";
-import { buildInitialValues } from "$lib/schemaForm";
-import type { OutputSchemas } from "$lib/templateScope";
-import { aggregateStepStatus, formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
+import { applyWorkflowEvent, normalizeWorkflow, type StepDef, type WorkflowDetail } from "$lib/workflowDetail";
+import {
+  errorsAfterStepRemoval,
+  graphEdgesToDraftEdges,
+  nextStepId,
+  parseSaveErrorDetails,
+  reconcileConnectivityErrors,
+  stepTemplate,
+  toStepDraft,
+  withConfigDefaults,
+} from "$lib/workflowDraft";
+import {
+  emptyTriggerRefs,
+  fetchSecretKeys,
+  fetchVariableKeys,
+  fetchWorkflowEditorMeta,
+  type TriggerRefs,
+} from "$lib/workflowEditorMeta";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import {
-  computeOrphanedStepIndices,
-  disconnectedStepError,
   type EdgeDraft,
   type StepDraft,
   serializeWorkflowDraft,
@@ -38,105 +37,14 @@ import {
 } from "$lib/workflowValidation";
 import { BUILTIN_STEP_TYPES, type StepTypeDescriptor, WorkflowBuilder } from "$shared/workflowBuilder";
 import DetailPanelModeToggle from "../components/DetailPanelModeToggle.svelte";
-import StatusDot from "../components/StatusDot.svelte";
-import StepTypePicker from "../components/StepTypePicker.svelte";
+import StepTypePickerPopover from "../components/StepTypePickerPopover.svelte";
+import WorkflowDetailToolbar from "../components/WorkflowDetailToolbar.svelte";
 import WorkflowGraph from "../components/WorkflowGraph.svelte";
+import WorkflowRunsTab from "../components/WorkflowRunsTab.svelte";
 import WorkflowStepSidebar from "../components/WorkflowStepSidebar.svelte";
+import WorkflowTriggerPanel from "../components/WorkflowTriggerPanel.svelte";
+import WorkflowWarningsBanner from "../components/WorkflowWarningsBanner.svelte";
 import { navigate, route } from "../router";
-
-interface StepDef {
-  /**
-   * Stable synthetic node identity for the editor graph, independent of the
-   * user-editable slug. Minted client-side on load/add and never persisted.
-   */
-  id: string;
-  slug: string;
-  type: string;
-  prompt?: string;
-  tools?: string[];
-  skills?: string[];
-  url?: string;
-  method?: string;
-  body?: string;
-  input?: string;
-  output?: string;
-}
-
-/**
- * Monotonic counter backing {@link nextStepId}. Module-scoped so ids stay
- * unique across every workflow opened in the session.
- */
-let stepIdCounter = 0;
-
-/**
- * Mints a fresh, process-unique synthetic step id (e.g. "node-1"). Used as the
- * graph node identity so selection, position, and click resolution survive slug
- * edits (including cleared or duplicated slugs). Never persisted to the backend.
- */
-function nextStepId(): string {
-  stepIdCounter += 1;
-  return `node-${stepIdCounter}`;
-}
-
-interface WarningsDef {
-  stepSlug: string;
-  field: string;
-  message: string;
-}
-
-interface WorkflowDetail {
-  name: string;
-  description?: string;
-  trigger: { type: string; ref?: string };
-  enabled?: boolean;
-  /** DAG steps normalized to an array with slug + synthetic id (array editor). */
-  steps: StepDef[];
-  /**
-   * DAG edges connecting steps by SYNTHETIC ID (not slug). Converted from the
-   * slug-based API representation in `normalizeWorkflow` and back to slugs in
-   * `serializeWorkflowDraft`. Id-based edges survive slug edits/collisions.
-   */
-  edges: Array<{ from: string; to: string; branch?: string }>;
-  warnings: Array<WarningsDef>;
-  outputSchemas?: OutputSchemas;
-  runs: Array<{
-    runId: string;
-    status: string;
-    startedAt: number;
-    completedAt?: number;
-    steps: Array<{ slug: string; status: string; jobId: string }>;
-  }>;
-}
-
-/**
- * Normalizes a DAG workflow API response (steps map + edges array) into the
- * page's internal shape (steps array with slug + edges array).
- */
-function normalizeWorkflow(raw: Record<string, unknown>): WorkflowDetail {
-  const stepsMap = (raw.steps ?? {}) as Record<string, Record<string, unknown>>;
-  const stepsArray = Object.entries(stepsMap).map(([slug, s]) => ({ id: nextStepId(), slug, ...s })) as StepDef[];
-
-  // Persisted edges reference steps by slug. Convert them to the internal
-  // id-based representation so the editor tracks connections by stable identity
-  // (slugs are user-editable and can collide/empty mid-edit). Slugs are unique
-  // in a saved definition, so this mapping is unambiguous at load time.
-  const slugToId = new Map(stepsArray.map((s) => [s.slug, s.id]));
-  const rawEdges = (raw.edges ?? []) as Array<{ from: string; to: string; branch?: string }>;
-  const edges = rawEdges
-    .map((e) => {
-      const from = slugToId.get(e.from);
-      const to = slugToId.get(e.to);
-      if (from === undefined || to === undefined) return null;
-      return e.branch !== undefined ? { from, to, branch: e.branch } : { from, to };
-    })
-    .filter((e): e is { from: string; to: string; branch?: string } => e !== null);
-
-  return {
-    ...(raw as Omit<WorkflowDetail, "steps" | "edges">),
-    steps: stepsArray,
-    edges,
-  };
-}
 
 let workflow = $state<WorkflowDetail | null>(null);
 let loading = $state(true);
@@ -162,24 +70,15 @@ let editAsJson = $state(false);
 /** Whether to show raw JSON in read-only view mode. */
 let viewAsJson = $state(false);
 
-// Meta endpoint state for tools/skills
+// Meta endpoint state for tools/skills/trigger refs
 let availableTools = $state<string[]>([]);
 let availableSkills = $state<string[]>([]);
-let availableTriggerRefs = $state<Record<string, string[]>>({
-  webhook: [],
-  schedule: [],
-  filewatcher: [],
-});
+let availableTriggerRefs = $state<TriggerRefs>(emptyTriggerRefs());
 let metaLoading = $state(false);
 
-// Cached secret keys for template autocomplete
+// Cached secret/variable keys for template autocomplete
 let cachedSecretKeys = $state<string[]>([]);
-
-// Cached variable keys for template autocomplete
 let cachedVariableKeys = $state<string[]>([]);
-
-/** Selectable workflow trigger types (subtypes of the built-in "trigger" node). */
-const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
 
 /** Custom step types registered by extensions, derived from the extension store. */
 let customStepTypes = $derived(
@@ -206,164 +105,20 @@ let workflowBuilder = $derived(
   }),
 );
 
-/** Fetch available tools and skills from meta endpoints. */
-async function fetchMeta() {
+/** Load editor reference data (tools, skills, trigger refs, autocomplete keys). */
+async function loadEditorMeta() {
   metaLoading = true;
-  try {
-    const [toolsRes, skillsRes, triggersRes] = await Promise.all([
-      authFetch("/ext/workflows/meta/tools"),
-      authFetch("/ext/workflows/meta/skills"),
-      authFetch("/ext/workflows/meta/triggers"),
-    ]);
-    availableTools = toolsRes.ok ? await toolsRes.json() : [];
-    availableSkills = skillsRes.ok ? await skillsRes.json() : [];
-    availableTriggerRefs = triggersRes.ok ? await triggersRes.json() : { webhook: [], schedule: [], filewatcher: [] };
-  } catch {
-    availableTools = [];
-    availableSkills = [];
-    availableTriggerRefs = { webhook: [], schedule: [], filewatcher: [] };
-  } finally {
-    metaLoading = false;
-  }
-}
-
-/** Prefetch secret keys for template autocomplete. Fails silently. */
-async function fetchSecretKeys(): Promise<void> {
-  try {
-    const res = await authFetch("/api/secrets");
-    if (res.ok) {
-      const data: { secrets: Array<{ key: string }> } = await res.json();
-      cachedSecretKeys = data.secrets.map((s) => s.key);
-    } else {
-      cachedSecretKeys = [];
-    }
-  } catch {
-    cachedSecretKeys = [];
-  }
-}
-
-/** Prefetch variable keys for template autocomplete. Fails silently. */
-async function fetchVariableKeys(): Promise<void> {
-  try {
-    const res = await authFetch("/api/variables");
-    if (res.ok) {
-      const data: { variables: Array<{ key: string }> } = await res.json();
-      cachedVariableKeys = data.variables.map((v) => v.key);
-    } else {
-      cachedVariableKeys = [];
-    }
-  } catch {
-    cachedVariableKeys = [];
-  }
-}
-
-/**
- * Converts a raw workflow step (as loaded from backend) into a StepDraft.
- * For custom extension step types, extracts non-standard fields into a nested
- * `config` object so frontend validation can check them properly.
- * For control-flow steps, recursively transforms nested branch steps.
- */
-function toStepDraft(s: StepDef | Record<string, unknown>): StepDraft {
-  const raw = s as Record<string, unknown>;
-  const slug = raw.slug as string;
-  const type = raw.type as string;
-  // Preserve the synthetic node id from the source step, or mint one if absent
-  // (e.g. a step that somehow lacks it). This keeps graph node identity stable
-  // between view mode and edit mode.
-  const id = (raw.id as string | undefined) ?? nextStepId();
-
-  // Agent steps: extract known fields
-  if (type === "agent") {
-    const { prompt, tools, skills } = raw as { prompt?: string; tools?: string[]; skills?: string[] };
-    return {
-      id,
-      slug,
-      type,
-      prompt,
-      tools: tools ? [...tools] : undefined,
-      skills: skills ? [...skills] : undefined,
-    };
-  }
-
-  // Control flow: if - preserve condition + optional branch label overrides
-  // (branches themselves are edges, not nested arrays)
-  if (type === "if") {
-    const result: StepDraft = {
-      id,
-      slug,
-      type,
-      condition: JSON.parse(JSON.stringify(raw.condition ?? {})),
-    };
-    const bl = raw.branchLabels as { then?: string; else?: string } | undefined;
-    if (bl && (typeof bl.then === "string" || typeof bl.else === "string")) {
-      result.branchLabels = { ...bl };
-    }
-    return result;
-  }
-
-  // Control flow: case - preserve match, paths (string[] of keys), default (string)
-  if (type === "case") {
-    const result: StepDraft = {
-      id,
-      slug,
-      type,
-      match: raw.match as string,
-      paths: Array.isArray(raw.paths) ? [...(raw.paths as string[])] : [],
-    };
-    if (typeof raw.default === "string") {
-      result.default = raw.default;
-    }
-    return result;
-  }
-
-  // Control flow: waitFor - preserve event + optional timeout / inputSchema
-  if (type === "waitFor") {
-    const result: StepDraft = { id, slug, type, event: raw.event as string };
-    if (typeof raw.timeout === "number") {
-      result.timeout = raw.timeout;
-    }
-    if (raw.inputSchema && typeof raw.inputSchema === "object") {
-      result.inputSchema = JSON.parse(JSON.stringify(raw.inputSchema));
-    }
-    return result;
-  }
-
-  // Control flow: emit - preserve event + optional payload
-  if (type === "emit") {
-    const result: StepDraft = { id, slug, type, event: raw.event as string };
-    if (raw.payload !== undefined) {
-      result.payload = raw.payload;
-    }
-    return result;
-  }
-
-  // Control flow: iterator - preserve items + optional as
-  if (type === "iterator") {
-    const result: StepDraft = { id, slug, type, items: raw.items as string };
-    if (typeof raw.as === "string") {
-      result.as = raw.as;
-    }
-    return result;
-  }
-
-  // Control flow: aggregator - preserve iterator reference
-  if (type === "aggregator") {
-    return { id, slug, type, iterator: raw.iterator as string };
-  }
-
-  // Custom extension step types: rebuild config from non-standard fields.
-  // Only `id` (synthetic frontend id), `slug`, and `type` are non-config; every
-  // other top-level field is part of the step's config (which is stored
-  // flattened on the persisted step). Do NOT strip `input`/`output` here - those
-  // are not reserved step fields, and stripping them would silently drop a
-  // legitimate config field named `input` or `output` (e.g. the `chunk` step).
-  const { id: _id, slug: _s, type: _t, ...config } = raw;
-  return {
-    id,
-    slug,
-    type,
-    config: Object.keys(config).length > 0 ? (config as Record<string, unknown>) : undefined,
-  };
+  fetchSecretKeys().then((keys) => {
+    cachedSecretKeys = keys;
+  });
+  fetchVariableKeys().then((keys) => {
+    cachedVariableKeys = keys;
+  });
+  const meta = await fetchWorkflowEditorMeta();
+  availableTools = meta.tools;
+  availableSkills = meta.skills;
+  availableTriggerRefs = meta.triggerRefs;
+  metaLoading = false;
 }
 
 /** Enter edit mode with a deep copy of the current workflow data. */
@@ -374,16 +129,28 @@ function enterEditMode() {
     description: workflow.description ?? "",
     trigger: { type: workflow.trigger.type, ref: workflow.trigger.ref ?? "" },
     enabled: workflow.enabled ?? true,
-    steps: workflow.steps.map(toStepDraft),
+    steps: workflow.steps.map((s) => toStepDraft({ ...s })),
     edges: (workflow.edges ?? []).map((e) => ({ ...e })),
   };
   saveError = null;
   saveErrorDetails = [];
   validationErrors = new Map();
   editMode = true;
-  fetchMeta();
-  fetchSecretKeys();
-  fetchVariableKeys();
+  loadEditorMeta();
+}
+
+/**
+ * After leaving edit mode, re-point the sidebar at the (saved or original)
+ * workflow step at the same index, or close it if there is none.
+ */
+function resyncSelectionWithWorkflow() {
+  if (sidebarOpen && selectedStepIndex >= 0 && workflow?.steps[selectedStepIndex]) {
+    selectedStep = workflow.steps[selectedStepIndex] as StepDef;
+  } else {
+    sidebarOpen = false;
+    selectedStep = null;
+    selectedStepIndex = -1;
+  }
 }
 
 /** Cancel edit mode, discard changes. */
@@ -395,21 +162,15 @@ function cancelEdit() {
   validationErrors = new Map();
   editAsJson = false;
   viewAsJson = false;
-  // Re-point sidebar to the original workflow step data
-  if (sidebarOpen && selectedStepIndex >= 0 && workflow?.steps[selectedStepIndex]) {
-    selectedStep = workflow.steps[selectedStepIndex] as StepDef;
-  } else {
-    sidebarOpen = false;
-    selectedStep = null;
-    selectedStepIndex = -1;
-  }
+  resyncSelectionWithWorkflow();
 }
 
-/** Get the draft step corresponding to the currently selected step. */
+/** Index of the selected step in the (draft or saved) step list. */
 let selectedStepIndex = $state(-1);
 /** Whether the trigger node is currently selected (sidebar shows trigger config). */
 let triggerSelected = $state(false);
 
+/** The draft step corresponding to the currently selected step. */
 let editDraftStep = $derived.by(() => {
   if (!editMode || !editDraft || !selectedStep) return null;
   return editDraft.steps[selectedStepIndex] ?? null;
@@ -428,6 +189,13 @@ function updateDraftStep(index: number, updater: (step: StepDraft) => void) {
     }),
   };
 }
+
+/**
+ * Slugs handed out by {@link nextStepSlug} since the last draft commit. Cleared
+ * whenever a builder operation starts. Prevents duplicate slugs when one
+ * operation mints several steps synchronously.
+ */
+let pendingSlugs = new Set<string>();
 
 /**
  * Generates a unique placeholder slug for a newly added step
@@ -451,11 +219,39 @@ function nextStepSlug(): string {
 }
 
 /**
- * Slugs handed out by {@link nextStepSlug} since the last draft commit. Cleared
- * whenever a builder operation finishes and reassigns `editDraft`. Prevents
- * duplicate slugs when one operation mints several steps synchronously.
+ * Creates a step using stepTemplate + nextStepSlug. Used for the "unconnected add"
+ * path where the builder's operations don't apply (no source node exists).
  */
-let pendingSlugs = new Set<string>();
+function builderCreateStep(type: string): StepDraft {
+  const step = stepTemplate(type, customStepTypes);
+  step.slug = nextStepSlug();
+  return step;
+}
+
+/**
+ * Commits the result of a step-creating builder operation to the draft, seeds
+ * custom step config defaults, flags a fresh agent step's missing prompt, and
+ * selects the new step in the sidebar. No-op if the builder changed nothing.
+ */
+function commitNewStep(type: string, result: { steps: StepDraft[]; edges: EdgeDraft[] }) {
+  if (!editDraft) return;
+  if (result.steps === editDraft.steps && result.edges === editDraft.edges) return;
+
+  editDraft = { ...editDraft, steps: withConfigDefaults(result.steps, customStepTypes), edges: result.edges };
+
+  const newIndex = editDraft.steps.length - 1;
+  const newErrors = new Map(validationErrors);
+  if (type === "agent") {
+    newErrors.set(`steps[${newIndex}].prompt`, "Prompt is required for agent steps");
+  }
+  validationErrors = newErrors;
+
+  // Auto-select the new step in the sidebar
+  selectedStep = editDraft.steps[newIndex] as StepDef;
+  selectedStepIndex = newIndex;
+  triggerSelected = false;
+  sidebarOpen = true;
+}
 
 /**
  * Add a new step to the draft with the given type (defaults to "agent").
@@ -500,7 +296,7 @@ function addStep(
     const descriptor = workflowBuilder.getDescriptor(type);
     const newStep = builderCreateStep(type);
     let newSteps = [...editDraft.steps, newStep];
-    let newEdges = [...editDraft.edges];
+    const newEdges = [...editDraft.edges];
 
     if (descriptor.paired) {
       const pairedStep = builderCreateStep(descriptor.paired.type);
@@ -512,33 +308,7 @@ function addStep(
     result = { steps: newSteps, edges: newEdges };
   }
 
-  // If result is unchanged (no-op from builder), bail
-  if (result.steps === editDraft.steps && result.edges === editDraft.edges) return;
-
-  // Enrich custom step types with config schema defaults
-  const newSteps = result.steps.map((s) => {
-    if (s.config !== undefined || BUILTIN_STEP_TYPES.some((bt) => bt.type === s.type)) return s;
-    const schemaInfo = customStepTypes.find((st) => st.type === s.type);
-    if (schemaInfo?.configSchema) {
-      return { ...s, config: buildInitialValues(schemaInfo.configSchema, undefined) };
-    }
-    return s;
-  });
-
-  editDraft = { ...editDraft, steps: newSteps, edges: result.edges };
-
-  const newIndex = editDraft.steps.length - 1;
-  const newErrors = new Map(validationErrors);
-  if (type === "agent") {
-    newErrors.set(`steps[${newIndex}].prompt`, "Prompt is required for agent steps");
-  }
-  validationErrors = newErrors;
-
-  // Auto-select the new step in the sidebar
-  selectedStep = editDraft.steps[newIndex] as StepDef;
-  selectedStepIndex = newIndex;
-  triggerSelected = false;
-  sidebarOpen = true;
+  commitNewStep(type, result);
 }
 
 /**
@@ -581,178 +351,27 @@ function confirmEdgeInsert(type: string) {
       ? workflowBuilder.insertAtStart(editDraft, type)
       : workflowBuilder.insertBetween(editDraft, sourceId, targetId, type, branch);
 
-  // If result is unchanged (no-op), bail
-  if (result.steps === editDraft.steps && result.edges === editDraft.edges) return;
-
-  // Enrich custom step types with config schema defaults
-  const newSteps = result.steps.map((s) => {
-    if (s.config !== undefined || BUILTIN_STEP_TYPES.some((bt) => bt.type === s.type)) return s;
-    const schemaInfo = customStepTypes.find((st) => st.type === s.type);
-    if (schemaInfo?.configSchema) {
-      return { ...s, config: buildInitialValues(schemaInfo.configSchema, undefined) };
-    }
-    return s;
-  });
-
-  editDraft = { ...editDraft, steps: newSteps, edges: result.edges };
-
-  const newIndex = editDraft.steps.length - 1;
-  const newErrors = new Map(validationErrors);
-  if (type === "agent") {
-    newErrors.set(`steps[${newIndex}].prompt`, "Prompt is required for agent steps");
-  }
-  validationErrors = newErrors;
-
-  selectedStep = editDraft.steps[newIndex] as StepDef;
-  selectedStepIndex = newIndex;
-  triggerSelected = false;
-  sidebarOpen = true;
+  commitNewStep(type, result);
 }
 
-/**
- * Creates a step using stepTemplate + nextStepSlug. Used for the "unconnected add"
- * path where the builder's operations don't apply (no source node exists).
- */
-function builderCreateStep(type: string): StepDraft {
-  const step = stepTemplate(type);
-  step.slug = nextStepSlug();
-  return step;
-}
-
-/** Returns a default step template for a given type (DAG: no nested branches). */
-function stepTemplate(type: string): StepDraft {
-  const id = nextStepId();
-  switch (type) {
-    case "agent":
-      return { id, slug: "", type: "agent", prompt: "" };
-    case "if":
-      return { id, slug: "", type: "if", condition: { ref: "" } };
-    case "case":
-      return { id, slug: "", type: "case", match: "", paths: [] };
-    case "waitFor":
-      return { id, slug: "", type: "waitFor", event: "" };
-    case "emit":
-      return { id, slug: "", type: "emit", event: "" };
-    case "iterator":
-      return { id, slug: "", type: "iterator", items: "", as: "item" };
-    case "aggregator":
-      return { id, slug: "", type: "aggregator", iterator: "" };
-    default: {
-      // Custom extension step type. Seed the config with all supported
-      // properties (schema defaults or type-appropriate empty values) so the
-      // JSON editor shows the full property set immediately, instead of an
-      // empty object until the user first edits a field in the form view.
-      const configSchema = customStepTypes.find((st) => st.type === type)?.configSchema;
-      if (configSchema) {
-        return { id, slug: "", type, config: buildInitialValues(configSchema, undefined) };
-      }
-      return { id, slug: "", type };
-    }
-  }
-}
-
-/**
- * Translates the graph's SvelteFlow edges into the draft's DAG edges.
- *
- * Both the graph edges and the draft edges are id-based (source/target are the
- * steps' synthetic ids), so endpoints pass through unchanged; only synthetic
- * nodes (trigger, addStep) are filtered out. The `sourceHandle` encodes the
- * branch for CF nodes, prefixed with the synthetic source id:
- *  - if:    `${id}-then` / `${id}-else`
- *  - case:  `${id}-path-${key}` / `${id}-default`
- * Non-CF edges have no branch.
- */
+/** Sync draft edges from the graph after the user connects/disconnects nodes. */
 function handleEdgesChange(edges: Edge[]) {
   if (!editDraft) return;
 
-  const stepIds = new Set(editDraft.steps.map((s) => s.id));
-  const draftEdges: EdgeDraft[] = [];
-
-  for (const edge of edges) {
-    // Skip edges to/from synthetic nodes (trigger, addStep).
-    if (!stepIds.has(edge.source) || !stepIds.has(edge.target)) continue;
-
-    const branch = branchFromHandle(edge.source, edge.sourceHandle);
-    draftEdges.push(
-      branch !== undefined ? { from: edge.source, to: edge.target, branch } : { from: edge.source, to: edge.target },
-    );
-  }
-
-  editDraft = { ...editDraft, edges: draftEdges };
+  const stepIds = new Set(editDraft.steps.map((s) => s.id!));
+  editDraft = { ...editDraft, edges: graphEdgesToDraftEdges(edges, stepIds) };
 
   // Connectivity errors are otherwise only recomputed on save, so drawing an
   // edge that reconnects an orphaned step would leave its stale "not connected"
   // error (and a disabled Save button) hanging. Reconcile that error class here
   // against the updated edge set.
-  reconcileConnectivityErrors();
+  validationErrors = reconcileConnectivityErrors(editDraft, validationErrors);
 }
 
-/**
- * Re-evaluates the "step is not connected" validation errors against the
- * current draft edges and updates {@link validationErrors} in place.
- *
- * Only touches errors whose message is the disconnected-step message, so a
- * genuine slug-format error sharing the same `steps[i].slug` key is preserved.
- * Newly-orphaned steps gain the error; reconnected steps lose it.
- */
-function reconcileConnectivityErrors() {
-  if (!editDraft) return;
-  const orphaned = new Set(computeOrphanedStepIndices(editDraft));
-  const next = new Map(validationErrors);
-
-  for (let i = 0; i < editDraft.steps.length; i++) {
-    const key = `steps[${i}].slug`;
-    const current = next.get(key);
-    // A connectivity error for this key, regardless of the slug embedded in the
-    // message (the slug may have changed since it was set).
-    const isConnectivityError = current?.endsWith("is not connected to any other step");
-
-    if (orphaned.has(i)) {
-      // Add/refresh the connectivity error, but never clobber a genuine
-      // slug-format error already occupying this key.
-      if (current === undefined || isConnectivityError) {
-        next.set(key, disconnectedStepError(editDraft.steps[i]!.slug));
-      }
-    } else if (isConnectivityError) {
-      // Step is connected now and the only error here was connectivity.
-      next.delete(key);
-    }
-  }
-
-  validationErrors = next;
-}
-
-/**
- * Extracts the branch label from a CF node's source handle ID.
- *
- * Handle ids are prefixed with the synthetic source node id (see
- * `ControlFlowNode.svelte`, which builds `<Handle id>` from the node id).
- * Returns undefined for non-CF edges (no branch).
- *
- * @param sourceId - The edge's synthetic source node id.
- * @param sourceHandle - The SvelteFlow source handle id, or null/undefined.
- */
-function branchFromHandle(sourceId: string, sourceHandle: string | null | undefined): string | undefined {
-  if (!sourceHandle) return undefined;
-  // if-node handles: "${id}-then" / "${id}-else"
-  // case-node handles: "${id}-path-${key}" / "${id}-default"
-  const pathPrefix = `${sourceId}-path-`;
-  if (sourceHandle.startsWith(pathPrefix)) {
-    return sourceHandle.slice(pathPrefix.length);
-  }
-  const prefix = `${sourceId}-`;
-  if (sourceHandle.startsWith(prefix)) {
-    return sourceHandle.slice(prefix.length);
-  }
-  return undefined;
-}
-
-/** Remove a step at the given index. Returns false if removal was prevented. */
+/** Remove the step with the given synthetic id (the builder reconnects/cascades as needed). */
 function removeStep(id: string) {
   if (!editDraft) return;
 
-  // Resolve the step by its stable synthetic id. The index is derived here
-  // purely to re-key the index-based validation-error map below.
   const index = editDraft.steps.findIndex((s) => s.id === id);
   if (index < 0) return;
 
@@ -760,49 +379,9 @@ function removeStep(id: string) {
 
   // Use the builder for intelligent removal (reconnection, cascade, etc.)
   const result = workflowBuilder.remove(editDraft, id);
-
-  // Compute which steps were actually removed (builder may cascade iterator pairs)
-  const removedIds = new Set(
-    editDraft.steps.filter((s) => !result.steps.some((rs) => rs.id === s.id)).map((s) => s.id),
-  );
-
   editDraft = { ...editDraft, steps: result.steps, edges: result.edges };
 
-  // Clean up validation errors: remove entries for deleted steps, re-index remaining
-  const oldSteps = [...editDraft.steps]; // already updated
-  const newErrors = new Map<string, string>();
-  for (const [key, val] of validationErrors) {
-    const stepMatch = key.match(/^steps\[(\d+)\]\.(.+)$/);
-    if (stepMatch) {
-      const stepIdx = Number.parseInt(stepMatch[1]!, 10);
-      // Find where this step ended up in the new array (by counting removed before it)
-      const oldStep = editDraft.steps[stepIdx]; // wrong: editDraft already changed
-      // Skip validation re-indexing for simplicity - just clear all step errors
-      // and let the next validation pass re-populate them
-    } else {
-      newErrors.set(key, val);
-    }
-  }
-
-  // Simpler re-index: clear all step-indexed errors; they'll be re-validated on save
-  for (const [key] of validationErrors) {
-    if (!key.startsWith("steps[")) {
-      newErrors.set(key, validationErrors.get(key)!);
-    }
-  }
-
-  // Check if the removed step is referenced in other steps' templates
-  if (removedSlug) {
-    const referencingSteps = editDraft.steps.filter((s) => s.prompt?.includes(`steps.${removedSlug}.`));
-    if (referencingSteps.length > 0) {
-      const slugs = referencingSteps.map((s) => s.slug || "(unnamed)").join(", ");
-      newErrors.set("steps.removeWarning", `Step "${removedSlug}" is referenced in: ${slugs}`);
-    } else {
-      newErrors.delete("steps.removeWarning");
-    }
-  }
-
-  validationErrors = newErrors;
+  validationErrors = errorsAfterStepRemoval(validationErrors, editDraft.steps, removedSlug);
 }
 
 /**
@@ -811,8 +390,6 @@ function removeStep(id: string) {
  * Backs SvelteFlow's native node deletion (Backspace/Delete key), which reports
  * the removed nodes by id. Ids are stable across the splices {@link removeStep}
  * performs, so they can be removed in a plain loop with no index bookkeeping.
- * The last-step guard in {@link removeStep} still applies, so the final step
- * cannot be deleted.
  *
  * @param ids - Synthetic node ids of the steps to remove.
  */
@@ -829,9 +406,10 @@ function removeStepsByIds(ids: string[]) {
   }
 }
 
-/** Validate a step slug with debounced inline feedback. */
-let stepSlugTimeouts: Map<number, ReturnType<typeof setTimeout>> = new Map();
+/** Pending debounced slug validations, keyed by step index. */
+const stepSlugTimeouts: Map<number, ReturnType<typeof setTimeout>> = new Map();
 
+/** Update a step slug and validate it with debounced inline feedback. */
 function onStepSlugInput(index: number, value: string) {
   if (!editDraft) return;
   // Edges are id-based and the step's id is stable, so a slug edit never touches
@@ -841,9 +419,7 @@ function onStepSlugInput(index: number, value: string) {
 
   let updatedSteps = editDraft.steps.map((s, i) => (i === index ? { ...s, slug: value } : s));
 
-  // Auto-update paired references on iterator/aggregator slug rename:
-  // If renaming an iterator, update any aggregator whose `iterator` field matches the old slug.
-  // If renaming an aggregator, update any iterator... (not needed — iterator has no aggregator ref).
+  // Renaming an iterator updates any aggregator that references it by slug.
   if (stepType === "iterator" && oldSlug) {
     updatedSteps = updatedSteps.map((s) =>
       s.type === "aggregator" && (s as Record<string, unknown>).iterator === oldSlug ? { ...s, iterator: value } : s,
@@ -932,16 +508,9 @@ async function saveWorkflow() {
     if (!res.ok) {
       const data = (await res.json().catch(() => null)) as { error?: string; details?: string } | null;
       saveError = data?.error ?? `HTTP ${res.status}`;
-      // The backend may attach a `details` string enumerating each specific
-      // validation failure, separated by "; ". Surface them as a list so the
-      // user can see exactly which edges/branches are invalid, not just the
-      // generic top-level message.
-      saveErrorDetails = data?.details
-        ? data.details
-            .split("; ")
-            .map((d) => d.trim())
-            .filter((d) => d.length > 0)
-        : [];
+      // Surface each specific validation failure the backend reports, not just
+      // the generic top-level message.
+      saveErrorDetails = parseSaveErrorDetails(data?.details);
       return;
     }
 
@@ -950,14 +519,7 @@ async function saveWorkflow() {
     editMode = false;
     editDraft = null;
     validationErrors = new Map();
-    // Update sidebar step reference to fresh data
-    if (sidebarOpen && selectedStepIndex >= 0 && workflow?.steps[selectedStepIndex]) {
-      selectedStep = workflow.steps[selectedStepIndex] as StepDef;
-    } else {
-      sidebarOpen = false;
-      selectedStep = null;
-      selectedStepIndex = -1;
-    }
+    resyncSelectionWithWorkflow();
   } catch (err) {
     saveError = err instanceof Error ? err.message : "Failed to save. Please try again.";
   } finally {
@@ -966,13 +528,6 @@ async function saveWorkflow() {
 }
 
 let saveDisabled = $derived(saving || validationErrors.size > 0);
-
-/**
- * Whether the template-issues banner is expanded to show the individual
- * warnings. Collapsed by default so the banner stays compact; the count in the
- * header still communicates that issues exist.
- */
-let warningsExpanded = $state(false);
 
 /**
  * Slugs of steps that have a template/config warning, derived from the
@@ -1036,19 +591,6 @@ let triggerHasError = $derived.by(() => {
   return (workflow?.warnings ?? []).some((w) => w.stepSlug === "__trigger__");
 });
 
-const RUNS_PAGE_SIZE = 10;
-
-let runsPage = $state(1);
-let runsTotalPages = $derived(Math.max(1, Math.ceil((workflow?.runs.length ?? 0) / RUNS_PAGE_SIZE)));
-let paginatedRuns = $derived((workflow?.runs ?? []).slice((runsPage - 1) * RUNS_PAGE_SIZE, runsPage * RUNS_PAGE_SIZE));
-
-// Clamp page if runs disappear
-$effect(() => {
-  if (runsPage > runsTotalPages) {
-    runsPage = runsTotalPages;
-  }
-});
-
 const name = $derived((route.params as { name?: string }).name ?? "");
 
 async function fetchWorkflow() {
@@ -1083,8 +625,6 @@ async function triggerRun() {
   }
 }
 
-let confirmingDelete = $state(false);
-
 async function deleteWorkflow() {
   if (!name) return;
   try {
@@ -1093,30 +633,6 @@ async function deleteWorkflow() {
     navigate("/workflows");
   } catch (err) {
     console.error("Failed to delete workflow:", err);
-  }
-}
-
-async function retryRun(runId: string) {
-  try {
-    const res = await authFetch(`/ext/workflows/runs/${runId}/retry`, { method: "POST" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  } catch (err) {
-    console.error("Failed to retry workflow run:", err);
-  }
-}
-
-let cancellingRunId = $state<string | null>(null);
-
-async function cancelRun(runId: string) {
-  cancellingRunId = runId;
-  try {
-    const res = await authFetch(`/ext/workflows/runs/${runId}`, { method: "DELETE" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    await fetchWorkflow();
-  } catch (err) {
-    console.error("Failed to cancel workflow run:", err);
-  } finally {
-    cancellingRunId = null;
   }
 }
 
@@ -1164,117 +680,9 @@ $effect(() => {
   fetchWorkflow();
 });
 
-/** Handle real-time workflow events from the central store. */
-function handleWorkflowEvent(msg: WorkflowEvent) {
-  if (!workflow) return;
-
-  if (msg.type === "workflow_started" && msg.workflowName === name) {
-    const newRun = {
-      runId: msg.workflowRunId,
-      status: "queued" as string,
-      startedAt: Date.now(),
-      steps: msg.steps.map((s) => ({ slug: s.slug, status: "waiting", jobId: s.jobId ?? "" })),
-    };
-    workflow = { ...workflow, runs: [newRun, ...workflow.runs] };
-  }
-
-  if (msg.type === "workflow_step_started") {
-    workflow = {
-      ...workflow,
-      runs: workflow.runs.map((r) =>
-        r.runId === msg.workflowRunId
-          ? {
-              ...r,
-              status: "running",
-              steps: r.steps.map((s) => (s.slug === msg.stepSlug ? { ...s, status: "active", jobId: msg.jobId } : s)),
-            }
-          : r,
-      ),
-    };
-  }
-
-  if (msg.type === "workflow_step_completed") {
-    workflow = {
-      ...workflow,
-      runs: workflow.runs.map((r) =>
-        r.runId === msg.workflowRunId
-          ? { ...r, steps: r.steps.map((s) => (s.slug === msg.stepSlug ? { ...s, status: "completed" } : s)) }
-          : r,
-      ),
-    };
-  }
-
-  if (msg.type === "workflow_step_waiting") {
-    workflow = {
-      ...workflow,
-      runs: workflow.runs.map((r) =>
-        r.runId === msg.workflowRunId
-          ? {
-              ...r,
-              status: "waiting-signal",
-              steps: r.steps.map((s) => (s.slug === msg.stepSlug ? { ...s, status: "waiting-signal" } : s)),
-            }
-          : r,
-      ),
-    };
-  }
-
-  if (msg.type === "workflow_step_resumed") {
-    workflow = {
-      ...workflow,
-      runs: workflow.runs.map((r) =>
-        r.runId === msg.workflowRunId
-          ? {
-              ...r,
-              status: "running",
-              steps: r.steps.map((s) => (s.slug === msg.stepSlug ? { ...s, status: "completed" } : s)),
-            }
-          : r,
-      ),
-    };
-  }
-
-  if (msg.type === "workflow_step_failed") {
-    workflow = {
-      ...workflow,
-      runs: workflow.runs.map((r) =>
-        r.runId === msg.workflowRunId
-          ? {
-              ...r,
-              status: "failed",
-              steps: r.steps.map((s) => (s.slug === msg.stepSlug ? { ...s, status: "failed" } : s)),
-            }
-          : r,
-      ),
-    };
-  }
-
-  if (msg.type === "workflow_completed") {
-    workflow = {
-      ...workflow,
-      runs: workflow.runs.map((r) => (r.runId === msg.workflowRunId ? { ...r, status: "completed" } : r)),
-    };
-  }
-
-  if (msg.type === "workflow_failed") {
-    workflow = {
-      ...workflow,
-      runs: workflow.runs.map((r) => (r.runId === msg.workflowRunId ? { ...r, status: "failed" } : r)),
-    };
-  }
-
-  if (msg.type === "workflow_run_removed") {
-    // The run was cancelled or cleaned (its record is gone from the run store).
-    // Drop it from the list so the "Runs (N)" count and failed-run entries stay
-    // in sync without a manual refetch.
-    workflow = {
-      ...workflow,
-      runs: workflow.runs.filter((r) => r.runId !== msg.workflowRunId),
-    };
-  }
-}
-
-const unsubWorkflow = workflowStore.subscribe(handleWorkflowEvent);
+const unsubWorkflow = workflowStore.subscribe((msg: WorkflowEvent) => {
+  if (workflow) workflow = applyWorkflowEvent(workflow, msg, name);
+});
 
 /** Keyboard shortcuts: Escape dismisses the floating detail panel, then edit-mode shortcuts. */
 function handleKeydown(e: KeyboardEvent) {
@@ -1296,13 +704,7 @@ function handleKeydown(e: KeyboardEvent) {
     return;
   }
 
-  if ((e.ctrlKey || e.metaKey) && e.key === "s") {
-    e.preventDefault();
-    if (!saveDisabled) saveWorkflow();
-    return;
-  }
-
-  if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+  if ((e.ctrlKey || e.metaKey) && (e.key === "s" || e.key === "Enter")) {
     e.preventDefault();
     if (!saveDisabled) saveWorkflow();
     return;
@@ -1319,130 +721,24 @@ onDestroy(() => {
 });
 </script>
 
-<!--
-  Renders a trigger's icon tile (colored by category) followed by its type text.
-  The icon is resolved by trigger subtype (manual/webhook/schedule/filewatcher)
-  via visualForStepType, matching the graph trigger node.
--->
-{#snippet triggerChip(
-  triggerType: string,
-)}
-  {@const v = visualForStepType("trigger", { triggerType })}
-  <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-white {v.tileClass}">
-    <v.icon size={11} weight="bold" aria-hidden="true" />
-  </span>
-  {triggerType}
-{/snippet}
-
 {#if loading}
   <LoadingIndicator />
 {:else if error}
   <p class="text-sm text-destructive">{error}</p>
 {:else if workflow}
   <div class="flex flex-col h-[calc(100vh-8rem)] overflow-hidden">
-    <div class="flex items-center justify-between gap-2 mb-4 shrink-0">
-      <div class="flex items-center gap-3 min-w-0">
-        <Button
-          size="sm"
-          variant="outline"
-          onclick={() => {
-            navigate("/workflows");
-          }}
-        >
-          &laquo;&nbsp;Back
-        </Button>
-        <h2 class="text-lg font-semibold truncate">{workflow.name}</h2>
-        {#if !editMode && workflow.description}
-          <span class="hidden md:inline text-sm text-muted-foreground truncate">{workflow.description}</span>
-        {/if}
-      </div>
-      <div class="flex items-center gap-2 shrink-0">
-        {#if editMode}
-          <Button size="sm" variant="default" onclick={saveWorkflow} disabled={saveDisabled}>
-            {#if saving}
-              Saving...
-            {:else}
-              Save
-            {/if}
-          </Button>
-          <Button size="sm" variant="outline" onclick={cancelEdit}>Cancel</Button>
-        {:else if confirmingDelete}
-          <span class="text-sm font-bold text-destructive">Delete this workflow?</span>
-          <Button size="sm" variant="destructive" onclick={() => deleteWorkflow()}>Confirm</Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onclick={() => {
-              confirmingDelete = false;
-            }}
-            >Cancel</Button
-          >
-        {:else}
-          <!-- Wide: full inline buttons -->
-          <div class="hidden xl:flex items-center gap-2">
-            <Button size="sm" variant="outline" onclick={enterEditMode}>
-              <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-              Edit
-            </Button>
-            <Button size="sm" variant="default" class="text-nowrap" onclick={triggerRun}>
-              <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-              Run Workflow
-            </Button>
-            <Button
-              size="sm"
-              variant="destructive"
-              onclick={() => {
-                confirmingDelete = true;
-              }}
-            >
-              <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-              Delete
-            </Button>
-          </div>
-
-          <!-- Narrow: primary action stays inline, the rest collapse into a menu -->
-          <div class="flex xl:hidden items-center gap-2">
-            <Button size="sm" variant="default" class="text-nowrap" onclick={triggerRun}>
-              <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-              Run Workflow
-            </Button>
-            <DropdownMenu.Root>
-              <DropdownMenu.Trigger
-                class={`${buttonVariants({ variant: "outline", size: "sm" })} min-w-0! w-10! p-0! shrink-0`}
-                aria-label="More actions"
-              >
-                <DotsThreeVerticalIcon size={16} aria-hidden="true" />
-              </DropdownMenu.Trigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.Content
-                  align="end"
-                  sideOffset={4}
-                  class="z-9999 min-w-40 rounded-md border border-border bg-background p-1 shadow-lg"
-                >
-                  <DropdownMenu.Item
-                    class="flex items-center gap-2 px-2 py-1.5 text-sm rounded-sm cursor-pointer outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
-                    onSelect={enterEditMode}
-                  >
-                    <PencilSimpleIcon size={14} aria-hidden="true" />
-                    Edit
-                  </DropdownMenu.Item>
-                  <DropdownMenu.Separator class="my-1 h-px bg-border" />
-                  <DropdownMenu.Item
-                    class="flex items-center gap-2 px-2 py-1.5 text-sm rounded-sm cursor-pointer outline-none text-destructive data-highlighted:bg-destructive/10"
-                    onSelect={() => {
-                      confirmingDelete = true;
-                    }}
-                  >
-                    <TrashIcon size={14} aria-hidden="true" />
-                    Delete
-                  </DropdownMenu.Item>
-                </DropdownMenu.Content>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Root>
-          </div>
-        {/if}
-      </div>
-    </div>
+    <WorkflowDetailToolbar
+      name={workflow.name}
+      description={workflow.description}
+      {editMode}
+      {saving}
+      {saveDisabled}
+      onSave={saveWorkflow}
+      onCancelEdit={cancelEdit}
+      onEdit={enterEditMode}
+      onRun={triggerRun}
+      onDelete={deleteWorkflow}
+    />
 
     {#if saveError}
       <div
@@ -1459,35 +755,8 @@ onDestroy(() => {
       </div>
     {/if}
 
-    {#if !editMode && workflow.warnings && workflow.warnings.length > 0}
-      <div class="mb-4 px-3 py-2 rounded-md border border-amber-500/50 bg-amber-500/10 text-sm shrink-0">
-        <button
-          type="button"
-          class="flex w-full items-center gap-1.5 font-medium text-amber-500 text-left"
-          aria-expanded={warningsExpanded}
-          onclick={() => {
-            warningsExpanded = !warningsExpanded;
-          }}
-        >
-          <CaretRightIcon
-            size={12}
-            aria-hidden="true"
-            class="transition-transform {warningsExpanded ? "rotate-90" : ""}"
-          />
-          <WarningIcon size={14} aria-hidden="true" />
-          Template {workflow.warnings.length === 1 ? "Issue" : "Issues"} ({workflow.warnings.length})
-        </button>
-        {#if warningsExpanded}
-          <ul
-            class="list-disc list-inside text-xs text-amber-500/80 space-y-0.5 mt-1"
-            transition:slide={{ duration: 100 }}
-          >
-            {#each workflow.warnings as warning}
-              <li><span class="font-mono">{warning.stepSlug}.{warning.field}</span>: {warning.message}</li>
-            {/each}
-          </ul>
-        {/if}
-      </div>
+    {#if !editMode}
+      <WorkflowWarningsBanner warnings={workflow.warnings ?? []} />
     {/if}
 
     {#if editMode && editDraft}
@@ -1582,158 +851,7 @@ onDestroy(() => {
       </Tabs.Content>
 
       <Tabs.Content value="runs" class="flex-1 min-h-0 overflow-y-auto">
-        {#if workflow.runs.length === 0}
-          <p class="text-sm text-muted-foreground text-center mt-3">No runs yet. Click "Run Workflow" to start one.</p>
-        {:else}
-          <!-- Mobile & Tablet: Card layout -->
-          <div class="responsive-cards">
-            {#each paginatedRuns as run (run.runId)}
-              {@const aggregated = aggregateStepStatus(run.steps)}
-              <div class="rounded-md border border-border p-4 space-y-3">
-                <div class="flex items-center justify-between gap-2">
-                  <a href="#/workflows/{name}/runs/{run.runId}" class="text-left">
-                    <code class="text-xs font-mono font-medium">{run.runId.slice(0, 8)}</code>
-                  </a>
-                  <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
-                </div>
-
-                <StatusDot status={aggregated} title={aggregated} />
-
-                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                  <span>Started: {formatTimestamp(run.startedAt)}</span>
-                  <span>Completed: {formatTimestamp(run.completedAt, "\u2014")}</span>
-                </div>
-
-                {#if run.status === "failed" || isRunCancellable(run.status)}
-                  <div class="flex flex-wrap items-center gap-2">
-                    {#if run.status === "failed"}
-                      <Button size="xs" variant="default" onclick={() => retryRun(run.runId)}>
-                        <ArrowCounterClockwiseIcon size={12} class="mr-1" aria-hidden="true" />
-                        Retry
-                      </Button>
-                    {/if}
-                    {#if isRunCancellable(run.status)}
-                      <Button
-                        size="xs"
-                        variant="destructive"
-                        disabled={cancellingRunId === run.runId}
-                        onclick={() => cancelRun(run.runId)}
-                      >
-                        <span class="text-xs font-bold mr-1" aria-hidden="true">&#x2715;</span>
-                        {cancellingRunId === run.runId ? "..." : "Cancel"}
-                      </Button>
-                    {/if}
-                  </div>
-                {/if}
-              </div>
-            {/each}
-          </div>
-
-          <!-- Desktop: Table layout -->
-          <div class="responsive-table rounded-md border border-border">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead class="w-md">Run ID</TableHead>
-                  <TableHead>Started</TableHead>
-                  <TableHead>Completed</TableHead>
-                  <TableHead class="min-w-[2em] text-center">Status</TableHead>
-                  <TableHead class="min-w-[10em]"></TableHead>
-                  <TableHead class="text-center min-w-[10em]">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {#each paginatedRuns as run (run.runId)}
-                  {@const aggregated = aggregateStepStatus(run.steps)}
-                  <TableRow>
-                    <TableCell>
-                      <a href="#/workflows/{name}/runs/{run.runId}" class="text-left">
-                        <code class="text-xs font-mono font-medium">{run.runId.slice(0, 8)}</code>
-                      </a>
-                    </TableCell>
-                    <TableCell class="text-sm text-muted-foreground">
-                      {formatTimestamp(run.startedAt)}
-                    </TableCell>
-                    <TableCell class="text-sm text-muted-foreground">
-                      {formatTimestamp(run.completedAt, "\u2014")}
-                    </TableCell>
-                    <TableCell class="text-center">
-                      <StatusDot status={aggregated} title={aggregated} />
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
-                    </TableCell>
-                    <TableCell class="text-right">
-                      <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                        {#if run.status === "failed"}
-                          <Button size="sm" variant="default" onclick={() => retryRun(run.runId)}>
-                            <ArrowCounterClockwiseIcon size={14} class="mr-1" aria-hidden="true" />
-                            Retry
-                          </Button>
-                        {/if}
-                        {#if isRunCancellable(run.status)}
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            disabled={cancellingRunId === run.runId}
-                            onclick={() => cancelRun(run.runId)}
-                          >
-                            <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
-                            {cancellingRunId === run.runId ? "Cancelling" : "Cancel"}
-                          </Button>
-                        {/if}
-                      </div>
-                    </TableCell>
-                  </TableRow>
-                {/each}
-              </TableBody>
-            </Table>
-          </div>
-
-          {#if runsTotalPages > 1}
-            <nav class="flex items-center justify-center gap-2 mt-6" aria-label="Pagination">
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={runsPage <= 1}
-                onclick={() => (runsPage = 1)}
-                aria-label="First page"
-              >
-                <CaretLeftIcon size={14} aria-hidden="true" />
-                <CaretLeftIcon size={14} class="-ml-1.5" aria-hidden="true" />
-              </Button>
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={runsPage <= 1}
-                onclick={() => (runsPage = Math.max(1, runsPage - 1))}
-                aria-label="Previous page"
-              >
-                <CaretLeftIcon size={14} aria-hidden="true" />
-              </Button>
-              <span class="text-sm text-muted-foreground"> Page {runsPage} of {runsTotalPages} </span>
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={runsPage >= runsTotalPages}
-                onclick={() => (runsPage = Math.min(runsTotalPages, runsPage + 1))}
-                aria-label="Next page"
-              >
-                <CaretRightIcon size={14} aria-hidden="true" />
-              </Button>
-              <Button
-                size="xs"
-                variant="outline"
-                disabled={runsPage >= runsTotalPages}
-                onclick={() => (runsPage = runsTotalPages)}
-                aria-label="Last page"
-              >
-                <CaretRightIcon size={14} aria-hidden="true" />
-                <CaretRightIcon size={14} class="-ml-1.5" aria-hidden="true" />
-              </Button>
-            </nav>
-          {/if}
-        {/if}
+        <WorkflowRunsTab workflowName={name} runs={workflow.runs} onRunCancelled={fetchWorkflow} />
       </Tabs.Content>
     </Tabs.Root>
   </div>
@@ -1741,28 +859,14 @@ onDestroy(() => {
 
 <!-- Edge insert type picker popup -->
 {#if edgeInsertContext}
-  <div
-    class="fixed inset-0 z-9999"
-    onclick={() => {
+  <StepTypePickerPopover
+    position={edgeInsertContext.position}
+    {customStepTypes}
+    onselect={confirmEdgeInsert}
+    onclose={() => {
       edgeInsertContext = null;
     }}
-    onkeydown={(e) => {
-      if (e.key === "Escape") edgeInsertContext = null;
-    }}
-    role="presentation"
-  >
-    <div
-      class="fixed z-9999 min-w-52 max-h-80 overflow-y-auto rounded-xl border border-border bg-background p-1.5 shadow-lg text-sm"
-      style="left: {edgeInsertContext.position.x}px; top: {edgeInsertContext.position
-        .y}px; transform: translateX(-50%);"
-      onclick={(e) => e.stopPropagation()}
-      onkeydown={(e) => e.stopPropagation()}
-      role="menu"
-      tabindex="-1"
-    >
-      <StepTypePicker {customStepTypes} onselect={confirmEdgeInsert} />
-    </div>
-  </div>
+  />
 {/if}
 
 <!-- Step/trigger detail content, rendered either in the docked sidebar or
@@ -1802,110 +906,20 @@ onDestroy(() => {
         }}
       />
     {:else if triggerSelected}
-      <div class="w-95 h-full flex flex-col">
-        <div class="px-4 pb-2 pt-2 flex flex-col gap-2">
-          <div class="flex items-center gap-2">
-            <button
-              type="button"
-              class="shrink-0 p-0 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-              onclick={closeSidebar}
-              aria-label="Close trigger detail sidebar"
-            >
-              &#x2715;
-            </button>
-            <span class="text-sm font-medium truncate">Trigger</span>
-          </div>
-          {#if editMode && editDraft}
-            <div class="flex flex-col gap-1">
-              <label for="sidebar-trigger-type" class="text-xs font-medium text-muted-foreground">Type</label>
-              <Select
-                type="single"
-                value={editDraft.trigger.type}
-                onValueChange={(newType) => {
-                  if (!newType) return;
-                  const oldType = editDraft!.trigger.type;
-                  editDraft = {
-                    ...editDraft!,
-                    trigger: {
-                      ...editDraft!.trigger,
-                      type: newType,
-                      ref: newType === "manual" || newType !== oldType ? "" : editDraft!.trigger.ref,
-                    },
-                  };
-                }}
-              >
-                <SelectTrigger id="sidebar-trigger-type" aria-label="Trigger type" class="text-xs">
-                  {@render triggerChip(editDraft.trigger.type)}
-                </SelectTrigger>
-                <SelectContent>
-                  {#each TRIGGER_TYPES as triggerType (triggerType)}
-                    <SelectItem value={triggerType} label={triggerType} class="text-xs">
-                      {@render triggerChip(triggerType)}
-                    </SelectItem>
-                  {/each}
-                </SelectContent>
-              </Select>
-              {#if validationErrors.get("trigger.type")}
-                <span class="text-xs text-destructive">{validationErrors.get("trigger.type")}</span>
-              {/if}
-            </div>
-          {:else}
-            <div class="flex items-center gap-2">
-              <span class="text-xs font-medium text-muted-foreground">Type:</span>
-              <Badge variant="outline" class="w-fit gap-1.5">{@render triggerChip(workflow.trigger.type)}</Badge>
-            </div>
-          {/if}
-        </div>
-
-        <div class="flex-1 overflow-y-auto min-h-0 p-4 flex flex-col gap-4">
-          {#if editMode && editDraft}
-            {#if editDraft.trigger.type !== "manual"}
-              {@const refOptions = availableTriggerRefs[editDraft.trigger.type] ?? []}
-              <div class="flex flex-col gap-1">
-                <label for="sidebar-trigger-ref" class="text-xs font-medium text-muted-foreground">Ref</label>
-                <select
-                  id="sidebar-trigger-ref"
-                  class="px-2 py-1.5 text-xs border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                  value={editDraft.trigger.ref}
-                  disabled={metaLoading}
-                  onchange={(e) => {
-                    editDraft = {
-                      ...editDraft!,
-                      trigger: { ...editDraft!.trigger, ref: (e.target as HTMLSelectElement).value },
-                    };
-                    const newErrors = new Map(validationErrors);
-                    if ((e.target as HTMLSelectElement).value) {
-                      newErrors.delete("trigger.ref");
-                    }
-                    validationErrors = newErrors;
-                  }}
-                >
-                  <option value="">-- Select a ref --</option>
-                  {#each refOptions as ref}
-                    <option value={ref}>{ref}</option>
-                  {/each}
-                  {#if editDraft.trigger.ref && !refOptions.includes(editDraft.trigger.ref)}
-                    <option value={editDraft.trigger.ref}>{editDraft.trigger.ref} (not found)</option>
-                  {/if}
-                </select>
-                {#if metaLoading}
-                  <span class="text-xs text-muted-foreground">Loading available refs...</span>
-                {:else if refOptions.length === 0}
-                  <span class="text-xs text-muted-foreground">No refs available for this trigger type</span>
-                {/if}
-                {#if validationErrors.get("trigger.ref")}
-                  <span class="text-xs text-destructive">{validationErrors.get("trigger.ref")}</span>
-                {/if}
-              </div>
-            {/if}
-          {:else if workflow.trigger.ref}
-            <div class="flex items-center gap-2">
-              <span class="text-xs font-medium text-muted-foreground">Ref:</span>
-              <Badge variant="outline">{workflow.trigger.ref}</Badge>
-            </div>
-          {/if}
-        </div>
-      </div>
+      <WorkflowTriggerPanel
+        trigger={workflow.trigger}
+        draftTrigger={editMode && editDraft ? editDraft.trigger : null}
+        {validationErrors}
+        {availableTriggerRefs}
+        {metaLoading}
+        onclose={closeSidebar}
+        onTriggerChange={(trigger) => {
+          editDraft = { ...editDraft!, trigger };
+        }}
+        onValidationErrorsChange={(errors) => {
+          validationErrors = errors;
+        }}
+      />
     {/if}
   {/if}
 {/snippet}
