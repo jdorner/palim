@@ -8,7 +8,7 @@ import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
-import { formatter } from "$lib/utils";
+import { formatTimestamp } from "$lib/utils";
 import type { ScheduleEntry } from "../../../shared/types";
 
 let items = $state<ScheduleEntry[]>([]);
@@ -80,11 +80,6 @@ async function triggerSchedule(id: string) {
   }
 }
 
-function formatNext(ts: number): string {
-  if (!ts) return "-";
-  return formatter.format(ts);
-}
-
 function formatRepeat(schedule: ScheduleEntry): string {
   if (schedule.pattern) return `cron: ${schedule.pattern}`;
   if (schedule.every) {
@@ -131,7 +126,7 @@ $effect(() => {
           </div>
 
           <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-            <span>Next: {formatNext(schedule.next)}</span>
+            <span>Next: {formatTimestamp(schedule.next, "-")}</span>
             <code class="text-xs font-mono">{schedule.id}</code>
           </div>
 
@@ -208,7 +203,7 @@ $effect(() => {
                 {schedule.limit != null ? `${schedule.executions}/${schedule.limit}` : `${schedule.executions}/\u221E`}
               </TableCell>
               <TableCell class="text-sm text-muted-foreground">
-                {formatNext(schedule.next)}
+                {formatTimestamp(schedule.next, "-")}
               </TableCell>
               <TableCell class="text-right">
                 {#if confirmingDelete === schedule.id}

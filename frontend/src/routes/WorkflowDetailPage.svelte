@@ -1601,7 +1601,7 @@ onDestroy(() => {
 
                 <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                   <span>Started: {formatTimestamp(run.startedAt)}</span>
-                  <span>Completed: {run.completedAt ? formatTimestamp(run.completedAt) : "\u2014"}</span>
+                  <span>Completed: {formatTimestamp(run.completedAt, "\u2014")}</span>
                 </div>
 
                 {#if run.status === "failed" || isRunCancellable(run.status)}
@@ -1655,7 +1655,7 @@ onDestroy(() => {
                       {formatTimestamp(run.startedAt)}
                     </TableCell>
                     <TableCell class="text-sm text-muted-foreground">
-                      {run.completedAt ? formatTimestamp(run.completedAt) : "\u2014"}
+                      {formatTimestamp(run.completedAt, "\u2014")}
                     </TableCell>
                     <TableCell class="text-center">
                       <StatusDot status={aggregated} title={aggregated} />

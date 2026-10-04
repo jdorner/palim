@@ -369,7 +369,7 @@ function trackColumnWidths(container: HTMLElement) {
         </div>
         <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
           <span>Created: {formatTimestamp(job.createdAt)}</span>
-          <span>Completed: {job.completedAt ? formatTimestamp(job.completedAt) : "\u2013"}</span>
+          <span>Completed: {formatTimestamp(job.completedAt, "\u2013")}</span>
         </div>
         <hr>
         <div class="flex flex-wrap items-center gap-2">
@@ -497,7 +497,7 @@ function trackColumnWidths(container: HTMLElement) {
                     {/if}
                     <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
                       <span>Created: {formatTimestamp(job.createdAt)}</span>
-                      <span>Completed: {job.completedAt ? formatTimestamp(job.completedAt) : "\u2013"}</span>
+                      <span>Completed: {formatTimestamp(job.completedAt, "\u2013")}</span>
                     </div>
                     <hr>
                     <div class="flex flex-wrap items-center gap-2">
@@ -577,7 +577,7 @@ function trackColumnWidths(container: HTMLElement) {
               {formatTimestamp(job.createdAt)}
             </TableCell>
             <TableCell class="hidden xl:table-cell text-sm text-muted-foreground">
-              {job.completedAt ? formatTimestamp(job.completedAt) : "\u2013"}
+              {formatTimestamp(job.completedAt, "\u2013")}
             </TableCell>
             <TableCell class="text-right w-1">
               <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
@@ -721,7 +721,7 @@ function trackColumnWidths(container: HTMLElement) {
                         class="p-3 shrink-0 hidden xl:block text-sm text-muted-foreground"
                         style="width: var(--col-5)"
                       >
-                        {job.completedAt ? formatTimestamp(job.completedAt) : "\u2013"}
+                        {formatTimestamp(job.completedAt, "\u2013")}
                       </div>
                       <div class="p-3 shrink-0 text-right" style="width: var(--col-6)">
                         <div class="inline-flex justify-end gap-2 flex-wrap">

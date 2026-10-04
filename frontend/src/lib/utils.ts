@@ -22,15 +22,16 @@ export function uuid(): string {
   );
 }
 
-export const formatter = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeStyle: "medium" });
+const formatter = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeStyle: "medium" });
 
 /**
  * Formats a Unix timestamp to a localized date/time string.
  * @param ts - Timestamp in milliseconds
+ * @param fallback - Text returned when the timestamp is missing or zero
  * @returns Formatted date/time string (de-DE locale)
  */
-export function formatTimestamp(ts: number | null): string {
-  if (!ts) return "Never";
+export function formatTimestamp(ts: number | null | undefined, fallback = "Never"): string {
+  if (!ts) return fallback;
   return formatter.format(ts);
 }
 
@@ -66,6 +67,62 @@ export interface AutomationStyle {
   icon: "timer" | "eye" | "link" | "flow" | "chat" | "cursor" | "default";
 }
 
+const DEFAULT_AUTOMATION_STYLE: AutomationStyle = {
+  color: "text-muted-foreground",
+  bg: "bg-muted-foreground",
+  border: "border-muted-foreground",
+  icon: "default",
+};
+
+const SCHEDULE_STYLE: AutomationStyle = {
+  color: "text-blue-500 dark:text-blue-300",
+  bg: "bg-blue-500 dark:bg-blue-300",
+  border: "border-blue-500 dark:border-blue-300",
+  icon: "timer",
+};
+
+/** Style metadata per automation type. Class names are spelled out so Tailwind can detect them. */
+const AUTOMATION_STYLES: Record<string, AutomationStyle> = {
+  schedule: SCHEDULE_STYLE,
+  scheduler: SCHEDULE_STYLE,
+  filewatcher: {
+    color: "text-amber-500 dark:text-amber-300",
+    bg: "bg-amber-500 dark:bg-amber-300",
+    border: "border-amber-500 dark:border-amber-300",
+    icon: "eye",
+  },
+  webhook: {
+    color: "text-emerald-500 dark:text-emerald-300",
+    bg: "bg-emerald-500 dark:bg-emerald-300",
+    border: "border-emerald-500 dark:border-emerald-300",
+    icon: "link",
+  },
+  workflow: {
+    color: "text-violet-500 dark:text-violet-300",
+    bg: "bg-violet-500 dark:bg-violet-300",
+    border: "border-violet-500 dark:border-violet-300",
+    icon: "flow",
+  },
+  chat: {
+    color: "text-red-500 dark:text-red-300",
+    bg: "bg-red-500 dark:bg-red-300",
+    border: "border-red-500 dark:border-red-300",
+    icon: "chat",
+  },
+  manual: {
+    color: "text-fuchsia-400 dark:text-fuchsia-300",
+    bg: "bg-fuchsia-400 dark:bg-fuchsia-300",
+    border: "border-fuchsia-400 dark:border-fuchsia-300",
+    icon: "cursor",
+  },
+  mcp: {
+    color: "text-violet-600 dark:text-violet-500",
+    bg: "bg-violet-600 dark:bg-violet-500",
+    border: "border-violet-600 dark:border-violet-500",
+    icon: "cursor",
+  },
+};
+
 /**
  * Returns color and icon metadata for an automation type.
  * Colors use darker shades for light mode and lighter shades for dark mode.
@@ -73,65 +130,7 @@ export interface AutomationStyle {
  * @returns Style metadata for rendering the automation type
  */
 export function automationStyle(type: string): AutomationStyle {
-  switch (type) {
-    case "schedule":
-    case "scheduler":
-      return {
-        color: "text-blue-500 dark:text-blue-300",
-        bg: "bg-blue-500 dark:bg-blue-300",
-        border: "border-blue-500 dark:border-blue-300",
-        icon: "timer",
-      };
-    case "filewatcher":
-      return {
-        color: "text-amber-500 dark:text-amber-300",
-        bg: "bg-amber-500 dark:bg-amber-300",
-        border: "border-amber-500 dark:border-amber-300",
-        icon: "eye",
-      };
-    case "webhook":
-      return {
-        color: "text-emerald-500 dark:text-emerald-300",
-        bg: "bg-emerald-500 dark:bg-emerald-300",
-        border: "border-emerald-500 dark:border-emerald-300",
-        icon: "link",
-      };
-    case "workflow":
-      return {
-        color: "text-violet-500 dark:text-violet-300",
-        bg: "bg-violet-500 dark:bg-violet-300",
-        border: "border-violet-500 dark:border-violet-300",
-        icon: "flow",
-      };
-    case "chat":
-      return {
-        color: "text-red-500 dark:text-red-300",
-        bg: "bg-red-500 dark:bg-red-300",
-        border: "border-red-500 dark:border-red-300",
-        icon: "chat",
-      };
-    case "manual":
-      return {
-        color: "text-fuchsia-400 dark:text-fuchsia-300",
-        bg: "bg-fuchsia-400 dark:bg-fuchsia-300",
-        border: "border-fuchsia-400 dark:border-fuchsia-300",
-        icon: "cursor",
-      };
-    case "mcp":
-      return {
-        color: "text-violet-600 dark:text-violet-500",
-        bg: "bg-violet-600 dark:bg-violet-500",
-        border: "border-violet-600 dark:border-violet-500",
-        icon: "cursor",
-      };
-    default:
-      return {
-        color: "text-muted-foreground",
-        bg: "bg-muted-foreground",
-        border: "border-muted-foreground",
-        icon: "default",
-      };
-  }
+  return Object.hasOwn(AUTOMATION_STYLES, type) ? AUTOMATION_STYLES[type] : DEFAULT_AUTOMATION_STYLE;
 }
 
 /**

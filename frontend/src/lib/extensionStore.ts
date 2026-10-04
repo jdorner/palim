@@ -54,23 +54,12 @@ const badgeFetchMap: Record<string, () => void> = {
   mcpServerCount: fetchMcpServerCount,
 };
 
-/**
- * Fetches badge data for all enabled extensions that declare a badgeKey.
- * Optionally accepts an additional badge fetch map for keys handled outside appStore
- * (e.g. scheduleCount which is fetched locally in App.svelte).
- */
-export function fetchBadgesForEnabledExtensions(extraFetchMap?: Record<string, () => void>): void {
-  const allExtensions = get(extensions);
-  if (allExtensions.length === 0) return;
-
-  const mergedMap = extraFetchMap ? { ...badgeFetchMap, ...extraFetchMap } : badgeFetchMap;
-
-  for (const ext of allExtensions) {
+/** Fetches badge data for all enabled extensions that declare a badgeKey. */
+export function fetchBadgesForEnabledExtensions(): void {
+  for (const ext of get(extensions)) {
     if (!ext.enabled || !ext.ui?.navigation) continue;
     for (const nav of ext.ui.navigation) {
-      if (nav.badgeKey && mergedMap[nav.badgeKey]) {
-        mergedMap[nav.badgeKey]();
-      }
+      if (nav.badgeKey) badgeFetchMap[nav.badgeKey]?.();
     }
   }
 }

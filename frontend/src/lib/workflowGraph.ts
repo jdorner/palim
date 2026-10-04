@@ -87,9 +87,6 @@ export interface FlatGraph {
   edges: GraphEdge[];
 }
 
-/** Control flow step types that route via branch-labeled edges. */
-const CF_TYPES = new Set(["if", "case", "iterator"]);
-
 // ---------------------------------------------------------------------------
 // Build flat graph from DAG definition
 // ---------------------------------------------------------------------------
@@ -215,14 +212,4 @@ function sourceHandleId(sourceType: string | undefined, nodeId: string, branch: 
     return `${nodeId}-path-${branch}`;
   }
   return `${nodeId}-${branch}`;
-}
-
-/**
- * Determines whether a step type is a control flow node (branch-routed).
- *
- * @param type - The step type string
- * @returns true if the type routes via branch edges
- */
-export function isControlFlowType(type: string): boolean {
-  return CF_TYPES.has(type);
 }
