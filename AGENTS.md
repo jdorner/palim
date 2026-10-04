@@ -98,7 +98,7 @@ src/
 │   ├── chatEvents.ts        # Agent event to chat WS event mappingg
 │   ├── sessionChatMap.ts    # In-memory session-to-chat mapping for push routing
 │   └── routes/
-│       ├── auth.ts          # POST /api/auth/login|logout|validate, GET /api/auth/me
+│       ├── auth.ts          # POST /api/auth/login|logout, GET /api/auth/me
 │       ├── chat.ts          # POST /api/chat
 │       ├── extensions.ts    # GET/PUT /api/extensions (settings with dynamic item enrichment)
 │       ├── jobs.ts          # Job cancel, logs, queue clean endpoints
@@ -338,7 +338,6 @@ Elysia serves the built frontend as static files and exposes:
 - `POST /api/auth/login` - Exchange username/password for a bearer token
 - `POST /api/auth/logout` - Revoke the presented token
 - `GET /api/auth/me` - Current user and serialized ability
-- `POST /api/auth/validate` - Legacy probe (always reports that auth is required)
 - `GET/POST/PATCH/DELETE /api/users` - User management (admin; delete also removes the user's chat sessions and is refused while they still own webhooks, file watchers, or schedules)
 - `GET/POST /api/roles`, `PATCH/DELETE /api/roles/:id`, `PUT /api/roles/:id/permissions` - Role management (admin; delete only for unassigned custom roles)
 - `GET /api/extensions` - List loaded extensions

@@ -1,5 +1,5 @@
 <script lang="ts">
-import { resetAuthCache, setToken } from "$lib/auth";
+import { setToken } from "$lib/auth";
 import { Button } from "$lib/components/ui/button";
 import { identity } from "$lib/identity.svelte";
 import { navigate } from "../router";
@@ -21,7 +21,6 @@ async function handleSubmit() {
     if (res.ok) {
       const data = await res.json();
       setToken(data.token);
-      resetAuthCache();
       identity.set(data.user, data.ability);
       navigate("/");
     } else if (res.status === 401) {

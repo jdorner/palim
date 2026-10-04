@@ -191,8 +191,8 @@ export function authCheck(
   // Only /api/ and /ext/ paths are protected; everything else (static assets,
   // health) is public.
   if (!path.startsWith("/api/") && !path.startsWith("/ext/")) return;
-  // Public auth endpoints (login/validate).
-  if (path === "/api/auth/login" || path === "/api/auth/validate") return;
+  // Public auth endpoint (login).
+  if (path === "/api/auth/login") return;
   // Extension routes that authenticate callers themselves (webhook HMAC, OAuth state).
   if (extensionRouter?.isPublic(params.request.method, path)) return;
 

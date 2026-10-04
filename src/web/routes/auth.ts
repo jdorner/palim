@@ -4,8 +4,6 @@
  * - `POST /api/auth/login` - exchange username/password for an opaque bearer token.
  * - `POST /api/auth/logout` - revoke the presented bearer token.
  * - `GET /api/auth/me` - return the authenticated user and serialized ability.
- * - `POST /api/auth/validate` - legacy endpoint kept for the frontend's
- *   "is auth required" probe; always reports that auth is required.
  *
  * @module
  */
@@ -95,20 +93,5 @@ export function authRoutes(getAuthService: () => LoginService | undefined, onSes
         user: principal.user,
         ability: serializeAbility(principal),
       });
-    })
-    .post(
-      "/api/auth/validate",
-      ({ body, status }) => {
-        const auth = getAuthService();
-        // Auth is always required now; report whether the presented token resolves.
-        const token = body.token ?? "";
-        const valid = auth ? auth.resolveToken(token) !== null : false;
-        return status(200, { valid, authRequired: true });
-      },
-      {
-        body: Type.Object({
-          token: Type.Optional(Type.String({ description: "Bearer token to validate" })),
-        }),
-      },
-    );
+    });
 }
