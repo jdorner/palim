@@ -37,6 +37,21 @@ export function registerRoutes(ctx: ExtensionContext, clientManager: McpClientMa
     });
   });
 
+  // GET /ext/mcp/servers/:name - full server definition including transport config
+  ctx.routes.register("GET", "servers/:name", async (elysiaCtx) => {
+    const name = (elysiaCtx.params as { name: string }).name;
+
+    const server = getServer(db, name);
+    if (!server) {
+      return new Response(JSON.stringify({ error: "Server not found" }), {
+        status: 404,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
+
+    return Response.json(server);
+  });
+
   // POST /ext/mcp/servers - add a new server
   ctx.routes.register("POST", "servers", async (elysiaCtx) => {
     const body = await elysiaCtx.request.json();
@@ -108,6 +123,15 @@ export function registerRoutes(ctx: ExtensionContext, clientManager: McpClientMa
       enabled: body.enabled,
     });
 
+    const transportChanged =
+      (body.type !== undefined && body.type !== existing.type) ||
+      (body.config !== undefined && JSON.stringify(body.config) !== JSON.stringify(existing.config));
+
+    // Drop the cached connection so the next use picks up the new transport config
+    if (transportChanged) {
+      await clientManager.disconnect(name);
+    }
+
     // Handle enable/disable side effects for skill visibility
     if (body.enabled === false && existing.enabled) {
       await clientManager.disconnect(name);
@@ -124,6 +148,17 @@ export function registerRoutes(ctx: ExtensionContext, clientManager: McpClientMa
           await ctx.skills.rescan();
         } catch (err) {
           ctx.log.error(`Failed to sync MCP server "${name}" on re-enable:`, err);
+        }
+      }
+    } else if (transportChanged && existing.enabled && body.enabled !== false) {
+      // Still enabled with a new transport: regenerate skills against the updated server
+      const refreshed = getServer(db, name);
+      if (refreshed) {
+        try {
+          await syncServer(ctx, clientManager, refreshed);
+          await ctx.skills.rescan();
+        } catch (err) {
+          ctx.log.error(`Failed to sync MCP server "${name}" after config update:`, err);
         }
       }
     }
