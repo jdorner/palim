@@ -8,6 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/component
 import { visualForStepType } from "$lib/nodeVisuals";
 import type { WorkflowTrigger } from "$lib/workflowDetail";
 import type { TriggerRefs } from "$lib/workflowEditorMeta";
+import StepPanelHeader from "./StepPanelHeader.svelte";
 
 interface Props {
   /** The saved trigger, shown in view mode. */
@@ -59,19 +60,11 @@ const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
 {/snippet}
 
 <div class="w-95 h-full flex flex-col">
-  <div class="px-4 pb-2 pt-2 flex flex-col gap-2">
-    <div class="flex items-center gap-2">
-      <button
-        type="button"
-        class="shrink-0 p-0 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-        onclick={onclose}
-        aria-label="Close trigger detail sidebar"
-      >
-        &#x2715;
-      </button>
-      <span class="text-sm font-medium truncate">Trigger</span>
-    </div>
+  <StepPanelHeader type="trigger" triggerType={draftTrigger?.type ?? trigger.type} {onclose} />
+
+  <div class="flex-1 overflow-y-auto min-h-0 p-4 flex flex-col gap-4">
     {#if draftTrigger}
+      <!-- Unlike steps, the trigger type stays changeable while editing. -->
       <div class="flex flex-col gap-1">
         <label for="sidebar-trigger-type" class="text-xs font-medium text-muted-foreground">Type</label>
         <Select
@@ -102,16 +95,6 @@ const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
           <span class="text-xs text-destructive">{validationErrors.get("trigger.type")}</span>
         {/if}
       </div>
-    {:else}
-      <div class="flex items-center gap-2">
-        <span class="text-xs font-medium text-muted-foreground">Type:</span>
-        <Badge variant="outline" class="w-fit gap-1.5">{@render triggerChip(trigger.type)}</Badge>
-      </div>
-    {/if}
-  </div>
-
-  <div class="flex-1 overflow-y-auto min-h-0 p-4 flex flex-col gap-4">
-    {#if draftTrigger}
       {#if draftTrigger.type !== "manual"}
         {@const refOptions = availableTriggerRefs[draftTrigger.type] ?? []}
         <div class="flex flex-col gap-1">

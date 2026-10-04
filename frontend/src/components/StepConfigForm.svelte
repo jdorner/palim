@@ -499,7 +499,7 @@ function parseNumberList(raw: string): number[] {
         </div>
       {:else}
         {@render fieldLabel(key, label, description)}
-        <p class="text-xs text-muted-foreground italic">Complex field — use "Edit as JSON" to configure.</p>
+        <p class="text-xs text-muted-foreground italic">Complex field - use "JSON view" to configure.</p>
       {/if}
       {@render fieldError(key)}
     </div>
