@@ -1,6 +1,7 @@
 <script lang="ts">
 import ArrowsClockwiseIcon from "phosphor-svelte/lib/ArrowsClockwiseIcon";
 import ClipboardTextIcon from "phosphor-svelte/lib/ClipboardTextIcon";
+import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import { authFetch } from "$lib/auth";
@@ -30,15 +31,21 @@ let error = $state<string | null>(null);
 let syncing = $state<string | null>(null);
 let notificationMessage = $state<string | null>(null);
 
-// Add server form state
-let showAddForm = $state(false);
-let newName = $state("");
-let newType = $state<"stdio" | "streamable-http" | "sse">("stdio");
-let newCommand = $state("");
-let newArgs = $state("");
-let newUrl = $state("");
-let newHeaders = $state("");
-let addError = $state<string | null>(null);
+type TransportType = "stdio" | "streamable-http" | "sse";
+
+// Create/edit form state
+let formMode = $state<"create" | "edit" | null>(null);
+let editingName = $state<string | null>(null);
+// Original config of the server being edited, so fields the form doesn't expose (env, cwd) survive a save
+let editingConfig = $state<Record<string, unknown> | null>(null);
+let formName = $state("");
+let formType = $state<TransportType>("stdio");
+let formCommand = $state("");
+let formArgs = $state("");
+let formUrl = $state("");
+let formHeaders = $state("");
+let formError = $state<string | null>(null);
+let submitting = $state(false);
 
 // Delete confirmation state
 let confirmDeleteName = $state<string | null>(null);
@@ -82,6 +89,7 @@ async function deleteServer(name: string) {
   try {
     const resp = await authFetch(`/ext/mcp/servers/${name}`, { method: "DELETE" });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    if (editingName === name) resetForm();
     await loadServers();
   } catch (err) {
     error = `Delete failed: ${err instanceof Error ? err.message : err}`;
@@ -102,45 +110,104 @@ async function toggleEnabled(server: McpServer) {
   }
 }
 
-async function addServer() {
-  addError = null;
-  let config: Record<string, unknown>;
+function openCreateForm() {
+  resetForm();
+  showImportForm = false;
+  formMode = "create";
+}
 
-  if (newType === "stdio") {
-    const args = newArgs.trim() ? newArgs.split(",").map((a) => a.trim()) : [];
-    config = { command: newCommand, args };
-  } else {
-    const headers: Record<string, string> = {};
-    if (newHeaders.trim()) {
-      for (const line of newHeaders.split("\n")) {
-        const idx = line.indexOf(":");
-        if (idx > 0) headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
-      }
-    }
-    config = { url: newUrl, headers };
+async function openEditForm(server: McpServer) {
+  showImportForm = false;
+  formError = null;
+  try {
+    const resp = await authFetch(`/ext/mcp/servers/${server.name}`);
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const data = (await resp.json()) as { type: TransportType; config: Record<string, unknown> };
+    const config = data.config ?? {};
+    formMode = "edit";
+    editingName = server.name;
+    editingConfig = config;
+    formName = server.name;
+    formType = data.type;
+    formCommand = typeof config.command === "string" ? config.command : "";
+    formArgs = Array.isArray(config.args) ? config.args.join(", ") : "";
+    formUrl = typeof config.url === "string" ? config.url : "";
+    formHeaders =
+      config.headers && typeof config.headers === "object"
+        ? Object.entries(config.headers as Record<string, string>)
+            .map(([key, value]) => `${key}: ${value}`)
+            .join("\n")
+        : "";
+  } catch (err) {
+    error = `Failed to load server config: ${err instanceof Error ? err.message : err}`;
+  }
+}
+
+function buildConfig(): Record<string, unknown> {
+  // Keep stdio-only extras (env, cwd) when editing a server that stays stdio
+  const preserved =
+    formMode === "edit" && formType === "stdio" && editingConfig && "command" in editingConfig
+      ? Object.fromEntries(Object.entries(editingConfig).filter(([key]) => key === "env" || key === "cwd"))
+      : {};
+
+  if (formType === "stdio") {
+    const args = formArgs.trim() ? formArgs.split(",").map((a) => a.trim()) : [];
+    return { ...preserved, command: formCommand, args };
   }
 
+  const headers: Record<string, string> = {};
+  if (formHeaders.trim()) {
+    for (const line of formHeaders.split("\n")) {
+      const idx = line.indexOf(":");
+      if (idx > 0) headers[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();
+    }
+  }
+  return { url: formUrl, headers };
+}
+
+async function submitForm() {
+  formError = null;
+  const config = buildConfig();
+
+  submitting = true;
   try {
-    const resp = await authFetch(`/ext/mcp/servers`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: newName, type: newType, config }),
-    });
+    const resp =
+      formMode === "create"
+        ? await authFetch(`/ext/mcp/servers`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ name: formName, type: formType, config }),
+          })
+        : await authFetch(`/ext/mcp/servers/${editingName}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: formType, config }),
+          });
     if (!resp.ok) {
       const data = await resp.json();
-      addError = data.error || `HTTP ${resp.status}`;
+      formError = data.error || `HTTP ${resp.status}`;
       return;
     }
-    showAddForm = false;
-    newName = "";
-    newCommand = "";
-    newArgs = "";
-    newUrl = "";
-    newHeaders = "";
+    resetForm();
     await loadServers();
   } catch (err) {
-    addError = err instanceof Error ? err.message : "Failed to add server";
+    formError = err instanceof Error ? err.message : "Request failed";
+  } finally {
+    submitting = false;
   }
+}
+
+function resetForm() {
+  formMode = null;
+  editingName = null;
+  editingConfig = null;
+  formName = "";
+  formType = "stdio";
+  formCommand = "";
+  formArgs = "";
+  formUrl = "";
+  formHeaders = "";
+  formError = null;
 }
 
 async function importServers() {
@@ -193,18 +260,17 @@ async function importServers() {
 
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === "Escape") {
-    if (showAddForm) {
-      showAddForm = false;
-      addError = null;
+    if (formMode) {
+      resetForm();
     } else if (showImportForm) {
       showImportForm = false;
       importError = null;
     }
   }
   if ((event.key === "s" || event.key === "Enter") && (event.ctrlKey || event.metaKey)) {
-    if (showAddForm) {
+    if (formMode) {
       event.preventDefault();
-      addServer();
+      submitForm();
     } else if (showImportForm) {
       event.preventDefault();
       importServers();
@@ -217,25 +283,115 @@ $effect(() => {
 });
 </script>
 
+{#snippet serverForm()}
+  <Card class="bg-accent">
+    <CardHeader class="pb-2">
+      <span class="text-sm font-medium">
+        {formMode === "create" ? "Add MCP Server" : `Edit: ${editingName}`}
+      </span>
+    </CardHeader>
+    <CardContent class="space-y-3">
+      <div class="grid grid-cols-2 gap-3">
+        <div class="space-y-1">
+          <label for="mcp-name" class="text-xs font-medium text-muted-foreground">Name</label>
+          <input
+            id="mcp-name"
+            type="text"
+            bind:value={formName}
+            placeholder="my-server"
+            disabled={formMode === "edit"}
+            class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm disabled:opacity-60"
+          >
+        </div>
+        <div class="space-y-1">
+          <label for="mcp-type" class="text-xs font-medium text-muted-foreground">Type</label>
+          <select
+            id="mcp-type"
+            bind:value={formType}
+            class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+          >
+            <option value="stdio">stdio</option>
+            <option value="streamable-http">streamable-http</option>
+            <option value="sse">sse</option>
+          </select>
+        </div>
+      </div>
+
+      {#if formType === "stdio"}
+        <div class="space-y-1">
+          <label for="mcp-command" class="text-xs font-medium text-muted-foreground">Command</label>
+          <input
+            id="mcp-command"
+            type="text"
+            bind:value={formCommand}
+            placeholder="/usr/local/bin/mcp-server-postgres"
+            class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+          >
+        </div>
+        <div class="space-y-1">
+          <label for="mcp-args" class="text-xs font-medium text-muted-foreground">Arguments (comma-separated)</label>
+          <input
+            id="mcp-args"
+            type="text"
+            bind:value={formArgs}
+            placeholder="--connection-string=postgres://..."
+            class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+          >
+        </div>
+      {:else}
+        <div class="space-y-1">
+          <label for="mcp-url" class="text-xs font-medium text-muted-foreground">URL</label>
+          <input
+            id="mcp-url"
+            type="text"
+            bind:value={formUrl}
+            placeholder="https://api.example.com/mcp"
+            class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
+          >
+        </div>
+        <div class="space-y-1">
+          <label for="mcp-headers" class="text-xs font-medium text-muted-foreground"
+            >Headers (one per line, Key: Value)</label
+          >
+          <textarea
+            id="mcp-headers"
+            bind:value={formHeaders}
+            placeholder="Authorization: Bearer token"
+            rows="2"
+            class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          ></textarea>
+        </div>
+      {/if}
+
+      {#if formError}
+        <p class="text-sm font-bold text-destructive">{formError}</p>
+      {/if}
+      <hr>
+      <div class="flex gap-2">
+        <Button size="sm" disabled={submitting} onclick={submitForm}>
+          {submitting ? "Saving..." : formMode === "create" ? "Add" : "Save"}
+        </Button>
+        <Button size="sm" variant="outline" onclick={resetForm}>Cancel</Button>
+      </div>
+    </CardContent>
+  </Card>
+{/snippet}
+
 <svelte:window onkeydown={handleKeydown} />
 
 <div class="space-y-4">
   <div class="flex items-center gap-2">
-    <Button
-      size="sm"
-      onclick={() => {
-        showAddForm = !showAddForm;
-        showImportForm = false;
-      }}
-    >
-      <PlusIcon size={14} class="mr-1.5" aria-hidden="true" />
-      Add Server
+    <Button size="sm" onclick={() => (formMode ? resetForm() : openCreateForm())}>
+      {#if !formMode}
+        <PlusIcon size={14} class="mr-1.5" aria-hidden="true" />
+      {/if}
+      {formMode ? "Cancel" : "Add Server"}
     </Button>
     <Button
       size="sm"
       onclick={() => {
         showImportForm = !showImportForm;
-        showAddForm = false;
+        resetForm();
       }}
     >
       <ClipboardTextIcon size={14} class="mr-1.5" aria-hidden="true" />
@@ -288,106 +444,25 @@ $effect(() => {
     </Card>
   {/if}
 
-  {#if showAddForm}
-    <Card class="bg-accent">
-      <CardHeader class="pb-2">
-        <span class="text-sm font-medium">Add MCP Server</span>
-      </CardHeader>
-      <CardContent class="space-y-3">
-        <div class="grid grid-cols-2 gap-3">
-          <div class="space-y-1">
-            <label for="mcp-name" class="text-xs font-medium text-muted-foreground">Name</label>
-            <input
-              id="mcp-name"
-              type="text"
-              bind:value={newName}
-              placeholder="my-server"
-              class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-            >
-          </div>
-          <div class="space-y-1">
-            <label for="mcp-type" class="text-xs font-medium text-muted-foreground">Type</label>
-            <select
-              id="mcp-type"
-              bind:value={newType}
-              class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-            >
-              <option value="stdio">stdio</option>
-              <option value="streamable-http">streamable-http</option>
-              <option value="sse">sse</option>
-            </select>
-          </div>
-        </div>
-
-        {#if newType === "stdio"}
-          <div class="space-y-1">
-            <label for="mcp-command" class="text-xs font-medium text-muted-foreground">Command</label>
-            <input
-              id="mcp-command"
-              type="text"
-              bind:value={newCommand}
-              placeholder="/usr/local/bin/mcp-server-postgres"
-              class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-            >
-          </div>
-          <div class="space-y-1">
-            <label for="mcp-args" class="text-xs font-medium text-muted-foreground">Arguments (comma-separated)</label>
-            <input
-              id="mcp-args"
-              type="text"
-              bind:value={newArgs}
-              placeholder="--connection-string=postgres://..."
-              class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-            >
-          </div>
-        {:else}
-          <div class="space-y-1">
-            <label for="mcp-url" class="text-xs font-medium text-muted-foreground">URL</label>
-            <input
-              id="mcp-url"
-              type="text"
-              bind:value={newUrl}
-              placeholder="https://api.example.com/mcp"
-              class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-            >
-          </div>
-          <div class="space-y-1">
-            <label for="mcp-headers" class="text-xs font-medium text-muted-foreground"
-              >Headers (one per line, Key: Value)</label
-            >
-            <textarea
-              id="mcp-headers"
-              bind:value={newHeaders}
-              placeholder="Authorization: Bearer token"
-              rows="2"
-              class="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-            ></textarea>
-          </div>
-        {/if}
-
-        {#if addError}
-          <p class="text-sm font-bold text-destructive">{addError}</p>
-        {/if}
-
-        <div class="flex gap-2">
-          <Button size="sm" onclick={addServer}>Add</Button>
-          <Button size="sm" variant="outline" onclick={() => (showAddForm = false)}>Cancel</Button>
-        </div>
-      </CardContent>
-    </Card>
+  {#if formMode === "create"}
+    {@render serverForm()}
   {/if}
 
   {#if loading}
     <LoadingIndicator />
-  {:else if servers.length === 0 && !showAddForm && !showImportForm}
+  {:else if servers.length === 0 && !formMode && !showImportForm}
     <p class="text-sm text-muted-foreground">
       No MCP servers configured. Add one or import a configuration to get started.
     </p>
   {:else}
+    {#if editingName}
+      {@render serverForm()}
+    {/if}
+
     <!-- Mobile & Tablet: Card layout -->
     <div class="responsive-cards">
       {#each sortedServers as server (server.name)}
-        <div class="rounded-md border border-border p-4 space-y-3">
+        <div class="rounded-md border border-border p-4 space-y-3 {editingName === server.name ? "bg-accent" : ""}">
           <div class="flex items-start justify-between gap-2">
             <div class="min-w-0 flex-1">
               <span class="font-medium block">{server.name}</span>
@@ -423,6 +498,10 @@ $effect(() => {
               />
               Sync
             </Button>
+            <Button size="sm" variant="outline" onclick={() => openEditForm(server)}>
+              <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
+              Edit
+            </Button>
             <Button size="sm" variant="destructive" onclick={() => (confirmDeleteName = server.name)}>
               <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
               Delete
@@ -446,7 +525,7 @@ $effect(() => {
         </TableHeader>
         <TableBody>
           {#each sortedServers as server (server.name)}
-            <TableRow>
+            <TableRow class={editingName === server.name ? "bg-accent" : ""}>
               <TableCell>
                 <span class="font-medium">{server.name}</span>
                 {#if server.lastError}
@@ -480,6 +559,10 @@ $effect(() => {
                       aria-hidden="true"
                     />
                     Sync
+                  </Button>
+                  <Button size="sm" variant="outline" onclick={() => openEditForm(server)}>
+                    <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
+                    Edit
                   </Button>
                   <Button size="sm" variant="destructive" onclick={() => (confirmDeleteName = server.name)}>
                     <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
