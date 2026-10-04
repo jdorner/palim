@@ -81,6 +81,16 @@ function put(app: TestApp, p: string, body: unknown) {
   );
 }
 
+function post(app: TestApp, p: string, body: unknown) {
+  return app.handle(
+    new Request(`http://localhost${p}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
 function del(app: TestApp, p: string) {
   return app.handle(new Request(`http://localhost${p}`, { method: "DELETE" }));
 }
@@ -92,6 +102,7 @@ type JsonBody = Record<string, unknown> & {
   variables?: Array<{ key: string; value: string; description?: string }>;
   requiresConfirmation?: boolean;
   referencingWorkflows?: string[];
+  existing?: string[];
 };
 
 /** Parse a response body as loose JSON for assertion convenience. */
@@ -420,6 +431,75 @@ describe("globalVariableRoutes", () => {
   // -------------------------------------------------------------------------
   // Store-absent (503) path
   // -------------------------------------------------------------------------
+
+  describe("POST create", () => {
+    test("creates a new variable with 201", async () => {
+      const { app, store } = createApp();
+
+      const res = await post(app, "/api/variables", {
+        variables: { TIMEZONE: "CET" },
+        descriptions: { TIMEZONE: "Default timezone" },
+      });
+      expect(res.status).toBe(201);
+      expect(store.get("TIMEZONE")).toMatchObject({ value: "CET", description: "Default timezone" });
+    });
+
+    test("refuses to overwrite an existing variable with 409", async () => {
+      const { app, store } = createApp();
+      store.upsert("TIMEZONE", "CET", "keep me");
+
+      const res = await post(app, "/api/variables", { variables: { TIMEZONE: "UTC" } });
+      expect(res.status).toBe(409);
+      const body = await json(res);
+      expect(body.existing).toEqual(["TIMEZONE"]);
+      expect(body.error).toContain("TIMEZONE");
+      expect(store.get("TIMEZONE")).toMatchObject({ value: "CET", description: "keep me" });
+    });
+
+    test("writes nothing when only some keys already exist", async () => {
+      const { app, store } = createApp();
+      store.upsert("EXISTING", "old");
+
+      const res = await post(app, "/api/variables", { variables: { FRESH: "a", EXISTING: "b" } });
+      expect(res.status).toBe(409);
+      expect(store.has("FRESH")).toBe(false);
+      expect(store.get("EXISTING")?.value).toBe("old");
+    });
+
+    test("applies the same validation as PUT", async () => {
+      const { app } = createApp();
+
+      const res = await post(app, "/api/variables", { variables: { "bad-key": "v" } });
+      expect(res.status).toBe(400);
+    });
+  });
+
+  describe("behind a global context hook", () => {
+    // The real server registers `onBeforeHandle((ctx) => authCheck(ctx, ...))`.
+    // A hook taking the whole context makes Elysia parse the body up front,
+    // which used to break the raw-body read in PUT with "Could not read request body".
+    function createHookedApp() {
+      const db = createTestDb();
+      const store = new VariableStore(db);
+      const passThrough = (_ctx: unknown) => undefined;
+      const app = new Elysia().onBeforeHandle((ctx) => passThrough(ctx)).use(globalVariableRoutes(() => store));
+      return { app, store };
+    }
+
+    test("PUT still reads the body", async () => {
+      const { app, store } = createHookedApp();
+      const res = await put(app, "/api/variables", { variables: { A_KEY: "1" } });
+      expect(res.status).toBe(200);
+      expect(store.has("A_KEY")).toBe(true);
+    });
+
+    test("POST still reads the body", async () => {
+      const { app, store } = createHookedApp();
+      const res = await post(app, "/api/variables", { variables: { A_KEY: "1" } });
+      expect(res.status).toBe(201);
+      expect(store.has("A_KEY")).toBe(true);
+    });
+  });
 
   describe("store absent", () => {
     // Validates: store unavailable guard

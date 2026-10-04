@@ -9,6 +9,7 @@ import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import AlertDialog from "$lib/components/ui/alert-dialog/AlertDialog.svelte";
 import { Button } from "$lib/components/ui/button";
 import { Card, CardContent, CardHeader } from "$lib/components/ui/card";
+import { ensureOk } from "$lib/http";
 import type { GlobalVariableEntry } from "../../../shared/types";
 
 /** Maximum length of a variable value in characters (mirrors the API limit). */
@@ -146,6 +147,10 @@ async function submitForm() {
       formError = "Key must be UPPER_SNAKE_CASE (e.g. MY_VARIABLE)";
       return;
     }
+    if (variables.some((v) => v.key === key)) {
+      formError = `Variable "${key}" already exists`;
+      return;
+    }
   }
 
   // Value is required for both create and edit (variables cannot be empty).
@@ -164,7 +169,7 @@ async function submitForm() {
 
   submitting = true;
   try {
-    await saveVariable(key, formValue, formDescription.trim());
+    await saveVariable(key, formValue, formDescription.trim(), formMode === "create");
 
     const action = formMode === "create" ? "added" : "updated";
     resetForm();
@@ -173,20 +178,24 @@ async function submitForm() {
   } catch (err) {
     // Preserve entered values (do not reset form) and surface the API error.
     formError = err instanceof Error ? err.message : "Failed to save";
+    // A create can collide with a variable added elsewhere; refresh the list.
+    if (formMode === "create") fetchVariables();
   } finally {
     submitting = false;
   }
 }
 
 /**
- * Upserts a variable via the PUT endpoint. Overwrites an existing key.
+ * Saves a variable. Creating uses POST, which the API rejects with 409 when
+ * the key already exists; editing uses PUT, which overwrites.
  *
  * @param key - The variable key.
  * @param value - The plaintext value.
  * @param description - Optional description (empty string is omitted).
+ * @param create - Whether this creates a new variable.
  * @throws If the API returns a non-OK response.
  */
-async function saveVariable(key: string, value: string, description: string) {
+async function saveVariable(key: string, value: string, description: string, create: boolean) {
   const body: Record<string, unknown> = {
     variables: { [key]: value },
   };
@@ -194,16 +203,13 @@ async function saveVariable(key: string, value: string, description: string) {
     body.descriptions = { [key]: description };
   }
 
-  const res = await authFetch("/api/variables", {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    throw new Error(data.error ?? `HTTP ${res.status}`);
-  }
+  await ensureOk(
+    await authFetch("/api/variables", {
+      method: create ? "POST" : "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
 }
 
 // ---------------------------------------------------------------------------

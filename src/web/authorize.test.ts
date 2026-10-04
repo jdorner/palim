@@ -52,7 +52,9 @@ describe("authorizeRequest", () => {
 
   test("denies secret and variable writes to a user without write permissions", () => {
     expect(authorizeRequest("PUT", "/api/secrets", userAbility).allowed).toBe(false);
+    expect(authorizeRequest("POST", "/api/secrets", userAbility).allowed).toBe(false);
     expect(authorizeRequest("DELETE", "/api/variables/X", userAbility).allowed).toBe(false);
+    expect(authorizeRequest("POST", "/api/variables", userAbility).allowed).toBe(false);
     expect(authorizeRequest("PUT", "/api/extensions/telegram/secrets", userAbility).allowed).toBe(false);
   });
 

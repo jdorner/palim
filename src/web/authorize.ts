@@ -66,7 +66,7 @@ const RULES: readonly AuthorizationRule[] = [
     subject: "User",
   },
   // Global secrets.
-  { methods: ["PUT", "PATCH", "DELETE"], pattern: /^\/api\/secrets(\/|$)/, action: "manage", subject: "Secret" },
+  { methods: WRITE_METHODS, pattern: /^\/api\/secrets(\/|$)/, action: "manage", subject: "Secret" },
   // Extension secrets.
   {
     methods: ["PUT", "DELETE"],
@@ -75,7 +75,7 @@ const RULES: readonly AuthorizationRule[] = [
     subject: "Secret",
   },
   // Global variables.
-  { methods: ["PUT", "PATCH", "DELETE"], pattern: /^\/api\/variables(\/|$)/, action: "manage", subject: "Variable" },
+  { methods: WRITE_METHODS, pattern: /^\/api\/variables(\/|$)/, action: "manage", subject: "Variable" },
   // Model selection.
   { methods: ["PUT", "POST"], pattern: /^\/api\/models(\/|$)/, action: "update", subject: "Model" },
   // Job control.

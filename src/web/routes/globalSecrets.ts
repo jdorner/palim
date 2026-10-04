@@ -7,12 +7,13 @@
  *
  * Handles:
  * - `GET /api/secrets` - List all global secrets (metadata only, no plaintext)
+ * - `POST /api/secrets` - Create global secrets (409 if a key already exists)
  * - `PUT /api/secrets` - Upsert global secrets with ACL and descriptions
  * - `DELETE /api/secrets/:key` - Remove a single global secret
  * - `GET /api/secrets/audit` - Audit log for global scope
  */
 
-import { Type } from "@sinclair/typebox";
+import { type Static, Type } from "@sinclair/typebox";
 import { SecretVault } from "@src/secrets/vault";
 import { Elysia } from "elysia";
 
@@ -39,6 +40,45 @@ function isValidConsumerPattern(pattern: string): boolean {
   return CONSUMER_PATTERN_RE.test(pattern);
 }
 
+/** Request body schema shared by `POST` and `PUT /api/secrets`. */
+const WriteBody = Type.Object({
+  secrets: Type.Record(Type.String(), Type.String(), { description: "Key-value pairs to store" }),
+  consumers: Type.Array(Type.String(), { description: "Consumer patterns for ACL" }),
+  descriptions: Type.Optional(Type.Record(Type.String(), Type.String(), { description: "Per-key descriptions" })),
+});
+
+/**
+ * Validates a create/upsert body beyond its shape: key format, non-empty
+ * values, consumer patterns, and description keys.
+ *
+ * @param body - The shape-checked request body
+ * @returns An error message, or null when the body is valid
+ */
+function validateWriteBody({ secrets, consumers, descriptions }: Static<typeof WriteBody>): string | null {
+  const keys = Object.keys(secrets);
+  if (keys.length === 0) return "No secrets provided";
+
+  for (const key of keys) {
+    if (!SECRET_KEY_RE.test(key)) return `Invalid key format: "${key}" (must be UPPER_SNAKE_CASE, 1-64 chars)`;
+  }
+  for (const [key, value] of Object.entries(secrets)) {
+    if (value.trim().length === 0) return `Empty value for key: ${key}`;
+  }
+
+  // Consumers are required for global secrets
+  if (consumers.length === 0) return "At least one consumer pattern is required for global secrets";
+  for (const pattern of consumers) {
+    if (!isValidConsumerPattern(pattern)) return `Invalid consumer pattern: ${pattern}`;
+  }
+
+  if (descriptions) {
+    for (const key of Object.keys(descriptions)) {
+      if (!keys.includes(key)) return `Description for unknown key: ${key}`;
+    }
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Route factory
 // ---------------------------------------------------------------------------
@@ -58,71 +98,36 @@ export function globalSecretRoutes(getVault: () => SecretVault | undefined) {
       const entries = vault.listGlobal();
       return status(200, { secrets: entries });
     })
+    .post(
+      "/api/secrets",
+      async ({ body, status }) => {
+        const vault = getVault();
+        if (!vault) return status(503, { error: "Secret vault not available" });
+
+        const error = validateWriteBody(body);
+        if (error) return status(400, { error });
+
+        const existing = await vault.createGlobal(body.secrets, body.consumers, body.descriptions);
+        if (existing.length > 0) {
+          return status(409, { error: `Secret already exists: ${existing.join(", ")}`, existing });
+        }
+        return status(201, { success: true });
+      },
+      { body: WriteBody },
+    )
     .put(
       "/api/secrets",
       async ({ body, status }) => {
         const vault = getVault();
         if (!vault) return status(503, { error: "Secret vault not available" });
 
-        const { secrets, consumers, descriptions } = body as {
-          secrets: Record<string, string>;
-          consumers: string[];
-          descriptions?: Record<string, string>;
-        };
+        const error = validateWriteBody(body);
+        if (error) return status(400, { error });
 
-        // Validate at least one secret provided
-        const keys = Object.keys(secrets);
-        if (keys.length === 0) {
-          return status(400, { error: "No secrets provided" });
-        }
-
-        // Validate key format
-        for (const key of keys) {
-          if (!SECRET_KEY_RE.test(key)) {
-            return status(400, {
-              error: `Invalid key format: "${key}" (must be UPPER_SNAKE_CASE, 1-64 chars)`,
-            });
-          }
-        }
-
-        // Validate no empty/whitespace values
-        for (const [key, value] of Object.entries(secrets)) {
-          if (value.trim().length === 0) {
-            return status(400, { error: `Empty value for key: ${key}` });
-          }
-        }
-
-        // Validate consumers (required for global secrets)
-        if (!consumers || consumers.length === 0) {
-          return status(400, { error: "At least one consumer pattern is required for global secrets" });
-        }
-        for (const pattern of consumers) {
-          if (!isValidConsumerPattern(pattern)) {
-            return status(400, { error: `Invalid consumer pattern: ${pattern}` });
-          }
-        }
-
-        // Validate description keys match secret keys if provided
-        if (descriptions) {
-          for (const key of Object.keys(descriptions)) {
-            if (!keys.includes(key)) {
-              return status(400, { error: `Description for unknown key: ${key}` });
-            }
-          }
-        }
-
-        await vault.upsertGlobal(secrets, consumers, descriptions);
+        await vault.upsertGlobal(body.secrets, body.consumers, body.descriptions);
         return status(200, { success: true });
       },
-      {
-        body: Type.Object({
-          secrets: Type.Record(Type.String(), Type.String(), { description: "Key-value pairs to store" }),
-          consumers: Type.Array(Type.String(), { description: "Consumer patterns for ACL" }),
-          descriptions: Type.Optional(
-            Type.Record(Type.String(), Type.String(), { description: "Per-key descriptions" }),
-          ),
-        }),
-      },
+      { body: WriteBody },
     )
     .delete(
       "/api/secrets/:key",

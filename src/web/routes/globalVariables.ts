@@ -8,13 +8,14 @@
  *
  * Handles:
  * - `GET /api/variables` - List all global variables (full unmasked values)
+ * - `POST /api/variables` - Create global variables (409 if a key already exists)
  * - `PUT /api/variables` - Upsert global variables with optional descriptions
  * - `DELETE /api/variables/:key` - Remove a variable after a workflow
  *   reference check (requires confirmation when workflows still reference it)
  */
 
 import path from "node:path";
-import { Type } from "@sinclair/typebox";
+import { type Static, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { WORK_DIR } from "@src/config";
 import { loadDagWorkflows } from "@src/extensions/core/workflows/dagLoader";
@@ -55,7 +56,7 @@ const MAX_DESCRIPTION_LEN = 1024;
 // ---------------------------------------------------------------------------
 
 /**
- * Request body schema for `PUT /api/variables`.
+ * Request body schema shared by `POST` and `PUT /api/variables`.
  *
  * `variables` is a record of key to plaintext value; `descriptions` is an
  * optional record of key to description. Fine-grained rules (key format, value
@@ -120,6 +121,116 @@ function findForbiddenKey(parsed: unknown): string | null {
 }
 
 // ---------------------------------------------------------------------------
+// Body parsing + validation
+// ---------------------------------------------------------------------------
+
+/** Outcome of {@link readWriteBody}. */
+type WriteBodyResult = { ok: true; body: Static<typeof UpsertBody> } | { ok: false; error: string };
+
+/**
+ * Reads and validates a create/upsert request body.
+ *
+ * Parses the raw JSON body itself rather than relying on Elysia's parsed
+ * `body` (routes using this must set `parse: "none"`): Elysia's parser
+ * silently drops prototype-polluting keys (e.g. "__proto__"), so an attempt to
+ * set such a key would otherwise vanish without an error. The native
+ * JSON.parse preserves them as own enumerable properties, letting us detect and
+ * reject them by name.
+ *
+ * @param request - The incoming request (body not yet consumed)
+ * @returns The validated body, or an error message for a 400 response
+ */
+async function readWriteBody(request: Request): Promise<WriteBodyResult> {
+  let raw: string;
+  try {
+    raw = await request.text();
+  } catch {
+    return { ok: false, error: "Could not read request body" };
+  }
+
+  let body: unknown;
+  try {
+    body = JSON.parse(raw);
+  } catch {
+    return { ok: false, error: "Invalid JSON body" };
+  }
+
+  // Reject prototype-polluting keys before anything else.
+  const forbiddenKey = findForbiddenKey(body);
+  if (forbiddenKey) {
+    return {
+      ok: false,
+      error: `Invalid key format: "${forbiddenKey}" (must be UPPER_SNAKE_CASE, 1-64 chars)`,
+    };
+  }
+
+  if (!Value.Check(UpsertBody, body)) {
+    return {
+      ok: false,
+      error: `Validation failed: ${formatValidationErrors(UpsertBody, body)}`,
+    };
+  }
+
+  const { variables, descriptions } = body;
+
+  // Require at least one entry.
+  const keys = Object.keys(variables);
+  if (keys.length === 0) {
+    return { ok: false, error: "No variables provided" };
+  }
+
+  // Validate key format.
+  for (const key of keys) {
+    if (!VARIABLE_KEY_RE.test(key)) {
+      return {
+        ok: false,
+        error: `Invalid key format: "${key}" (must be UPPER_SNAKE_CASE, 1-64 chars)`,
+      };
+    }
+  }
+
+  // Validate no empty/whitespace values.
+  for (const [key, value] of Object.entries(variables)) {
+    if (value.trim().length === 0) {
+      return { ok: false, error: `Empty value for key: ${key}` };
+    }
+  }
+
+  // Validate value length limits.
+  for (const [key, value] of Object.entries(variables)) {
+    if (value.length > MAX_VALUE_LEN) {
+      return {
+        ok: false,
+        error: `Value for key "${key}" exceeds maximum length of ${MAX_VALUE_LEN} characters`,
+      };
+    }
+  }
+
+  // Validate description length limits.
+  if (descriptions) {
+    for (const [key, description] of Object.entries(descriptions)) {
+      if (description.length > MAX_DESCRIPTION_LEN) {
+        return {
+          ok: false,
+          error: `Description for key "${key}" exceeds maximum length of ${MAX_DESCRIPTION_LEN} characters`,
+        };
+      }
+    }
+  }
+
+  // Validate description keys are a subset of variable keys.
+  if (descriptions) {
+    for (const key of Object.keys(descriptions)) {
+      if (!keys.includes(key)) {
+        return { ok: false, error: `Description for unknown key: ${key}` };
+      }
+    }
+  }
+
+  return { ok: true, body };
+}
+
+// ---------------------------------------------------------------------------
 // Route factory
 // ---------------------------------------------------------------------------
 
@@ -144,103 +255,51 @@ export function globalVariableRoutes(getStore: () => VariableStore | undefined) 
         return status(500, { error: `Failed to read variables: ${message}` });
       }
     })
-    .put("/api/variables", async ({ request, status }) => {
-      const store = getStore();
-      if (!store) return status(503, { error: "Variable store not available" });
+    .post(
+      "/api/variables",
+      async ({ request, status }) => {
+        const store = getStore();
+        if (!store) return status(503, { error: "Variable store not available" });
 
-      // Parse the raw JSON body ourselves rather than relying on Elysia's
-      // parsed `body`. Elysia's parser silently drops prototype-polluting keys
-      // (e.g. "__proto__"), so an attempt to set such a key would otherwise
-      // vanish without an error. The native JSON.parse preserves them as own
-      // enumerable properties, letting us detect and reject them by name.
-      let raw: string;
-      try {
-        raw = await request.text();
-      } catch {
-        return status(400, { error: "Could not read request body" });
-      }
+        const parsed = await readWriteBody(request);
+        if (!parsed.ok) return status(400, { error: parsed.error });
 
-      let body: unknown;
-      try {
-        body = JSON.parse(raw);
-      } catch {
-        return status(400, { error: "Invalid JSON body" });
-      }
-
-      // Reject prototype-polluting keys before anything else.
-      const forbiddenKey = findForbiddenKey(body);
-      if (forbiddenKey) {
-        return status(400, {
-          error: `Invalid key format: "${forbiddenKey}" (must be UPPER_SNAKE_CASE, 1-64 chars)`,
-        });
-      }
-
-      if (!Value.Check(UpsertBody, body)) {
-        return status(400, {
-          error: `Validation failed: ${formatValidationErrors(UpsertBody, body)}`,
-        });
-      }
-
-      const { variables, descriptions } = body;
-
-      // Require at least one entry.
-      const keys = Object.keys(variables);
-      if (keys.length === 0) {
-        return status(400, { error: "No variables provided" });
-      }
-
-      // Validate key format.
-      for (const key of keys) {
-        if (!VARIABLE_KEY_RE.test(key)) {
-          return status(400, {
-            error: `Invalid key format: "${key}" (must be UPPER_SNAKE_CASE, 1-64 chars)`,
-          });
+        // Never overwrite on create. The check and the inserts run without an
+        // await in between, so no other request can slip in.
+        const { variables, descriptions } = parsed.body;
+        const existing = Object.keys(variables).filter((key) => store.has(key));
+        if (existing.length > 0) {
+          return status(409, { error: `Variable already exists: ${existing.join(", ")}`, existing });
         }
-      }
-
-      // Validate no empty/whitespace values.
-      for (const [key, value] of Object.entries(variables)) {
-        if (value.trim().length === 0) {
-          return status(400, { error: `Empty value for key: ${key}` });
+        for (const [key, value] of Object.entries(variables)) {
+          store.upsert(key, value, descriptions?.[key] ?? null);
         }
-      }
 
-      // Validate value length limits.
-      for (const [key, value] of Object.entries(variables)) {
-        if (value.length > MAX_VALUE_LEN) {
-          return status(400, {
-            error: `Value for key "${key}" exceeds maximum length of ${MAX_VALUE_LEN} characters`,
-          });
+        return status(201, { success: true });
+      },
+      // readWriteBody reads the raw body. Without this, a global hook that
+      // takes the whole context makes Elysia consume the body first.
+      { parse: "none" },
+    )
+    .put(
+      "/api/variables",
+      async ({ request, status }) => {
+        const store = getStore();
+        if (!store) return status(503, { error: "Variable store not available" });
+
+        const parsed = await readWriteBody(request);
+        if (!parsed.ok) return status(400, { error: parsed.error });
+
+        // All validation passed: persist each entry (overwriting existing keys).
+        const { variables, descriptions } = parsed.body;
+        for (const [key, value] of Object.entries(variables)) {
+          store.upsert(key, value, descriptions?.[key] ?? null);
         }
-      }
 
-      // Validate description length limits.
-      if (descriptions) {
-        for (const [key, description] of Object.entries(descriptions)) {
-          if (description.length > MAX_DESCRIPTION_LEN) {
-            return status(400, {
-              error: `Description for key "${key}" exceeds maximum length of ${MAX_DESCRIPTION_LEN} characters`,
-            });
-          }
-        }
-      }
-
-      // Validate description keys are a subset of variable keys.
-      if (descriptions) {
-        for (const key of Object.keys(descriptions)) {
-          if (!keys.includes(key)) {
-            return status(400, { error: `Description for unknown key: ${key}` });
-          }
-        }
-      }
-
-      // All validation passed: persist each entry (overwriting existing keys).
-      for (const [key, value] of Object.entries(variables)) {
-        store.upsert(key, value, descriptions?.[key] ?? null);
-      }
-
-      return status(200, { success: true });
-    })
+        return status(200, { success: true });
+      },
+      { parse: "none" },
+    )
     .delete(
       "/api/variables/:key",
       async ({ params, query, status }) => {

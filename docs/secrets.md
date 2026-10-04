@@ -191,6 +191,7 @@ The Settings page exposes two secret management interfaces:
 | Method | Path | Description |
 | ------ | ---- | ----------- |
 | `GET` | `/api/secrets` | List all global secrets (metadata only, no values) |
+| `POST` | `/api/secrets` | Create one or more global secrets (`409` if a key already exists) |
 | `PUT` | `/api/secrets` | Upsert one or more global secrets |
 | `PATCH` | `/api/secrets/:key` | Update ACL/description without re-encrypting |
 | `DELETE` | `/api/secrets/:key` | Remove a global secret |

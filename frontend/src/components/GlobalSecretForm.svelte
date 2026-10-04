@@ -120,6 +120,10 @@ async function submitForm() {
     formError = "Key must be UPPER_SNAKE_CASE (e.g. MY_API_TOKEN)";
     return;
   }
+  if (trimmedKey !== editingKey && secrets.some((s) => s.key === trimmedKey)) {
+    formError = `Secret "${trimmedKey}" already exists`;
+    return;
+  }
 
   // Validate value (required for create, optional for edit = only update if provided)
   if (formMode === "create" && formValue.trim().length === 0) {
@@ -140,7 +144,7 @@ async function submitForm() {
   submitting = true;
   try {
     if (formMode === "create") {
-      await saveSecret(trimmedKey, formValue, consumers, formDescription.trim());
+      await saveSecret(trimmedKey, formValue, consumers, formDescription.trim(), true);
     } else {
       // Edit mode: key may have changed
       const keyChanged = editingKey !== null && editingKey !== trimmedKey;
@@ -151,12 +155,12 @@ async function submitForm() {
           formError = "Value is required when changing the key";
           return;
         }
-        // Create new key first, then delete old
-        await saveSecret(trimmedKey, formValue, consumers, formDescription.trim());
+        // Create new key first (refused if it exists), then delete old
+        await saveSecret(trimmedKey, formValue, consumers, formDescription.trim(), true);
         await ensureOk(await authFetch(`/api/secrets/${encodeURIComponent(editingKey!)}`, { method: "DELETE" }));
       } else if (formValue.trim().length > 0) {
         // Key unchanged, value provided -> upsert value + meta
-        await saveSecret(trimmedKey, formValue, consumers, formDescription.trim());
+        await saveSecret(trimmedKey, formValue, consumers, formDescription.trim(), false);
       } else {
         // Key unchanged, no new value -> update metadata only (consumers + description)
         await updateMeta(trimmedKey, consumers, formDescription.trim());
@@ -169,15 +173,18 @@ async function submitForm() {
     flash.show(`Secret "${trimmedKey}" ${action}`);
   } catch (err) {
     formError = err instanceof Error ? err.message : "Failed to save";
+    // The key may collide with a secret added elsewhere; refresh the list.
+    fetchSecrets();
   } finally {
     submitting = false;
   }
 }
 
 /**
- * Upserts a secret via the PUT endpoint.
+ * Saves a secret. Creating uses POST, which the API rejects with 409 when the
+ * key already exists; updating uses PUT, which overwrites.
  */
-async function saveSecret(key: string, value: string, consumers: string[], description: string) {
+async function saveSecret(key: string, value: string, consumers: string[], description: string, create: boolean) {
   const body: Record<string, unknown> = {
     secrets: { [key]: value },
     consumers,
@@ -187,7 +194,7 @@ async function saveSecret(key: string, value: string, consumers: string[], descr
   }
 
   const res = await authFetch("/api/secrets", {
-    method: "PUT",
+    method: create ? "POST" : "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });

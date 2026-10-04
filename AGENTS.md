@@ -347,11 +347,13 @@ Elysia serves the built frontend as static files and exposes:
 - `DELETE /api/extensions/:name/secrets/:key` - Remove an extension secret
 - `GET /api/extensions/:name/secrets/audit` - Extension secret audit log
 - `GET /api/secrets` - List global secrets (metadata only)
+- `POST /api/secrets` - Create global secrets with ACL (409 if a key already exists)
 - `PUT /api/secrets` - Upsert global secrets with ACL
 - `PATCH /api/secrets/:key` - Update global secret metadata (consumers, description)
 - `DELETE /api/secrets/:key` - Remove a global secret
 - `GET /api/secrets/audit` - Global secret audit log
 - `GET /api/variables` - List global variables (full plaintext values)
+- `POST /api/variables` - Create global variables (409 if a key already exists)
 - `PUT /api/variables` - Upsert global variables with optional descriptions
 - `DELETE /api/variables/:key` - Remove a global variable (workflow-reference check; `confirm=true` to force)
 - `GET /api/models` - List available LLM models
@@ -390,7 +392,7 @@ Palim has two layers of secret management:
 Separate from the SecretVault, Palim has a `VariableStore` (`src/variables/`) for **non-sensitive** configuration shared across workflows:
 
 - SQLite-backed (`global_variables` table, Drizzle migration `0009`), stored in **plaintext** - no encryption, no per-row ACL, no audit logging
-- Managed via the web UI and the `GET/PUT/DELETE /api/variables` routes; listings return full unmasked values
+- Managed via the web UI and the `GET/POST/PUT/DELETE /api/variables` routes; listings return full unmasked values
 - Referenced in workflow templates via `{{var.KEY_NAME}}` syntax (resolved by the same template engine as `secret`/`env`)
 - Constructed unconditionally during boot (no master key required) and injected into the web server and extension contexts
 

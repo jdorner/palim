@@ -541,6 +541,42 @@ export class SecretVault {
     consumers: string[],
     descriptions?: Record<string, string>,
   ): Promise<void> {
+    await this.writeGlobal(entries, consumers, descriptions, false);
+  }
+
+  /**
+   * Create new global secrets, refusing to overwrite existing ones. The
+   * existence check and the inserts run in one transaction, so either all
+   * entries are written or none are.
+   *
+   * @param entries - Key-value pairs to store (key -> plaintext value)
+   * @param consumers - Consumer patterns allowed to access these secrets (e.g. ["workflow:*"])
+   * @param descriptions - Optional per-key descriptions for documentation
+   * @returns The keys that already exist (nothing was written), or an empty array on success
+   */
+  async createGlobal(
+    entries: Record<string, string>,
+    consumers: string[],
+    descriptions?: Record<string, string>,
+  ): Promise<string[]> {
+    return this.writeGlobal(entries, consumers, descriptions, true);
+  }
+
+  /**
+   * Shared write path for {@link upsertGlobal} and {@link createGlobal}.
+   *
+   * @param entries - Key-value pairs to store (key -> plaintext value)
+   * @param consumers - Consumer patterns allowed to access these secrets
+   * @param descriptions - Optional per-key descriptions
+   * @param createOnly - When true, abort without writing if any key already exists
+   * @returns The already-existing keys when `createOnly` aborted the write, else an empty array
+   */
+  private async writeGlobal(
+    entries: Record<string, string>,
+    consumers: string[],
+    descriptions: Record<string, string> | undefined,
+    createOnly: boolean,
+  ): Promise<string[]> {
     const scope = SecretVault.GLOBAL_SCOPE;
     const aclJson = JSON.stringify([...new Set(consumers)]);
     const now = Date.now();
@@ -552,7 +588,21 @@ export class SecretVault {
       }),
     );
 
-    this.db.transaction((tx) => {
+    return this.db.transaction((tx) => {
+      if (createOnly) {
+        const existing = encrypted
+          .map(({ key }) => key)
+          .filter(
+            (key) =>
+              tx
+                .select({ secretKey: secretsVault.secretKey })
+                .from(secretsVault)
+                .where(and(eq(secretsVault.scope, scope), eq(secretsVault.secretKey, key)))
+                .get() !== undefined,
+          );
+        if (existing.length > 0) return existing;
+      }
+
       for (const { key, iv, encryptedValue } of encrypted) {
         tx.insert(secretsVault)
           .values({
@@ -586,6 +636,7 @@ export class SecretVault {
           result: "granted",
         });
       }
+      return [];
     });
   }
 

@@ -30,6 +30,16 @@ function put(app: TestApp, path: string, body: unknown) {
   );
 }
 
+function post(app: TestApp, path: string, body: unknown) {
+  return app.handle(
+    new Request(`http://localhost${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
 function patch(app: TestApp, path: string, body: unknown) {
   return app.handle(
     new Request(`http://localhost${path}`, {
@@ -87,6 +97,62 @@ describe("globalSecretRoutes", () => {
       // No plaintext value exposed
       expect(body.secrets[0].value).toBeUndefined();
       expect(body.secrets[0].encryptedValue).toBeUndefined();
+    });
+  });
+
+  describe("POST /api/secrets", () => {
+    test("creates a new secret", async () => {
+      const { app, vault } = await createApp();
+
+      const res = await post(app, "/api/secrets", {
+        secrets: { API_KEY: "my-api-key" },
+        consumers: ["workflow:*"],
+        descriptions: { API_KEY: "An API key" },
+      });
+      expect(res.status).toBe(201);
+
+      const resolved = await vault.resolve("global", "API_KEY", "workflow:daily");
+      expect(resolved.value).toBe("my-api-key");
+    });
+
+    test("refuses to overwrite an existing secret", async () => {
+      const { app, vault } = await createApp();
+      await seedSecret(vault, "MY_KEY", "old-value", ["workflow:*"], "keep me");
+
+      const res = await post(app, "/api/secrets", {
+        secrets: { MY_KEY: "new-value" },
+        consumers: ["ext:telegram"],
+      });
+      expect(res.status).toBe(409);
+      const body = (await res.json()) as any;
+      expect(body.existing).toEqual(["MY_KEY"]);
+      expect(body.error).toContain("MY_KEY");
+
+      const resolved = await vault.resolve("global", "MY_KEY", "workflow:test");
+      expect(resolved.value).toBe("old-value");
+      expect(vault.listGlobal()[0]).toMatchObject({ consumers: ["workflow:*"], description: "keep me" });
+    });
+
+    test("writes nothing when only some keys already exist", async () => {
+      const { app, vault } = await createApp();
+      await seedSecret(vault, "EXISTING", "old-value");
+
+      const res = await post(app, "/api/secrets", {
+        secrets: { FRESH: "a", EXISTING: "b" },
+        consumers: ["workflow:*"],
+      });
+      expect(res.status).toBe(409);
+      expect(vault.listGlobal().map((e) => e.key)).toEqual(["EXISTING"]);
+    });
+
+    test("applies the same validation as PUT", async () => {
+      const { app } = await createApp();
+
+      const res = await post(app, "/api/secrets", {
+        secrets: { "bad-key": "v" },
+        consumers: ["workflow:*"],
+      });
+      expect(res.status).toBe(400);
     });
   });
 
