@@ -450,6 +450,21 @@ $effect(() => {
 });
 
 /**
+ * Svelte action that portals the popup to document.body. The popup is
+ * `position: fixed` at viewport coordinates; rendered in place, a transformed
+ * ancestor (e.g. the floating step panel inside the graph viewport) would
+ * become its containing block and misplace or clip it.
+ */
+function portal(node: HTMLElement) {
+  document.body.appendChild(node);
+  return {
+    destroy() {
+      node.remove();
+    },
+  };
+}
+
+/**
  * Effect that attaches event listeners and ResizeObserver to the target element.
  * Cleans up on target change or component destruction.
  */
@@ -479,8 +494,9 @@ $effect(() => {
 
 {#if targetElement && visible}
   <div
+    use:portal
     id={popupId}
-    class="fixed z-50 min-w-45 max-w-80 rounded-md border border-border bg-background shadow-md"
+    class="fixed z-9999 min-w-45 max-w-80 rounded-md border border-border bg-background shadow-md"
     style={flipAbove
       ? `bottom: ${position.bottom}px; left: ${position.left}px;`
       : `top: ${position.top}px; left: ${position.left}px;`}
