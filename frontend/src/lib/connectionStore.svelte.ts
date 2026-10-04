@@ -11,6 +11,7 @@ import { buildWsConnection, connected, hasConnected } from "./appStore";
 import { forceLogout } from "./auth";
 import { chatStream } from "./chatStreamStore.svelte";
 import { fetchBadgesForEnabledExtensions, fetchExtensions } from "./extensionStore";
+import { identity } from "./identity.svelte";
 import { modelStore } from "./modelStore.svelte";
 
 const MAX_RECONNECT_DELAY = 30000;
@@ -126,6 +127,12 @@ class ConnectionManager {
    * Called on every successful (re)connect so state stays fresh.
    */
   private async fetchInitialData(): Promise<void> {
+    // The identity fetch on app load fails while the server is down, and nothing
+    // else retries it. Without a user the chat store never opens its per-user
+    // database, so conversations would stay empty until a full page reload.
+    if (!identity.isAuthenticated) {
+      identity.refresh();
+    }
     fetchExtensions().then(() => {
       fetchBadgesForEnabledExtensions();
     });
