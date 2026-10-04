@@ -28,6 +28,8 @@ interface Props {
   labelFor?: (item: string) => string | undefined;
   /** Optional callback fired when the selection changes. */
   onchange?: (selected: string[]) => void;
+  /** Text size of the control and its dropdown (default "sm"). */
+  size?: "sm" | "xs";
 }
 
 let {
@@ -40,7 +42,10 @@ let {
   allowCustom = false,
   labelFor,
   onchange,
+  size = "sm",
 }: Props = $props();
+
+const textSize = $derived(size === "xs" ? "text-xs" : "text-sm");
 
 /**
  * Resolve the display label for an item, falling back to the raw value.
@@ -160,13 +165,13 @@ function handleBlur(event: FocusEvent) {
 <div class="relative w-full" data-multiselect>
   {#if isDisabled}
     <div
-      class="flex h-9 w-full items-center rounded-md border border-border bg-muted px-3 text-sm text-muted-foreground cursor-not-allowed"
+      class="{textSize} flex h-9 w-full items-center rounded-md border border-border bg-muted px-3 text-muted-foreground cursor-not-allowed"
     >
       No items available
     </div>
   {:else}
     <div
-      class="flex flex-wrap items-center gap-1 rounded-md border border-border bg-background px-2 py-1.5 text-sm  transition-colors focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-1"
+      class="{textSize} flex flex-wrap items-center gap-1 rounded-md border border-border bg-background px-2 py-1.5 transition-colors focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-1"
     >
       {#each selected as item (item)}
         <span
@@ -198,7 +203,7 @@ function handleBlur(event: FocusEvent) {
         bind:this={inputEl}
         {id}
         type="text"
-        class="flex-1 min-w-20 bg-transparent outline-none text-sm py-0.5"
+        class="{textSize} flex-1 min-w-20 bg-transparent outline-none py-0.5"
         {placeholder}
         bind:value={search}
         onfocus={handleFocus}
@@ -223,7 +228,7 @@ function handleBlur(event: FocusEvent) {
       >
         <div class="max-h-60 overflow-y-auto p-1">
           {#if hasNoResults && !canAddCustom}
-            <div class="px-3 py-2 text-sm text-muted-foreground">No results found</div>
+            <div class="{textSize} px-3 py-2 text-muted-foreground">No results found</div>
           {:else}
             {#each filtered as item, i (item)}
               <button
@@ -232,7 +237,7 @@ function handleBlur(event: FocusEvent) {
                 role="option"
                 tabindex="-1"
                 aria-selected={i === highlightIndex}
-                class="w-full cursor-pointer rounded-sm px-3 py-1.5 text-left text-sm text-foreground transition-colors"
+                class="{textSize} w-full cursor-pointer rounded-sm px-3 py-1.5 text-left text-foreground transition-colors"
                 class:bg-accent={i === highlightIndex}
                 class:text-accent-foreground={i === highlightIndex}
                 class:hover:bg-accent={i !== highlightIndex}
@@ -255,7 +260,7 @@ function handleBlur(event: FocusEvent) {
                 role="option"
                 tabindex="-1"
                 aria-selected={false}
-                class="w-full cursor-pointer rounded-sm px-3 py-1.5 text-left text-sm text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
+                class="{textSize} w-full cursor-pointer rounded-sm px-3 py-1.5 text-left text-foreground transition-colors hover:bg-accent hover:text-accent-foreground"
                 onmousedown={(e) => {
                   e.preventDefault();
                   addCustom();

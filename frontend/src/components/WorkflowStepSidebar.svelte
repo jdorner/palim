@@ -238,7 +238,7 @@ function clearConditionError(index: number) {
         <div class="flex-1 flex flex-col gap-0.5">
           <input
             type="text"
-            class="w-full px-2 py-1 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+            class="w-full px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
             value={editDraftStep?.slug ?? selectedStep.slug}
             maxlength={64}
             oninput={(e) => onSlugInput(selectedStepIndex, (e.target as HTMLInputElement).value)}
@@ -291,15 +291,15 @@ function clearConditionError(index: number) {
             if (newType) onStepTypeChange(selectedStepIndex, newType);
           }}
         >
-          <SelectTrigger id="step-type" aria-label="Step type" class="gap-1.5">
+          <SelectTrigger id="step-type" aria-label="Step type" class="gap-1.5 text-xs">
             {@render stepTypeChip(currentType, 20)}
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="agent" label={labelForStepType("agent")}>
+            <SelectItem value="agent" label={labelForStepType("agent")} class="text-xs">
               {@render stepTypeChip("agent", 20)}
             </SelectItem>
             {#each selectableCustomTypes as stepType (stepType.type)}
-              <SelectItem value={stepType.type} label={stepType.label}>
+              <SelectItem value={stepType.type} label={stepType.label} class="text-xs">
                 {@render stepTypeChip(stepType.type, 20)}
               </SelectItem>
             {/each}
@@ -322,6 +322,7 @@ function clearConditionError(index: number) {
         <div class="flex flex-col gap-1.5 shrink-0">
           <span class="text-xs font-medium text-muted-foreground">Tools</span>
           <MultiSelect
+            size="xs"
             items={availableTools}
             selected={editDraftStep.tools ?? []}
             placeholder="Search tools..."
@@ -336,6 +337,7 @@ function clearConditionError(index: number) {
         <div class="flex flex-col gap-1.5 shrink-0">
           <span class="text-xs font-medium text-muted-foreground">Skills</span>
           <MultiSelect
+            size="xs"
             items={availableSkills}
             selected={editDraftStep.skills ?? []}
             placeholder="Search skills..."
@@ -355,7 +357,7 @@ function clearConditionError(index: number) {
           <textarea
             id="step-prompt"
             bind:this={promptEl}
-            class="w-full flex-1 min-h-24 px-2 py-1.5 text-sm font-mono border border-border rounded-md bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
+            class="w-full flex-1 min-h-24 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background resize-y focus:outline-none focus:ring-2 focus:ring-ring"
             maxlength={10000}
             value={editDraftStep.prompt ?? ""}
             oninput={(e) => {
@@ -456,7 +458,7 @@ function clearConditionError(index: number) {
                 <input
                   id="if-then-label"
                   type="text"
-                  class="px-2 py-1 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                  class="px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                   maxlength={64}
                   value={bl.then ?? ""}
                   placeholder="then"
@@ -476,7 +478,7 @@ function clearConditionError(index: number) {
                 <input
                   id="if-else-label"
                   type="text"
-                  class="px-2 py-1 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                  class="px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                   maxlength={64}
                   value={bl.else ?? ""}
                   placeholder="else"

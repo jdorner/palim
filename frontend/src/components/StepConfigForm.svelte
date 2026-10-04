@@ -258,6 +258,7 @@ function parseNumberList(raw: string): number[] {
         {@render fieldLabel(key, label, description)}
         {@const itemLabels = (prop.itemLabels ?? undefined) as Record<string, string> | undefined}
         <MultiSelect
+          size="xs"
           id="{idPrefix}{key}"
           items={prop.availableItems as string[]}
           selected={Array.isArray(formValues[key]) ? (formValues[key] as string[]) : []}
@@ -269,6 +270,7 @@ function parseNumberList(raw: string): number[] {
       {:else if inputType === "tags" && itemOptions?.[key]}
         {@render fieldLabel(key, label, description)}
         <MultiSelect
+          size="xs"
           id="{idPrefix}{key}"
           items={itemOptions[key]!}
           selected={Array.isArray(formValues[key]) ? (formValues[key] as string[]) : []}

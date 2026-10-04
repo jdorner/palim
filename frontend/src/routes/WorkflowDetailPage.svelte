@@ -1617,12 +1617,12 @@ onDestroy(() => {
                           };
                         }}
                       >
-                        <SelectTrigger id="sidebar-trigger-type" aria-label="Trigger type">
+                        <SelectTrigger id="sidebar-trigger-type" aria-label="Trigger type" class="text-xs">
                           {@render triggerChip(editDraft.trigger.type)}
                         </SelectTrigger>
                         <SelectContent>
                           {#each TRIGGER_TYPES as triggerType (triggerType)}
-                            <SelectItem value={triggerType} label={triggerType}>
+                            <SelectItem value={triggerType} label={triggerType} class="text-xs">
                               {@render triggerChip(triggerType)}
                             </SelectItem>
                           {/each}
@@ -1650,7 +1650,7 @@ onDestroy(() => {
                         <label for="sidebar-trigger-ref" class="text-xs font-medium text-muted-foreground">Ref</label>
                         <select
                           id="sidebar-trigger-ref"
-                          class="px-2 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                          class="px-2 py-1.5 text-xs border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
                           value={editDraft.trigger.ref}
                           disabled={metaLoading}
                           onchange={(e) => {
