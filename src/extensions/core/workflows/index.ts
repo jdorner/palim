@@ -30,8 +30,9 @@ import { Value } from "@sinclair/typebox/value";
 import { setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
 import { resolveHandlerOutputSchema } from "@src/extensions/engine/stepTypeSerialization";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
-import { resolveAmbientUserId } from "@src/utils/fetch";
+import { createInternalFetch, resolveAmbientToken, resolveAmbientUserId } from "@src/utils/fetch";
 import type { TemplateVariableResolver } from "@src/variables";
+import { extractBearerToken } from "@src/web/auth";
 import { requestUserId } from "@src/web/triggerOwnership";
 import {
   type DagCoordinatorDeps,
@@ -302,6 +303,29 @@ export function buildOutputSchemas(
   }
 
   return { outputSchemas: { trigger, steps }, warnings };
+}
+
+/** Route namespaces of the extensions that own trigger refs (webhooks, file watchers, schedules). */
+const TRIGGER_SOURCE_PREFIXES = ["/ext/webhooks", "/ext/filewatcher", "/ext/scheduler"];
+
+/**
+ * Builds an internal fetch for looking up trigger refs on behalf of a request.
+ *
+ * `ctx.fetch` is confined to `/ext/workflows`, so it cannot reach the
+ * trigger-owning extensions. This fetch is additionally allowed into their
+ * route namespaces and authorizes as the requesting user (falling back to the
+ * ambient/system identity when the request carries no bearer token).
+ *
+ * @param request - The incoming request whose principal the lookups act as.
+ * @returns A `fetch`-compatible function confined to trigger-source routes.
+ */
+function createTriggerSourceFetch(request: Request): typeof globalThis.fetch {
+  const token = extractBearerToken(request.headers.get("authorization"));
+  return createInternalFetch({
+    tokenProvider: () => token || resolveAmbientToken(),
+    prefix: "/ext/workflows",
+    allowExtraPrefixes: TRIGGER_SOURCE_PREFIXES,
+  });
 }
 
 /**
@@ -788,21 +812,19 @@ export function createExtension(): Extension {
       /**
        * Returns available trigger refs grouped by trigger type.
        */
-      ctx.routes.register("GET", "/meta/triggers", async () => {
+      ctx.routes.register("GET", "/meta/triggers", async (reqCtx) => {
         const origin = ctx.urls.origin;
+        const triggerFetch = createTriggerSourceFetch(reqCtx.request);
         const [webhookSlugs, schedulerIds, filewatcherSlugs] = await Promise.all([
-          ctx
-            .fetch(`${origin}/ext/webhooks`)
+          triggerFetch(`${origin}/ext/webhooks`)
             .then((r) => (r.ok ? (r.json() as Promise<{ slug: string }[]>) : []))
             .then((list) => list.map((w) => w.slug))
             .catch(() => [] as string[]),
-          ctx
-            .fetch(`${origin}/ext/scheduler/schedules`)
+          triggerFetch(`${origin}/ext/scheduler/schedules`)
             .then((r) => (r.ok ? (r.json() as Promise<{ id: string }[]>) : []))
             .then((list) => list.map((s) => s.id))
             .catch(() => [] as string[]),
-          ctx
-            .fetch(`${origin}/ext/filewatcher`)
+          triggerFetch(`${origin}/ext/filewatcher`)
             .then((r) => (r.ok ? (r.json() as Promise<{ slug: string }[]>) : []))
             .then((list) => list.map((w) => w.slug))
             .catch(() => [] as string[]),
@@ -1209,19 +1231,20 @@ export function createExtension(): Extension {
           const triggerType = def.trigger.type;
           const ref = def.trigger.ref;
           const origin = ctx.urls.origin;
+          const triggerFetch = createTriggerSourceFetch(reqCtx.request);
           let refExists = false;
           try {
             if (triggerType === "webhook") {
-              const res = await ctx.fetch(`${origin}/ext/webhooks/${encodeURIComponent(ref)}`);
+              const res = await triggerFetch(`${origin}/ext/webhooks/${encodeURIComponent(ref)}`);
               refExists = res.ok;
             } else if (triggerType === "filewatcher") {
-              const res = await ctx.fetch(`${origin}/ext/filewatcher`);
+              const res = await triggerFetch(`${origin}/ext/filewatcher`);
               if (res.ok) {
                 const list = (await res.json()) as { slug: string }[];
                 refExists = list.some((w) => w.slug === ref);
               }
             } else if (triggerType === "schedule") {
-              const res = await ctx.fetch(`${origin}/ext/scheduler/schedules`);
+              const res = await triggerFetch(`${origin}/ext/scheduler/schedules`);
               if (res.ok) {
                 const list = (await res.json()) as { id: string }[];
                 refExists = list.some((s) => s.id === ref);
