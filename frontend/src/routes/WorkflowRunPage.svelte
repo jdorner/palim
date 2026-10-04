@@ -6,11 +6,13 @@ import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
+import { detailPanelMode } from "$lib/detailPanelMode.svelte";
 import { extensions } from "$lib/extensionStore";
 import { formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import { buildStatusMap, type GraphStepStatus } from "$lib/workflowRunStatus";
 import { type RunStep, workflowStore } from "$lib/workflowRunStore.svelte";
 import ChatMarkdown from "../components/ChatMarkdown.svelte";
+import DetailPanelModeToggle from "../components/DetailPanelModeToggle.svelte";
 import SignalDeliveryForm from "../components/SignalDeliveryForm.svelte";
 import WorkflowGraph from "../components/WorkflowGraph.svelte";
 import { navigate, route } from "../router";
@@ -171,6 +173,15 @@ function closeSidebar() {
   }, 200);
 }
 
+/** Escape dismisses the floating log panel (the docked sidebar has its own close button). */
+function handleKeydown(e: KeyboardEvent) {
+  if (e.key !== "Escape" || e.defaultPrevented) return;
+  if (detailPanelMode.current === "floating" && sidebarOpen) {
+    e.preventDefault();
+    closeSidebar();
+  }
+}
+
 onMount(() => {
   fetchRun();
 });
@@ -178,6 +189,8 @@ onDestroy(() => {
   workflowStore.untrack();
 });
 </script>
+
+<svelte:window onkeydown={handleKeydown} />
 
 {#if loading}
   <LoadingIndicator />
@@ -201,6 +214,7 @@ onDestroy(() => {
         <span class="text-xs text-muted-foreground font-mono">Run: {run.runId.slice(0, 8)}</span>
       </div>
       <div class="flex items-center gap-2">
+        <DetailPanelModeToggle />
         {#if run.status === "failed"}
           <Button size="sm" variant="default" onclick={retryRun} disabled={retrying}>
             <ArrowCounterClockwiseIcon size={14} class="mr-1.5" aria-hidden="true" />
@@ -233,69 +247,90 @@ onDestroy(() => {
           trigger={run.trigger ?? undefined}
           statusMap={definitionSteps.length > 0 ? statusMap : undefined}
           {customStepTypes}
+          selectedStepId={sidebarOpen ? inspectedStep?.slug : undefined}
+          nodePanel={detailPanelMode.current === "floating" ? floatingLogPanel : undefined}
           onNodeClick={openSidebar}
+          onPaneClick={() => {
+            // The floating panel overlays the canvas, so clicking empty
+            // canvas dismisses it. The docked sidebar stays open.
+            if (detailPanelMode.current === "floating" && sidebarOpen) closeSidebar();
+          }}
         />
       </div>
 
-      <!-- Log sidebar -->
-      <div
-        class="shrink-0 overflow-hidden transition-all duration-200 ease-in-out bg-background"
-        class:w-0={!sidebarOpen}
-        class:border-l-0={!sidebarOpen}
-        class:w-[380px]={sidebarOpen}
-      >
-        {#if inspectedStep}
-          <div class="w-95 h-full flex flex-col">
-            <!-- Sidebar header -->
-            <div class="flex items-center gap-2 px-4 pb-2 pt-0">
-              <button
-                type="button"
-                class="shrink-0 p-0 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-                onclick={closeSidebar}
-                aria-label="Close log sidebar"
-              >
-                ✕
-              </button>
-              <span class="text-sm font-medium truncate">{inspectedStep.slug}</span>
-              <Badge variant={statusVariant(inspectedStep.status)}>{inspectedStep.status}</Badge>
-            </div>
+      <!-- Log sidebar (docked mode) -->
+      {#if detailPanelMode.current === "sidebar"}
+        <div
+          class="shrink-0 overflow-hidden transition-all duration-200 ease-in-out bg-background"
+          class:w-0={!sidebarOpen}
+          class:border-l-0={!sidebarOpen}
+          class:w-[380px]={sidebarOpen}
+        >
+          {@render logPanel()}
+        </div>
+      {/if}
+    </div>
+  </div>
+{/if}
 
-            <!-- Sidebar content -->
-            <div class="flex-1 overflow-y-auto min-h-0 p-4">
-              {#if inspectedStep.status === "waiting"}
-                <p class="text-sm text-muted-foreground">Waiting for previous step to complete</p>
-              {:else if inspectedStep.status === "waiting-signal"}
-                <div class="flex items-center gap-2 mb-3">
-                  <PauseCircleIcon size={16} class="text-amber-500" aria-hidden="true" />
-                  <p class="text-sm text-muted-foreground">Waiting for external signal</p>
-                </div>
-                {#if inspectedStep.waitEvent}
-                  <SignalDeliveryForm
-                    runId={run.runId}
-                    event={inspectedStep.waitEvent}
-                    inputSchema={inspectedStep.waitInputSchema}
-                  />
+<!-- Step status/log content, rendered either in the docked sidebar or in a
+     floating panel anchored beneath the selected node. -->
+{#snippet logPanel()}
+  {#if inspectedStep && run}
+    <div class="w-95 h-full flex flex-col">
+      <!-- Sidebar header -->
+      <div class="flex items-center gap-2 px-4 pb-2 {detailPanelMode.current === "floating" ? "pt-2" : "pt-0"}">
+        <button
+          type="button"
+          class="shrink-0 p-0 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
+          onclick={closeSidebar}
+          aria-label="Close log sidebar"
+        >
+          ✕
+        </button>
+        <span class="text-sm font-medium truncate">{inspectedStep.slug}</span>
+        <Badge variant={statusVariant(inspectedStep.status)}>{inspectedStep.status}</Badge>
+      </div>
+
+      <!-- Sidebar content -->
+      <div class="flex-1 overflow-y-auto min-h-0 p-4">
+        {#if inspectedStep.status === "waiting"}
+          <p class="text-sm text-muted-foreground">Waiting for previous step to complete</p>
+        {:else if inspectedStep.status === "waiting-signal"}
+          <div class="flex items-center gap-2 mb-3">
+            <PauseCircleIcon size={16} class="text-amber-500" aria-hidden="true" />
+            <p class="text-sm text-muted-foreground">Waiting for external signal</p>
+          </div>
+          {#if inspectedStep.waitEvent}
+            <SignalDeliveryForm
+              runId={run.runId}
+              event={inspectedStep.waitEvent}
+              inputSchema={inspectedStep.waitInputSchema}
+            />
+          {/if}
+        {:else if loadingLogs}
+          <p class="text-sm text-muted-foreground">Loading logs...</p>
+        {:else if stepLogs.length === 0}
+          <p class="text-sm text-muted-foreground">No logs available</p>
+        {:else}
+          <div class="space-y-1">
+            {#each stepLogs as log}
+              <div class="flex flex-col gap-0.5 text-xs font-mono bg-muted p-2 rounded">
+                {#if log.timestamp}
+                  <span class="text-muted-foreground text-[10px]">{formatTimestamp(log.timestamp)}</span>
                 {/if}
-              {:else if loadingLogs}
-                <p class="text-sm text-muted-foreground">Loading logs...</p>
-              {:else if stepLogs.length === 0}
-                <p class="text-sm text-muted-foreground">No logs available</p>
-              {:else}
-                <div class="space-y-1">
-                  {#each stepLogs as log}
-                    <div class="flex flex-col gap-0.5 text-xs font-mono bg-muted p-2 rounded">
-                      {#if log.timestamp}
-                        <span class="text-muted-foreground text-[10px]">{formatTimestamp(log.timestamp)}</span>
-                      {/if}
-                      <div class="whitespace-pre-wrap wrap-break-word"><ChatMarkdown content={log.message} /></div>
-                    </div>
-                  {/each}
-                </div>
-              {/if}
-            </div>
+                <div class="whitespace-pre-wrap wrap-break-word"><ChatMarkdown content={log.message} /></div>
+              </div>
+            {/each}
           </div>
         {/if}
       </div>
     </div>
+  {/if}
+{/snippet}
+
+{#snippet floatingLogPanel()}
+  <div class="h-[28rem] max-h-[60vh] overflow-hidden rounded-lg border border-border bg-background shadow-xl">
+    {@render logPanel()}
   </div>
-{/if}
+{/snippet}
