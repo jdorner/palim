@@ -1,6 +1,6 @@
 import { createRouter } from "sv-router";
 import { get, readable } from "svelte/store";
-import { checkAuthRequired, getToken } from "$lib/auth";
+import { getToken } from "$lib/auth";
 import { disabledExtensionRoutes } from "$lib/extensionStore";
 import { identity } from "$lib/identity.svelte";
 
@@ -25,8 +25,7 @@ export const { p, navigate, isActive, route } = createRouter({
     async beforeLoad(context) {
       if (context.pathname === "/login") return;
 
-      const isAuthRequired = await checkAuthRequired();
-      if (isAuthRequired && !getToken()) {
+      if (!getToken()) {
         throw navigate("/login");
       }
 

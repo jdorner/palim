@@ -25,11 +25,7 @@ async function attemptReconnect() {
   if (retryInterval) clearInterval(retryInterval);
 
   try {
-    const res = await fetch("/api/auth/validate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token: "" }),
-    });
+    const res = await fetch("/health");
     if (res.status < 500) {
       // Server is back - reload the page to reinitialize everything
       window.location.reload();

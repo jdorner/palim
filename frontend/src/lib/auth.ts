@@ -11,9 +11,6 @@ import { navigate } from "../router";
 
 const TOKEN_KEY = "auth_token";
 
-/** Whether the server requires auth. Cached after first successful check. */
-let authRequired: boolean | null = null;
-
 /** Prevents multiple simultaneous redirects to login. */
 let redirecting = false;
 
@@ -60,47 +57,6 @@ function clearToken(): void {
 }
 
 /**
- * Checks whether the server requires authentication. Result is cached
- * after the first successful call so subsequent checks are synchronous.
- *
- * When the server is unreachable (network error or 5xx), returns false
- * to avoid redirecting to the login page. The connection error state is
- * handled separately by the WebSocket connection logic.
- */
-export async function checkAuthRequired(): Promise<boolean> {
-  if (authRequired !== null) return authRequired;
-  try {
-    const token = getToken() ?? "";
-    const res = await fetch("/api/auth/validate", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ token }),
-    });
-    // Server error (5xx) - treat as unreachable, don't redirect to login
-    if (res.status >= 500) {
-      return false;
-    }
-    if (!res.ok) {
-      authRequired = true;
-      return true;
-    }
-    const data = await res.json();
-    // Auth is mandatory now; the server reports authRequired: true. Default to
-    // true when the field is absent so we fail closed toward the login page.
-    authRequired = data.authRequired !== false;
-    return authRequired;
-  } catch {
-    // Network error - server unreachable, don't redirect to login
-    return false;
-  }
-}
-
-/** Resets the cached auth state (e.g. after login). */
-export function resetAuthCache(): void {
-  authRequired = null;
-}
-
-/**
  * Closes the WebSocket, clears the token, and redirects to the login page.
  * Debounced to prevent multiple simultaneous redirects.
  */
@@ -110,7 +66,6 @@ export function forceLogout(): void {
   disconnectFn?.();
   clearIdentityFn?.();
   clearToken();
-  resetAuthCache();
   navigate("/login");
   setTimeout(() => {
     redirecting = false;

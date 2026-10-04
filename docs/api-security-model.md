@@ -87,7 +87,6 @@ These endpoints need no token:
 | -------- | ------ |
 | `GET /health` | Health checks |
 | `POST /api/auth/login` | Login |
-| `POST /api/auth/validate` | Lets the frontend detect that login is required |
 | `POST /ext/webhooks/receive/:slug` | External webhook delivery, authenticated per webhook (see below) |
 | Extension routes registered with `{ public: true }` | Browser or machine callbacks (e.g. OAuth redirects) that verify the caller themselves |
 | Static files (`/`, `/assets/...`) | Frontend bundle |
