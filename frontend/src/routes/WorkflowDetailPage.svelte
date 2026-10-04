@@ -469,20 +469,6 @@ function onStepSlugInput(index: number, value: string) {
   );
 }
 
-/** Handle step type change from the sidebar (clears config and related validation). */
-function handleStepTypeChange(index: number, newType: string) {
-  if (!editDraft) return;
-  editDraft = {
-    ...editDraft,
-    steps: editDraft.steps.map((s, i) => (i === index ? { ...s, type: newType, config: undefined } : s)),
-  };
-  const newErrors = new Map(validationErrors);
-  if (newType === "agent") {
-    newErrors.delete(`steps[${index}].prompt`);
-  }
-  validationErrors = newErrors;
-}
-
 /** Save the edited workflow. */
 async function saveWorkflow() {
   if (!editDraft || !workflow) return;
@@ -897,7 +883,6 @@ onDestroy(() => {
         onValidationErrorsChange={(errors) => {
           validationErrors = errors;
         }}
-        onStepTypeChange={handleStepTypeChange}
         onEditAsJsonChange={(v) => {
           editAsJson = v;
         }}
@@ -925,7 +910,7 @@ onDestroy(() => {
 {/snippet}
 
 {#snippet floatingDetailPanel()}
-  <div class="h-[28rem] max-h-[60vh] overflow-hidden rounded-lg border border-border bg-background shadow-xl">
+  <div class="h-[32rem] max-h-[60vh] overflow-hidden rounded-lg border border-border bg-background shadow-xl">
     {@render detailPanel()}
   </div>
 {/snippet}

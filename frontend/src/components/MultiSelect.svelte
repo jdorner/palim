@@ -61,6 +61,20 @@ let search = $state("");
 let open = $state(false);
 let inputEl: HTMLInputElement | undefined = $state();
 let highlightIndex = $state(-1);
+/** The visible control box the dropdown is anchored to. */
+let controlEl: HTMLDivElement | undefined = $state();
+/** Fixed-position placement of the portaled dropdown (viewport coordinates). */
+let dropdownPos = $state<{ left: number; width: number; top?: number; bottom?: number; maxHeight: number }>({
+  left: 0,
+  width: 0,
+  maxHeight: 240,
+});
+
+/** Default dropdown list height cap (matches the former max-h-60). */
+const DROPDOWN_MAX_HEIGHT = 240;
+/** Gap between the control and the dropdown, and minimum distance to the viewport edge. */
+const DROPDOWN_GAP = 4;
+const VIEWPORT_MARGIN = 8;
 
 // With allowCustom the control is always usable (free-form entry), even when
 // there are no suggestion items.
@@ -150,6 +164,58 @@ function scrollHighlightedIntoView() {
   });
 }
 
+/**
+ * Place the dropdown below the control, or above it when there is not enough
+ * room below and more room above. The dropdown is portaled to the body so a
+ * scrolling or clipping ancestor (e.g. a side panel) cannot cut it off.
+ */
+function positionDropdown() {
+  if (!controlEl) return;
+  const rect = controlEl.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - rect.bottom - DROPDOWN_GAP - VIEWPORT_MARGIN;
+  const spaceAbove = rect.top - DROPDOWN_GAP - VIEWPORT_MARGIN;
+  const above = spaceBelow < DROPDOWN_MAX_HEIGHT && spaceAbove > spaceBelow;
+  dropdownPos = above
+    ? {
+        left: rect.left,
+        width: rect.width,
+        bottom: window.innerHeight - rect.top + DROPDOWN_GAP,
+        maxHeight: Math.min(DROPDOWN_MAX_HEIGHT, spaceAbove),
+      }
+    : {
+        left: rect.left,
+        width: rect.width,
+        top: rect.bottom + DROPDOWN_GAP,
+        maxHeight: Math.min(DROPDOWN_MAX_HEIGHT, spaceBelow),
+      };
+}
+
+// Keep the dropdown attached to the control while open: the control can grow
+// (chips added), and ancestors can scroll or the window resize.
+$effect(() => {
+  if (!open || !controlEl) return;
+  positionDropdown();
+  const observer = new ResizeObserver(positionDropdown);
+  observer.observe(controlEl);
+  window.addEventListener("scroll", positionDropdown, true);
+  window.addEventListener("resize", positionDropdown);
+  return () => {
+    observer.disconnect();
+    window.removeEventListener("scroll", positionDropdown, true);
+    window.removeEventListener("resize", positionDropdown);
+  };
+});
+
+/** Svelte action that portals the element to document.body. */
+function portal(node: HTMLElement) {
+  document.body.appendChild(node);
+  return {
+    destroy() {
+      node.remove();
+    },
+  };
+}
+
 function handleFocus() {
   if (!isDisabled) open = true;
 }
@@ -171,6 +237,7 @@ function handleBlur(event: FocusEvent) {
     </div>
   {:else}
     <div
+      bind:this={controlEl}
       class="{textSize} flex flex-wrap items-center gap-1 rounded-md border border-border bg-background px-2 py-1.5 transition-colors focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-1"
     >
       {#each selected as item (item)}
@@ -220,13 +287,18 @@ function handleBlur(event: FocusEvent) {
 
     {#if open}
       <div
+        use:portal
         data-multiselect-dropdown
-        class="absolute z-50 mt-1 w-full rounded-md border border-border bg-background shadow-md"
+        class="fixed z-9999 rounded-md border border-border bg-background shadow-md"
+        style:left="{dropdownPos.left}px"
+        style:width="{dropdownPos.width}px"
+        style:top={dropdownPos.top !== undefined ? `${dropdownPos.top}px` : undefined}
+        style:bottom={dropdownPos.bottom !== undefined ? `${dropdownPos.bottom}px` : undefined}
         tabindex="-1"
         role="listbox"
         id="multiselect-listbox"
       >
-        <div class="max-h-60 overflow-y-auto p-1">
+        <div class="overflow-y-auto p-1" style:max-height="{dropdownPos.maxHeight}px">
           {#if hasNoResults && !canAddCustom}
             <div class="{textSize} px-3 py-2 text-muted-foreground">No results found</div>
           {:else}
