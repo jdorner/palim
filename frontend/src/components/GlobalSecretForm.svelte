@@ -1,15 +1,16 @@
 <script lang="ts">
-import CheckCircleIcon from "phosphor-svelte/lib/CheckCircleIcon";
 import FloppyDiskIcon from "phosphor-svelte/lib/FloppyDiskIcon";
-import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
-import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
-import AlertDialog from "$lib/components/ui/alert-dialog/AlertDialog.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Card, CardContent, CardHeader } from "$lib/components/ui/card";
+import { Flash } from "$lib/flash.svelte";
+import { ensureOk } from "$lib/http";
+import FlashMessage from "./FlashMessage.svelte";
+import SecretDeleteDialog from "./SecretDeleteDialog.svelte";
+import SecretRow from "./SecretRow.svelte";
 
 /**
  * Global secret entry returned by the API.
@@ -38,11 +39,9 @@ let secrets = $state<GlobalSecretEntry[]>([]);
 let submitting = $state(false);
 
 /** Success toast message. */
-let successMsg = $state<string | null>(null);
-let successTimer: ReturnType<typeof setTimeout> | null = null;
+const flash = new Flash();
 
-/** Delete confirmation dialog state. */
-let deleteDialogOpen = $state(false);
+/** Key pending delete confirmation. */
 let deleteTargetKey = $state<string | null>(null);
 let deleting = $state(false);
 
@@ -64,11 +63,7 @@ async function fetchSecrets() {
   loading = true;
   fetchError = null;
   try {
-    const res = await authFetch("/api/secrets");
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      throw new Error(data.error ?? `HTTP ${res.status}`);
-    }
+    const res = await ensureOk(await authFetch("/api/secrets"));
     const data: { secrets: GlobalSecretEntry[] } = await res.json();
     secrets = data.secrets;
   } catch (err) {
@@ -158,7 +153,7 @@ async function submitForm() {
         }
         // Create new key first, then delete old
         await saveSecret(trimmedKey, formValue, consumers, formDescription.trim());
-        await authFetch(`/api/secrets/${encodeURIComponent(editingKey!)}`, { method: "DELETE" });
+        await ensureOk(await authFetch(`/api/secrets/${encodeURIComponent(editingKey!)}`, { method: "DELETE" }));
       } else if (formValue.trim().length > 0) {
         // Key unchanged, value provided -> upsert value + meta
         await saveSecret(trimmedKey, formValue, consumers, formDescription.trim());
@@ -171,7 +166,7 @@ async function submitForm() {
     const action = formMode === "create" ? "added" : "updated";
     resetForm();
     await fetchSecrets();
-    showSuccess(`Secret "${trimmedKey}" ${action}`);
+    flash.show(`Secret "${trimmedKey}" ${action}`);
   } catch (err) {
     formError = err instanceof Error ? err.message : "Failed to save";
   } finally {
@@ -196,11 +191,7 @@ async function saveSecret(key: string, value: string, consumers: string[], descr
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   });
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    throw new Error(data.error ?? `HTTP ${res.status}`);
-  }
+  await ensureOk(res);
 }
 
 /**
@@ -215,21 +206,12 @@ async function updateMeta(key: string, consumers: string[], description: string)
       description: description || null,
     }),
   });
-
-  if (!res.ok) {
-    const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-    throw new Error(data.error ?? `HTTP ${res.status}`);
-  }
+  await ensureOk(res);
 }
 
 // ---------------------------------------------------------------------------
 // Delete
 // ---------------------------------------------------------------------------
-
-function confirmDelete(key: string) {
-  deleteTargetKey = key;
-  deleteDialogOpen = true;
-}
 
 async function executeDelete() {
   if (!deleteTargetKey) return;
@@ -237,23 +219,15 @@ async function executeDelete() {
   deleting = true;
 
   try {
-    const res = await authFetch(`/api/secrets/${key}`, {
-      method: "DELETE",
-    });
-
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      throw new Error(data.error ?? `HTTP ${res.status}`);
-    }
+    await ensureOk(await authFetch(`/api/secrets/${encodeURIComponent(key)}`, { method: "DELETE" }));
 
     if (editingKey === key) resetForm();
     await fetchSecrets();
-    showSuccess(`Secret "${key}" deleted`);
+    flash.show(`Secret "${key}" deleted`);
   } catch (err) {
     formError = err instanceof Error ? err.message : "Failed to delete";
   } finally {
     deleting = false;
-    deleteDialogOpen = false;
     deleteTargetKey = null;
   }
 }
@@ -261,12 +235,6 @@ async function executeDelete() {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function showSuccess(msg: string) {
-  successMsg = msg;
-  if (successTimer) clearTimeout(successTimer);
-  successTimer = setTimeout(() => (successMsg = null), 3000);
-}
 
 function formatDate(epoch: number): string {
   return new Date(epoch).toLocaleDateString(undefined, {
@@ -409,47 +377,20 @@ function handleKeydown(event: KeyboardEvent) {
     {#if secrets.length > 0}
       <div class="space-y-2">
         {#each secrets as entry (entry.key)}
-          <div
-            class="rounded-md border border-border px-3 py-2 space-y-1.5 {editingKey === entry.key ? "bg-accent" : ""}"
+          <SecretRow
+            secretKey={entry.key}
+            isSet
+            highlighted={editingKey === entry.key}
+            onEdit={() => openEditForm(entry)}
+            onDelete={() => (deleteTargetKey = entry.key)}
           >
-            <!-- Header row -->
-            <div class="flex items-center gap-2">
-              <CheckCircleIcon class="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" aria-label="Secret is set" />
-              <span class="text-sm font-medium font-mono">{entry.key}</span>
-
-              <!-- Consumer badges -->
+            {#snippet badges()}
               <div class="inline-flex items-center gap-1">
                 {#each entry.consumers as consumer}
                   <Badge variant="secondary" class="text-xs font-normal">{consumer}</Badge>
                 {/each}
               </div>
-
-              <!-- Action buttons -->
-              <div class="ml-auto flex items-center gap-1">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  class="h-7 w-7"
-                  aria-label="Edit {entry.key}"
-                  title="Edit"
-                  onclick={() => openEditForm(entry)}
-                >
-                  <PencilSimpleIcon class="w-4 h-4" aria-hidden="true" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  class="h-7 w-7 text-destructive hover:text-destructive"
-                  aria-label="Delete {entry.key}"
-                  title="Delete"
-                  onclick={() => confirmDelete(entry.key)}
-                >
-                  <TrashIcon class="w-4 h-4" aria-hidden="true" />
-                </Button>
-              </div>
-            </div>
+            {/snippet}
 
             <!-- Description and last updated -->
             <div class="flex items-center gap-3">
@@ -460,32 +401,18 @@ function handleKeydown(event: KeyboardEvent) {
                 Updated {formatDate(entry.updatedAt)}
               </span>
             </div>
-          </div>
+          </SecretRow>
         {/each}
       </div>
     {/if}
 
-    <!-- Success toast -->
-    {#if successMsg}
-      <div class="flex items-center gap-2 text-sm text-green-600 dark:text-green-400">
-        <CheckCircleIcon class="w-4 h-4 shrink-0" aria-hidden="true" />
-        <span>{successMsg}</span>
-      </div>
-    {/if}
+    <FlashMessage message={flash.message} />
   </div>
 {/if}
 
-<!-- Delete confirmation dialog -->
-<AlertDialog
-  open={deleteDialogOpen}
-  title="Delete Secret"
-  description={`Are you sure you want to delete "${deleteTargetKey}"? This action is irreversible.`}
-  confirmLabel={deleting ? "Deleting..." : "Delete"}
-  cancelLabel="Cancel"
-  confirmVariant="destructive"
+<SecretDeleteDialog
+  secretKey={deleteTargetKey}
+  {deleting}
   onConfirm={executeDelete}
-  onCancel={() => {
-    deleteDialogOpen = false;
-    deleteTargetKey = null;
-  }}
+  onCancel={() => (deleteTargetKey = null)}
 />
