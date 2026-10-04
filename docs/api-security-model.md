@@ -69,7 +69,7 @@ Palim also keeps a built-in `system` account. It has no usable password, so nobo
 - A token stops working when it expires, when the user logs out (`POST /api/auth/logout`), or when the account is disabled. Disabling an account also revokes all its tokens immediately.
 - `GET /api/auth/me` returns the current user and their serialized permissions, which the web UI uses to hide actions the user can't perform.
 
-The web UI keeps the token in `sessionStorage` and sends it as `Authorization: Bearer <token>`.
+The web UI keeps the token in `localStorage`, so every tab on the same origin shares one login, and sends it as `Authorization: Bearer <token>`. The token stays in the browser until it expires or the user logs out, even across browser restarts. Logging out in one tab logs out the others too.
 
 ### WebSocket
 
