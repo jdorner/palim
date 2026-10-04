@@ -10,7 +10,7 @@ import PlugIcon from "phosphor-svelte/lib/PlugIcon";
 import TrayIcon from "phosphor-svelte/lib/TrayIcon";
 import UsersIcon from "phosphor-svelte/lib/UsersIcon";
 import { Router } from "sv-router";
-import { onDestroy, onMount } from "svelte";
+import { type Component, onDestroy, onMount } from "svelte";
 import { get } from "svelte/store";
 import {
   connected,
@@ -173,6 +173,35 @@ let showConnectionError = $derived(!$connected && !$hasConnected && !isLoginPage
 
 let hasUnreadChats = $derived(chatStream.conversations.some((c) => readState.isUnread(c.id, c.updatedAt)));
 
+/** Header icon and label for built-in pages, matched in order against the current path. */
+const PAGE_HEADERS: Array<{ match: (path: string) => boolean; icon: Component; label: string; color: string }> = [
+  { match: (p) => p === "/schedules", icon: ClockIcon, label: "Schedules", color: automationStyle("schedule").color },
+  {
+    match: (p) => p === "/" || p === "/chat" || p.startsWith("/chat/"),
+    icon: ChatTextIcon,
+    label: "Chat",
+    color: automationStyle("chat").color,
+  },
+  { match: (p) => p === "/webhooks", icon: LinkIcon, label: "Webhooks", color: automationStyle("webhook").color },
+  {
+    match: (p) => p === "/filewatchers",
+    icon: EyeIcon,
+    label: "File Watchers",
+    color: automationStyle("filewatcher").color,
+  },
+  {
+    match: (p) => p.startsWith("/workflows"),
+    icon: FlowArrowIcon,
+    label: "Workflows",
+    color: automationStyle("workflow").color,
+  },
+  { match: (p) => p === "/settings", icon: GearIcon, label: "Settings", color: "" },
+  { match: (p) => p === "/users", icon: UsersIcon, label: "Users & Roles", color: "" },
+  { match: (p) => p === "/mcp", icon: PlugIcon, label: "MCP Servers", color: automationStyle("mcp").color },
+];
+
+let pageHeader = $derived(PAGE_HEADERS.find((h) => h.match($pathname)));
+
 /** Current extension nav item (when on an extension page). */
 let currentExtNavItem = $derived.by(() => {
   if (!isExtensionPage) return null;
@@ -193,30 +222,9 @@ let currentExtNavItem = $derived.by(() => {
         {#if !isLoginPage}
           <header class="flex items-center justify-between mb-6">
             <h1 class="text-2xl font-bold flex items-center gap-2 pl-0.5">
-              {#if $pathname === "/schedules"}
-                <ClockIcon class="w-6 h-6 {automationStyle("schedule").color}" aria-hidden="true" />
-                Schedules
-              {:else if isChat}
-                <ChatTextIcon class="w-6 h-6 {automationStyle("chat").color}" aria-hidden="true" />
-                Chat
-              {:else if $pathname === "/webhooks"}
-                <LinkIcon class="w-6 h-6 {automationStyle("webhook").color}" aria-hidden="true" />
-                Webhooks
-              {:else if $pathname === "/filewatchers"}
-                <EyeIcon class="w-6 h-6 {automationStyle("filewatcher").color}" aria-hidden="true" />
-                File Watchers
-              {:else if $pathname.startsWith("/workflows")}
-                <FlowArrowIcon class="w-6 h-6 {automationStyle("workflow").color}" aria-hidden="true" />
-                Workflows
-              {:else if $pathname === "/settings"}
-                <GearIcon class="w-6 h-6 " aria-hidden="true" />
-                Settings
-              {:else if $pathname === "/users"}
-                <UsersIcon class="w-6 h-6" aria-hidden="true" />
-                Users &amp; Roles
-              {:else if $pathname === "/mcp"}
-                <PlugIcon class="w-6 h-6 {automationStyle("mcp").color}" aria-hidden="true" />
-                MCP Servers
+              {#if pageHeader}
+                <pageHeader.icon class="w-6 h-6 {pageHeader.color}" aria-hidden="true" />
+                {pageHeader.label}
               {:else if isExtensionPage && currentExtNavItem}
                 {@const IconComponent = resolveIcon(currentExtNavItem.icon)}
                 {#if IconComponent}

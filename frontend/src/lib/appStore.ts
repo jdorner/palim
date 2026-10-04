@@ -1,4 +1,4 @@
-import { writable } from "svelte/store";
+import { type Writable, writable } from "svelte/store";
 import type { JobEntry, ScheduleEntry } from "../../../shared/types";
 import { authFetch, getToken } from "./auth";
 
@@ -41,57 +41,33 @@ export function buildWsConnection(): { url: string; protocols?: string[] } {
   return token ? { url, protocols: [`auth-${token}`] } : { url };
 }
 
-/** Fetches the webhook count from the API. */
-export async function fetchWebhookCount() {
+/**
+ * Fetches a list endpoint and stores a derived count. Errors are ignored
+ * because sidebar badges are non-critical.
+ * @param url - API endpoint to fetch
+ * @param store - Count store to update
+ * @param pick - Extracts the count from the response body (defaults to array length)
+ */
+async function fetchCount(url: string, store: Writable<number>, pick: (data: any) => number = (d) => d.length) {
   try {
-    const res = await authFetch("/ext/webhooks");
-    if (res.ok) {
-      const list = await res.json();
-      webhookCount.set(list.length);
-    }
+    const res = await authFetch(url);
+    if (res.ok) store.set(pick(await res.json()));
   } catch {
     // Silently ignore - sidebar badge is non-critical
   }
 }
+
+/** Fetches the webhook count from the API. */
+export const fetchWebhookCount = () => fetchCount("/ext/webhooks", webhookCount);
 
 /** Fetches the workflow count from the API. */
-export async function fetchWorkflowCount() {
-  try {
-    const res = await authFetch("/ext/workflows");
-    if (res.ok) {
-      const list = await res.json();
-      workflowCount.set(list.length);
-    }
-  } catch {
-    // Silently ignore - sidebar badge is non-critical
-  }
-}
+export const fetchWorkflowCount = () => fetchCount("/ext/workflows", workflowCount);
 
 /** Fetches the file watcher count from the API. */
-export async function fetchFileWatcherCount() {
-  try {
-    const res = await authFetch("/ext/filewatcher");
-    if (res.ok) {
-      const list = await res.json();
-      fileWatcherCount.set(list.length);
-    }
-  } catch {
-    // Silently ignore - sidebar badge is non-critical
-  }
-}
+export const fetchFileWatcherCount = () => fetchCount("/ext/filewatcher", fileWatcherCount);
 
 /** Fetches the MCP server count from the API. */
-export async function fetchMcpServerCount() {
-  try {
-    const res = await authFetch("/ext/mcp/servers");
-    if (res.ok) {
-      const data = await res.json();
-      mcpServerCount.set(data.servers.length);
-    }
-  } catch {
-    // Silently ignore - sidebar badge is non-critical
-  }
-}
+export const fetchMcpServerCount = () => fetchCount("/ext/mcp/servers", mcpServerCount, (d) => d.servers.length);
 
 /** Fetches the schedule list from the scheduler extension API. */
 export async function fetchScheduleCount() {

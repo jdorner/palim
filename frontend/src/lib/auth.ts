@@ -2,9 +2,9 @@
  * Frontend authentication helpers.
  * Manages token storage in sessionStorage and provides an auth-aware fetch wrapper.
  *
- * IMPORTANT: This module must NOT import from router.ts to avoid circular dependencies.
- * The connection manager disconnect callback is injected via `registerDisconnect()`
- * to avoid circular imports (connectionStore imports auth, auth cannot import connectionStore).
+ * IMPORTANT: This module must NOT import connectionStore or the identity store, which
+ * both import auth. Their logout hooks are injected via `registerDisconnect()` and
+ * `registerClearIdentity()` instead.
  */
 
 import { navigate } from "../router";

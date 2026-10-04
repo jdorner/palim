@@ -185,22 +185,6 @@ export async function getConversations(): Promise<Conversation[]> {
 }
 
 /**
- * Retrieves a single conversation by ID.
- * @param id - The conversation ID.
- * @returns The Conversation, or undefined if not found.
- */
-export async function getConversation(id: string): Promise<Conversation | undefined> {
-  const db = await initDB();
-
-  return new Promise((resolve, reject) => {
-    const tx = db.transaction("conversations", "readonly");
-    const request = tx.objectStore("conversations").get(id);
-    request.onsuccess = () => resolve(request.result as Conversation | undefined);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-/**
  * Updates the title of an existing conversation.
  * @param id - The conversation ID.
  * @param title - The new title.
