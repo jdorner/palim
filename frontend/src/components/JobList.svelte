@@ -54,6 +54,19 @@ type DisplayItem =
   | { type: "job"; job: JobEntry }
   | { type: "workflow"; workflowRunId: string; workflowName: string; jobs: JobEntry[]; aggregateStatus: string };
 
+type WorkflowItem = Extract<DisplayItem, { type: "workflow" }>;
+
+/** Earliest creation timestamp among a workflow group's step jobs. */
+function workflowCreatedAt(workflowJobs: JobEntry[]): number {
+  return Math.min(...workflowJobs.map((j) => j.createdAt));
+}
+
+/** Latest completion timestamp of a workflow group, or undefined while any step is still incomplete. */
+function workflowCompletedAt(workflowJobs: JobEntry[]): number | undefined {
+  if (!workflowJobs.every((j) => j.completedAt)) return undefined;
+  return Math.max(...workflowJobs.map((j) => j.completedAt!));
+}
+
 /**
  * Computes an aggregate status for a workflow group.
  * Returns the status of the last step (the next one to execute).
@@ -108,8 +121,8 @@ let displayItems = $derived.by<DisplayItem[]>(() => {
 
   // Sort all items by createdAt descending (most recent first)
   items.sort((a, b) => {
-    const tsA = a.type === "job" ? a.job.createdAt : Math.min(...a.jobs.map((j) => j.createdAt));
-    const tsB = b.type === "job" ? b.job.createdAt : Math.min(...b.jobs.map((j) => j.createdAt));
+    const tsA = a.type === "job" ? a.job.createdAt : workflowCreatedAt(a.jobs);
+    const tsB = b.type === "job" ? b.job.createdAt : workflowCreatedAt(b.jobs);
     return tsB - tsA;
   });
 
@@ -222,7 +235,7 @@ async function cancelWorkflowRun(workflowRunId: string) {
  *
  * @param item - The workflow display item
  */
-function handleWorkflowCancel(item: { workflowRunId: string; jobs: JobEntry[] }) {
+function handleWorkflowCancel(item: WorkflowItem) {
   const liveJob = item.jobs.find((j) => isCancellable(j.status));
   if (liveJob) {
     handleCancel(liveJob.id);
@@ -347,6 +360,105 @@ function trackColumnWidths(container: HTMLElement) {
   }}
 />
 
+{#snippet queueBadge(
+  label: string,
+)}
+  <Badge variant="outline" class={automationStyle(label).border}>{label}</Badge>
+{/snippet}
+
+{#snippet expandCaret(
+  isExpanded: boolean,
+  className: string,
+)}
+  {#if isExpanded}
+    <CaretDownIcon size={14} class={className} aria-hidden="true" />
+  {:else}
+    <CaretRightIcon size={14} class={className} aria-hidden="true" />
+  {/if}
+{/snippet}
+
+{#snippet cardTimestamps(
+  createdAt: number,
+  completedAt: number | undefined,
+  className = "",
+)}
+  <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground {className}">
+    <span>Created: {formatTimestamp(createdAt)}</span>
+    <span>Completed: {formatTimestamp(completedAt, "\u2013")}</span>
+  </div>
+{/snippet}
+
+{#snippet jobError(
+  job: JobEntry,
+  className = "mt-0.5",
+)}
+  {#if job.error}
+    <p class="text-xs text-destructive truncate {className}">{job.error}</p>
+  {/if}
+{/snippet}
+
+<!-- Retry / Cancel / Logs buttons for one job; `compact` shortens the busy labels for the card layout -->
+{#snippet jobActions(
+  job: JobEntry,
+  compact: boolean,
+)}
+  {@const iconMargin = compact ? "mr-1" : "mr-1.5"}
+  {#if job.status === "failed"}
+    <Button size="sm" variant="default" disabled={retryingJobId === job.id} onclick={() => handleRetry(job.id)}>
+      <ArrowCounterClockwiseIcon size={14} class={iconMargin} aria-hidden="true" />
+      {retryingJobId === job.id ? (compact ? "..." : "Retrying") : "Retry"}
+    </Button>
+  {/if}
+  {#if isCancellable(job.status)}
+    <Button size="sm" variant="destructive" disabled={cancellingJobId === job.id} onclick={() => handleCancel(job.id)}>
+      <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
+      {cancellingJobId === job.id ? (compact ? "..." : "Cancelling") : "Cancel"}
+    </Button>
+  {/if}
+  <Button size="sm" variant="outline" onclick={() => (selectedJobId = job.id)}>
+    <FileTextIcon size={14} class={iconMargin} aria-hidden="true" />
+    Logs
+  </Button>
+{/snippet}
+
+{#snippet workflowCancelButton(
+  item: WorkflowItem,
+)}
+  <Button
+    size="sm"
+    variant="destructive"
+    disabled={cancellingRunId === item.workflowRunId || cancellingJobId === item.jobs[0]?.id}
+    onclick={(e: Event) => {
+      e.stopPropagation();
+      handleWorkflowCancel(item);
+    }}
+  >
+    <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
+    Cancel
+  </Button>
+{/snippet}
+
+{#snippet copyWorkflowIdButton(
+  workflowRunId: string,
+)}
+  <button
+    type="button"
+    class="inline-flex shrink-0 items-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted border-none bg-transparent cursor-pointer"
+    title="Copy workflow ID: {workflowRunId}"
+    onclick={(e) => {
+      e.stopPropagation();
+      copyWorkflowId(workflowRunId, workflowRunId);
+    }}
+    aria-label="Copy workflow ID {workflowRunId}"
+  >
+    {#if copiedJobId === workflowRunId}
+      <CheckIcon size={12} aria-hidden="true" />
+    {:else}
+      <CopyIcon size={12} aria-hidden="true" />
+    {/if}
+  </button>
+{/snippet}
+
 <!-- Mobile & Tablet: Card layout -->
 <div class="responsive-cards">
   {#each paginatedItems as item}
@@ -356,44 +468,17 @@ function trackColumnWidths(container: HTMLElement) {
         <div class="flex items-start justify-between gap-2">
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
-              <Badge variant="outline" class={automationStyle(queueLabel(job.queue)).border}
-                >{queueLabel(job.queue)}</Badge
-              >
+              {@render queueBadge(queueLabel(job.queue))}
               <StatusDot status={job.status} title={job.status} size="md" />
             </div>
             <p class="text-sm mt-1.5 truncate" title={job.description}>{job.description}</p>
-            {#if job.error}
-              <p class="text-xs text-destructive mt-0.5 truncate">{job.error}</p>
-            {/if}
+            {@render jobError(job)}
           </div>
         </div>
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          <span>Created: {formatTimestamp(job.createdAt)}</span>
-          <span>Completed: {formatTimestamp(job.completedAt, "\u2013")}</span>
-        </div>
+        {@render cardTimestamps(job.createdAt, job.completedAt)}
         <hr>
         <div class="flex flex-wrap items-center gap-2">
-          {#if job.status === "failed"}
-            <Button size="sm" variant="default" disabled={retryingJobId === job.id} onclick={() => handleRetry(job.id)}>
-              <ArrowCounterClockwiseIcon size={14} class="mr-1" aria-hidden="true" />
-              {retryingJobId === job.id ? "..." : "Retry"}
-            </Button>
-          {/if}
-          {#if isCancellable(job.status)}
-            <Button
-              size="sm"
-              variant="destructive"
-              disabled={cancellingJobId === job.id}
-              onclick={() => handleCancel(job.id)}
-            >
-              <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
-              {cancellingJobId === job.id ? "..." : "Cancel"}
-            </Button>
-          {/if}
-          <Button size="sm" variant="outline" onclick={() => (selectedJobId = job.id)}>
-            <FileTextIcon size={14} class="mr-1" aria-hidden="true" />
-            Logs
-          </Button>
+          {@render jobActions(job, true)}
         </div>
       </div>
     {:else}
@@ -414,60 +499,22 @@ function trackColumnWidths(container: HTMLElement) {
       >
         <div class="w-full p-4 flex flex-col gap-2 text-left">
           <div class="flex items-center gap-2">
-            <Badge variant="outline" class={automationStyle("workflow").border}>workflow</Badge>
+            {@render queueBadge("workflow")}
             <div class="flex items-center gap-1.5">
               <StatusDot status={item.aggregateStatus} title={item.aggregateStatus} />
             </div>
           </div>
           <div class="flex items-center gap-2">
-            {#if isExpanded}
-              <CaretDownIcon size={14} class="shrink-0 text-muted-foreground" aria-hidden="true" />
-            {:else}
-              <CaretRightIcon size={14} class="shrink-0 text-muted-foreground" aria-hidden="true" />
-            {/if}
+            {@render expandCaret(isExpanded, "shrink-0 text-muted-foreground")}
             <p class="text-sm font-medium truncate min-w-0 flex-1">{item.workflowName}</p>
-            <button
-              type="button"
-              class="inline-flex shrink-0 items-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted border-none bg-transparent cursor-pointer"
-              title="Copy workflow ID: {item.workflowRunId}"
-              onclick={(e) => {
-                e.stopPropagation();
-                copyWorkflowId(item.workflowRunId, item.workflowRunId);
-              }}
-              aria-label="Copy workflow ID {item.workflowRunId}"
-            >
-              {#if copiedJobId === item.workflowRunId}
-                <CheckIcon size={12} aria-hidden="true" />
-              {:else}
-                <CopyIcon size={12} aria-hidden="true" />
-              {/if}
-            </button>
+            {@render copyWorkflowIdButton(item.workflowRunId)}
           </div>
         </div>
-        <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground px-4 pb-3 -mt-1">
-          <span>Created: {formatTimestamp(Math.min(...item.jobs.map((j) => j.createdAt)))}</span>
-          <span
-            >Completed:
-            {item.jobs.every((j) => j.completedAt)
-              ? formatTimestamp(Math.max(...item.jobs.map((j) => j.completedAt!)))
-              : "\u2013"}</span
-          >
-        </div>
+        {@render cardTimestamps(workflowCreatedAt(item.jobs), workflowCompletedAt(item.jobs), "px-4 pb-3 -mt-1")}
 
         {#if isRunCancellable(item.aggregateStatus)}
           <div class="flex flex-wrap items-center gap-2 px-4 pb-3">
-            <Button
-              size="sm"
-              variant="destructive"
-              disabled={cancellingRunId === item.workflowRunId || cancellingJobId === item.jobs[0]?.id}
-              onclick={(e: Event) => {
-                e.stopPropagation();
-                handleWorkflowCancel(item);
-              }}
-            >
-              <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
-              Cancel
-            </Button>
+            {@render workflowCancelButton(item)}
           </div>
         {/if}
 
@@ -492,41 +539,11 @@ function trackColumnWidths(container: HTMLElement) {
                       <StatusDot status={job.status} title={job.status} />
                       <span class="text-sm truncate" title={job.description}>{job.description}</span>
                     </div>
-                    {#if job.error}
-                      <p class="text-xs text-destructive truncate">{job.error}</p>
-                    {/if}
-                    <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-                      <span>Created: {formatTimestamp(job.createdAt)}</span>
-                      <span>Completed: {formatTimestamp(job.completedAt, "\u2013")}</span>
-                    </div>
+                    {@render jobError(job, "")}
+                    {@render cardTimestamps(job.createdAt, job.completedAt)}
                     <hr>
                     <div class="flex flex-wrap items-center gap-2">
-                      {#if job.status === "failed"}
-                        <Button
-                          size="sm"
-                          variant="default"
-                          disabled={retryingJobId === job.id}
-                          onclick={() => handleRetry(job.id)}
-                        >
-                          <ArrowCounterClockwiseIcon size={14} class="mr-1" aria-hidden="true" />
-                          {retryingJobId === job.id ? "..." : "Retry"}
-                        </Button>
-                      {/if}
-                      {#if isCancellable(job.status)}
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          disabled={cancellingJobId === job.id}
-                          onclick={() => handleCancel(job.id)}
-                        >
-                          <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
-                          {cancellingJobId === job.id ? "..." : "Cancel"}
-                        </Button>
-                      {/if}
-                      <Button size="sm" variant="outline" onclick={() => (selectedJobId = job.id)}>
-                        <FileTextIcon size={14} class="mr-1" aria-hidden="true" />
-                        Logs
-                      </Button>
+                      {@render jobActions(job, true)}
                     </div>
                   </div>
                 </div>
@@ -559,19 +576,13 @@ function trackColumnWidths(container: HTMLElement) {
           {@const job = item.job}
           <TableRow class={job.error ? "bg-destructive/5" : ""}>
             <TableCell></TableCell>
-            <TableCell>
-              <Badge variant="outline" class={automationStyle(queueLabel(job.queue)).border}
-                >{queueLabel(job.queue)}</Badge
-              >
-            </TableCell>
+            <TableCell> {@render queueBadge(queueLabel(job.queue))} </TableCell>
             <TableCell>
               <StatusDot status={job.status} title={job.status} />
             </TableCell>
             <TableCell class="max-w-48">
               <span class="truncate block" title={job.description}>{job.description}</span>
-              {#if job.error}
-                <p class="text-xs text-destructive mt-0.5 truncate">{job.error}</p>
-              {/if}
+              {@render jobError(job)}
             </TableCell>
             <TableCell class="hidden xl:table-cell text-sm text-muted-foreground">
               {formatTimestamp(job.createdAt)}
@@ -581,32 +592,7 @@ function trackColumnWidths(container: HTMLElement) {
             </TableCell>
             <TableCell class="text-right w-1">
               <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                {#if job.status === "failed"}
-                  <Button
-                    size="sm"
-                    variant="default"
-                    disabled={retryingJobId === job.id}
-                    onclick={() => handleRetry(job.id)}
-                  >
-                    <ArrowCounterClockwiseIcon size={14} class="mr-1.5" aria-hidden="true" />
-                    {retryingJobId === job.id ? "Retrying" : "Retry"}
-                  </Button>
-                {/if}
-                {#if isCancellable(job.status)}
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    disabled={cancellingJobId === job.id}
-                    onclick={() => handleCancel(job.id)}
-                  >
-                    <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
-                    {cancellingJobId === job.id ? "Cancelling" : "Cancel"}
-                  </Button>
-                {/if}
-                <Button size="sm" variant="outline" onclick={() => (selectedJobId = job.id)}>
-                  <FileTextIcon size={14} class="mr-1.5" aria-hidden="true" />
-                  Logs
-                </Button>
+                {@render jobActions(job, false)}
               </div>
             </TableCell>
           </TableRow>
@@ -622,16 +608,8 @@ function trackColumnWidths(container: HTMLElement) {
               }
             }}
           >
-            <TableCell class="w-8 pr-0">
-              {#if isExpanded}
-                <CaretDownIcon size={14} class="text-muted-foreground" aria-hidden="true" />
-              {:else}
-                <CaretRightIcon size={14} class="text-muted-foreground" aria-hidden="true" />
-              {/if}
-            </TableCell>
-            <TableCell>
-              <Badge variant="outline" class={automationStyle("workflow").border}>workflow</Badge>
-            </TableCell>
+            <TableCell class="w-8 pr-0"> {@render expandCaret(isExpanded, "text-muted-foreground")} </TableCell>
+            <TableCell> {@render queueBadge("workflow")} </TableCell>
             <TableCell>
               <div class="flex items-center gap-1">
                 <StatusDot status={item.aggregateStatus} title={item.aggregateStatus} />
@@ -640,47 +618,19 @@ function trackColumnWidths(container: HTMLElement) {
             <TableCell class="max-w-48">
               <div class="flex items-center gap-1">
                 <span class="truncate font-medium" title={item.workflowName}>{item.workflowName}</span>
-                <button
-                  type="button"
-                  class="inline-flex shrink-0 items-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted border-none bg-transparent cursor-pointer"
-                  title="Copy workflow ID: {item.workflowRunId}"
-                  onclick={(e) => {
-                    e.stopPropagation();
-                    copyWorkflowId(item.workflowRunId, item.workflowRunId);
-                  }}
-                  aria-label="Copy workflow ID {item.workflowRunId}"
-                >
-                  {#if copiedJobId === item.workflowRunId}
-                    <CheckIcon size={12} aria-hidden="true" />
-                  {:else}
-                    <CopyIcon size={12} aria-hidden="true" />
-                  {/if}
-                </button>
+                {@render copyWorkflowIdButton(item.workflowRunId)}
               </div>
             </TableCell>
             <TableCell class="hidden xl:table-cell text-sm text-muted-foreground">
-              {formatTimestamp(Math.min(...item.jobs.map((j) => j.createdAt)))}
+              {formatTimestamp(workflowCreatedAt(item.jobs))}
             </TableCell>
             <TableCell class="hidden xl:table-cell text-sm text-muted-foreground">
-              {item.jobs.every((j) => j.completedAt)
-                ? formatTimestamp(Math.max(...item.jobs.map((j) => j.completedAt!)))
-                : "\u2013"}
+              {formatTimestamp(workflowCompletedAt(item.jobs), "\u2013")}
             </TableCell>
             <TableCell class="text-right w-1">
               <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
                 {#if isRunCancellable(item.aggregateStatus)}
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    disabled={cancellingRunId === item.workflowRunId || cancellingJobId === item.jobs[0]?.id}
-                    onclick={(e: Event) => {
-                      e.stopPropagation();
-                      handleWorkflowCancel(item);
-                    }}
-                  >
-                    <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
-                    Cancel
-                  </Button>
+                  {@render workflowCancelButton(item)}
                 {/if}
               </div>
             </TableCell>
@@ -707,9 +657,7 @@ function trackColumnWidths(container: HTMLElement) {
                       </div>
                       <div class="p-3 min-w-0 flex-1">
                         <span class="truncate block text-sm" title={job.description}>{job.description}</span>
-                        {#if job.error}
-                          <p class="text-xs text-destructive mt-0.5 truncate">{job.error}</p>
-                        {/if}
+                        {@render jobError(job)}
                       </div>
                       <div
                         class="p-3 shrink-0 hidden xl:block text-sm text-muted-foreground"
@@ -725,32 +673,7 @@ function trackColumnWidths(container: HTMLElement) {
                       </div>
                       <div class="p-3 shrink-0 text-right" style="width: var(--col-6)">
                         <div class="inline-flex justify-end gap-2 flex-wrap">
-                          {#if job.status === "failed"}
-                            <Button
-                              size="sm"
-                              variant="default"
-                              disabled={retryingJobId === job.id}
-                              onclick={() => handleRetry(job.id)}
-                            >
-                              <ArrowCounterClockwiseIcon size={14} class="mr-1.5" aria-hidden="true" />
-                              {retryingJobId === job.id ? "Retrying" : "Retry"}
-                            </Button>
-                          {/if}
-                          {#if isCancellable(job.status)}
-                            <Button
-                              size="sm"
-                              variant="destructive"
-                              disabled={cancellingJobId === job.id}
-                              onclick={() => handleCancel(job.id)}
-                            >
-                              <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
-                              {cancellingJobId === job.id ? "Cancelling" : "Cancel"}
-                            </Button>
-                          {/if}
-                          <Button size="sm" variant="outline" onclick={() => (selectedJobId = job.id)}>
-                            <FileTextIcon size={14} class="mr-1.5" aria-hidden="true" />
-                            Logs
-                          </Button>
+                          {@render jobActions(job, false)}
                         </div>
                       </div>
                     </div>
