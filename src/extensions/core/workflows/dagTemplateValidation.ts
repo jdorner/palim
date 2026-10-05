@@ -469,21 +469,26 @@ export async function validateDagWorkflowTemplates(
               continue;
             }
 
-            // Path-existence check: `{{trigger.payload.<path>}}`. Additive and
-            // schema-dependent; suppressed when no resolver is provided or it
-            // returns null/undefined. A present-but-malformed schema is NOT
-            // treated as absent - the walker decides whether the path resolves.
+            // Path-existence check: `{{trigger.payload.<path>}}`. Suppressed
+            // when no resolver is provided. When the trigger has no schema
+            // (no built-in for its type and no explicit `outputSchema`), the
+            // path cannot exist, so it warns. A present-but-malformed schema is
+            // NOT treated as absent - the walker decides whether the path resolves.
             if (parts.length > 2 && resolveTriggerOutputSchema) {
               const schema = resolveTriggerOutputSchema();
-              if (schema !== null && schema !== undefined) {
-                const dotPath = parts.slice(2);
-                if (!walkSchemaPath(schema, dotPath).resolved) {
-                  warnings.push({
-                    stepSlug: slug,
-                    field: fieldName,
-                    message: `Reference to unknown payload path "${dotPath.join(".")}" on the trigger in "{{${expr}}}"`,
-                  });
-                }
+              const dotPath = parts.slice(2);
+              if (schema === null || schema === undefined) {
+                warnings.push({
+                  stepSlug: slug,
+                  field: fieldName,
+                  message: `Reference to unknown payload path "${dotPath.join(".")}" in "{{${expr}}}" - the ${definition.trigger.type} trigger declares no output schema`,
+                });
+              } else if (!walkSchemaPath(schema, dotPath).resolved) {
+                warnings.push({
+                  stepSlug: slug,
+                  field: fieldName,
+                  message: `Reference to unknown payload path "${dotPath.join(".")}" on the trigger in "{{${expr}}}"`,
+                });
               }
             }
             continue;
