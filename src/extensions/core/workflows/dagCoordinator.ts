@@ -795,41 +795,56 @@ async function checkSuccessors(
     }
 
     // Step is ready (all edges resolved, at least one satisfied)
-    const stepDef = definition.steps[slug]!;
-
-    if (DAG_CF_TYPES.has(stepDef.type)) {
-      // CF node: evaluate inline
-      dagRunStore.updateStepStatus(runId, slug, "running");
-      const freshRun = dagRunStore.get(runId)!;
-      await evaluateCfNode(runId, slug, freshRun, definition, topology, deps);
-      // Re-read after CF evaluation
-      const postCfRun = dagRunStore.get(runId);
-      if (!postCfRun || !dagRunStore.isActiveRunStatus(postCfRun.status)) return;
-      Object.assign(run, postCfRun);
-    } else if (stepDef.type === "waitFor") {
-      // WaitFor node: register a signal and pause this branch (no queue job)
-      registerWaitForNode(runId, slug, stepDef as DagWaitForStep, deps);
-      const freshRun = dagRunStore.get(runId)!;
-      Object.assign(run, freshRun);
-    } else if (stepDef.type === "aggregator") {
-      // Aggregator node: evaluate inline (collect results, advance iteration or complete)
-      dagRunStore.updateStepStatus(runId, slug, "running");
-      const freshRun = dagRunStore.get(runId)!;
-      await evaluateAggregatorNode(runId, slug, stepDef as DagAggregatorStep, freshRun, definition, topology, deps);
-      const postAggRun = dagRunStore.get(runId);
-      if (!postAggRun || !dagRunStore.isActiveRunStatus(postAggRun.status)) return;
-      Object.assign(run, postAggRun);
-    } else {
-      // Execution node: dispatch as a job
-      await dispatchStep(runId, slug, stepDef as DagStep, run, definition, deps);
-      // Re-read after dispatch
-      const freshRun = dagRunStore.get(runId)!;
-      Object.assign(run, freshRun);
-    }
+    await activateReadyStep(runId, slug, definition, topology, deps);
+    const postRun = dagRunStore.get(runId);
+    if (!postRun || !dagRunStore.isActiveRunStatus(postRun.status)) return;
+    Object.assign(run, postRun);
   }
 
   // After processing all successors, check for run completion
   await checkRunCompletion(runId, topology, deps);
+}
+
+/**
+ * Activates a step whose incoming edges are all resolved with at least one satisfied.
+ *
+ * Inline node types never go through the queue: CF nodes (`if`/`case`/`iterator`)
+ * and aggregators are evaluated in the coordinator, `waitFor` registers a signal.
+ * All other types are dispatched as queue jobs. Every readiness path (successor
+ * checks and dead-edge propagation) must route through here so inline types are
+ * never dispatched to the worker.
+ *
+ * @param runId - The workflow run ID
+ * @param slug - The ready step slug
+ * @param definition - The workflow definition
+ * @param topology - Precomputed graph topology
+ * @param deps - Injected dependencies
+ */
+async function activateReadyStep(
+  runId: string,
+  slug: string,
+  definition: DagWorkflowDefinition,
+  topology: DagGraphTopology,
+  deps: DagCoordinatorDeps,
+): Promise<void> {
+  const stepDef = definition.steps[slug]!;
+
+  if (DAG_CF_TYPES.has(stepDef.type)) {
+    // CF node: evaluate inline
+    dagRunStore.updateStepStatus(runId, slug, "running");
+    await evaluateCfNode(runId, slug, dagRunStore.get(runId)!, definition, topology, deps);
+  } else if (stepDef.type === "waitFor") {
+    // WaitFor node: register a signal and pause this branch (no queue job)
+    registerWaitForNode(runId, slug, stepDef as DagWaitForStep, deps);
+  } else if (stepDef.type === "aggregator") {
+    // Aggregator node: evaluate inline (collect results, advance iteration or complete)
+    dagRunStore.updateStepStatus(runId, slug, "running");
+    const run = dagRunStore.get(runId)!;
+    await evaluateAggregatorNode(runId, slug, stepDef as DagAggregatorStep, run, definition, topology, deps);
+  } else {
+    // Execution node: dispatch as a job
+    await dispatchStep(runId, slug, stepDef as DagStep, dagRunStore.get(runId)!, definition, deps);
+  }
 }
 
 /**
@@ -941,10 +956,11 @@ async function propagateDead(
 
   // Recursively check successors
   if (outEdges.length > 0) {
-    const updatedRun = dagRunStore.get(runId)!;
-    if (!dagRunStore.isActiveRunStatus(updatedRun.status)) return;
-
     for (const edge of outEdges) {
+      // Re-read per successor: earlier iterations may have activated or killed steps
+      const updatedRun = dagRunStore.get(runId)!;
+      if (!dagRunStore.isActiveRunStatus(updatedRun.status)) return;
+
       const successorSlug = edge.to;
       if (updatedRun.stepStatuses[successorSlug] !== "pending") continue;
 
@@ -971,16 +987,7 @@ async function propagateDead(
         await propagateDead(runId, successorSlug, definition, topology, deps);
       } else if (allResolved && hasSatisfied) {
         // This successor just became ready (dead edges from this step + satisfied from others)
-        const stepDef = definition.steps[successorSlug]!;
-        const freshRun = dagRunStore.get(runId)!;
-        if (!dagRunStore.isActiveRunStatus(freshRun.status)) return;
-
-        if (DAG_CF_TYPES.has(stepDef.type)) {
-          dagRunStore.updateStepStatus(runId, successorSlug, "running");
-          await evaluateCfNode(runId, successorSlug, dagRunStore.get(runId)!, definition, topology, deps);
-        } else {
-          await dispatchStep(runId, successorSlug, stepDef as DagStep, freshRun, definition, deps);
-        }
+        await activateReadyStep(runId, successorSlug, definition, topology, deps);
       }
     }
   }

@@ -638,3 +638,81 @@ describe("set-variables accumulation inside an iterator", () => {
     expect(finalRun.stepResults.after).toEqual({ final: "a, b, c, " });
   });
 });
+
+describe("dead-edge propagation into inline nodes", () => {
+  // Regression: when an `if` kills one branch and satisfies another that joins
+  // at an inline node, and the dead branch is propagated first, propagateDead
+  // found the join ready and dispatched it as a queue job. The worker has no
+  // handler for inline types ("No handler registered for step type aggregator").
+  test("aggregator reached via a dead branch + satisfied branch is evaluated inline", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "dead-into-aggregator-wf",
+      trigger: { type: "manual" },
+      steps: {
+        mails: { type: "iterator", items: "{{trigger.payload}}", as: "mail" },
+        "has-attachments": { type: "if", condition: { ref: "{{mail}}", gt: "5" } },
+        attachments: { type: "iterator", items: "[1, 2]", as: "attachment" },
+        download: { type: "agent", prompt: "{{attachment}}" },
+        "collect-attachments": { type: "aggregator", iterator: "attachments" },
+        "collect-mails": { type: "aggregator", iterator: "mails" },
+        done: { type: "agent", prompt: "finished" },
+      },
+      // `then` is listed before `else` so the dead branch is propagated first.
+      edges: [
+        { from: "mails", to: "has-attachments", branch: "each" },
+        { from: "has-attachments", to: "attachments", branch: "then" },
+        { from: "has-attachments", to: "collect-mails", branch: "else" },
+        { from: "attachments", to: "download", branch: "each" },
+        { from: "download", to: "collect-attachments" },
+        { from: "collect-attachments", to: "collect-mails" },
+        { from: "collect-mails", to: "done" },
+      ],
+    };
+
+    const run = initRun(def, [1]);
+    const deps = createTestDeps(def);
+
+    await evaluateInlineRoot(run.id, "mails", deps);
+
+    const afterRun = dagRunStore.get(run.id)!;
+    expect(deps.dispatched).toEqual(["done"]);
+    expect(afterRun.status).toBe("running");
+    expect(afterRun.stepStatuses.attachments).toBe("dead");
+    expect(afterRun.stepStatuses["collect-attachments"]).toBe("dead");
+    expect(afterRun.stepStatuses["collect-mails"]).toBe("completed");
+
+    await handleDagStepCompletion(run.id, "done", "ok", "job-1", deps);
+    expect(dagRunStore.get(run.id)!.status).toBe("completed");
+  });
+
+  test("waitFor reached via a dead branch + satisfied branch registers a signal", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "dead-into-waitfor-wf",
+      trigger: { type: "manual" },
+      steps: {
+        a: { type: "agent", prompt: "start" },
+        gate: { type: "if", condition: { ref: "{{steps.a.result}}", eq: "yes" } },
+        skipped: { type: "agent", prompt: "only on yes" },
+        wait: { type: "waitFor", event: "approval.granted" },
+      },
+      edges: [
+        { from: "a", to: "gate" },
+        { from: "gate", to: "skipped", branch: "then" },
+        { from: "gate", to: "wait", branch: "else" },
+        { from: "skipped", to: "wait" },
+      ],
+    };
+
+    const run = initRun(def);
+    dagRunStore.updateStepStatus(run.id, "a", "running");
+    const deps = createTestDeps(def);
+
+    await handleDagStepCompletion(run.id, "a", "no", "job-a", deps);
+
+    const afterRun = dagRunStore.get(run.id)!;
+    expect(deps.dispatched).not.toContain("wait");
+    expect(afterRun.stepStatuses.skipped).toBe("dead");
+    expect(afterRun.stepStatuses.wait).toBe("waiting-signal");
+    expect(signalStore.getAllWaiting().filter((s) => s.runId === run.id).length).toBe(1);
+  });
+});
