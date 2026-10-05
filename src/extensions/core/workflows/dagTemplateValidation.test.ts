@@ -870,3 +870,46 @@ describe("validateDagWorkflowTemplates (malformed var-expression properties)", (
     });
   });
 });
+
+describe("trigger payload paths without a trigger output schema", () => {
+  const filenameSchema: OutputSchema = {
+    type: "object",
+    properties: { filename: { type: "string" } },
+  } as OutputSchema;
+
+  /** Workflow with the given trigger whose single step reads `trigger.payload.filename`. */
+  function filenameWf(trigger: DagWorkflowDefinition["trigger"]): DagWorkflowDefinition {
+    return { ...wf({ a: { type: "agent", prompt: "{{trigger.payload.filename}}" } }, []), trigger };
+  }
+
+  test("warns when the trigger has no output schema", async () => {
+    const warnings = await validateDagWorkflowTemplates(filenameWf({ type: "manual" }), {
+      resolveTriggerOutputSchema: () => null,
+    });
+    expect(warnings).toEqual([
+      {
+        stepSlug: "a",
+        field: "prompt",
+        message:
+          'Reference to unknown payload path "filename" in "{{trigger.payload.filename}}" - the manual trigger declares no output schema',
+      },
+    ]);
+  });
+
+  test("does not warn when the trigger schema declares the path", async () => {
+    const warnings = await validateDagWorkflowTemplates(filenameWf({ type: "filewatcher", ref: "inbox" }), {
+      resolveTriggerOutputSchema: () => filenameSchema,
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  test("does not warn for the bare payload without a schema", async () => {
+    const def = { ...wf({ a: { type: "agent", prompt: "{{trigger.payload}}" } }, []) };
+    const warnings = await validateDagWorkflowTemplates(def, { resolveTriggerOutputSchema: () => null });
+    expect(warnings).toEqual([]);
+  });
+
+  test("skips the check when no resolver is provided", async () => {
+    expect(await validateDagWorkflowTemplates(filenameWf({ type: "manual" }))).toEqual([]);
+  });
+});
