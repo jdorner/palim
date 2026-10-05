@@ -10,7 +10,9 @@
  * @module
  */
 
+import { BlockList, isIPv6 } from "node:net";
 import type { AuthResolver, ResolvedPrincipal } from "@src/auth";
+import { TRUSTED_PROXIES } from "@src/config";
 import type { Server } from "bun";
 
 /** WebSocket auth protocol prefix - clients send the token as `auth-<token>`. */
@@ -67,15 +69,69 @@ export function resolveRequestPrincipal(request: Request, resolver: AuthResolver
   return principal;
 }
 
+/** Set of trusted reverse-proxy addresses, matched by {@link clientAddress}. */
+export type TrustedProxies = BlockList;
+
+/**
+ * Builds the trusted-proxy set from IP/CIDR entries (already validated by config).
+ *
+ * @param entries - IP addresses or CIDR ranges, e.g. `["127.0.0.1", "172.16.0.0/12"]`.
+ * @returns The matcher passed to {@link clientAddress}.
+ */
+export function createTrustedProxies(entries: readonly string[]): TrustedProxies {
+  const list = new BlockList();
+  for (const entry of entries) {
+    const [addr = "", bits] = entry.split("/");
+    const type = isIPv6(addr) ? "ipv6" : "ipv4";
+    if (bits === undefined) list.addAddress(addr, type);
+    else list.addSubnet(addr, Number(bits), type);
+  }
+  return list;
+}
+
+const defaultTrustedProxies = createTrustedProxies(TRUSTED_PROXIES);
+
+/** Whether an address belongs to a trusted proxy (false for anything unparseable). */
+function isTrustedProxy(trusted: TrustedProxies, address: string): boolean {
+  try {
+    return trusted.check(address, isIPv6(address) ? "ipv6" : "ipv4");
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Determines the client address of a request.
  *
+ * The TCP peer address is used unless it is a trusted proxy. In that case the
+ * `X-Forwarded-For` chain is walked right to left (each proxy appends the
+ * address it received the request from) and the first untrusted hop is the
+ * client. Entries further left were supplied by the client and are ignored, so
+ * a forged header cannot pick an arbitrary address.
+ *
  * @param request - The incoming request.
  * @param server - The Bun server (absent when handled in-process, e.g. in tests).
- * @returns The peer address, or "unknown" when it cannot be determined.
+ * @param trusted - Trusted proxies; defaults to the `TRUSTED_PROXIES` config.
+ * @returns The client address, or "unknown" when it cannot be determined.
  */
-export function clientAddress(request: Request, server: Server<unknown> | null | undefined): string {
-  return server?.requestIP(request)?.address ?? "unknown";
+export function clientAddress(
+  request: Request,
+  server: Server<unknown> | null | undefined,
+  trusted: TrustedProxies = defaultTrustedProxies,
+): string {
+  const peer = server?.requestIP(request)?.address ?? "unknown";
+  if (!isTrustedProxy(trusted, peer)) return peer;
+
+  const hops = (request.headers.get("x-forwarded-for") ?? "")
+    .split(",")
+    .map((hop) => hop.trim())
+    .filter(Boolean);
+  for (let i = hops.length - 1; i >= 0; i--) {
+    const hop = hops[i] as string;
+    if (!isTrustedProxy(trusted, hop)) return hop;
+  }
+  // Every hop is a trusted proxy: the leftmost is the closest to the client.
+  return hops[0] ?? peer;
 }
 
 /**

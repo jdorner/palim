@@ -95,6 +95,39 @@ An extension makes a route public by passing `{ public: true }` to `ctx.routes.r
 
 Everything else under `/api/` and `/ext/` returns `401` without a valid token. If the auth service fails to start, those routes return `503` rather than letting requests through.
 
+## Rate limiting and brute-force protection
+
+### Login throttling
+
+Failed logins are counted per client IP and, separately, per username (case-insensitive). The first 5 failures are free. Each further failure locks that key for an exponentially growing delay: 1 s, 2 s, 4 s and so on, up to 15 minutes. A successful login clears both counters, and a key with no failure for an hour is forgotten.
+
+While a key is locked, `POST /api/auth/login` answers `429` with a `Retry-After` header without checking the password, so the correct password doesn't get through during a lockout either. Counting per username stops a distributed attack on one account; counting per IP stops one address from trying many usernames.
+
+The counters are kept in memory and reset when Palim restarts.
+
+### Request rate limits
+
+All `/api/`, `/ext/` and `/ws` requests are rate limited per minute:
+
+| Caller | Bucket | Limit |
+| ------ | ------ | ----- |
+| Valid bearer token | Per token | 1000 |
+| Everyone else (login, public extension routes such as webhooks, WebSocket upgrades, invalid tokens) | Per client IP | 60 |
+
+Buckets are per token rather than per user, so a user's browser session and the internal token their agent jobs run with (see [Internal calls](#internal-calls)) are counted separately. A runaway agent loop gets `429` responses without slowing down the user's web UI. These request limits (not the login throttle) are disabled when `NODE_ENV=development`.
+
+### Reverse proxies
+
+Behind a reverse proxy, every request arrives from the proxy's address. Without further configuration, all clients would share one per-IP bucket and one login-throttle counter. List your proxies in `TRUSTED_PROXIES` (comma-separated IPs or CIDR ranges):
+
+```env
+TRUSTED_PROXIES=127.0.0.1,::1,172.16.0.0/12
+```
+
+When a request comes from a trusted proxy, Palim reads `X-Forwarded-For` from right to left and uses the first address that isn't itself a trusted proxy. Entries further left were supplied by the client and are ignored, so a forged header can't pick an arbitrary address. Requests from any other address use the TCP peer address, and the header is ignored.
+
+Only list proxies that put the address of the connection they received as the last `X-Forwarded-For` entry. nginx does this with `proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`, and Caddy and Traefik do it by default. A proxy that passes the client's header through unchanged would let clients choose their own address.
+
 ## Authorization
 
 ### Roles and permissions
@@ -198,6 +231,8 @@ Extension and workflow secrets are stored in the SecretVault (SQLite, AES-256-GC
 | Threat | Mitigation |
 | ------ | ---------- |
 | Unauthenticated API access | Bearer token required on all `/api/` and `/ext/` routes; fails closed if auth is unavailable |
+| Password guessing | Login lockouts per IP and per username with exponential back-off |
+| Request floods and runaway agent loops | Per-token and per-IP rate limits; forged `X-Forwarded-For` ignored unless sent by a trusted proxy |
 | Stolen database | Only token hashes and argon2id password hashes are stored |
 | A user exceeding their role | Central route rule table for all writes |
 | Seeing other users' conversations | Ownership checks on chat sessions and chat jobs; WebSocket chat-stream and chat-job events delivered only to the owner |

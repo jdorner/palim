@@ -96,6 +96,7 @@ For writing your own extensions, see [docs/writing-extensions.md](docs/writing-e
 | `AGENT_WORK_DIR` | Agent working directory (mounted into the sandbox) | `.work/` |
 | `WEB_HOST` | Web server bind address | `localhost` |
 | `WEB_PORT` | Web server port | `3000` |
+| `TRUSTED_PROXIES` | Comma-separated IPs/CIDRs of reverse proxies whose `X-Forwarded-For` header is trusted | - (header ignored) |
 | `AUTH_ADMIN_USER` | Username of the admin account seeded on first boot | `admin` |
 | `AUTH_ADMIN_PASSWORD` | Password for the seeded admin (empty = generate a one-time password and log it once) | - |
 | `AUTH_SESSION_TTL_MS` | Login token lifetime in ms | `604800000` (7 days) |
