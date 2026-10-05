@@ -6,7 +6,7 @@
 import CaretRightIcon from "phosphor-svelte/lib/CaretRightIcon";
 import WarningIcon from "phosphor-svelte/lib/WarningIcon";
 import { slide } from "svelte/transition";
-import type { WorkflowWarning } from "$lib/workflowDetail";
+import { type WorkflowWarning, warningLocation } from "$lib/workflowDetail";
 
 interface Props {
   /** Warnings to list; the banner is hidden when empty. */
@@ -35,7 +35,7 @@ let expanded = $state(false);
     {#if expanded}
       <ul class="list-disc list-inside text-xs text-amber-500/80 space-y-0.5 mt-1" transition:slide={{ duration: 100 }}>
         {#each warnings as warning}
-          <li><span class="font-mono">{warning.stepSlug}.{warning.field}</span>: {warning.message}</li>
+          <li><span class="font-mono">{warningLocation(warning)}</span>: {warning.message}</li>
         {/each}
       </ul>
     {/if}
