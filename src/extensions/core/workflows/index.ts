@@ -328,6 +328,72 @@ function createTriggerSourceFetch(request: Request): typeof globalThis.fetch {
   });
 }
 
+/** Trigger types whose `ref` points at an entity owned by another extension. */
+type RefTriggerType = "webhook" | "schedule" | "filewatcher";
+
+/**
+ * Known trigger refs per trigger type. `null` means the lookup failed (owning
+ * extension disabled, unreachable, or access denied), so refs of that type
+ * cannot be verified.
+ */
+export type TriggerRefLookup = Record<RefTriggerType, string[] | null>;
+
+/** Human-readable names of the entities a trigger ref points at. */
+const TRIGGER_REF_LABELS: Record<RefTriggerType, string> = {
+  webhook: "Webhook",
+  schedule: "Schedule",
+  filewatcher: "File watcher",
+};
+
+/**
+ * Looks up the existing trigger refs (webhook slugs, schedule ids, file
+ * watcher slugs) on behalf of a request.
+ *
+ * @param request - The incoming request whose principal the lookups act as.
+ * @param origin - Internal server origin to fetch from.
+ * @returns The known refs per trigger type (`null` for a failed lookup).
+ */
+async function fetchTriggerRefs(request: Request, origin: string): Promise<TriggerRefLookup> {
+  const triggerFetch = createTriggerSourceFetch(request);
+  const lookup = <T>(path: string, key: (item: T) => string): Promise<string[] | null> =>
+    triggerFetch(`${origin}${path}`)
+      .then((r) => (r.ok ? (r.json() as Promise<T[]>) : null))
+      .then((list) => (Array.isArray(list) ? list.map(key).sort() : null))
+      .catch(() => null);
+
+  const [webhook, schedule, filewatcher] = await Promise.all([
+    lookup<{ slug: string }>("/ext/webhooks", (w) => w.slug),
+    lookup<{ id: string }>("/ext/scheduler/schedules", (s) => s.id),
+    lookup<{ slug: string }>("/ext/filewatcher", (w) => w.slug),
+  ]);
+  return { webhook, schedule, filewatcher };
+}
+
+/**
+ * Produces warnings for a trigger whose `ref` is missing or points at an
+ * entity that no longer exists (e.g. a deleted webhook). Warnings use the
+ * reserved `__trigger__` step slug so the UI attributes them to the trigger
+ * node. Refs whose lookup failed are not reported.
+ *
+ * @param definition - The DAG workflow definition to check
+ * @param refs - Known trigger refs per trigger type
+ * @returns Array of trigger warnings (empty if the trigger is valid or unverifiable)
+ */
+export function getTriggerRefWarnings(definition: DagWorkflowDefinition, refs: TriggerRefLookup): TemplateWarning[] {
+  const { type, ref } = definition.trigger;
+  if (type === "manual") return [];
+
+  const label = TRIGGER_REF_LABELS[type];
+  if (!ref) {
+    return [{ stepSlug: "__trigger__", field: "ref", message: `${label} trigger has no ref` }];
+  }
+  const known = refs[type];
+  if (known && !known.includes(ref)) {
+    return [{ stepSlug: "__trigger__", field: "ref", message: `${label} "${ref}" does not exist` }];
+  }
+  return [];
+}
+
 /**
  * Produces per-step warnings for dependencies that are not currently available.
  *
@@ -813,31 +879,16 @@ export function createExtension(): Extension {
        * Returns available trigger refs grouped by trigger type.
        */
       ctx.routes.register("GET", "/meta/triggers", async (reqCtx) => {
-        const origin = ctx.urls.origin;
-        const triggerFetch = createTriggerSourceFetch(reqCtx.request);
-        const [webhookSlugs, schedulerIds, filewatcherSlugs] = await Promise.all([
-          triggerFetch(`${origin}/ext/webhooks`)
-            .then((r) => (r.ok ? (r.json() as Promise<{ slug: string }[]>) : []))
-            .then((list) => list.map((w) => w.slug))
-            .catch(() => [] as string[]),
-          triggerFetch(`${origin}/ext/scheduler/schedules`)
-            .then((r) => (r.ok ? (r.json() as Promise<{ id: string }[]>) : []))
-            .then((list) => list.map((s) => s.id))
-            .catch(() => [] as string[]),
-          triggerFetch(`${origin}/ext/filewatcher`)
-            .then((r) => (r.ok ? (r.json() as Promise<{ slug: string }[]>) : []))
-            .then((list) => list.map((w) => w.slug))
-            .catch(() => [] as string[]),
-        ]);
-
+        const refs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin);
         return Response.json({
-          webhook: webhookSlugs.sort(),
-          schedule: schedulerIds.sort(),
-          filewatcher: filewatcherSlugs.sort(),
+          webhook: refs.webhook ?? [],
+          schedule: refs.schedule ?? [],
+          filewatcher: refs.filewatcher ?? [],
         });
       });
 
-      ctx.routes.register("GET", "/", async () => {
+      ctx.routes.register("GET", "/", async (reqCtx) => {
+        const triggerRefs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin);
         const list = await Promise.all(
           [...store.values()].map(async (w) => {
             const allRuns = dagRunStore.getByWorkflowName(w.name);
@@ -895,7 +946,13 @@ export function createExtension(): Extension {
               activeRuns,
               completedRuns,
               failedRuns,
-              warnings: [...templateWarnings, ...depWarnings, ...pairingWarnings, ...schemaWarnings],
+              warnings: [
+                ...getTriggerRefWarnings(w, triggerRefs),
+                ...templateWarnings,
+                ...depWarnings,
+                ...pairingWarnings,
+                ...schemaWarnings,
+              ],
             };
           }),
         );
@@ -946,6 +1003,7 @@ export function createExtension(): Extension {
           allowsSelfReference: (type) => ctx.stepTypes.get(type)?.selfReference === true,
         });
         const depWarnings = getDependencyWarnings(wf, ctx);
+        const triggerRefs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin);
         const pairingWarnings: TemplateWarning[] = validateIteratorPairing(wf).map((e) => ({
           stepSlug: "",
           field: "pairing",
@@ -955,7 +1013,13 @@ export function createExtension(): Extension {
         return Response.json({
           ...wf,
           runs,
-          warnings: [...templateWarnings, ...depWarnings, ...pairingWarnings, ...schemaWarnings],
+          warnings: [
+            ...getTriggerRefWarnings(wf, triggerRefs),
+            ...templateWarnings,
+            ...depWarnings,
+            ...pairingWarnings,
+            ...schemaWarnings,
+          ],
           outputSchemas,
         });
       });

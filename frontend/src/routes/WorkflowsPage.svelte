@@ -12,6 +12,7 @@ import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { automationStyle } from "$lib/utils";
+import { warningLocation } from "$lib/workflowDetail";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import { navigate } from "../router";
 
@@ -146,7 +147,7 @@ $effect(() => {
               {#if wf.warnings.length > 0}
                 <span
                   class="inline-flex items-center gap-1 text-xs text-amber-500 mt-1"
-                  title={wf.warnings.map((w) => `[${w.stepSlug}.${w.field}] ${w.message}`).join("\n")}
+                  title={wf.warnings.map((w) => `[${warningLocation(w)}] ${w.message}`).join("\n")}
                 >
                   <WarningIcon size={12} aria-hidden="true" />
                   {wf.warnings.length}
@@ -265,7 +266,7 @@ $effect(() => {
                 {#if wf.warnings.length > 0}
                   <span
                     class="flex items-center gap-1 text-xs text-amber-500 mt-0.5"
-                    title={wf.warnings.map((w) => `[${w.stepSlug}.${w.field}] ${w.message}`).join("\n")}
+                    title={wf.warnings.map((w) => `[${warningLocation(w)}] ${w.message}`).join("\n")}
                   >
                     <WarningIcon size={12} aria-hidden="true" />
                     {wf.warnings.length}

@@ -5,7 +5,13 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionContext, StepTypeHandler } from "@ext/types";
 import { Type } from "@sinclair/typebox";
-import { buildStepJobIdMap, getDependencyWarnings, validateWorkflowDependencies } from "./index";
+import {
+  buildStepJobIdMap,
+  getDependencyWarnings,
+  getTriggerRefWarnings,
+  type TriggerRefLookup,
+  validateWorkflowDependencies,
+} from "./index";
 import type { DagWorkflowDefinition } from "./schemas";
 
 // ---------------------------------------------------------------------------
@@ -265,5 +271,43 @@ describe("getDependencyWarnings (custom step-type config)", () => {
     expect(warnings).toHaveLength(1);
     expect(warnings[0]!.field).toBe("type");
     expect(warnings[0]!.message).toContain("not available");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getTriggerRefWarnings
+// ---------------------------------------------------------------------------
+
+describe("getTriggerRefWarnings", () => {
+  const refs: TriggerRefLookup = { webhook: ["incoming"], schedule: ["nightly"], filewatcher: null };
+
+  /** Builds a minimal workflow with the given trigger. */
+  function wf(trigger: DagWorkflowDefinition["trigger"]): DagWorkflowDefinition {
+    return { name: "wf", trigger, steps: { a: { type: "agent", prompt: "Hi" } }, edges: [] };
+  }
+
+  test("returns no warnings for a manual trigger", () => {
+    expect(getTriggerRefWarnings(wf({ type: "manual" }), refs)).toEqual([]);
+  });
+
+  test("returns no warnings when the ref exists", () => {
+    expect(getTriggerRefWarnings(wf({ type: "webhook", ref: "incoming" }), refs)).toEqual([]);
+    expect(getTriggerRefWarnings(wf({ type: "schedule", ref: "nightly" }), refs)).toEqual([]);
+  });
+
+  test("warns on the trigger node when the ref does not exist", () => {
+    expect(getTriggerRefWarnings(wf({ type: "webhook", ref: "deleted" }), refs)).toEqual([
+      { stepSlug: "__trigger__", field: "ref", message: 'Webhook "deleted" does not exist' },
+    ]);
+  });
+
+  test("warns when a non-manual trigger has no ref", () => {
+    expect(getTriggerRefWarnings(wf({ type: "schedule" }), refs)).toEqual([
+      { stepSlug: "__trigger__", field: "ref", message: "Schedule trigger has no ref" },
+    ]);
+  });
+
+  test("does not report refs whose lookup failed", () => {
+    expect(getTriggerRefWarnings(wf({ type: "filewatcher", ref: "anything" }), refs)).toEqual([]);
   });
 });

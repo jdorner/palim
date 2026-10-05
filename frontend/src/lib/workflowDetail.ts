@@ -30,6 +30,18 @@ export interface WorkflowWarning {
   message: string;
 }
 
+/**
+ * Formats a warning's location as `<slug>.<field>`, showing the reserved
+ * `__trigger__` slug (used for trigger warnings) as `trigger`.
+ *
+ * @param warning - The warning to locate
+ * @returns The display location, e.g. `fetch.url` or `trigger.ref`
+ */
+export function warningLocation(warning: WorkflowWarning): string {
+  const slug = warning.stepSlug === "__trigger__" ? "trigger" : warning.stepSlug;
+  return `${slug}.${warning.field}`;
+}
+
 export interface WorkflowRunSummary {
   runId: string;
   status: string;
