@@ -10,7 +10,8 @@
  * @module
  */
 
-import type { ResolvedPrincipal } from "@src/auth";
+import type { AuthResolver, ResolvedPrincipal } from "@src/auth";
+import type { Server } from "bun";
 
 /** WebSocket auth protocol prefix - clients send the token as `auth-<token>`. */
 export const WS_AUTH_PREFIX = "auth-";
@@ -43,6 +44,38 @@ export function setPrincipal(request: Request, principal: ResolvedPrincipal): vo
  */
 export function getPrincipal(request: Request): ResolvedPrincipal | undefined {
   return principals.get(request);
+}
+
+/**
+ * Per-request cache of token resolution results (including failures), so the
+ * rate limiter and the auth check resolve each request's token only once.
+ */
+const resolved = new WeakMap<Request, ResolvedPrincipal | null>();
+
+/**
+ * Resolves the request's bearer token to a principal, memoized per request.
+ *
+ * @param request - The incoming request.
+ * @param resolver - The resolver mapping tokens to principals.
+ * @returns The resolved principal, or null when the token is missing or invalid.
+ */
+export function resolveRequestPrincipal(request: Request, resolver: AuthResolver): ResolvedPrincipal | null {
+  const cached = resolved.get(request);
+  if (cached !== undefined) return cached;
+  const principal = resolver.resolveToken(extractBearerToken(request.headers.get("authorization")));
+  resolved.set(request, principal);
+  return principal;
+}
+
+/**
+ * Determines the client address of a request.
+ *
+ * @param request - The incoming request.
+ * @param server - The Bun server (absent when handled in-process, e.g. in tests).
+ * @returns The peer address, or "unknown" when it cannot be determined.
+ */
+export function clientAddress(request: Request, server: Server<unknown> | null | undefined): string {
+  return server?.requestIP(request)?.address ?? "unknown";
 }
 
 /**
