@@ -66,15 +66,17 @@ function handleKeydown(e: KeyboardEvent) {
     <div
       bind:this={panelEl}
       class={cn(
-        "bg-background border border-border rounded-lg shadow-lg w-full max-w-md max-h-full flex flex-col",
+        "bg-background border border-border rounded-lg shadow-lg w-full max-w-md max-h-full flex flex-col overflow-hidden",
         className,
       )}
     >
-      <div class="px-6 pt-5 pb-3 flex items-start justify-between gap-4">
-        <div class="min-w-0 space-y-1">
-          <h2 id={titleId} class="text-lg font-semibold">{title}</h2>
+      <div class="relative shrink-0 flex items-center gap-4 px-4 py-2 text-white bg-slate-500">
+        <!-- Subtle sheen so the flat color reads as a header band (matches StepPanelHeader) -->
+        <div class="pointer-events-none absolute inset-0 bg-linear-to-r from-black/10 to-white/15" aria-hidden="true"></div>
+        <div class="relative flex-1 min-w-0 flex flex-col leading-tight">
+          <h2 id={titleId} class="text-sm font-semibold truncate">{title}</h2>
           {#if description}
-            <p class="text-sm text-muted-foreground">{description}</p>
+            <p class="text-[11px] text-white/80">{description}</p>
           {/if}
         </div>
         {#if onClose}
@@ -83,13 +85,13 @@ function handleKeydown(e: KeyboardEvent) {
             aria-label="Close"
             data-dialog-close
             onclick={onClose}
-            class="-mr-2 -mt-1 rounded-md p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            class="relative -mr-1 shrink-0 rounded-md p-1.5 text-white/85 hover:bg-white/20 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"
           >
-            <XIcon size={16} aria-hidden="true" />
+            <XIcon size={16} weight="bold" aria-hidden="true" />
           </button>
         {/if}
       </div>
-      <div class="px-6 py-2 overflow-y-auto space-y-4">{@render children?.()}</div>
+      <div class="px-6 pt-4 pb-2 overflow-y-auto space-y-4">{@render children?.()}</div>
       {#if footer}
         <div class="px-6 pt-3 pb-5 flex flex-wrap justify-end gap-2">{@render footer()}</div>
       {/if}
