@@ -629,8 +629,16 @@ onMount(() => {
     />
     {#if nodePanel && panelNodeId}
       <!-- nowheel/nodrag/nopan keep scrolling and text selection inside the
-           panel from panning or zooming the canvas. -->
-      <NodeToolbar nodeId={panelNodeId} isVisible position={Position.Bottom} offset={12} class="nowheel nodrag nopan">
+           panel from panning or zooming the canvas. select-text re-enables
+           selection: the toolbar is portaled into the flow root, whose
+           `svelte-flow__container` class sets user-select: none. -->
+      <NodeToolbar
+        nodeId={panelNodeId}
+        isVisible
+        position={Position.Bottom}
+        offset={12}
+        class="nowheel nodrag nopan select-text"
+      >
         {@render nodePanel()}
       </NodeToolbar>
     {/if}
