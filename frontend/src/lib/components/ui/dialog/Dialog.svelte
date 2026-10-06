@@ -72,10 +72,7 @@ function handleKeydown(e: KeyboardEvent) {
     >
       <div class="relative shrink-0 flex items-center gap-4 px-4 py-2 text-white bg-slate-500">
         <!-- Subtle sheen so the flat color reads as a header band (matches StepPanelHeader) -->
-        <div
-          class="pointer-events-none absolute inset-0 bg-linear-to-r from-black/10 to-white/15"
-          aria-hidden="true"
-        ></div>
+        <div class="pointer-events-none absolute inset-0 bg-linear-to-r from-black/10 to-white/15" aria-hidden="true"></div>
         <div class="relative flex-1 min-w-0 flex flex-col leading-tight">
           <h2 id={titleId} class="text-sm font-semibold truncate">{title}</h2>
           {#if description}
