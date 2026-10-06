@@ -25,6 +25,11 @@ async function handleSubmit() {
       navigate("/");
     } else if (res.status === 401) {
       error = "Invalid username or password.";
+    } else if (res.status === 429) {
+      const seconds = Number(res.headers.get("retry-after")) || 0;
+      error = seconds
+        ? `Too many attempts. Try again in ${seconds < 60 ? `${seconds}s` : `${Math.ceil(seconds / 60)} min`}.`
+        : "Too many attempts. Please wait and try again.";
     } else {
       error = "Sign in failed. Please try again.";
     }

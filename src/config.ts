@@ -1,4 +1,5 @@
 import assert from "node:assert";
+import { isIP } from "node:net";
 import path, { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -42,6 +43,32 @@ export function serverOrigin(): string {
   const host = WEB_HOST === "::" || WEB_HOST === "0.0.0.0" ? "localhost" : WEB_HOST;
   return `${WEB_SCHEME}://${host}:${WEB_PORT}`;
 }
+
+/**
+ * Reverse proxies whose `X-Forwarded-For` header is trusted when determining
+ * the client IP (rate limiting, login throttling). Comma-separated IPs or CIDRs
+ * from `TRUSTED_PROXIES`. Empty (default) means forwarding headers are ignored
+ * and the TCP peer address is always used.
+ */
+export const TRUSTED_PROXIES: string[] = (() => {
+  const raw = process.env.TRUSTED_PROXIES?.trim();
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .map((entry) => {
+      const [addr = "", bits, ...rest] = entry.split("/");
+      const family = isIP(addr);
+      const maxBits = family === 6 ? 128 : 32;
+      const validBits = bits === undefined || (/^\d+$/.test(bits) && Number(bits) <= maxBits);
+      assert(
+        family !== 0 && validBits && rest.length === 0,
+        `Invalid TRUSTED_PROXIES entry: "${entry}" (expected an IP address or CIDR)`,
+      );
+      return entry;
+    });
+})();
 
 // Extensions directory - configurable via EXTENSIONS_DIR env var
 export const EXTENSIONS_DIR = process.env.EXTENSIONS_DIR

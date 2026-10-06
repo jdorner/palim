@@ -5,7 +5,7 @@
 
 import { cors } from "@elysia/cors";
 import { staticPlugin } from "@elysiajs/static";
-import type { AuthService, UserStore } from "@src/auth";
+import { type AuthService, hashToken, type UserStore } from "@src/auth";
 import type { ExtensionRegistry } from "@src/extensions";
 import type { AgentJob, ChatJob } from "@src/jobs";
 import { createPushService } from "@src/push";
@@ -16,10 +16,11 @@ import { mainLogger as log } from "@src/utils/logger";
 import type { VariableStore } from "@src/variables/store";
 import { type AnyElysia, type Context, Elysia } from "elysia";
 import { rateLimit } from "elysia-rate-limit";
-import { extractBearerToken, extractWsToken, setPrincipal } from "./auth";
+import { clientAddress, extractBearerToken, extractWsToken, resolveRequestPrincipal, setPrincipal } from "./auth";
 import { authorizeRequest } from "./authorize";
 import { compression } from "./compression";
 import { ExtensionRouter } from "./extensionRouter";
+import { LoginThrottle } from "./loginThrottle";
 import { QueueMonitor } from "./monitor";
 import { authRoutes } from "./routes/auth";
 import { chatRoutes } from "./routes/chat";
@@ -32,6 +33,20 @@ import { pushRoutes } from "./routes/push";
 import { secretRoutes } from "./routes/secrets";
 import { sessionRoutes } from "./routes/sessions";
 import { userRoutes } from "./routes/users";
+
+/**
+ * Requests per minute for each authenticated token. Keyed by token rather than
+ * user, so a user's browser session and the internal token their agent jobs run
+ * with get separate buckets: a runaway sandbox loop cannot starve the UI.
+ */
+const AUTHENTICATED_RATE_LIMIT = 1000;
+
+/**
+ * Requests per minute per client IP for unauthenticated traffic (login, public
+ * extension routes such as webhooks, WebSocket upgrades, rejected tokens).
+ * Login additionally has its own failure throttle ({@link LoginThrottle}).
+ */
+const UNAUTHENTICATED_RATE_LIMIT = 60;
 
 /** Dependencies injected into the web server factory. */
 interface WebServerDeps {
@@ -98,8 +113,18 @@ export async function createWebServer(deps: WebServerDeps) {
     .use(cors({ origin: true }))
     .use(
       rateLimit({
-        max: process.env.NODE_ENV === "development" ? Number.MAX_SAFE_INTEGER : 60,
         duration: 60_000,
+        // Authenticated requests are bucketed per token, everything else per IP.
+        generator: (request, server) => {
+          if (authService && resolveRequestPrincipal(request, authService)) {
+            return `tok:${hashToken(extractBearerToken(request.headers.get("authorization")))}`;
+          }
+          return `ip:${clientAddress(request, server)}`;
+        },
+        max: (key) => {
+          if (process.env.NODE_ENV === "development") return Number.MAX_SAFE_INTEGER;
+          return key.startsWith("tok:") ? AUTHENTICATED_RATE_LIMIT : UNAUTHENTICATED_RATE_LIMIT;
+        },
         skip: (request) => {
           const path = new URL(request.url).pathname;
           return !path.startsWith("/api/") && !path.startsWith("/ext/") && !path.startsWith("/ws");
@@ -108,7 +133,7 @@ export async function createWebServer(deps: WebServerDeps) {
     )
     .onBeforeHandle((ctx) => authCheck(ctx, authService, extensionRouter))
     // --- Route modules ---
-    .use(authRoutes(() => authService, revalidateSockets))
+    .use(authRoutes(() => authService, revalidateSockets, new LoginThrottle()))
     .use(jobRoutes(monitor))
     .use(extensionRoutes(getRegistry))
     .use(modelRoutes(getRegistry))
@@ -201,8 +226,7 @@ export function authCheck(
     return params.status(503, { error: "Auth service unavailable" });
   }
 
-  const token = extractBearerToken(params.request.headers.get("authorization"));
-  const principal = authService.resolveToken(token);
+  const principal = resolveRequestPrincipal(params.request, authService);
   if (!principal) {
     return params.status(401, { error: "Unauthorized" });
   }

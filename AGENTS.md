@@ -46,6 +46,7 @@ The web UI is served at `http://localhost:3000` by default (configurable via `WE
 | `WEB_SCHEME`           | URL scheme (`http` or `https`)                 | `http`                     |
 | `WEB_HOST`             | Web server bind address                        | `localhost`                |
 | `WEB_PORT`             | Web server port                                | `3000`                     |
+| `TRUSTED_PROXIES`      | Reverse proxy IPs/CIDRs whose `X-Forwarded-For` is trusted | - (header ignored) |
 | `EXTENSIONS_DIR`       | Custom extensions directory                    | `src/extensions`           |
 | `AUTH_ADMIN_USER`      | Username of the admin seeded on first boot     | `admin`                    |
 | `AUTH_ADMIN_PASSWORD`  | Seeded admin password (empty = generate + log) | -                          |
@@ -94,7 +95,8 @@ src/
 │   ├── extensionRouter.ts   # Runtime extension route table, dispatched via a fixed /ext/* mount
 │   ├── dynamicProviders.ts  # Provider registry for dynamic schema enrichment (items + defaults)
 │   ├── monitor.ts           # Real-time job state push to WS clients
-│   ├── auth.ts              # Bearer token auth middleware
+│   ├── auth.ts              # Bearer token auth middleware, client IP resolution (trusted proxies)
+│   ├── loginThrottle.ts     # Per-IP + per-username login failure lockouts
 │   ├── chatEvents.ts        # Agent event to chat WS event mappingg
 │   ├── sessionChatMap.ts    # In-memory session-to-chat mapping for push routing
 │   └── routes/
@@ -363,6 +365,8 @@ Elysia serves the built frontend as static files and exposes:
 - `DELETE /api/sessions/:id/messages` - Clear session messages
 - `WS /ws` - Real-time job state, chat streaming, workflow events, and extension lifecycle events
 - `/ext/<name>/...` - Extension-registered routes
+
+Rate limiting: authenticated requests are limited per token (1000/min), so a user's browser session and the internal token their agent jobs use get separate buckets; everything else is limited per client IP (60/min). Failed logins are additionally throttled per IP and per username with exponential lockouts (`src/web/loginThrottle.ts`). Behind a reverse proxy, set `TRUSTED_PROXIES` so the client IP is taken from `X-Forwarded-For`.
 
 Auth is always on: all `/api/` and `/ext/` routes (except login, health, and extension routes registered with `{ public: true }`, such as webhook receive) and the WebSocket require a per-user bearer token. Every user can read everything except other users' chat sessions; roles map to write/management permissions (RBAC). See `docs/api-security-model.md`.
 
