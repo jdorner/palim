@@ -56,6 +56,8 @@ export interface StallConfig {
 export interface ManagedQueueOptions {
   /** Number of concurrent workers (default: 1). */
   concurrency?: number;
+  /** Whether the worker starts processing immediately (default: true). Set to `false` to leave jobs waiting. */
+  autorun?: boolean;
   /** Whether to remove jobs on completion (default: false). */
   removeOnComplete?: boolean;
   /** Whether to remove jobs on failure (default: false). */

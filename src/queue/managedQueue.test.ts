@@ -15,14 +15,14 @@ describe("ManagedQueue.cancelJob", () => {
     test("cancels a job parked in waitingDeps", async () => {
       const flow = new FlowProducer({ embedded: true });
 
-      // Create a queue that never processes (concurrency: 0 worker equivalent)
+      // Create a queue that never processes (worker not started)
       const mq = new ManagedQueue(
         TEST_QUEUE,
         async () => {
           // Never resolves - jobs stay active indefinitely
           await new Promise(() => {});
         },
-        { concurrency: 0, dataPath: null },
+        { autorun: false, dataPath: null },
       );
 
       // Create a 3-step chain: step-0 -> step-1 -> step-2
@@ -70,7 +70,7 @@ describe("ManagedQueue.cancelJob", () => {
         async () => {
           await new Promise(() => {});
         },
-        { concurrency: 0, dataPath: null },
+        { autorun: false, dataPath: null },
       );
 
       const jobId = await mq.add("simple-job", { value: 42 });
@@ -89,7 +89,7 @@ describe("ManagedQueue.cancelJob", () => {
     });
 
     test("returns false for non-existent job", async () => {
-      const mq = new ManagedQueue(TEST_QUEUE, async () => {}, { concurrency: 0, dataPath: null });
+      const mq = new ManagedQueue(TEST_QUEUE, async () => {}, { autorun: false, dataPath: null });
 
       const removed = await mq.cancelJob("non-existent-job-id");
       expect(removed).toBe(false);
@@ -184,13 +184,13 @@ describe("ManagedQueue.removeJobs", () => {
 
   test("removes a mixed batch of waiting and completed jobs", async () => {
     let processed = 0;
-    // concurrency 0: added jobs stay "waiting" and are never processed.
+    // autorun false: added jobs stay "waiting" and are never processed.
     const idle = new ManagedQueue<{ n: number }>(
       TEST_QUEUE,
       async () => {
         processed++;
       },
-      { concurrency: 0, dataPath: null },
+      { autorun: false, dataPath: null },
     );
     const waitingId = await idle.add("waiting-job", { n: 1 });
     expect((await idle.getJob(waitingId))?.state).toBe("waiting");
@@ -204,7 +204,7 @@ describe("ManagedQueue.removeJobs", () => {
   });
 
   test("returns empty array for empty input", async () => {
-    const mq = new ManagedQueue(TEST_QUEUE, async () => {}, { concurrency: 0, dataPath: null });
+    const mq = new ManagedQueue(TEST_QUEUE, async () => {}, { autorun: false, dataPath: null });
     expect(await mq.removeJobs([])).toEqual([]);
     await mq.close();
   });

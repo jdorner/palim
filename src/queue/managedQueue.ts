@@ -91,6 +91,7 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
       {
         embedded: true,
         concurrency: opts?.concurrency ?? 1,
+        autorun: opts?.autorun ?? true,
         removeOnComplete: opts?.removeOnComplete ?? false,
         removeOnFail: opts?.removeOnFail ?? false,
         heartbeatInterval: opts?.heartbeatInterval,
