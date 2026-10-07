@@ -23,9 +23,9 @@ import AddStepNode from "./AddStepNode.svelte";
 import AggregatorNode from "./AggregatorNode.svelte";
 import ControlFlowNode from "./ControlFlowNode.svelte";
 import FitViewOnInit from "./FitViewOnInit.svelte";
-import InsertButtonEdge from "./InsertButtonEdge.svelte";
 import IteratorNode from "./IteratorNode.svelte";
 import WaitForNode from "./WaitForNode.svelte";
+import WorkflowEdge from "./WorkflowEdge.svelte";
 import WorkflowStepNode from "./WorkflowStepNode.svelte";
 
 interface StepInfo {
@@ -174,7 +174,7 @@ const nodeTypes = {
   addStep: AddStepNode,
 };
 
-const edgeTypes = { insertButton: InsertButtonEdge };
+const edgeTypes = { workflow: WorkflowEdge };
 
 /**
  * Colors a node dot in the minimap by its resolved category so the overview
@@ -315,17 +315,19 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
     // style); keep them arrow-free and muted. Real flow edges get an arrowhead
     // and a smooth curve so direction reads clearly.
     const isAddStepEdge = edge.target === "__addStep__" || edge.target.startsWith("__addStep:");
-    // In edit mode, real flow edges get the insertButton type with a "+" at midpoint.
-    // The trigger edge is included (insertAtStart handles it); add-step placeholders
-    // are excluded (they're dashed "add" affordances, not real edges).
+    // Real flow edges use WorkflowEdge, which follows the layout's route around
+    // nodes. In edit mode it also shows a "+" insert button. The trigger edge is
+    // included (insertAtStart handles it); add-step placeholders are excluded
+    // (they're dashed "add" affordances, not real edges).
     const useInsertButton = editMode && !isAddStepEdge && !!onInsertStepOnEdge;
     return {
       ...edge,
-      type: useInsertButton ? "insertButton" : "smoothstep",
+      type: isAddStepEdge ? "smoothstep" : "workflow",
       animated: isEdgeAnimated({ source: edge.source, target: edge.target, animated: edge.animated }, statusNodes),
       ...(useInsertButton
         ? {
             data: {
+              ...edge.data,
               editMode: true,
               onInsert: (position: { x: number; y: number }) => {
                 // Derive branch from sourceHandle by stripping the source node ID prefix.

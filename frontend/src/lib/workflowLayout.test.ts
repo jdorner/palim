@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { type EdgeRoute, routedEdgePath } from "./edgeRoute";
 import { buildDagGraph, type DagEdge, type StepData } from "./workflowGraph";
 import { computeLayout } from "./workflowLayout";
 
@@ -651,15 +652,13 @@ describe("nested control-flow branch separation", () => {
     expect(Math.abs(yOf(layout, "inner") - yOf(layout, "alt"))).toBeGreaterThanOrEqual(56);
   });
 
-  test("nested subtree straddles its own parent (descendants are not stranded on a shared row)", () => {
-    // The inner if's descendants must move WITH the inner node so they straddle
-    // it: `up` (its then) above, `down` (its else) below. Regression: when only
-    // the linear chain moved, the inner node's descendants stayed on dagre's
-    // original row instead of following the inner node into the outer branch.
+  test("branch handles are ordered top-to-bottom like the branch targets", () => {
+    // Dagre may put `else` above `then`; the CF node's handles follow the
+    // layout instead of nodes being moved, so branch edges never cross.
     const layout = computeLayout(buildNestedIfGraph(), {});
-    const innerY = yOf(layout, "inner");
-    expect(yOf(layout, "up")).toBeLessThan(innerY);
-    expect(yOf(layout, "down")).toBeGreaterThan(innerY);
+    const inner = layout.nodes.find((n) => n.id === "inner")!;
+    const expected = yOf(layout, "up") < yOf(layout, "down") ? ["then", "else"] : ["else", "then"];
+    expect((inner.data as { branches: string[] }).branches).toEqual(expected);
   });
 
   test("inner if's own branches are separated from each other", () => {
@@ -790,5 +789,77 @@ describe("iterator/aggregator pair nested inside a control-flow branch", () => {
     });
     const addStepSources = layout.edges.filter((e) => e.target.startsWith("__addStep:")).map((e) => e.source);
     expect(addStepSources).not.toContain("stop");
+  });
+});
+
+describe("edge routing", () => {
+  /**
+   * Mirrors the gmail-test workflow: the `else` branch of `gate` skips the
+   * iteration (loop -> body -> agg) and joins straight into `done`.
+   *
+   *   gate --then--> loop --each--> body --> agg --> done
+   *        \--else-----------------------------------^
+   */
+  function buildSkipGraph() {
+    const steps: Record<string, Record<string, unknown>> = {
+      gate: { type: "if", condition: {} },
+      loop: { type: "iterator", items: "{{x}}", as: "item" },
+      body: { type: "agent", prompt: "x" },
+      agg: { type: "aggregator", iterator: "loop" },
+      done: { type: "agent", prompt: "x" },
+    };
+    const edges: DagEdge[] = [
+      { from: "gate", to: "loop", branch: "then" },
+      { from: "loop", to: "body", branch: "each" },
+      { from: "body", to: "agg" },
+      { from: "agg", to: "done" },
+      { from: "gate", to: "done", branch: "else" },
+    ];
+    return buildDagGraph(toStepArray(steps), edges);
+  }
+
+  const SIZES: Record<string, [number, number]> = {
+    controlFlow: [108, 108],
+    iterator: [140, 60],
+    aggregator: [140, 60],
+    addStep: [32, 32],
+  };
+
+  test("an edge skipping columns is routed around the nodes in between", () => {
+    const layout = computeLayout(buildSkipGraph(), {});
+    const rects = new Map(
+      layout.nodes.map((n) => {
+        const [w, h] = SIZES[n.type!] ?? [220, 56];
+        return [n.id, { x0: n.position.x, y0: n.position.y, x1: n.position.x + w, y1: n.position.y + h }];
+      }),
+    );
+    const edge = layout.edges.find((e) => e.source === "gate" && e.target === "done")!;
+    const route = (edge.data as { route?: EdgeRoute }).route;
+    expect(route).not.toBeUndefined();
+
+    const src = rects.get("gate")!;
+    const tgt = rects.get("done")!;
+    const [path] = routedEdgePath(src.x1, (src.y0 + src.y1) / 2, tgt.x0, (tgt.y0 + tgt.y1) / 2, route!)!;
+    const points = path.match(/-?[\d.]+ -?[\d.]+/g)!.map((p) => p.split(" ").map(Number) as [number, number]);
+    for (let i = 0; i < points.length - 1; i++) {
+      const [ax, ay] = points[i]!;
+      const [bx, by] = points[i + 1]!;
+      for (const id of ["loop", "body", "agg"]) {
+        const r = rects.get(id)!;
+        const hits =
+          Math.max(ax, bx) > r.x0 && Math.min(ax, bx) < r.x1 && Math.max(ay, by) > r.y0 && Math.min(ay, by) < r.y1;
+        expect(hits).toBe(false);
+      }
+    }
+  });
+
+  test("edges between neighboring columns carry no route", () => {
+    const layout = computeLayout(buildSkipGraph(), {});
+    const edge = layout.edges.find((e) => e.source === "body" && e.target === "agg")!;
+    expect((edge.data as { route?: EdgeRoute } | undefined)?.route).toBeUndefined();
+  });
+
+  test("a route no longer fitting the handles falls back (dragged node)", () => {
+    expect(routedEdgePath(500, 0, 900, 0, { bends: [400, 800], lanes: [-50] })).toBeNull();
   });
 });
