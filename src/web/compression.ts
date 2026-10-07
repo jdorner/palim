@@ -46,7 +46,22 @@ const DEFAULT_MAX_SIZE = 1024 * 1024;
 
 /** Content types that should not be compressed (already compressed or binary). */
 const INCOMPRESSIBLE_TYPES = /^(image|audio|video|font)\//;
-const INCOMPRESSIBLE_SUFFIXES = ["woff", "woff2", "gz", "br", "zst", "zip", "rar", "7z", "webp", "avif", "mp4", "webm"];
+const INCOMPRESSIBLE_SUFFIXES = [
+  "woff",
+  "woff2",
+  "gz",
+  "br",
+  "zst",
+  "zip",
+  "rar",
+  "7z",
+  "webp",
+  "avif",
+  "mp4",
+  "webm",
+  // Office Open XML (xlsx, docx, pptx) are zip containers
+  "openxmlformats",
+];
 
 /**
  * Returns true if the content-type indicates the response should not be compressed.
@@ -133,7 +148,8 @@ export const compression = ({
     // Skip empty, function, or null responses
     if (!responseValue || typeof responseValue === "function") return;
 
-    let text: string;
+    // Raw bytes: a consumed Response body is read as bytes (never decoded as text), so binary payloads survive
+    let body: CompressedBody;
     let contentType: string;
 
     // Track whether we consumed a Response body
@@ -150,7 +166,7 @@ export const compression = ({
       // Skip redirects
       if (responseValue.status >= 300 && responseValue.status < 400) return;
 
-      text = await responseValue.text();
+      body = new Uint8Array(await responseValue.arrayBuffer());
       contentType = ct ?? "text/plain";
       set.status = responseValue.status;
       responseBodyUsed = true;
@@ -168,22 +184,22 @@ export const compression = ({
       if (typeof value === "function") return;
 
       const isJson = typeof value === "object";
-      text = isJson ? JSON.stringify(value) : (value?.toString() ?? "");
+      body = encoder.encode(isJson ? JSON.stringify(value) : (value?.toString() ?? ""));
       contentType = `${isJson ? "application/json" : "text/plain"}; charset=utf-8`;
     }
 
     /** Builds the replacement response, keeping the original response's headers (cache-control, ...). */
-    const respond = (body: string | CompressedBody) => {
+    const respond = (payload: CompressedBody) => {
       const responseHeaders = new Headers(originalHeaders);
       responseHeaders.delete("content-length");
       responseHeaders.set("Content-Type", contentType);
-      return new Response(body, { headers: responseHeaders });
+      return new Response(payload, { headers: responseHeaders });
     };
 
     // Below threshold: return uncompressed (must return Response if body was consumed)
-    if (text.length < threshold) {
+    if (body.byteLength < threshold) {
       if (responseBodyUsed) {
-        return respond(text);
+        return respond(body);
       }
       return;
     }
@@ -199,7 +215,7 @@ export const compression = ({
     }
     if (!selectedType) {
       if (responseBodyUsed) {
-        return respond(text);
+        return respond(body);
       }
       return;
     }
@@ -207,26 +223,25 @@ export const compression = ({
     const compressor = compressors[selectedType];
     if (!compressor) {
       if (responseBodyUsed) {
-        return respond(text);
+        return respond(body);
       }
       return;
     }
 
     // Compress (with optional caching)
-    const encoded = encoder.encode(text);
     let compressed: CompressedBody;
 
-    if (cache && encoded.byteLength <= maxSize) {
-      const cacheKey = `${selectedType}:${Bun.hash(encoded).toString(36)}`;
+    if (cache && body.byteLength <= maxSize) {
+      const cacheKey = `${selectedType}:${Bun.hash(body).toString(36)}`;
       const cached = cache.get(cacheKey);
       if (cached) {
         compressed = cached;
       } else {
-        compressed = compressor(encoded);
+        compressed = compressor(body);
         cache.set(cacheKey, compressed);
       }
     } else {
-      compressed = compressor(encoded);
+      compressed = compressor(body);
     }
 
     // Set Content-Encoding on set.headers (Elysia merges these automatically)
