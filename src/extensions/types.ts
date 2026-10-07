@@ -77,9 +77,20 @@ export const NavigationEntrySchema = Type.Object({
   iconColor: Type.Optional(Type.String({ minLength: 1, maxLength: 128 })),
 });
 
+/**
+ * Schema for a Svelte page declared by an extension. The page is compiled when
+ * the extension activates and rendered at `/ext-page/<extension>/<id>`.
+ */
+export const UiPageSchema = Type.Object({
+  id: Type.String({ minLength: 1, maxLength: 64, pattern: "^[a-z0-9][a-z0-9-]*$" }),
+  title: Type.String({ minLength: 1, maxLength: 50 }),
+  entry: Type.String({ minLength: 1, maxLength: 256, pattern: "^ui/.+\\.svelte$" }),
+});
+
 /** Schema for the ui field in an extension manifest. */
 export const ExtensionUiSchema = Type.Object({
   navigation: Type.Array(NavigationEntrySchema, { maxItems: 10 }),
+  pages: Type.Optional(Type.Array(UiPageSchema, { maxItems: 10 })),
 });
 
 /** TypeBox schema for runtime validation of extension manifests. */
@@ -102,7 +113,7 @@ export type ExtensionManifest = Static<typeof ExtensionManifestSchema> & {
   secretsSchema?: SecretSchemaEntry[];
   /** When true, the extension is considered core infrastructure and cannot be disabled. */
   core?: boolean;
-  /** Optional UI contributions (navigation entries) for the frontend sidebar. */
+  /** Optional UI contributions: sidebar navigation entries and Svelte pages. */
   ui?: Static<typeof ExtensionUiSchema>;
 };
 
@@ -858,6 +869,24 @@ export interface ExtensionContext {
 
     /** Broadcast a WebSocket message to all connected frontend clients. */
     broadcast(message: WebSocketMessage): void;
+  };
+
+  // -------------------------------------------------------------------------
+  // UI
+  // -------------------------------------------------------------------------
+
+  /** Server-to-page communication for the extension's UI pages (`manifest.ui.pages`). */
+  readonly ui: {
+    /**
+     * Sends an event to this extension's open UI pages, which receive it via
+     * `palim.onEvent()`. Delivered to every connected client, so the payload
+     * must not contain secrets or per-user data.
+     *
+     * @param event - Event name chosen by the extension (1-64 characters)
+     * @param data - JSON-serializable payload
+     * @throws {Error} If the event name is empty or longer than 64 characters
+     */
+    emit(event: string, data?: unknown): void;
   };
 
   // -------------------------------------------------------------------------

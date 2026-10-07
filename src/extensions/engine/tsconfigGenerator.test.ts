@@ -11,7 +11,7 @@ describe("generateExtensionTsconfig", () => {
     const result = generateExtensionTsconfig(extensionDir, coreProjectDir);
 
     expect(result._managed).toBe(true);
-    expect(result.include).toEqual(["./**/*.ts"]);
+    expect(result.include).toEqual(["./**/*.ts", "./**/*.svelte"]);
     expect(result.exclude).toEqual(["node_modules"]);
 
     const opts = result.compilerOptions;
@@ -303,7 +303,7 @@ describe("generateExtensionTsconfig - Property Tests", () => {
       fc.assert(
         fc.property(distinctPathPairArb, ([extensionDir, coreProjectDir]) => {
           const result = generateExtensionTsconfig(extensionDir, coreProjectDir);
-          expect(result.include).toEqual(["./**/*.ts"]);
+          expect(result.include).toEqual(["./**/*.ts", "./**/*.svelte"]);
           expect(result.exclude).toEqual(["node_modules"]);
         }),
       );
@@ -380,7 +380,7 @@ describe("generateExtensionTsconfig - Property 10: Tsconfig generation resilienc
         // Required top-level fields
         expect(result._managed).toBe(true);
         expect(result.compilerOptions).toBeDefined();
-        expect(result.include).toEqual(["./**/*.ts"]);
+        expect(result.include).toEqual(["./**/*.ts", "./**/*.svelte"]);
         expect(result.exclude).toEqual(["node_modules"]);
 
         // Required path aliases

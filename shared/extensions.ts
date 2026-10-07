@@ -20,10 +20,31 @@ export interface NavigationEntry {
   iconColor?: string;
 }
 
+/**
+ * A Svelte page contributed by an extension, rendered at `/ext-page/<extension>/<id>`.
+ *
+ * The page's sources are compiled by the backend when the extension activates;
+ * `module` and `css` point at the compiled bundle (served from `/ext-ui/*`).
+ */
+export interface ExtensionUiPage {
+  /** Page identifier, unique within the extension (lowercase, digits, dashes). */
+  id: string;
+  /** Page title shown in the page header. */
+  title: string;
+  /** URL of the compiled ES module; its default export mounts the page. Absent when the build failed. */
+  module?: string;
+  /** URL of the compiled stylesheet (Tailwind utilities used by the extension), if any. */
+  css?: string;
+  /** Build error message when the page could not be compiled. */
+  error?: string;
+}
+
 /** UI contribution data from an extension manifest. */
 export interface ExtensionUiContribution {
   /** Navigation entries to render in the sidebar. */
   navigation: NavigationEntry[];
+  /** Svelte pages contributed by this extension. */
+  pages?: ExtensionUiPage[];
   /** Custom workflow step types registered by this extension. */
   stepTypes?: StepTypeInfo[];
 }
@@ -174,8 +195,8 @@ export interface ExtensionInfo {
 /** WebSocket event broadcast when an extension is loaded, unloaded, activated, or deactivated at runtime. */
 export interface ExtensionLifecycleEvent {
   type: "extension_lifecycle";
-  /** The lifecycle action that occurred. */
-  action: "loaded" | "unloaded" | "activated" | "deactivated";
+  /** The lifecycle action that occurred (`ui_updated`: the extension's UI pages were rebuilt). */
+  action: "loaded" | "unloaded" | "activated" | "deactivated" | "ui_updated";
   /** Extension manifest name. */
   name: string;
   /** Extension version string. */

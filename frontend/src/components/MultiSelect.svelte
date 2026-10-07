@@ -128,6 +128,7 @@ function remove(item: string) {
 }
 
 function handleKeydown(event: KeyboardEvent) {
+  const highlighted = open && highlightIndex >= 0 ? filtered[highlightIndex] : undefined;
   if (event.key === "ArrowDown" && open && filtered.length > 0) {
     event.preventDefault();
     highlightIndex = highlightIndex < filtered.length - 1 ? highlightIndex + 1 : 0;
@@ -140,9 +141,9 @@ function handleKeydown(event: KeyboardEvent) {
     event.preventDefault();
     open = true;
     highlightIndex = filtered.length > 0 ? 0 : -1;
-  } else if (event.key === "Enter" && open && highlightIndex >= 0 && highlightIndex < filtered.length) {
+  } else if (event.key === "Enter" && highlighted !== undefined) {
     event.preventDefault();
-    select(filtered[highlightIndex]);
+    select(highlighted);
   } else if (event.key === "Enter" && canAddCustom) {
     // No highlighted suggestion but a custom value is typed: add it.
     event.preventDefault();

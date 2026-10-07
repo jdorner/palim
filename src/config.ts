@@ -91,6 +91,12 @@ export const DATA_DIR: string = (() => {
 /** Directory for dynamically generated/external extensions (e.g. MCP skills). */
 export const EXTERNAL_EXTENSIONS_DIR = join(DATA_DIR, "extensions");
 
+/** Output directory for compiled extension UI bundles, served publicly at `/ext-ui/*`. */
+export const EXT_UI_DIR = join(DATA_DIR, "ext-ui");
+
+/** Frontend source directory; extension UI bundles compile the public UI kit from here. */
+export const FRONTEND_SRC_DIR = path.resolve(PROJECT_DIR, "frontend/src");
+
 // ---------------------------------------------------------------------------
 // Authentication / user management
 // ---------------------------------------------------------------------------

@@ -416,6 +416,20 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
   }
 
   /**
+   * Send an event to this extension's open UI pages.
+   *
+   * @param event - Event name (1-64 characters)
+   * @param data - JSON-serializable payload
+   * @throws {Error} If the event name is empty or too long
+   */
+  function emitUiEvent(event: string, data?: unknown): void {
+    if (typeof event !== "string" || event.length === 0 || event.length > 64) {
+      throw new Error(`Extension "${extensionName}": ui.emit() event name must be 1-64 characters`);
+    }
+    broadcast({ type: "extension_ui_event", extension: extensionName, event, data });
+  }
+
+  /**
    * Submit a job to the core Agents queue.
    *
    * @param name - Job name/label
@@ -675,6 +689,9 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
             throw new Error(`Extension "${extensionName}": pushMessage is not available`);
           },
       broadcast,
+    },
+    ui: {
+      emit: emitUiEvent,
     },
     workflows: {
       async dispatch(name: string, payload?: unknown): Promise<WorkflowDispatchResult> {

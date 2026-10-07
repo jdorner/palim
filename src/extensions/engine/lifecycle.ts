@@ -9,6 +9,7 @@
  * @module
  */
 
+import type { ExtensionUiPage } from "@shared/extensions";
 import type { WebSocketMessage } from "@shared/types";
 import type { ManagedQueuePort } from "@src/queue";
 import createLogger from "logging";
@@ -49,6 +50,11 @@ export interface ActivationDeps {
   broadcastFn: (message: WebSocketMessage) => void;
   /** Callback invoked when an extension creates a queue during loading. */
   onQueueCreated?: (queue: ManagedQueuePort) => void;
+  /**
+   * Compiles the extension's declared UI pages (if any). Must not throw: build
+   * failures are reported on the returned pages.
+   */
+  buildUiFn?: (entry: LoadedEntry) => Promise<ExtensionUiPage[] | undefined>;
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +139,12 @@ export async function activateExtension(
   entry.stepTypes = loaded.stepTypes;
   entry.state = "active";
   entry.error = null;
+
+  // Compile UI pages before announcing activation, so clients that refetch
+  // the extension list on the broadcast get the page module URLs.
+  if (deps.buildUiFn) {
+    entry.uiPages = await deps.buildUiFn(entry);
+  }
 
   // Notify monitor about any queues created
   if (deps.onQueueCreated) {

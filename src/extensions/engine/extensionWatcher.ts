@@ -6,6 +6,8 @@
  * - A directory is considered a valid extension when it contains an `index.ts` file.
  * - New directories trigger ExternalDependencyResolver + loadOne().
  * - Removed directories trigger unloadOne().
+ * - Changes below an extension's `ui/` directory rebuild only its UI pages
+ *   (registry.rebuildUi()), without reloading the extension.
  * - All events are debounced to batch rapid filesystem changes.
  */
 
@@ -47,6 +49,8 @@ export class ExtensionWatcher {
   private pendingUnloads = new Set<string>();
   /** Pending extension directories to reload (unload + load). */
   private pendingReloads = new Set<string>();
+  /** Pending extension directories whose UI sources changed. */
+  private pendingUiRebuilds = new Set<string>();
   /** Debounce timer handle. */
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -84,17 +88,17 @@ export class ExtensionWatcher {
     this.watcher = chokidar.watch(this.directory, {
       persistent: true,
       ignoreInitial: true,
-      depth: 2, // Watch up to <ext-dir>/<name>/index.ts
+      depth: 8, // <name>/index.ts for reloads, plus nested <name>/ui/** sources for UI rebuilds
       usePolling: false,
       // Ignore node_modules and hidden files within extension directories
       ignored: ["**/node_modules/**", "**/.git/**", "**/tsconfig.json", "**/tsconfig.json.tmp"],
     });
 
-    this.watcher.on("add", (filePath) => this.handleFileAdd(filePath));
-    this.watcher.on("change", (filePath) => this.handleFileChange(filePath));
+    this.watcher.on("add", (filePath) => this.handleUiChange(filePath) || this.handleFileAdd(filePath));
+    this.watcher.on("change", (filePath) => this.handleUiChange(filePath) || this.handleFileChange(filePath));
     this.watcher.on("addDir", (dirPath) => this.handleDirAdd(dirPath));
-    this.watcher.on("unlinkDir", (dirPath) => this.handleDirRemove(dirPath));
-    this.watcher.on("unlink", (filePath) => this.handleFileRemove(filePath));
+    this.watcher.on("unlinkDir", (dirPath) => this.handleUiChange(dirPath) || this.handleDirRemove(dirPath));
+    this.watcher.on("unlink", (filePath) => this.handleUiChange(filePath) || this.handleFileRemove(filePath));
     this.watcher.on("error", (err) => {
       logger.error("Extension watcher error:", err);
     });
@@ -122,6 +126,7 @@ export class ExtensionWatcher {
     this.pendingLoads.clear();
     this.pendingUnloads.clear();
     this.pendingReloads.clear();
+    this.pendingUiRebuilds.clear();
     this.dirToManifestName.clear();
   }
 
@@ -152,6 +157,25 @@ export class ExtensionWatcher {
     } catch {
       // Directory unreadable - continue with what we have
     }
+  }
+
+  /**
+   * Handles a change below a known extension's `ui/` directory by scheduling a
+   * UI rebuild.
+   *
+   * @param changedPath - Absolute path of the added, changed, or removed entry
+   * @returns `true` when the path belongs to a `ui/` tree (and was handled)
+   */
+  private handleUiChange(changedPath: string): boolean {
+    const parts = path.relative(this.directory, changedPath).split(path.sep);
+    if (parts.length < 3 || parts[1] !== "ui") return false;
+    const extName = parts[0]!;
+    if (!this.knownExtensions.has(extName)) return true;
+
+    logger.debug(`Detected UI source change in ${extName}: ${parts.slice(1).join("/")}`);
+    this.pendingUiRebuilds.add(extName);
+    this.scheduleDebouncedProcess();
+    return true;
   }
 
   /**
@@ -293,9 +317,14 @@ export class ExtensionWatcher {
     const toUnload = [...this.pendingUnloads];
     const toReload = [...this.pendingReloads];
     const toLoad = [...this.pendingLoads];
+    // A reload, load, or unload supersedes a UI-only rebuild.
+    const toRebuildUi = [...this.pendingUiRebuilds].filter(
+      (n) => !this.pendingUnloads.has(n) && !this.pendingReloads.has(n) && !this.pendingLoads.has(n),
+    );
     this.pendingUnloads.clear();
     this.pendingReloads.clear();
     this.pendingLoads.clear();
+    this.pendingUiRebuilds.clear();
 
     // Process unloads first
     for (const extName of toUnload) {
@@ -310,6 +339,18 @@ export class ExtensionWatcher {
     // Process fresh loads
     for (const extName of toLoad) {
       await this.loadExtension(extName);
+    }
+
+    // Rebuild UI pages whose sources changed
+    for (const extName of toRebuildUi) {
+      const manifestName = this.dirToManifestName.get(extName) ?? extName;
+      try {
+        if (await this.registry.rebuildUi(manifestName)) {
+          logger.info(`Rebuilt UI of extension "${manifestName}"`);
+        }
+      } catch (err) {
+        logger.error(`Error rebuilding UI of extension "${manifestName}":`, err);
+      }
     }
   }
 

@@ -6,6 +6,7 @@
 import { cors } from "@elysia/cors";
 import { staticPlugin } from "@elysiajs/static";
 import { type AuthService, hashToken, type UserStore } from "@src/auth";
+import { EXT_UI_DIR } from "@src/config";
 import type { ExtensionRegistry } from "@src/extensions";
 import type { AgentJob, ChatJob } from "@src/jobs";
 import { createPushService } from "@src/push";
@@ -20,6 +21,7 @@ import { clientAddress, extractBearerToken, extractWsToken, resolveRequestPrinci
 import { authorizeRequest } from "./authorize";
 import { compression } from "./compression";
 import { ExtensionRouter } from "./extensionRouter";
+import { serveExtensionUiAsset } from "./extensionUiAssets";
 import { LoginThrottle } from "./loginThrottle";
 import { QueueMonitor } from "./monitor";
 import { authRoutes } from "./routes/auth";
@@ -151,6 +153,8 @@ export async function createWebServer(deps: WebServerDeps) {
         (userId) => getSessionStore().deleteByUser(userId),
       ),
     )
+    // --- Compiled extension UI bundles (public, content-hashed) ---
+    .get("/ext-ui/*", ({ request }) => serveExtensionUiAsset(new URL(request.url).pathname, EXT_UI_DIR))
     // --- Extension routes (dynamic; body parsing is done per route by the router) ---
     .get("/ext/*", dispatchExtension, { parse: "none" })
     .post("/ext/*", dispatchExtension, { parse: "none" })

@@ -1,5 +1,14 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import path from "node:path";
 import { ExternalDependencyResolver } from "./externalDependencyResolver";
 
@@ -445,5 +454,75 @@ describe("ExternalDependencyResolver.resolveOne", () => {
     expect(result.error).toBeDefined();
     expect(result.error).toContain("Malformed package.json");
     expect(result.tsconfigGenerated).toBe(false);
+  });
+});
+
+describe("ExternalDependencyResolver.linkSvelte", () => {
+  const CORE_SVELTE = path.join(CORE_DIR, "node_modules/svelte");
+  const LINK = path.join(EXT_DIR, "node_modules/svelte");
+
+  beforeEach(() => {
+    mkdirSync(path.join(EXT_DIR, "ui"), { recursive: true });
+    mkdirSync(CORE_SVELTE, { recursive: true });
+    writeFileSync(path.join(CORE_SVELTE, "package.json"), JSON.stringify({ name: "svelte", version: "5.0.0" }));
+  });
+
+  afterEach(() => {
+    rmSync(TEST_DIR, { recursive: true, force: true });
+  });
+
+  test("links core svelte into node_modules for extensions with ui/", async () => {
+    const resolver = new ExternalDependencyResolver({ coreProjectDir: CORE_DIR });
+    expect(await resolver.linkSvelte(EXT_DIR)).toEqual([]);
+
+    expect(lstatSync(LINK).isSymbolicLink()).toBe(true);
+    expect(realpathSync(LINK)).toBe(realpathSync(CORE_SVELTE));
+  });
+
+  test("does nothing without a ui/ directory", async () => {
+    rmSync(path.join(EXT_DIR, "ui"), { recursive: true });
+    const resolver = new ExternalDependencyResolver({ coreProjectDir: CORE_DIR });
+    expect(await resolver.linkSvelte(EXT_DIR)).toEqual([]);
+
+    expect(existsSync(path.join(EXT_DIR, "node_modules"))).toBe(false);
+  });
+
+  test("leaves a real svelte install alone", async () => {
+    mkdirSync(LINK, { recursive: true });
+    writeFileSync(path.join(LINK, "package.json"), "{}");
+
+    const resolver = new ExternalDependencyResolver({ coreProjectDir: CORE_DIR });
+    expect(await resolver.linkSvelte(EXT_DIR)).toEqual([]);
+
+    expect(lstatSync(LINK).isSymbolicLink()).toBe(false);
+  });
+
+  test("replaces a stale symlink", async () => {
+    const stale = path.join(TEST_DIR, "old-core/node_modules/svelte");
+    mkdirSync(stale, { recursive: true });
+    mkdirSync(path.join(EXT_DIR, "node_modules"), { recursive: true });
+    symlinkSync(stale, LINK, "dir");
+
+    const resolver = new ExternalDependencyResolver({ coreProjectDir: CORE_DIR });
+    expect(await resolver.linkSvelte(EXT_DIR)).toEqual([]);
+
+    expect(realpathSync(LINK)).toBe(realpathSync(CORE_SVELTE));
+  });
+
+  test("warns when the core project has no svelte", async () => {
+    rmSync(CORE_SVELTE, { recursive: true });
+    const resolver = new ExternalDependencyResolver({ coreProjectDir: CORE_DIR });
+    const warnings = await resolver.linkSvelte(EXT_DIR);
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("Core svelte package not found");
+    expect(existsSync(LINK)).toBe(false);
+  });
+
+  test("resolveOne creates the link", async () => {
+    const resolver = new ExternalDependencyResolver({ coreProjectDir: CORE_DIR });
+    await resolver.resolveOne(EXT_DIR);
+
+    expect(realpathSync(LINK)).toBe(realpathSync(CORE_SVELTE));
   });
 });

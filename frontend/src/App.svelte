@@ -24,6 +24,7 @@ import {
 import { registerClearIdentity, registerDisconnect } from "$lib/auth";
 import { chatStream } from "$lib/chatStreamStore.svelte";
 import { connectionManager } from "$lib/connectionStore.svelte";
+import { dispatchExtensionUiEvent } from "$lib/extensionHost";
 import { extensionNavItems, extensions, fetchBadgesForEnabledExtensions, fetchExtensions } from "$lib/extensionStore";
 import { resolveIcon } from "$lib/iconRegistry";
 import { identity } from "$lib/identity.svelte";
@@ -102,6 +103,9 @@ function handleMessage(message: WebSocketMessage) {
     case "workflow_deleted":
       workflowStore.handleEvent(message);
       fetchWorkflowCount();
+      break;
+    case "extension_ui_event":
+      dispatchExtensionUiEvent(message);
       break;
     case "extension_lifecycle":
       fetchExtensions().then(() => {
@@ -202,10 +206,23 @@ const PAGE_HEADERS: Array<{ match: (path: string) => boolean; icon: Component; l
 
 let pageHeader = $derived(PAGE_HEADERS.find((h) => h.match($pathname)));
 
-/** Current extension nav item (when on an extension page). */
+/** Current extension nav item (when on an extension page); the longest matching route wins. */
 let currentExtNavItem = $derived.by(() => {
   if (!isExtensionPage) return null;
-  return $extensionNavItems.find((item) => $pathname === item.route || $pathname.startsWith(`${item.route}/`)) ?? null;
+  const path = $pathname.split("?")[0] ?? "";
+  return (
+    $extensionNavItems
+      .filter((item) => path === item.route || path.startsWith(`${item.route}/`))
+      .sort((a, b) => b.route.length - a.route.length)[0] ?? null
+  );
+});
+
+/** Title of the current extension page, for pages without a navigation entry. */
+let currentExtPageTitle = $derived.by(() => {
+  if (!isExtensionPage) return null;
+  const [, , extName, pageId] = ($pathname.split("?")[0] ?? "").split("/");
+  const pages = $extensions.find((e) => e.name === extName)?.ui?.pages ?? [];
+  return (pageId ? pages.find((p) => p.id === pageId) : pages[0])?.title ?? null;
 });
 </script>
 
@@ -231,6 +248,8 @@ let currentExtNavItem = $derived.by(() => {
                   <IconComponent class="w-6 h-6 {currentExtNavItem.iconColor ?? ""}" aria-hidden="true" />
                 {/if}
                 {currentExtNavItem.label}
+              {:else if isExtensionPage && currentExtPageTitle}
+                {currentExtPageTitle}
               {:else}
                 <TrayIcon class="w-6 h-6" aria-hidden="true" />
                 Job Queues

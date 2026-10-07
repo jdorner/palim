@@ -1,128 +1,68 @@
 <script lang="ts">
-import { authFetch, getToken } from "$lib/auth";
+/**
+ * Generic extension page.
+ *
+ * Routes: `/ext-page/:extensionName`, `/ext-page/:extensionName/:pageId`, and
+ * `/ext-page/:extensionName/:pageId/*rest` (sub-paths for in-page routing).
+ *
+ * Mounts the compiled Svelte page an extension declares in `ui.pages`
+ * (without a page id, the first page is shown).
+ */
+import { onMount } from "svelte";
+import { get } from "svelte/store";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
+import { extensions, fetchExtensions } from "$lib/extensionStore";
+import ExtensionPageMount from "../components/extensions/ExtensionPageMount.svelte";
 import { route } from "../router";
 
-// Extract extension name from route params
-// Route: /ext-page/:extensionName
 let extensionName = $derived(route.params.extensionName ?? "");
+let pageId = $derived(route.params.pageId ?? "");
 
-let htmlContent: string | null = $state(null);
-let error: string | null = $state(null);
-let loading = $state(true);
-
-/** Reactive dark mode state — tracks the `dark` class on <html>. */
-let isDark = $state(document.documentElement.classList.contains("dark"));
-
-// Observe class changes on <html> to detect theme toggles
-$effect(() => {
-  const observer = new MutationObserver(() => {
-    isDark = document.documentElement.classList.contains("dark");
-  });
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-  return () => observer.disconnect();
+let fetched = $state(false);
+onMount(async () => {
+  if (get(extensions).length === 0) await fetchExtensions();
+  fetched = true;
 });
 
-// Reload the page content when extension name changes
-$effect(() => {
-  if (extensionName) {
-    loadPage(extensionName);
-  }
-});
-
-// Re-inject theme when dark mode changes (without full reload)
-$effect(() => {
-  if (htmlContent && extensionName) {
-    // isDark changed — rebuild the srcdoc with new theme vars
-    rebuildWithTheme();
-  }
-});
-
-/** Raw HTML fetched from the extension (without injected helpers). */
-let rawHtml: string | null = $state(null);
-
-/**
- * Builds the theme CSS variables string based on current dark/light state.
- */
-function buildThemeVars(dark: boolean): string {
-  return dark
-    ? `--palim-bg:#020817;--palim-bg-alt:#1e293b;--palim-bg-surface:#0f172a;--palim-text:#f8fafc;--palim-text-muted:#94a3b8;--palim-border:#1e293b;--palim-accent:#3b82f6;--palim-accent-hover:#60a5fa;--palim-success:#22c55e;--palim-success-bg:#052e16;--palim-error:#ef4444;--palim-error-bg:#450a0a;--palim-warning:#f59e0b;--palim-warning-bg:#451a03;--palim-pending:#38bdf8;--palim-pending-bg:#0c2340;`
-    : `--palim-bg:#ffffff;--palim-bg-alt:#f8f9fa;--palim-bg-surface:#ffffff;--palim-text:#1a1a1a;--palim-text-muted:#6b7280;--palim-border:#e5e7eb;--palim-accent:#2563eb;--palim-accent-hover:#1d4ed8;--palim-success:#16a34a;--palim-success-bg:#dcfce7;--palim-error:#dc2626;--palim-error-bg:#fef2f2;--palim-warning:#d97706;--palim-warning-bg:#fffbeb;--palim-pending:#0284c7;--palim-pending-bg:#f0f9ff;`;
-}
-
-/**
- * Builds the full helper injection (style + script) for the iframe.
- */
-function buildHelper(token: string, dark: boolean): string {
-  const scriptOpen = "<" + "script>";
-  const scriptClose = "</" + "script>";
-  const styleOpen = "<" + 'style id="palim-theme">';
-  const styleClose = "</" + "style>";
-
-  const themeStyle = `${styleOpen}:root{${buildThemeVars(dark)}}${styleClose}`;
-
-  const helperJs = `${scriptOpen}
-window.__palimToken = "${token}";
-window.palim = {
-  token: "${token}",
-  fetch: function(path, opts) {
-    opts = opts || {};
-    var headers = Object.assign({"Content-Type": "application/json"}, opts.headers || {});
-    if (window.__palimToken) headers["Authorization"] = "Bearer " + window.__palimToken;
-    return fetch(path, Object.assign({}, opts, { headers: headers }));
-  }
-};
-${scriptClose}`;
-
-  return themeStyle + helperJs;
-}
-
-/**
- * Rebuilds the srcdoc with updated theme variables (no network request).
- */
-function rebuildWithTheme() {
-  if (!rawHtml) return;
-  const token = getToken() ?? "";
-  const helper = buildHelper(token, isDark);
-  htmlContent = rawHtml.replace("<head>", `<head>${helper}`);
-}
-
-async function loadPage(name: string) {
-  loading = true;
-  error = null;
-  htmlContent = null;
-  rawHtml = null;
-  try {
-    const res = await authFetch(`/ext/${name}/ui`);
-    if (!res.ok) {
-      error = `Failed to load extension page: ${res.status} ${res.statusText}`;
-      return;
-    }
-    rawHtml = await res.text();
-    const token = getToken() ?? "";
-    const helper = buildHelper(token, isDark);
-    htmlContent = rawHtml.replace("<head>", `<head>${helper}`);
-  } catch (err) {
-    error = err instanceof Error ? err.message : "Failed to load page";
-  } finally {
-    loading = false;
-  }
-}
+let ready = $derived($extensions.length > 0 || fetched);
+let ext = $derived($extensions.find((e) => e.name === extensionName));
+let pages = $derived(ext?.ui?.pages ?? []);
+let page = $derived(pageId ? pages.find((p) => p.id === pageId) : pages[0]);
 </script>
 
-{#if loading}
+{#snippet message(
+  text: string,
+)}
+  <div class="flex items-center justify-center h-full">
+    <p class="text-sm text-muted-foreground">{text}</p>
+  </div>
+{/snippet}
+
+{#if !ready}
   <div class="flex items-center justify-center h-full">
     <LoadingIndicator message="Loading extension page..." />
   </div>
-{:else if error}
-  <div class="flex items-center justify-center h-full">
-    <p class="text-sm text-destructive">{error}</p>
+{:else if !ext}
+  {@render message(`Extension "${extensionName}" is not installed.`)}
+{:else if !ext.enabled}
+  {@render message(`Extension "${ext.name}" is disabled.`)}
+{:else if pages.length === 0}
+  {@render message(`Extension "${ext.name}" has no pages.`)}
+{:else if !page}
+  {@render message(`Extension "${ext.name}" has no page "${pageId}".`)}
+{:else if page.error}
+  <div class="rounded-md border border-destructive/40 p-4 text-sm">
+    <p class="font-medium text-destructive">The page "{page.title}" could not be built.</p>
+    <pre class="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground">{page.error}</pre>
   </div>
-{:else if htmlContent}
-  <iframe
-    srcdoc={htmlContent}
-    class="w-full h-full border-0"
-    sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-popups-to-escape-sandbox"
-    title="Extension page: {extensionName}"
-  ></iframe>
+{:else if !page.module}
+  {@render message(`The page "${page.title}" is not available yet.`)}
+{:else}
+  {#key page.module}
+    <ExtensionPageMount
+      extension={{ name: ext.name, version: ext.version }}
+      page={{ ...page, module: page.module }}
+      pageRoute={`/ext-page/${ext.name}/${page.id}`}
+    />
+  {/key}
 {/if}

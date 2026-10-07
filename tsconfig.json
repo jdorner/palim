@@ -30,7 +30,8 @@
       "@src/*": ["./src/*"],
       "@shared/*": ["./shared/*"],
       "@ext/sdk": ["./src/extensions/sdk.ts"],
-      "@ext/types": ["./src/extensions/types.ts"]
+      "@ext/types": ["./src/extensions/types.ts"],
+      "@ext/ui": ["./src/extensions/ui/index.ts"]
     }
   }
 }
