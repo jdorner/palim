@@ -3,15 +3,18 @@ import { BaseEdge, type Position, portal, useStore } from "@xyflow/svelte";
 import { getSmoothStepPath } from "@xyflow/system";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 /**
- * Custom edge that renders a smooth-step path with a "+" button at the midpoint.
+ * Workflow graph edge. Edges spanning several layout columns follow the route
+ * computed by the layout (`data.route`), so they pass around nodes instead of
+ * through them; all other edges render as a smooth-step path.
  *
- * The button is portaled into the `edge-labels` overlay (the same layer the edge
+ * In edit mode the edge also offers a "+" button to insert a step. The button is portaled into the `edge-labels` overlay (the same layer the edge
  * label is rendered into) with a z-index one above the label, so it always paints
  * on top of the label. It is only revealed while the edge is hovered: an invisible
  * wide hit path along the edge drives a `hovered` state, and a short grace timer
  * keeps the button alive while the pointer moves from the edge onto the button.
  */
 import { onDestroy } from "svelte";
+import { type EdgeRoute, routedEdgePath } from "$lib/edgeRoute";
 
 interface Props {
   id: string;
@@ -27,6 +30,7 @@ interface Props {
   label?: string;
   labelStyle?: string;
   data?: {
+    route?: EdgeRoute;
     editMode?: boolean;
     onInsert?: (position: { x: number; y: number }) => void;
   };
@@ -56,15 +60,18 @@ let zIndex = $derived(store.visible.edges.get(id)?.zIndex ?? 0);
 
 let isEditable = $derived(data?.editMode === true && !!data?.onInsert);
 
+// A route stops fitting once a node is dragged past one of its bends; fall
+// back to a smooth-step path then.
 let [path, labelX, labelY] = $derived(
-  getSmoothStepPath({
-    sourceX,
-    sourceY,
-    targetX,
-    targetY,
-    sourcePosition,
-    targetPosition,
-  }),
+  (data?.route && routedEdgePath(sourceX, sourceY, targetX, targetY, data.route)) ||
+    getSmoothStepPath({
+      sourceX,
+      sourceY,
+      targetX,
+      targetY,
+      sourcePosition,
+      targetPosition,
+    }),
 );
 
 // Brief delay before hiding so the button doesn't flicker out while the pointer
