@@ -12,7 +12,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { rename } from "node:fs/promises";
+import { lstat, mkdir, readlink, rename, rm, symlink } from "node:fs/promises";
 import path from "node:path";
 import createLogger from "logging";
 
@@ -515,6 +515,54 @@ export class ExternalDependencyResolver {
   }
 
   /**
+   * Link the core project's `svelte` package into an extension's `node_modules`.
+   *
+   * The Svelte language server picks its compiler by resolving `svelte` from the
+   * edited file through `node_modules` (tsconfig `paths` do not apply). Without
+   * a local copy it falls back to its bundled compiler, which does not detect
+   * runes mode, so `$props()` declares nothing and child component props are
+   * typed `never`. Pages are bundled against the core `svelte`, so the link
+   * points there too.
+   *
+   * Only applies to extensions with a `ui/` directory. A real `svelte` directory
+   * (installed by the extension itself) is left alone; a symlink pointing
+   * elsewhere (e.g. a moved core project) is replaced.
+   *
+   * @param extensionDir - Absolute path to the extension directory.
+   * @returns Warnings (missing core svelte, filesystem errors); never throws.
+   */
+  async linkSvelte(extensionDir: string): Promise<string[]> {
+    if (!existsSync(path.join(extensionDir, "ui"))) return [];
+
+    const coreSvelte = path.join(this.coreProjectDir, "node_modules", "svelte");
+    if (!existsSync(coreSvelte)) {
+      const msg = `Core svelte package not found at ${coreSvelte}; editor tooling for ${path.basename(extensionDir)}/ui may misreport types`;
+      logger.warn(msg);
+      return [msg];
+    }
+
+    const nodeModulesDir = path.join(extensionDir, "node_modules");
+    const linkPath = path.join(nodeModulesDir, "svelte");
+    const target = path.relative(nodeModulesDir, coreSvelte);
+
+    try {
+      const stat = await lstat(linkPath).catch(() => null);
+      if (stat && !stat.isSymbolicLink()) return [];
+      if (stat) {
+        if ((await readlink(linkPath)) === target) return [];
+        await rm(linkPath);
+      }
+      await mkdir(nodeModulesDir, { recursive: true });
+      await symlink(target, linkPath, "dir");
+      return [];
+    } catch (err: unknown) {
+      const msg = `Failed to link svelte into ${path.basename(extensionDir)}/node_modules: ${(err as Error).message}`;
+      logger.warn(msg);
+      return [msg];
+    }
+  }
+
+  /**
    * Install extension-specific npm dependencies via `bun install`.
    *
    * Spawns `bun install` in the extension directory and enforces a per-install timeout.
@@ -704,6 +752,9 @@ export class ExternalDependencyResolver {
             }
           }
           // If no package.json or no dependencies: tsconfigGenerated is set, depsInstalled stays null
+
+          // After install: `bun install` may prune a link it does not know about
+          result.warnings.push(...(await this.linkSvelte(extensionDir)));
         } catch (err: unknown) {
           const msg = `Resolution failed for extension "${result.name}": ${(err as Error).message}`;
           logger.error(msg);
@@ -807,6 +858,9 @@ export class ExternalDependencyResolver {
           result.depsInstalled = null;
         }
       }
+
+      // After install: `bun install` may prune a link it does not know about
+      result.warnings.push(...(await this.linkSvelte(extensionDir)));
     } catch (err: unknown) {
       const msg = `Resolution failed for extension "${result.name}": ${(err as Error).message}`;
       logger.error(msg);
