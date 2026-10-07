@@ -24,6 +24,15 @@ The extension will not start without this secret set.
 4. When the agent finishes, the response is sent back to the originating chat
 5. A typing indicator is shown while the agent is processing
 
+## Images
+
+Photos and images sent as files (uncompressed) are downloaded and passed to the LLM together with the message caption.
+
+- Messages with images run on the model selected for the **vision** intent (Settings > Models). If no vision-capable model is available, the default model is used and the image is replaced with a placeholder.
+- Albums (several photos sent at once) are combined into a single message and a single agent job.
+- Images larger than the **Max image size** setting are rejected, and the bot replies with an error instead of queuing a job.
+- Images are stored in the chat session, so they stay part of the conversation context for later turns.
+
 ## Settings
 
 All settings are configurable in the web UI under **Settings > Extensions > Telegram**.
@@ -34,11 +43,18 @@ The default chat ID used by the `send_telegram_message` tool when no explicit `c
 
 Default: none (must be provided per-call if not configured)
 
+### Max Image Size (MB)
+
+Incoming images larger than this are rejected. Telegram's Bot API does not allow bots to download files above 20 MB, so values above 20 are capped.
+
+Default: `20`
+
 ## Environment Variable Override
 
 | Setting | Environment Variable |
 | --- | --- |
 | Default Chat ID | `EXT_TELEGRAM_CHAT_ID` |
+| Max Image Size (MB) | `EXT_TELEGRAM_MAX_IMAGE_SIZE_MB` |
 
 ## Agent Tool
 

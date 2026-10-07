@@ -9,14 +9,19 @@
 
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
+import type { ModelIntent } from "@shared/models";
 import type { ExtensionRegistry } from "@src/extensions";
 import type { AgentJob, ChatJob } from "@src/jobs";
 import { buildAgentSystemPrompt, buildChatSystemPrompt, createAgentQueue, createChatQueue } from "@src/jobs";
+import { getModelForIntent } from "@src/models";
 import type { ManagedQueuePort, QueueJob } from "@src/queue";
 import { getSkillsForContext } from "@src/skills/skills";
 import type { SkillEntry } from "@src/tools/sandbox";
 import { createShell } from "@src/tools/sandbox";
 import type { Bash } from "just-bash";
+import createLogger from "logging";
+
+const logger = createLogger("Queues");
 
 /** Dependencies needed to construct the core queues. */
 export interface CoreQueueDeps {
@@ -66,12 +71,30 @@ export function createCoreQueues(deps: CoreQueueDeps): CoreQueues {
   const resolveExtensionTool = (name: string): AgentTool | undefined =>
     getExtensionTools().find((t) => t.name === name);
 
+  /**
+   * Resolves the model for a job's intent hint, falling back to the selected
+   * model when the intent cannot be satisfied (e.g. no vision model configured).
+   * The fallback keeps the job running; pi-ai replaces unsupported images with
+   * a placeholder instead of failing the request.
+   */
+  const resolveModel = async (intent?: ModelIntent): Promise<Model<"openai-completions">> => {
+    if (!intent) return getSelectedModel();
+    try {
+      return (await getModelForIntent(intent)).model;
+    } catch (err) {
+      logger.warn(
+        `Could not resolve model for intent "${intent}", using selected model: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return getSelectedModel();
+    }
+  };
+
   const agentQueue = createAgentQueue({
     buildProcessor: async (job: QueueJob<AgentJob>) => {
       const activeSkills = registry.getSkillNames();
       const systemPrompt = buildAgentSystemPrompt(getSkillsForContext({ resolveSkill, includeSkills: activeSkills }));
       return {
-        model: await getSelectedModel(),
+        model: await resolveModel(job.data.intent),
         tools: ["exec", ...getExtensionTools().map((t) => t.name)],
         toolResolver: resolveExtensionTool,
         apiKey: openaiApiKey,

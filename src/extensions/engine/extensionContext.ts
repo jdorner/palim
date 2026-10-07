@@ -7,6 +7,7 @@
 
 import type { RouteRegistry } from "@ext/types";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { ModelIntent } from "@shared/models";
 import type { StepTypeInfo, WebSocketMessage } from "@shared/types";
 import { serverOrigin } from "@src/config";
 import type { PushMessageFn } from "@src/push";
@@ -436,7 +437,10 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
    * @param data - Job payload
    * @returns The created job ID
    */
-  async function enqueueAgent(name: string, data: { context?: AgentEventContext; sessionId: string }): Promise<string> {
+  async function enqueueAgent(
+    name: string,
+    data: { context?: AgentEventContext; sessionId: string; intent?: ModelIntent },
+  ): Promise<string> {
     const agentQueue = getCoreQueueFn?.("agents");
     if (!agentQueue) {
       throw new Error(`Extension "${extensionName}": core "agents" queue is not available`);

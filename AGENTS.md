@@ -54,6 +54,7 @@ The web UI is served at `http://localhost:3000` by default (configurable via `WE
 | `DATA_DIR`             | Directory for databases and generated content  | `<AGENT_WORK_DIR>/.palim/` |
 | `TELEGRAM_BOT_TOKEN`   | Telegram bot token                             | -                          |
 | `EXT_TELEGRAM_CHAT_ID` | Default Telegram chat ID                       | -                          |
+| `EXT_TELEGRAM_MAX_IMAGE_SIZE_MB` | Max size of incoming Telegram images (MB, ≤ 20) | `20`              |
 
 ## Project Structure
 

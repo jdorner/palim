@@ -842,10 +842,13 @@ export interface ExtensionContext {
      * Submit a job to the core Agents queue.
      *
      * @param name - Job name/label
-     * @param data - Job payload (context, sessionId)
+     * @param data - Job payload (context, sessionId, optional model intent hint)
      * @returns The created job ID
      */
-    enqueue(name: string, data: { context?: AgentEventContext; sessionId: string }): Promise<string>;
+    enqueue(
+      name: string,
+      data: { context?: AgentEventContext; sessionId: string; intent?: ModelIntent },
+    ): Promise<string>;
   };
 
   // -------------------------------------------------------------------------

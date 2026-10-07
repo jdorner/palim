@@ -8,16 +8,28 @@
  */
 
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
+import type { ImageContent } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
-import { Bot } from "node-telegram-bot-api";
+import { Bot, type Message } from "node-telegram-bot-api";
+import {
+  buildUserContent,
+  downloadImage,
+  getImageRefs,
+  ImageTooLargeError,
+  MAX_IMAGE_SIZE_MB,
+  parseMaxImageSizeMb,
+  type TelegramImageRef,
+} from "./images";
 import { createNotifyStepHandler } from "./notifyStep";
 
 const CHAT_ACTION_DELAY_MS = 3000;
+/** Telegram delivers album items as separate updates; wait this long for the rest of the group. */
+const MEDIA_GROUP_DEBOUNCE_MS = 1000;
 const TELEGRAM_BOT_TOKEN = "TELEGRAM_BOT_TOKEN" as const;
 
 const manifest = {
   name: "telegram",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "Telegram bot integration with message queuing and persistent conversation history",
   dependencies: ["workflows"],
   settingsSchema: Type.Object({
@@ -25,6 +37,15 @@ const manifest = {
       Type.String({
         title: "Default Telegram chat ID",
         description: "Default Telegram chat ID for outgoing messages",
+      }),
+    ),
+    maxImageSizeMb: Type.Optional(
+      Type.Number({
+        title: "Max image size (MB)",
+        description: `Incoming images larger than this are rejected. Telegram's Bot API caps downloads at ${MAX_IMAGE_SIZE_MB} MB.`,
+        default: MAX_IMAGE_SIZE_MB,
+        minimum: 1,
+        maximum: MAX_IMAGE_SIZE_MB,
       }),
     ),
   }),
@@ -36,10 +57,23 @@ const manifest = {
  *
  * @returns An {@link Extension} object ready to be loaded by the registry
  */
+/** Album items collected until the media group's debounce timer fires. */
+interface PendingMediaGroup {
+  chatId: number;
+  texts: string[];
+  refs: TelegramImageRef[];
+  timer: ReturnType<typeof setTimeout>;
+}
+
 export function createExtension(): Extension {
   let logger: Logger;
   let bot: Bot | null = null;
+  let botToken: string | null = null;
   let defaultChatId: string | undefined;
+  let maxImageSizeMb = MAX_IMAGE_SIZE_MB;
+
+  // Album items buffered per media_group_id
+  const mediaGroups = new Map<string, PendingMediaGroup>();
 
   // Per-chat typing indicator intervals
   const typingIntervals = new Map<number, ReturnType<typeof setInterval>>();
@@ -68,63 +102,141 @@ export function createExtension(): Extension {
     async initialize(ctx: ExtensionContext) {
       logger = ctx.log;
 
-      const botToken = await ctx.secrets.get(TELEGRAM_BOT_TOKEN);
-      if (!botToken || typeof botToken !== "string") {
+      const token = await ctx.secrets.get(TELEGRAM_BOT_TOKEN);
+      if (!token || typeof token !== "string") {
         throw new Error(`${TELEGRAM_BOT_TOKEN} is required but not set.`);
       }
 
       const chatIdCfg = ctx.config.get("CHAT_ID");
       defaultChatId =
         typeof chatIdCfg === "string" ? chatIdCfg : chatIdCfg !== undefined ? String(chatIdCfg) : undefined;
+      maxImageSizeMb = parseMaxImageSizeMb(ctx.config.get("MAX_IMAGE_SIZE_MB"));
 
-      bot = new Bot(botToken);
+      /**
+       * Appends the user message to the chat's session and enqueues an agent
+       * job. Messages with images run on the vision-intent model.
+       */
+      async function submitUserMessage(chatId: number, text: string, images: ImageContent[]): Promise<void> {
+        const session = ctx.sessions.getOrCreate({
+          source: manifest.name,
+          sourceId: chatId.toString(),
+        });
 
-      // v2 routes all handler/polling errors to the error boundary instead of a
-      // `polling_error` event. The default boundary logs and continues; we keep
-      // that continue-on-error behavior but log through our own logger.
-      bot.catch((err) => {
-        logger.error("Telegram bot error:", err);
-      });
+        // Persist the user message so the agent processor sees it in session history
+        session.append({
+          role: "user",
+          content: buildUserContent(text, images),
+          timestamp: Date.now(),
+        });
 
-      // Enqueue incoming messages with a server-side session.
-      // The user message is appended to the session before enqueuing so the
-      // agent processor sees it when loading session history.
-      bot.on("message", async (msgCtx) => {
-        const msg = msgCtx.message;
-        if (!msg?.text) return;
+        const jobId = await ctx.agent.enqueue(`telegram:${chatId}`, {
+          context: { source: manifest.name, id: chatId.toString() },
+          sessionId: session.id,
+          ...(images.length > 0 ? { intent: "vision" as const } : {}),
+        });
 
-        try {
-          const chatId = msg.chat.id;
-          const session = ctx.sessions.getOrCreate({
-            source: this.manifest.name,
-            sourceId: chatId.toString(),
-          });
+        startTyping(chatId);
 
-          // Persist the user message so the agent processor sees it in session history
-          session.append({
-            role: "user",
-            content: msg.text,
-            timestamp: Date.now(),
-          });
+        logger.info(
+          `Queued job ${jobId} for chat ${chatId} (session: ${session.id}${images.length > 0 ? `, ${images.length} image(s)` : ""})`,
+        );
+      }
 
-          const jobId = await ctx.agent.enqueue(`telegram:${chatId}`, {
-            context: { source: this.manifest.name, id: chatId.toString() },
-            sessionId: session.id,
-          });
+      /**
+       * Downloads any images, then submits the message. Download failures are
+       * reported to the chat and the message is not enqueued.
+       */
+      async function handleIncoming(chatId: number, text: string, refs: TelegramImageRef[]): Promise<void> {
+        const images: ImageContent[] = [];
+        if (refs.length > 0) {
+          const currentBot = bot;
+          if (!currentBot || !botToken) return;
 
           startTyping(chatId);
-
-          logger.info(`Queued job ${jobId} for chat ${chatId} (session: ${session.id})`);
-        } catch (err) {
-          logger.error(`Failed to queue message from chat ${msg.chat.id}:`, err);
+          try {
+            for (const ref of refs) {
+              images.push(await downloadImage(currentBot, botToken, ref, maxImageSizeMb));
+            }
+          } catch (err) {
+            stopTyping(chatId);
+            const tooLarge = err instanceof ImageTooLargeError;
+            logger.error(`Failed to download image from chat ${chatId}:`, err instanceof Error ? err.message : err);
+            await currentBot.api
+              .sendMessage({ chat_id: chatId, text: tooLarge ? err.message : "Could not download image." })
+              .catch((sendErr) => logger.error(`Failed to send image error to chat ${chatId}:`, sendErr));
+            return;
+          }
         }
-      });
 
-      // Start the long-poll pump. This returns a promise that resolves when the
-      // bot is stopped; it must not be awaited here or it would block init.
-      // Handler/polling errors are routed to the `catch` boundary above, so this
-      // promise only rejects if that boundary itself throws.
-      void bot.startPolling();
+        await submitUserMessage(chatId, text, images);
+      }
+
+      /** Buffers an album item; the group is submitted once no new item arrived for the debounce period. */
+      function bufferMediaGroup(groupId: string, chatId: number, text: string, refs: TelegramImageRef[]): void {
+        const pending = mediaGroups.get(groupId);
+        if (pending) clearTimeout(pending.timer);
+
+        const group: PendingMediaGroup = {
+          chatId,
+          texts: [...(pending?.texts ?? []), ...(text ? [text] : [])],
+          refs: [...(pending?.refs ?? []), ...refs],
+          timer: setTimeout(() => {
+            mediaGroups.delete(groupId);
+            handleIncoming(group.chatId, group.texts.join("\n\n"), group.refs).catch((err) => {
+              stopTyping(group.chatId);
+              logger.error(`Failed to queue album from chat ${group.chatId}:`, err);
+            });
+          }, MEDIA_GROUP_DEBOUNCE_MS),
+        };
+        mediaGroups.set(groupId, group);
+      }
+
+      /** Handles one incoming message: text, caption, photo, or image document. */
+      async function onMessage(msg: Message | undefined): Promise<void> {
+        if (!msg) return;
+
+        const chatId = msg.chat.id;
+        const text = msg.text ?? msg.caption ?? "";
+        const refs = getImageRefs(msg);
+        if (!text && refs.length === 0) return;
+
+        try {
+          if (msg.media_group_id && refs.length > 0) {
+            bufferMediaGroup(msg.media_group_id, chatId, text, refs);
+            return;
+          }
+          await handleIncoming(chatId, text, refs);
+        } catch (err) {
+          stopTyping(chatId);
+          logger.error(`Failed to queue message from chat ${chatId}:`, err);
+        }
+      }
+
+      /** Creates a bot, wires the error boundary and message handler, and starts polling. */
+      function connectBot(token: string): void {
+        botToken = token;
+        bot = new Bot(token);
+
+        // v2 routes all handler/polling errors to the error boundary instead of a
+        // `polling_error` event. The default boundary logs and continues; we keep
+        // that continue-on-error behavior but log through our own logger.
+        bot.catch((err) => {
+          logger.error("Telegram bot error:", err);
+        });
+
+        // Enqueue incoming messages with a server-side session.
+        // The user message is appended to the session before enqueuing so the
+        // agent processor sees it when loading session history.
+        bot.on("message", (msgCtx) => onMessage(msgCtx.message));
+
+        // Start the long-poll pump. This returns a promise that resolves when the
+        // bot is stopped; it must not be awaited here or it would block init.
+        // Handler/polling errors are routed to the `catch` boundary above, so this
+        // promise only rejects if that boundary itself throws.
+        void bot.startPolling();
+      }
+
+      connectBot(token);
 
       // Route agent responses back to the originating Telegram chat.
       // Uses agent_end (not message_end) to avoid re-sending historical
@@ -259,6 +371,8 @@ export function createExtension(): Extension {
         if (!("extensionName" in event) || event.extensionName !== "telegram") return;
 
         const values = (event as { values?: Record<string, unknown> }).values;
+        maxImageSizeMb = parseMaxImageSizeMb(values?.maxImageSizeMb);
+
         const raw = values?.chatId;
         const newChatId = raw != null ? String(raw) : undefined;
 
@@ -286,6 +400,7 @@ export function createExtension(): Extension {
             }
             bot = null;
           }
+          botToken = null;
           return;
         }
 
@@ -305,11 +420,7 @@ export function createExtension(): Extension {
           }
         }
 
-        bot = new Bot(newToken);
-        bot.catch((err) => {
-          logger.error("Telegram bot error:", err);
-        });
-        void bot.startPolling();
+        connectBot(newToken);
 
         logger.info("Telegram bot reconnected with new token");
       });
@@ -325,6 +436,8 @@ export function createExtension(): Extension {
             clearInterval(interval);
             typingIntervals.delete(chatId);
           });
+          for (const group of mediaGroups.values()) clearTimeout(group.timer);
+          mediaGroups.clear();
 
           bot.stop();
         } catch (err) {

@@ -389,6 +389,8 @@ Extensions that use `ctx.workflows.dispatch()` should declare `"workflows"` in t
 
 `ctx.agent.run` is for extensions that process their own queue jobs and need an agent inline. `ctx.agent.enqueue` is for extensions that want to trigger agent work asynchronously.
 
+Both accept an optional model `intent` (`"chat"`, `"vision"`, `"embedding"`) to run on the model selected for that intent instead of the default. For `enqueue`, if the intent's model cannot be resolved (e.g. no vision-capable model), the job logs a warning and falls back to the default model; images in the session are then replaced with a placeholder.
+
 ### Config (`ctx.config`)
 
 | Method | Description |
@@ -700,6 +702,7 @@ For fire-and-forget agent jobs, use `ctx.agent.enqueue()`:
 const jobId = await ctx.agent.enqueue("process-message", {
   context: { source: "my-extension", id: "123" },
   sessionId: "session-id",
+  intent: "vision", // optional: the session's last message contains images
 });
 ```
 
