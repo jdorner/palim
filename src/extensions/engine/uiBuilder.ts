@@ -199,7 +199,7 @@ async function hashFiles(hash: ReturnType<typeof createHash>, dir: string, patte
 let coreFingerprint: Promise<string> | null = null;
 
 /**
- * Fingerprints the core UI sources (builder, kit, theme, compiler version) so
+ * Fingerprints the core UI sources (builder, frontend, compiler version) so
  * extension bundles rebuild when Palim's build pipeline or UI kit changes.
  *
  * @returns Hex digest
@@ -210,12 +210,9 @@ function getCoreFingerprint(): Promise<string> {
     // The builder's own source: pipeline changes invalidate every cached bundle.
     hash.update(await Bun.file(import.meta.path).text());
     hash.update(`|svelte@${SVELTE_VERSION}`);
-    await hashFiles(hash, path.join(FRONTEND_SRC_DIR, "lib"), "{extensionKit.ts,utils.ts,components/**/*}");
-    await hashFiles(
-      hash,
-      FRONTEND_SRC_DIR,
-      "{theme.css,components/MultiSelect.svelte,components/StatusDot.svelte,components/multiSelectFilter.ts}",
-    );
+    // All frontend sources: the kit and theme are compiled in, and every host
+    // utility class is re-emitted in the extension stylesheet.
+    await hashFiles(hash, FRONTEND_SRC_DIR, "**/*");
     return hash.digest("hex");
   })();
   return coreFingerprint;
@@ -356,19 +353,30 @@ function createSveltePlugin(extensionDir: string): BunPlugin {
  * the host theme. Only utilities are emitted: the host already ships preflight
  * and base styles, and cascade layers merge across stylesheets by name.
  *
+ * The host's own utilities are emitted too. The extension stylesheet loads
+ * after the host's into the same `utilities` layer, so a utility it shared
+ * with the host would otherwise move behind the host's variants (e.g. its
+ * `flex-wrap` overriding the host's `xl:flex-nowrap`). As a superset in
+ * Tailwind's canonical order, it leaves every host rule in its usual order.
+ *
  * @param uiDir - The extension's `ui/` directory
- * @returns Minified CSS, or an empty string when no utilities are used
+ * @returns Minified CSS, or an empty string when the extension uses no utilities
  */
 async function buildTailwindCss(uiDir: string): Promise<string> {
-  const input = [
-    `@import "tailwindcss/theme.css" layer(theme);`,
-    `@import "tailwindcss/utilities.css" layer(utilities);`,
-    `@import ${JSON.stringify(THEME_CSS)};`,
-    `@source ${JSON.stringify(uiDir)};`,
-  ].join("\n");
-  const compiler = await compileTailwind(input, { base: PROJECT_DIR, onDependency: () => {} });
+  const compile = (sources: string[]) =>
+    compileTailwind(
+      [
+        `@import "tailwindcss/theme.css" layer(theme);`,
+        `@import "tailwindcss/utilities.css" layer(utilities);`,
+        `@import ${JSON.stringify(THEME_CSS)};`,
+        ...sources.map((dir) => `@source ${JSON.stringify(dir)};`),
+      ].join("\n"),
+      { base: PROJECT_DIR, onDependency: () => {} },
+    );
+  const extensionOnly = await compile([uiDir]);
+  if (new Scanner({ sources: extensionOnly.sources }).scan().length === 0) return "";
+  const compiler = await compile([uiDir, path.dirname(FRONTEND_SRC_DIR)]);
   const candidates = new Scanner({ sources: compiler.sources }).scan();
-  if (candidates.length === 0) return "";
   return optimize(compiler.build(candidates), { minify: true }).code;
 }
 

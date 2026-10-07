@@ -37,22 +37,22 @@ let noticeKind: PalimNotifyKind = $state("info");
 let confirmRequest: { options: PalimConfirmOptions; resolve: (ok: boolean) => void } | null = $state(null);
 
 /**
- * Ensures the extension's stylesheet is loaded, replacing an outdated one
- * from an earlier build of the same extension.
+ * Loads the extension's stylesheet for the lifetime of the mounted page. It
+ * loads after the host's into the same cascade layers, so it must not outlive
+ * the page: another extension's page would see its rules out of order.
  *
  * @param extensionName - Owning extension
  * @param href - Stylesheet URL, if the build produced one
+ * @returns Removes the stylesheet again
  */
-function ensureStylesheet(extensionName: string, href: string | undefined): void {
-  for (const link of document.head.querySelectorAll<HTMLLinkElement>("link[data-ext-ui]")) {
-    if (link.dataset.extUi === extensionName && link.getAttribute("href") !== href) link.remove();
-  }
-  if (!href || document.head.querySelector(`link[data-ext-ui][href="${CSS.escape(href)}"]`)) return;
+function loadStylesheet(extensionName: string, href: string | undefined): () => void {
+  if (!href) return () => {};
   const link = document.createElement("link");
   link.rel = "stylesheet";
   link.href = href;
   link.dataset.extUi = extensionName;
   document.head.append(link);
+  return () => link.remove();
 }
 
 function showNotice(message: string, kind: PalimNotifyKind): void {
@@ -93,7 +93,7 @@ $effect(() => {
     notify: showNotice,
     confirm: requestConfirm,
   });
-  ensureStylesheet(ext.name, current.css);
+  const unloadStylesheet = loadStylesheet(ext.name, current.css);
 
   let cancelled = false;
   let unmount: (() => void) | null = null;
@@ -122,6 +122,7 @@ $effect(() => {
     } catch (err) {
       console.error(`Failed to unmount page "${current.id}" of extension "${ext.name}":`, err);
     }
+    unloadStylesheet();
     dispose();
     settleConfirm(false);
   };
