@@ -11,12 +11,22 @@ export type {
   ExtensionInfo,
   ExtensionLifecycleEvent,
   ExtensionUiContribution,
+  ExtensionUiPage,
   NavigationEntry,
   SecretSchemaEntry,
   StepIconName,
   StepTypeInfo,
 } from "./extensions";
 export { STEP_ICON_NAMES } from "./extensions";
+export type {
+  ExtensionUiEvent,
+  MountExtensionPage,
+  PalimConfirmOptions,
+  PalimHost,
+  PalimJsonInit,
+  PalimNotifyKind,
+  PalimPageRoute,
+} from "./extensionUi";
 export type { JobEntry, LogEntry } from "./jobs";
 export type { AvailableModel, ModelIntent, SelectedModelResponse } from "./models";
 export { MODEL_INTENTS } from "./models";

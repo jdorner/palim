@@ -4,6 +4,7 @@
  */
 
 import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { ExtensionUiPage } from "@shared/extensions";
 import type { ManagedQueuePort } from "@src/queue";
 import type { Extension, HttpMethod, RouteHandler, RouteOptions, StepTypeHandler } from "./types";
 
@@ -44,4 +45,6 @@ export interface LoadedExtension {
   state: ExtensionState;
   /** Error message from the last failed initialization attempt, or null if healthy. */
   error?: string | null;
+  /** Compiled UI pages (module URLs or build errors), set on activation when the manifest declares pages. */
+  uiPages?: ExtensionUiPage[];
 }

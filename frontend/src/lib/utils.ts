@@ -18,7 +18,7 @@ export function uuid(): string {
 
   // Fallback
   return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) =>
-    (+c ^ (crypto.getRandomValues(new Uint8Array(1))[0] & (15 >> (+c / 4)))).toString(16),
+    (+c ^ ((crypto.getRandomValues(new Uint8Array(1))[0] ?? 0) & (15 >> (+c / 4)))).toString(16),
   );
 }
 
@@ -130,7 +130,7 @@ const AUTOMATION_STYLES: Record<string, AutomationStyle> = {
  * @returns Style metadata for rendering the automation type
  */
 export function automationStyle(type: string): AutomationStyle {
-  return Object.hasOwn(AUTOMATION_STYLES, type) ? AUTOMATION_STYLES[type] : DEFAULT_AUTOMATION_STYLE;
+  return (Object.hasOwn(AUTOMATION_STYLES, type) && AUTOMATION_STYLES[type]) || DEFAULT_AUTOMATION_STYLE;
 }
 
 /**

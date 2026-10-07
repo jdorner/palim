@@ -142,6 +142,10 @@ export function generateExtensionTsconfig(extensionDir: string, coreProjectDir: 
       paths: {
         "@ext/types": [`${relativeToCoreProject}/src/extensions/types.ts`],
         "@ext/sdk": [`${relativeToCoreProject}/src/extensions/sdk.ts`],
+        // Extension UI pages: host API types and the public UI kit.
+        "@ext/ui": [`${relativeToCoreProject}/src/extensions/ui/index.ts`],
+        "@palim/ui": [`${relativeToCoreProject}/frontend/src/lib/extensionKit.ts`],
+        "$lib/*": [`${relativeToCoreProject}/frontend/src/lib/*`],
         // `paths` matches are resolved as plain file lookups, so TypeScript never
         // falls back to `@types/<pkg>` for an untyped package. List each
         // `@types` folder before its packages so DefinitelyTyped typings win.
@@ -153,7 +157,8 @@ export function generateExtensionTsconfig(extensionDir: string, coreProjectDir: 
         ],
       },
     },
-    include: ["./**/*.ts"],
+    // .svelte: UI pages (ui/), so the Svelte language server applies these paths too
+    include: ["./**/*.ts", "./**/*.svelte"],
     exclude: ["node_modules"],
   };
 }

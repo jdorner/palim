@@ -6,6 +6,7 @@
 
 import type { ChatWebSocketEvent } from "./chat";
 import type { ExtensionLifecycleEvent } from "./extensions";
+import type { ExtensionUiEvent } from "./extensionUi";
 import type { JobEntry, LogEntry } from "./jobs";
 import type { ScheduleEntry } from "./schedules";
 import type { WorkflowWebSocketEvent } from "./workflows";
@@ -53,4 +54,5 @@ export type WebSocketMessage =
   | WorkflowWebSocketEvent
   | ApprovalRequestEvent
   | ExtensionLifecycleEvent
+  | ExtensionUiEvent
   | PushMessageEvent;

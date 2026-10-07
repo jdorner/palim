@@ -5,8 +5,9 @@
 
 import type { FSWatcher } from "node:fs";
 import { watch as fsWatch } from "node:fs";
+import { dirname } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { StepTypeInfo } from "@shared/extensions";
+import type { ExtensionUiPage, StepTypeInfo } from "@shared/extensions";
 import type { ExtensionInfo, WebSocketMessage } from "@shared/types";
 import type { AuthResolver, UserStore } from "@src/auth";
 import { PROJECT_DIR, serverOrigin } from "@src/config";
@@ -29,7 +30,11 @@ import createLogger from "logging";
 import type { LoadedExtension } from "../internalTypes";
 import type { AgentProcessorResult, CoreQueueName, Extension, RouteRegistry, RunAgentOptions } from "../types";
 import { resolveDependencyOrder } from "./dependencyResolver";
-import { discoverExtensions as discoverExtensionsFn, validateExtension as validateExtensionFn } from "./discovery";
+import {
+  discoverExtensions as discoverExtensionsFn,
+  getDiscoveredModulePath,
+  validateExtension as validateExtensionFn,
+} from "./discovery";
 import { EventBus } from "./eventBus";
 import type { ExtensionContextDeps } from "./extensionContext";
 import { ExternalDependencyResolver } from "./externalDependencyResolver";
@@ -42,6 +47,7 @@ import {
   type LoadedEntry,
 } from "./lifecycle";
 import { serializeStepTypes } from "./stepTypeSerialization";
+import { buildExtensionUi, removeExtensionUi } from "./uiBuilder";
 
 const logger = createLogger("ExtensionRegistry");
 
@@ -324,6 +330,7 @@ export class ExtensionRegistry {
         this.loaded.push({
           name,
           extension: ext,
+          modulePath: getDiscoveredModulePath(ext),
           tools: [],
           routes: [],
           queues: [],
@@ -334,7 +341,7 @@ export class ExtensionRegistry {
         continue;
       }
 
-      await this.initializeExtension(ext);
+      await this.initializeExtension(ext, getDiscoveredModulePath(ext));
     }
 
     // Warn about cross-extension route collisions (do not reject)
@@ -540,8 +547,11 @@ export class ExtensionRegistry {
           const manifestUi = l.extension.manifest.ui ?? null;
           const registeredStepTypes = serializeStepTypes(l.stepTypes);
           if (!manifestUi && registeredStepTypes.length === 0) return null;
+          // Before the first build (suspended extensions) pages are listed without modules.
+          const pages = l.uiPages ?? manifestUi?.pages?.map((p) => ({ id: p.id, title: p.title }));
           return {
             navigation: manifestUi?.navigation ?? [],
+            ...(pages && pages.length > 0 ? { pages } : {}),
             stepTypes: registeredStepTypes.length > 0 ? registeredStepTypes : undefined,
           };
         })(),
@@ -716,8 +726,11 @@ export class ExtensionRegistry {
     // Deactivate (shutdown + cleanup) -- no-op if already suspended
     await this.deactivate(name);
 
-    // Remove from loaded list
+    // Remove from loaded list and drop its compiled UI bundles
     this.loaded.splice(idx, 1);
+    if (entry.extension.manifest.ui?.pages?.length) {
+      await removeExtensionUi(name).catch((err) => logger.warn(`Failed to remove UI bundles of "${name}":`, err));
+    }
 
     // Remove skills owned by this extension
     let skillsRemoved = false;
@@ -846,7 +859,52 @@ export class ExtensionRegistry {
       }),
       broadcastFn: deps.broadcastFn,
       onQueueCreated: deps.onQueueCreated,
+      buildUiFn: (entry) => this.buildUi(entry),
     };
+  }
+
+  /**
+   * Compiles an extension's declared UI pages. Never throws: build failures
+   * are logged and reported on the returned pages.
+   *
+   * @param entry - The loaded extension entry
+   * @returns Compiled page descriptors, or undefined when the extension declares no pages
+   */
+  private async buildUi(entry: LoadedEntry): Promise<ExtensionUiPage[] | undefined> {
+    const pages = entry.extension.manifest.ui?.pages;
+    if (!pages || pages.length === 0) return undefined;
+    if (!entry.modulePath) {
+      logger.warn(`Extension "${entry.name}" declares UI pages but its directory is unknown - skipping UI build`);
+      return pages.map((p) => ({ id: p.id, title: p.title, error: "Extension directory unknown" }));
+    }
+    const result = await buildExtensionUi({ name: entry.name, dir: dirname(entry.modulePath), pages });
+    const failed = result.pages.filter((p) => p.error);
+    if (failed.length > 0) {
+      logger.error(`UI build failed for extension "${entry.name}":\n${failed[0]?.error}`);
+    } else if (!result.cached) {
+      logger.info(`Built UI for extension "${entry.name}" (${result.pages.length} page(s))`);
+    }
+    return result.pages;
+  }
+
+  /**
+   * Rebuilds an active extension's UI pages (e.g. after its `ui/` sources
+   * changed) and broadcasts a `ui_updated` lifecycle event so open pages remount.
+   *
+   * @param name - Extension name
+   * @returns `true` when the extension was rebuilt, `false` if it is unknown or suspended
+   */
+  async rebuildUi(name: string): Promise<boolean> {
+    const entry = this.loaded.find((l) => l.name === name);
+    if (entry?.state !== "active") return false;
+    entry.uiPages = await this.buildUi(entry);
+    this.initDeps?.broadcastFn({
+      type: "extension_lifecycle",
+      action: "ui_updated",
+      name,
+      version: entry.extension.manifest.version,
+    });
+    return true;
   }
 }
 

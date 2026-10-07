@@ -152,3 +152,27 @@ describe("ctx.workflows.names", () => {
     expect(context.workflows.names()).toEqual(["a", "b"]);
   });
 });
+
+describe("ctx.ui.emit", () => {
+  test("broadcasts an extension_ui_event scoped to the extension", () => {
+    const messages: unknown[] = [];
+    const { context } = createExtensionContext({ ...createMinimalDeps(), broadcastFn: (m) => messages.push(m) });
+
+    context.ui.emit("oauth-status", { state: "abc", status: "complete" });
+
+    expect(messages).toEqual([
+      {
+        type: "extension_ui_event",
+        extension: "test-extension",
+        event: "oauth-status",
+        data: { state: "abc", status: "complete" },
+      },
+    ]);
+  });
+
+  test("rejects empty and overlong event names", () => {
+    const { context } = createExtensionContext({ ...createMinimalDeps(), broadcastFn: () => {} });
+    expect(() => context.ui.emit("")).toThrow("1-64 characters");
+    expect(() => context.ui.emit("x".repeat(65))).toThrow("1-64 characters");
+  });
+});

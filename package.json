@@ -8,6 +8,8 @@
     "@modelcontextprotocol/sdk": "^1.32.1",
     "@orama/orama": "^3.1.18",
     "@sinclair/typebox": "^0.34.52",
+    "@tailwindcss/node": "^4.3.3",
+    "@tailwindcss/oxide": "^4.3.3",
     "bunqueue": "^2.9.11",
     "chokidar": "^5.0.0",
     "drizzle-orm": "^0.45.3",
@@ -22,6 +24,8 @@
     "pdf-to-img": "^7.0.0",
     "rezo": "^1.0.139",
     "subscript": "10.8.1",
+    "svelte": "^5.57.2",
+    "tailwindcss": "^4.3.3",
     "turndown": "^7.2.4",
     "yaml": "^2.9.1"
   },

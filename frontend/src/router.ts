@@ -20,6 +20,8 @@ export const { p, navigate, isActive, route } = createRouter({
   "/workflows/:name": () => import("./routes/WorkflowDetailPage.svelte"),
   "/workflows/:name/runs/:runId": () => import("./routes/WorkflowRunPage.svelte"),
   "/ext-page/:extensionName": () => import("./routes/ExtensionPage.svelte"),
+  "/ext-page/:extensionName/:pageId": () => import("./routes/ExtensionPage.svelte"),
+  "/ext-page/:extensionName/:pageId/*rest": () => import("./routes/ExtensionPage.svelte"),
 
   hooks: {
     async beforeLoad(context) {

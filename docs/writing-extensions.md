@@ -22,6 +22,7 @@ Extensions are self-contained modules that hook into the agent system. Each exte
   - [Queues (`ctx.queues`)](#queues-ctxqueues)
   - [Events (`ctx.events`)](#events-ctxevents)
   - [Messaging (`ctx.messaging`)](#messaging-ctxmessaging)
+  - [UI Events (`ctx.ui`)](#ui-events-ctxui)
   - [Workflows (`ctx.workflows`)](#workflows-ctxworkflows)
   - [Agent Execution (`ctx.agent`)](#agent-execution-ctxagent)
   - [Config (`ctx.config`)](#config-ctxconfig)
@@ -51,6 +52,14 @@ Extensions are self-contained modules that hook into the agent system. Each exte
   - [Frontend Rendering](#frontend-rendering)
   - [Step Type Error Handling](#step-type-error-handling)
   - [Constraints](#constraints)
+- [Extension UI](#extension-ui)
+  - [Sidebar Navigation](#sidebar-navigation)
+  - [Svelte Pages](#svelte-pages)
+  - [The `palim` Host API](#the-palim-host-api)
+  - [UI Kit and Styling](#ui-kit-and-styling)
+  - [Server Events](#server-events)
+  - [Build, Caching, and Hot Reload](#build-caching-and-hot-reload)
+  - [Page Rules](#page-rules)
 - [Lifecycle Summary](#lifecycle-summary)
   - [Enable / Disable (Runtime)](#enable--disable-runtime)
   - [Unload (Extension Removal)](#unload-extension-removal)
@@ -197,10 +206,13 @@ The auto-generated `tsconfig.json` looks like this (paths are relative to your e
     "paths": {
       "@ext/types": ["<relative-path>/src/extensions/types.ts"],
       "@ext/sdk": ["<relative-path>/src/extensions/sdk.ts"],
+      "@ext/ui": ["<relative-path>/src/extensions/ui/index.ts"],
+      "@palim/ui": ["<relative-path>/frontend/src/lib/extensionKit.ts"],
+      "$lib/*": ["<relative-path>/frontend/src/lib/*"],
       "*": ["./node_modules/*", "<relative-path>/node_modules/*"]
     }
   },
-  "include": ["./**/*.ts"],
+  "include": ["./**/*.ts", "./**/*.svelte"],
   "exclude": ["node_modules"]
 }
 ```
@@ -219,7 +231,13 @@ At runtime, external extensions are loaded via dynamic `import()` from the core 
 
 External extensions are discovered at boot by scanning `EXTERNAL_EXTENSIONS_DIR` for `*/index.ts` patterns. They go through the same validation, dependency resolution (topological sort), and initialization flow as built-in extensions.
 
-**Restart required:** Dropping a new extension folder into `.palim/extensions/` requires a restart to pick it up. Hot-loading via `loadOne()` is available programmatically but there is no filesystem watcher for new extensions.
+**Hot loading:** a filesystem watcher picks up changes in `.palim/extensions/` at runtime (debounced by one second):
+
+- A new folder with an `index.ts` is loaded; a removed folder (or removed `index.ts`) is unloaded.
+- A changed `index.ts` reloads the extension (unload, then load).
+- Changes below `<extension>/ui/` only rebuild the extension's [UI pages](#extension-ui), and open pages remount with the new code.
+
+Other files (helpers imported by `index.ts`) do not trigger a reload; touch `index.ts` to reload after editing them.
 
 ### Error Handling
 
@@ -267,7 +285,7 @@ async initialize(ctx) {
 
 | Method | Description |
 | --- | --- |
-| `ctx.routes.register(method, path, handler)` | Register an HTTP route (auto-prefixed `/ext/{name}/`) |
+| `ctx.routes.register(method, path, handler, options?)` | Register an HTTP route (auto-prefixed `/ext/{name}/`). `options.parse` selects body parsing; `options.public: true` skips token auth for self-authenticating callbacks (webhooks, OAuth redirects) |
 
 ### Route Naming Convention
 
@@ -316,6 +334,12 @@ Avoid unnecessary prefixes like `/admin/` - all extension routes are already beh
 | --- | --- |
 | `ctx.messaging.broadcast(message)` | Push a WebSocket message to all frontend clients |
 | `ctx.messaging.push(sessionId, content, opts?)` | Send a push message to a session |
+
+### UI Events (`ctx.ui`)
+
+| Method | Description |
+| --- | --- |
+| `ctx.ui.emit(event, data?)` | Send an event to this extension's open [UI pages](#extension-ui) (received via `palim.onEvent`). Delivered to every connected client: no secrets or per-user data |
 
 ### Workflows (`ctx.workflows`)
 
@@ -1224,6 +1248,175 @@ Step type "excel" is not available. The extension providing this step type may b
 - Built-in types (`agent`) cannot be overridden
 - Step type names follow the same pattern as extension names: `^[a-z][a-z0-9-]*$`
 - Disabling the providing extension makes the step type unavailable at runtime (workflows fail explicitly)
+
+## Extension UI
+
+Extensions can add pages to the web UI: full Svelte 5 pages that render inside the app shell, use the same components and theme as core pages, and talk to the extension's own routes. Extensions ship plain `.svelte` sources; Palim compiles them when the extension activates, so no frontend toolchain is needed (this also works for extensions written by the agent).
+
+### Sidebar Navigation
+
+`manifest.ui.navigation` adds sidebar entries (at most 10):
+
+| Field | Description |
+| --- | --- |
+| `label` | Sidebar text (1-50 characters) |
+| `route` | App route, e.g. `/ext-page/<extension>/<page>` for an extension page |
+| `icon` | Icon name from the frontend icon registry (`frontend/src/lib/iconRegistry.ts`), e.g. `EnvelopeIcon` |
+| `order` | Position (0-999, ascending) |
+| `iconColor` | Optional Tailwind classes for the icon, e.g. `text-violet-600 dark:text-violet-500` |
+| `badgeKey` | Optional badge source; only keys known to the frontend badge registry show a count |
+
+Navigation routes under `/ext-page/` must point at the extension's own pages: `/ext-page/<other-extension>/...` or an undeclared page id is rejected at load time.
+
+### Svelte Pages
+
+Declare pages in `manifest.ui.pages` (at most 10) and put their sources under `ui/`:
+
+```ts
+const manifest = {
+  name: "imap-fetch",
+  version: "1.0.0",
+  ui: {
+    pages: [{ id: "accounts", title: "Mail accounts", entry: "ui/AccountsPage.svelte" }],
+    navigation: [{ label: "Mail accounts", route: "/ext-page/imap-fetch/accounts", icon: "EnvelopeIcon", order: 60 }],
+  },
+} satisfies ExtensionManifest;
+```
+
+```text
+imap-fetch/
+├── index.ts
+└── ui/
+    ├── AccountsPage.svelte      # page entry (declared in the manifest)
+    ├── ConnectWizard.svelte     # any number of child components
+    ├── counter.svelte.ts        # runes modules (.svelte.ts / .svelte.js) work
+    └── types.ts
+```
+
+| Field | Description |
+| --- | --- |
+| `id` | Page id, unique within the extension (`^[a-z0-9][a-z0-9-]*$`) |
+| `title` | Page title, shown in the header when no navigation entry matches |
+| `entry` | The page component, a `.svelte` file under `ui/` |
+
+A page is rendered at `/ext-page/<extension>/<id>`; `/ext-page/<extension>` shows the first page. Deeper paths (`/ext-page/<extension>/<id>/some/sub/path`) render the same page and expose the sub-path for in-page routing.
+
+The page component receives the host API as its `palim` prop:
+
+```svelte
+<script lang="ts">
+  import type { PalimHost } from "@ext/ui";
+  import { Button, Card, CardContent, CardHeader, CardTitle } from "@palim/ui";
+  import { onMount } from "svelte";
+
+  let { palim }: { palim: PalimHost } = $props();
+
+  let accounts: { name: string }[] = $state([]);
+
+  onMount(async () => {
+    accounts = (await palim.json<{ accounts: { name: string }[] }>("/accounts")).accounts;
+  });
+
+  async function remove(name: string) {
+    if (!(await palim.confirm({ title: `Remove “${name}”?`, message: "This cannot be undone.", destructive: true }))) return;
+    await palim.json(`/accounts/${encodeURIComponent(name)}`, { method: "DELETE" });
+    palim.notify(`Removed “${name}”.`, "success");
+  }
+</script>
+
+<Card>
+  <CardHeader><CardTitle>Accounts</CardTitle></CardHeader>
+  <CardContent class="space-y-2">
+    {#each accounts as account (account.name)}
+      <div class="flex items-center justify-between">
+        {account.name}
+        <Button variant="outline" size="xs" onclick={() => remove(account.name)}>Remove</Button>
+      </div>
+    {/each}
+  </CardContent>
+</Card>
+```
+
+### The `palim` Host API
+
+Pages run with their own Svelte runtime, so they cannot share stores or context with the app. Everything a page needs from the app goes through `palim` (types in `shared/extensionUi.ts`, importable as `@ext/ui`):
+
+| Member | Description |
+| --- | --- |
+| `extension` | `{ name, version }` of the owning extension |
+| `page` | `{ id, path, query }`: page id, sub-path below the page route, and query. Also a Svelte store: `$page` updates on in-page navigation |
+| `fetch(path, init?)` | Authenticated fetch. `/api/...` and `/ext/...` are used as is; other paths are relative to the extension's routes (`"/accounts"` → `/ext/<name>/accounts`). A 401 logs the user out |
+| `json<T>(path, init?)` | Like `fetch`, but `init.body` is JSON-encoded, the response is parsed, and a non-2xx status throws an `Error` with the response's `error` message |
+| `onEvent(handler)` | Receives events sent with `ctx.ui.emit()`; returns an unsubscribe function |
+| `theme` | `{ dark }`; also a Svelte store: `$theme` is `true` in dark mode |
+| `user` | `{ username, displayName, can(action, subject) }` for UI gating (the server enforces) |
+| `navigate(path)` | Navigate the app, e.g. to `/workflows` or a sub-path of this page |
+| `notify(message, kind?)` | Transient notification (`"info"`, `"success"`, `"error"`) |
+| `confirm(options)` | Host confirm dialog: `{ title, message, confirmLabel?, destructive? }` → `Promise<boolean>` |
+
+Host state is exposed as stores rather than runes because runes do not cross Svelte runtimes:
+
+```svelte
+<script lang="ts">
+  let { palim }: { palim: PalimHost } = $props();
+  const page = palim.page;
+</script>
+
+{#if $page.path === ""}
+  <AccountList {palim} />
+{:else}
+  <AccountDetail {palim} name={$page.path} />
+{/if}
+```
+
+### UI Kit and Styling
+
+`@palim/ui` (`frontend/src/lib/extensionKit.ts`) exports the core components, compiled into the extension's bundle so pages look exactly like core pages:
+
+- Primitives: `Button`, `Badge`, `Card` (+ `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter`), `Checkbox`, `Label`, `Select` (+ parts), `Table` (+ parts), `Dialog`, `AlertDialog`
+- Components: `LoadingIndicator`, `ToggleSwitch`, `StatusDot`, `MultiSelect`
+- Helpers: `cn` (class merging)
+
+The kit is a public API. Only stateless components are exported. A stateful module (router, stores, WebSocket connection) would be instantiated a second time inside the bundle, so pages use the `palim` host instead.
+
+**Tailwind:** pages can use Tailwind utility classes. The build scans `ui/` and emits the utilities the extension uses against the app's theme tokens (`frontend/src/theme.css`: `bg-background`, `text-muted-foreground`, `border-input`, `text-destructive`, ...), so `dark:` variants and theme colors match the app. Component-scoped `<style>` blocks work too.
+
+**Packages:** besides `svelte` (pinned to Palim's version) and `@palim/ui`, pages may import `phosphor-svelte` (icons, e.g. `phosphor-svelte/lib/StarIcon`), `bits-ui`, `clsx`, `tailwind-merge`, and `tailwind-variants` without installing them. Other packages must be listed in the extension's `package.json`.
+
+### Server Events
+
+Push updates to open pages instead of polling:
+
+```ts
+// index.ts
+ctx.ui.emit("account-connected", { name: "work-mail" });
+```
+
+```svelte
+<script lang="ts">
+  import { onMount } from "svelte";
+  let { palim }: { palim: PalimHost } = $props();
+  onMount(() => palim.onEvent((event, data) => {
+    if (event === "account-connected") reload();
+  }));
+</script>
+```
+
+Events go to every connected client. Send identifiers and let the page fetch details through the extension's (authenticated) routes.
+
+### Build, Caching, and Hot Reload
+
+- Pages are compiled when the extension activates (boot, enable, hot load) with `Bun.build`, the Svelte compiler, and Tailwind. Output goes to `<DATA_DIR>/ext-ui/<extension>/<hash>/` and is served publicly from `/ext-ui/...` with immutable caching.
+- The hash covers the extension's `ui/` sources, its page declarations, and Palim's UI kit and build pipeline. Unchanged extensions are not rebuilt across restarts; older builds are removed.
+- For external extensions, saving a file under `ui/` rebuilds the pages and remounts open pages within about a second, without reloading the extension. Built-in extensions rebuild on restart.
+- Build errors do not fail activation: the page shows the error with file, line, and column, and the server logs it.
+
+### Page Rules
+
+- Entries must be `.svelte` files under `ui/`.
+- Frontend internals (`$lib/*`) cannot be imported; the build fails with an explanatory error. Use `@palim/ui` and `palim`.
+- UI bundles are public static files. They must not contain secrets; data belongs behind the extension's authenticated `/ext/<name>/` routes.
+- Pages run in the app's document with the user's session, like core pages. Extensions are trusted code (they already run in-process on the server).
 
 ## Lifecycle Summary
 

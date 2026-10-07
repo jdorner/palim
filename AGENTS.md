@@ -93,6 +93,7 @@ src/
 │   ├── server.ts            # Elysia HTTP + WebSocket server factory
 │   ├── compression.ts       # Elysia compression plugin (gzip, deflate, brotli with LRU cache)
 │   ├── extensionRouter.ts   # Runtime extension route table, dispatched via a fixed /ext/* mount
+│   ├── extensionUiAssets.ts # Public static handler for compiled extension UI bundles (/ext-ui/*)
 │   ├── dynamicProviders.ts  # Provider registry for dynamic schema enrichment (items + defaults)
 │   ├── monitor.ts           # Real-time job state push to WS clients
 │   ├── auth.ts              # Bearer token auth middleware, client IP resolution (trusted proxies)
@@ -115,6 +116,7 @@ src/
 │   ├── publicTypes.ts       # Public-facing type definitions for extension authors
 │   ├── internalTypes.ts     # Internal registry types (not for extension authors)
 │   ├── sdk.ts               # Extension SDK re-exports
+│   ├── ui/index.ts          # Extension UI SDK (`@ext/ui`): PalimHost types for Svelte pages
 │   ├── index.ts             # Barrel re-export (registry + public types)
 │   ├── engine/              # Extension engine internals (not extension code)
 │   │   ├── registry.ts      # Discovery, validation, dependency resolution, lifecycle
@@ -124,7 +126,8 @@ src/
 │   │   ├── eventBus.ts      # Agent lifecycle event dispatch
 │   │   ├── dependencyResolver.ts # Topological sort for load order
 │   │   ├── externalDependencyResolver.ts # Dependency resolution for external/dynamic extensions
-│   │   ├── extensionWatcher.ts # Hot-load/unload watcher for external extensions
+│   │   ├── extensionWatcher.ts # Hot-load/unload watcher for external extensions (+ UI rebuild on ui/ changes)
+│   │   ├── uiBuilder.ts     # Compiles extension Svelte pages (Bun.build + svelte/compiler + Tailwind)
 │   │   ├── configResolver.ts # Resolves EXT_<NAME>_<KEY> config from env
 │   │   └── stepTypeSerialization.ts # Serializes custom step types (with dynamic enrichment)
 │   ├── core/                # Core extensions (non-deactivatable infrastructure)
@@ -168,7 +171,8 @@ shared/                      # Types + pure helpers shared between backend and f
 ├── index.ts                 # Barrel re-export of all shared modules
 ├── types.ts                 # Backward-compatible re-export (legacy import path)
 ├── chat.ts                  # ChatWebSocketEvent, TokenUsage
-├── extensions.ts            # ExtensionInfo, ExtensionLifecycleEvent, ExtensionUiContribution, NavigationEntry, ...
+├── extensions.ts            # ExtensionInfo, ExtensionLifecycleEvent, ExtensionUiContribution, ExtensionUiPage, NavigationEntry, ...
+├── extensionUi.ts           # PalimHost (host API for extension pages), MountExtensionPage, ExtensionUiEvent
 ├── jobs.ts                  # JobEntry, LogEntry
 ├── models.ts                # AvailableModel, ModelIntent, SelectedModelResponse, MODEL_INTENTS
 ├── schedules.ts             # ScheduleEntry
@@ -185,6 +189,7 @@ frontend/                    # Svelte 5 web UI (page-based routing)
 └── src/
     ├── App.svelte           # App shell with sidebar navigation
     ├── router.ts            # Client-side page router
+    ├── theme.css            # Tailwind theme tokens (shared with the extension UI builder)
     ├── routes/              # Page components
     │   ├── ChatPage.svelte
     │   ├── JobsPage.svelte
@@ -195,6 +200,7 @@ frontend/                    # Svelte 5 web UI (page-based routing)
     │   ├── WebhooksPage.svelte
     │   ├── FileWatchersPage.svelte
     │   ├── McpServersPage.svelte
+    │   ├── ExtensionPage.svelte  # Generic /ext-page/:ext/:page route (mounts extension Svelte pages)
     │   ├── SettingsPage.svelte
     │   └── LoginPage.svelte
     ├── components/          # Feature components
@@ -205,10 +211,13 @@ frontend/                    # Svelte 5 web UI (page-based routing)
     │   ├── WebhookList, FileWatcherList
     │   ├── ModelSelector, IntentModelSelector, Sidebar
     │   ├── GlobalSecretForm, SecretForm, PushSegment, StatusDot, AddStepNode
+    │   ├── extensions/      # ExtensionPageMount (mounts compiled pages)
     │   └── ...
     └── lib/                 # Stores, auth, UI primitives
         ├── appStore.ts, auth.ts, chatStore.ts
         ├── badgeRegistry.ts, extensionStore.ts, iconRegistry.ts
+        ├── extensionHost.ts, extensionRoutes.ts  # PalimHost implementation for extension pages
+        ├── extensionKit.ts  # Public UI kit for extension pages (`@palim/ui`), stateless components only
         ├── chatStreamStore.svelte.ts, connectionStore.svelte.ts
         ├── modelStore.svelte.ts, readState.svelte.ts, settingsStore.svelte.ts
         ├── workflowRunStore.svelte.ts, workflowValidation.ts
@@ -286,7 +295,16 @@ Extensions live in `src/extensions/<name>/index.ts` (or `src/extensions/core/<na
 3. Resolves dependencies (topological sort)
 4. Initializes in dependency order with a scoped `ExtensionContext`
 
-Extensions can register: tools, HTTP routes (auto-prefixed `/ext/<name>/`; pass `{ public: true }` for self-authenticating callbacks), job queues, agent event listeners, skills, UI contributions (sidebar navigation entries), custom workflow step types (with optional input validation), and dynamic item providers for settings schema enrichment. Extension config is read from `EXT_<NAME>_<KEY>` env vars.
+Extensions can register: tools, HTTP routes (auto-prefixed `/ext/<name>/`; pass `{ public: true }` for self-authenticating callbacks), job queues, agent event listeners, skills, UI contributions (sidebar navigation entries and Svelte pages, see below), custom workflow step types (with optional input validation), and dynamic item providers for settings schema enrichment. Extension config is read from `EXT_<NAME>_<KEY>` env vars.
+
+#### Extension UI Pages
+
+Extensions declare Svelte 5 pages in `manifest.ui.pages` (`{ id, title, entry: "ui/<Page>.svelte" }`), rendered at `/ext-page/<name>/<id>` (sub-paths allowed for in-page routing). On activation, `uiBuilder.ts` compiles each page with `Bun.build` + `svelte/compiler` into a browser ES module whose default export is `(target, palim) => unmount`, plus a stylesheet with the Tailwind utilities the extension uses (scanned from `ui/`, against `frontend/src/theme.css`). Output lives in `<DATA_DIR>/ext-ui/<name>/<hash>/` (hash of `ui/` sources, pages, UI kit, and the builder itself) and is served publicly with immutable caching from `/ext-ui/*`. Build errors are reported per page, never fail activation.
+
+- Each bundle carries its own Svelte runtime, pinned to the root `svelte` package. Host and page share no stores or context; the page gets a `PalimHost` (`shared/extensionUi.ts`) as its `palim` prop: authenticated `fetch`/`json` (relative paths → `/ext/<name>/...`), `onEvent` (server pushes via `ctx.ui.emit()` → `extension_ui_event` WS message), `theme`/`page` stores, `user`, `navigate`, `notify`, `confirm`.
+- `@palim/ui` resolves to `frontend/src/lib/extensionKit.ts`; core component sources are compiled into the bundle. Only stateless components may be exported there. `$lib/*` is rejected from extension code. `phosphor-svelte`, `bits-ui`, `clsx`, `tailwind-merge`, `tailwind-variants` resolve from the frontend without installation.
+- Bun quirk: an `onResolve` hook that returns `undefined` drops the import from the bundle, so every resolve hook in the builder has an exact filter and always returns a path.
+- The extension watcher rebuilds pages when files under an external extension's `ui/` change and broadcasts `extension_lifecycle` `ui_updated`; open pages remount.
 
 Extension routes are not mounted on Elysia directly (Elysia cannot add routes after `listen()`). The web server mounts a fixed `/ext/*` catch-all that dispatches through `ExtensionRouter` (`src/web/extensionRouter.ts`); routes are added on registration and removed on deactivate/unload, so enabling, re-enabling, or hot-loading an extension at runtime takes effect immediately. The router parses the body per the route's `parse` option from a clone of the request, so handlers can still read `request` directly.
 
@@ -365,6 +383,7 @@ Elysia serves the built frontend as static files and exposes:
 - `DELETE /api/sessions/:id/messages` - Clear session messages
 - `WS /ws` - Real-time job state, chat streaming, workflow events, and extension lifecycle events
 - `/ext/<name>/...` - Extension-registered routes
+- `GET /ext-ui/*` - Compiled extension UI bundles (public, content-hashed)
 
 Rate limiting: authenticated requests are limited per token (1000/min), so a user's browser session and the internal token their agent jobs use get separate buckets; everything else is limited per client IP (60/min). Failed logins are additionally throttled per IP and per username with exponential lockouts (`src/web/loginThrottle.ts`). Behind a reverse proxy, set `TRUSTED_PROXIES` so the client IP is taken from `X-Forwarded-For`.
 
