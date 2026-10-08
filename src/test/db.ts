@@ -34,6 +34,10 @@ import { webhooks as extWebhooksRegistrations } from "@src/extensions/core/webho
 import { initDagRunStore } from "@src/extensions/core/workflows/dagRunStore";
 import { workflowRuns as extWorkflowRuns } from "@src/extensions/core/workflows/runSchema";
 import { initSignalStore } from "@src/extensions/core/workflows/signalStore";
+import {
+  dataTableRows as extDatatablesRows,
+  dataTables as extDatatablesTables,
+} from "@src/extensions/datatables/schema";
 import { mcpServers as extMcpServers } from "@src/extensions/mcp/schema";
 import { wikiEmbeddings as extWikiEmbeddings } from "@src/extensions/wiki/schema";
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -57,6 +61,8 @@ const schema = {
   extWorkflowRuns,
   extMcpServers,
   extWikiEmbeddings,
+  extDatatablesTables,
+  extDatatablesRows,
   secretAuditLog,
   secretsVault,
   globalVariables,
