@@ -305,7 +305,7 @@ const XLSX_DATE_FORMATS: Partial<Record<ColumnType, string>> = {
 /** A rendered export file. */
 export interface ExportFile {
   /** File content. */
-  body: Uint8Array | string;
+  body: Uint8Array<ArrayBuffer> | string;
   /** MIME type. */
   contentType: string;
   /** Suggested file name. */
@@ -390,7 +390,7 @@ export async function exportTable(table: TableDef, rows: Iterable<RowRecord>, fo
     ],
   });
   return {
-    body: bytes as Uint8Array,
+    body: bytes as Uint8Array<ArrayBuffer>,
     contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     filename: `${table.name}-${stamp}.xlsx`,
   };
