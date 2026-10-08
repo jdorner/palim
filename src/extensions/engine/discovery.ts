@@ -16,6 +16,9 @@ import { type Extension, ExtensionManifestSchema } from "../types";
 
 const logger = createLogger("ExtensionRegistry");
 
+/** Top-level directories next to extensions that hold SDK modules, not extensions (`ui/` is `@ext/ui`). */
+const NON_EXTENSION_DIRS = new Set(["ui"]);
+
 /**
  * Scan one or more extension directories for modules (subdirectories
  * containing an `index.ts`). Supports both top-level extensions and
@@ -36,6 +39,7 @@ export async function discoverExtensions(extensionDirs: string[]): Promise<Exten
       for (const pattern of patterns) {
         const glob = new Bun.Glob(pattern);
         for (const entry of glob.scanSync({ cwd: dir, absolute: false })) {
+          if (NON_EXTENSION_DIRS.has(entry.split("/")[0] ?? "")) continue;
           const modulePath = `${dir}/${entry}`;
           const ext = await loadExtensionModule(modulePath);
           if (ext) extensions.push(ext);
