@@ -50,6 +50,8 @@ let newRow: Record<string, unknown> | null = $state(null);
 let showFilter = $state(false);
 let filterDraft: { column: string; op: FilterOp; value: string } = $state({ column: "", op: "eq", value: "" });
 let exportOpen = $state(false);
+/** Set while this page deletes the table, so its own change event doesn't notify twice. */
+let dropping = false;
 
 const base = $derived(`/tables/${encodeURIComponent(name)}`);
 const allSelected = $derived(rows.length > 0 && rows.every((r) => selected.has(r._id)));
@@ -91,6 +93,7 @@ onMount(() => {
     const change = data as TableChangedEvent;
     if (change.table !== name) return;
     if (change.deleted) {
+      if (dropping) return;
       palim.notify(`Table "${name}" was deleted`, "info");
       palim.navigate(PAGE_ROUTE);
       return;
@@ -216,6 +219,25 @@ async function truncate() {
   }
 }
 
+async function dropTable() {
+  const ok = await palim.confirm({
+    title: "Delete table?",
+    message: `"${table?.label}" and all ${table?.rowCount ?? ""} rows will be deleted permanently. Workflows using it will fail.`,
+    confirmLabel: "Delete table",
+    destructive: true,
+  });
+  if (!ok) return;
+  dropping = true;
+  try {
+    await request(palim, base, { method: "DELETE" });
+    palim.notify(`Table "${table?.label ?? name}" deleted`, "success");
+    palim.navigate(PAGE_ROUTE);
+  } catch (err) {
+    dropping = false;
+    palim.notify(errorText(err), "error");
+  }
+}
+
 async function exportFile(format: "csv" | "xlsx") {
   exportOpen = false;
   const params = queryParams(filters, sort);
@@ -314,6 +336,9 @@ function page(delta: number) {
       {/if}
       <Button size="xs" variant="ghost" class="text-destructive" disabled={!table?.rowCount} onclick={truncate}>
         Delete all rows
+      </Button>
+      <Button size="xs" variant="ghost" class="text-destructive" disabled={!table} onclick={dropTable}>
+        Delete table
       </Button>
     </div>
   {/if}

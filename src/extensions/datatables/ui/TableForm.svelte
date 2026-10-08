@@ -117,24 +117,6 @@ async function save(force = false) {
     saving = false;
   }
 }
-
-async function deleteTable() {
-  if (!name) return;
-  const ok = await palim.confirm({
-    title: "Delete table?",
-    message: `"${label}" and all of its rows will be deleted permanently. Workflows using it will fail.`,
-    confirmLabel: "Delete",
-    destructive: true,
-  });
-  if (!ok) return;
-  try {
-    await request(palim, `/tables/${encodeURIComponent(name)}`, { method: "DELETE" });
-    palim.notify("Table deleted", "success");
-    palim.navigate(PAGE_ROUTE);
-  } catch (err) {
-    error = errorText(err);
-  }
-}
 </script>
 
 <div class="flex items-center gap-2">
@@ -217,8 +199,5 @@ async function deleteTable() {
       {saving ? "Saving..." : editing ? "Save" : "Create table"}
     </Button>
     <Button size="sm" variant="outline" onclick={back}>Cancel</Button>
-    {#if editing}
-      <Button size="sm" variant="destructive" class="ml-auto" onclick={deleteTable}>Delete table</Button>
-    {/if}
   </div>
 {/if}
