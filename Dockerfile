@@ -33,6 +33,12 @@ WORKDIR /app
 COPY package.json bun.lock ./
 RUN ulimit -n 65535 && bun install --frozen-lockfile --production
 
+# Frontend runtime dependencies (bits-ui, phosphor-svelte, tailwind-variants, ...):
+# extension UI pages are compiled at runtime against the UI kit in frontend/src,
+# which imports these. Dev tooling (vite, svelte-check) is not needed.
+COPY frontend/package.json frontend/bun.lock frontend/
+RUN cd frontend && bun install --frozen-lockfile --production
+
 # ============================================================
 # Stage 3: Production image
 # ============================================================
@@ -53,6 +59,11 @@ COPY tsconfig.json biome.json ./
 
 # Copy built frontend from builder stage
 COPY --from=builder /app/frontend/dist frontend/dist
+
+# Extension UI builder: compiles extension Svelte pages at runtime against the
+# UI kit and theme in frontend/src, resolving kit imports from frontend/node_modules
+COPY frontend/src frontend/src
+COPY --from=deps /app/frontend/node_modules frontend/node_modules
 
 # Create persistent directories
 RUN mkdir -p .work/inbox .work/outbox .work/data .db
