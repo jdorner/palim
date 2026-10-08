@@ -12,7 +12,10 @@ export interface NavigationEntry {
   route: string;
   /** Icon component identifier (1-64 characters). */
   icon: string;
-  /** Display position (ascending integer, 0-999). */
+  /**
+   * Display position (ascending integer, 0-999). The built-in Job Queues entry
+   * sits at 100: lower values render above it, 100 and higher below.
+   */
   order: number;
   /** Optional badge data source key. */
   badgeKey?: string;

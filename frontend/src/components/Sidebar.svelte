@@ -31,6 +31,15 @@ let isUsersActive = $derived($pathname === "/users");
 let canManageUsers = $derived(identity.can("manage", "User"));
 
 /**
+ * Sidebar position of the built-in Job Queues entry. Extension entries with a
+ * lower `order` render above it, the others below.
+ */
+const JOB_QUEUES_ORDER = 100;
+
+let navItemsAbove = $derived($extensionNavItems.filter((item) => item.order < JOB_QUEUES_ORDER));
+let navItemsBelow = $derived($extensionNavItems.filter((item) => item.order >= JOB_QUEUES_ORDER));
+
+/**
  * Derived store that resolves badge counts for all current extension nav items.
  * Returns a map from route (unique key) to current badge count.
  */
@@ -60,6 +69,42 @@ const badgeCounts = derived(
   new Map<string, number>(),
 );
 </script>
+
+{#snippet extensionNavItem(
+  item: (typeof $extensionNavItems)[number],
+)}
+  {@const IconComponent = resolveIcon(item.icon)}
+  {@const isActive = $pathname === item.route || $pathname.startsWith(`${item.route}/`)}
+  {@const badgeCount = $badgeCounts.get(item.route) ?? 0}
+  <button
+    type="button"
+    class="relative flex items-center rounded-md text-sm font-medium transition-colors w-full
+      {collapsed ? "justify-center p-2 leading-2" : "gap-2 px-3 py-2 text-left"}
+      {isActive
+      ? "bg-accent text-accent-foreground"
+      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"}"
+    onclick={() => navigate(item.route as any)}
+    title={collapsed ? item.label : undefined}
+  >
+    {#if badgeCount > 0 && collapsed}
+      <span
+        class="absolute bottom-0 right-0 text-[10px] font-bold leading-none rounded-full bg-primary text-primary-foreground px-1 py-0.5 min-w-4 text-center ring-2 ring-background"
+        >{badgeCount > 99 ? "99+" : badgeCount}</span
+      >
+    {/if}
+    {#if IconComponent}
+      <IconComponent class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0 {item.iconColor ?? ""}" aria-hidden="true" />
+    {/if}
+    {#if !collapsed}
+      <span class="text-nowrap">{item.label}</span>
+      {#if badgeCount > 0}
+        <span class="ml-auto text-xs font-semibold rounded-full bg-primary/15 text-primary px-2 py-0.5"
+          >{badgeCount}</span
+        >
+      {/if}
+    {/if}
+  </button>
+{/snippet}
 
 <nav
   class="shrink-0 sticky top-0 h-screen overflow-y-auto overflow-x-hidden bg-muted/50 border-r border-border flex flex-col gap-1 transition-all duration-200
@@ -114,39 +159,9 @@ const badgeCounts = derived(
     {/if}
   </button>
 
-  <!-- Extension nav items -->
-  {#each $extensionNavItems as item (item.route)}
-    {@const IconComponent = resolveIcon(item.icon)}
-    {@const isActive = $pathname === item.route || $pathname.startsWith(`${item.route}/`)}
-    {@const badgeCount = $badgeCounts.get(item.route) ?? 0}
-    <button
-      type="button"
-      class="relative flex items-center rounded-md text-sm font-medium transition-colors w-full
-        {collapsed ? "justify-center p-2 leading-2" : "gap-2 px-3 py-2 text-left"}
-        {isActive
-        ? "bg-accent text-accent-foreground"
-        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"}"
-      onclick={() => navigate(item.route as any)}
-      title={collapsed ? item.label : undefined}
-    >
-      {#if badgeCount > 0 && collapsed}
-        <span
-          class="absolute bottom-0 right-0 text-[10px] font-bold leading-none rounded-full bg-primary text-primary-foreground px-1 py-0.5 min-w-4 text-center ring-2 ring-background"
-          >{badgeCount > 99 ? "99+" : badgeCount}</span
-        >
-      {/if}
-      {#if IconComponent}
-        <IconComponent class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0 {item.iconColor ?? ""}" aria-hidden="true" />
-      {/if}
-      {#if !collapsed}
-        <span class="text-nowrap">{item.label}</span>
-        {#if badgeCount > 0}
-          <span class="ml-auto text-xs font-semibold rounded-full bg-primary/15 text-primary px-2 py-0.5"
-            >{badgeCount}</span
-          >
-        {/if}
-      {/if}
-    </button>
+  <!-- Extension nav items ordered before Job Queues -->
+  {#each navItemsAbove as item (item.route)}
+    {@render extensionNavItem(item)}
   {/each}
 
   <!-- Job Queues -->
@@ -176,6 +191,11 @@ const badgeCounts = derived(
       {/if}
     {/if}
   </button>
+
+  <!-- Extension nav items ordered after Job Queues -->
+  {#each navItemsBelow as item (item.route)}
+    {@render extensionNavItem(item)}
+  {/each}
 
   <!-- Bottom section: Settings + collapse toggle -->
   <div class="mt-auto pt-4 border-t border-border flex flex-col gap-1">

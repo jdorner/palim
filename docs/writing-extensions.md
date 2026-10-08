@@ -1277,7 +1277,7 @@ Extensions can add pages to the web UI: full Svelte 5 pages that render inside t
 | `label` | Sidebar text (1-50 characters) |
 | `route` | App route, e.g. `/ext-page/<extension>/<page>` for an extension page |
 | `icon` | Icon name from the frontend icon registry (`frontend/src/lib/iconRegistry.ts`), e.g. `EnvelopeIcon` |
-| `order` | Position (0-999, ascending) |
+| `order` | Position (0-999, ascending). The built-in Job Queues entry sits at 100: lower values render above it, 100 and higher below |
 | `iconColor` | Optional Tailwind classes for the icon, e.g. `text-violet-600 dark:text-violet-500` |
 | `badgeKey` | Optional badge source; only keys known to the frontend badge registry show a count |
 
