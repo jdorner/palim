@@ -1,10 +1,14 @@
 <script lang="ts">
 /**
  * Type-aware input for a single cell. Emits raw values; the server coerces
- * them to the column type. Enter commits, Escape cancels.
+ * them to the column type. Enter commits, Escape cancels, and with `onNavigate`
+ * Tab / Shift+Tab commit and move to the next / previous cell, Arrow Up / Down
+ * to the cell above / below (not in date and boolean inputs, which use the
+ * arrow keys themselves).
  */
 import { onMount } from "svelte";
 import type { ColumnDef } from "../types";
+import type { NavigateDirection } from "./api";
 
 let {
   column,
@@ -13,6 +17,7 @@ let {
   onCancel,
   focusOnMount = false,
   commitOnBlur = true,
+  onNavigate,
 }: {
   column: ColumnDef;
   value: unknown;
@@ -20,10 +25,13 @@ let {
   onCancel?: () => void;
   focusOnMount?: boolean;
   commitOnBlur?: boolean;
+  /** Called after a navigation commit with the cell to move to. */
+  onNavigate?: (direction: NavigateDirection) => void;
 } = $props();
 
+/** Fits inside the grid's fixed row height (h-9), so editing never grows the row. */
 const CLASS =
-  "w-full min-w-24 rounded border border-input bg-background px-1.5 py-0.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring";
+  "block h-7 w-full min-w-24 rounded-md border border-input bg-background px-2 py-0 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
 
 /** ISO date-time → `datetime-local` value (local time). */
 function toLocalInput(iso: unknown): string {
@@ -41,6 +49,9 @@ function initial(): string {
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }
+
+/** Column types whose inputs use Arrow Up / Down themselves (date segments, select options). */
+const OWN_ARROW_KEYS = new Set<ColumnDef["type"]>(["date", "datetime", "boolean"]);
 
 let draft = $state(initial());
 let el: HTMLInputElement | HTMLSelectElement | undefined = $state();
@@ -65,6 +76,14 @@ function onkeydown(e: KeyboardEvent) {
   if (e.key === "Enter") {
     e.preventDefault();
     commit();
+  } else if (e.key === "Tab" && onNavigate) {
+    e.preventDefault();
+    commit();
+    onNavigate(e.shiftKey ? "previous" : "next");
+  } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && onNavigate && !OWN_ARROW_KEYS.has(column.type)) {
+    e.preventDefault();
+    commit();
+    onNavigate(e.key === "ArrowUp" ? "up" : "down");
   } else if (e.key === "Escape") {
     e.preventDefault();
     done = true;

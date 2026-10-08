@@ -5,14 +5,26 @@
  * when the table changes elsewhere (e.g. a workflow run).
  */
 import type { PalimHost } from "@ext/ui";
-import { Badge, Button, Checkbox, LoadingIndicator } from "@palim/ui";
-import ArrowLeftIcon from "phosphor-svelte/lib/ArrowLeftIcon";
+import {
+  Badge,
+  Button,
+  Checkbox,
+  LoadingIndicator,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@palim/ui";
 import CaretDownIcon from "phosphor-svelte/lib/CaretDownIcon";
+import CaretLeftIcon from "phosphor-svelte/lib/CaretLeftIcon";
+import CaretRightIcon from "phosphor-svelte/lib/CaretRightIcon";
 import CaretUpIcon from "phosphor-svelte/lib/CaretUpIcon";
 import DownloadSimpleIcon from "phosphor-svelte/lib/DownloadSimpleIcon";
+import EraserIcon from "phosphor-svelte/lib/EraserIcon";
 import FileArrowUpIcon from "phosphor-svelte/lib/FileArrowUpIcon";
 import FunnelIcon from "phosphor-svelte/lib/FunnelIcon";
-import GearIcon from "phosphor-svelte/lib/GearIcon";
+import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import XIcon from "phosphor-svelte/lib/XIcon";
@@ -29,12 +41,15 @@ import {
   type TableDef,
   VALUELESS_OPS,
 } from "../types";
-import { displayValue, errorText, INPUT_CLASS, PAGE_ROUTE, queryParams, request } from "./api";
+import { displayValue, errorText, INPUT_CLASS, type NavigateDirection, PAGE_ROUTE, queryParams, request } from "./api";
 import CellInput from "./CellInput.svelte";
 
 let { palim, name, canWrite }: { palim: PalimHost; name: string; canWrite: boolean } = $props();
 
 const PAGE_SIZE = 50;
+/** Fixed row height, so checking a row or editing a cell never changes it. */
+const ROW_CLASS = "h-9";
+const CELL_CLASS = "px-3 py-0";
 
 let table: (TableDef & { rowCount: number }) | null = $state(null);
 let rows: RowRecord[] = $state([]);
@@ -127,6 +142,8 @@ function removeFilter(index: number) {
   reload();
 }
 
+const isNumeric = (col: ColumnDef) => col.type === "number" || col.type === "integer";
+
 const columnLabel = (key: string) =>
   table?.columns.find((c) => c.key === key)?.label ??
   { _id: "ID", _createdAt: "Created", _updatedAt: "Updated" }[key] ??
@@ -149,6 +166,31 @@ async function saveCell(row: RowRecord, column: ColumnDef, value: unknown) {
 
 function startEdit(row: RowRecord, column: ColumnDef) {
   if (canWrite) editing = { id: row._id, key: column.key };
+}
+
+/**
+ * Moves the cell editor after a keyboard commit: next / previous column
+ * (wrapping to the adjacent row) or the same column one row up / down, within
+ * the current page. Stops at the edges.
+ */
+function moveEdit(row: RowRecord, column: ColumnDef, direction: NavigateDirection) {
+  if (!table) return;
+  const columns = table.columns;
+  let r = rows.findIndex((x) => x._id === row._id);
+  let c = columns.findIndex((x) => x.key === column.key);
+  if (direction === "up" || direction === "down") {
+    r += direction === "up" ? -1 : 1;
+  } else {
+    const step = direction === "next" ? 1 : -1;
+    c += step;
+    if (c < 0 || c >= columns.length) {
+      r += step;
+      c = step === 1 ? 0 : columns.length - 1;
+    }
+  }
+  const target = rows[r];
+  const targetColumn = columns[c];
+  if (target && targetColumn) editing = { id: target._id, key: targetColumn.key };
 }
 
 function startNewRow() {
@@ -258,284 +300,365 @@ async function exportFile(format: "csv" | "xlsx") {
   }
 }
 
-function page(delta: number) {
-  offset = Math.max(0, offset + delta * PAGE_SIZE);
+const currentPage = $derived(Math.floor(offset / PAGE_SIZE) + 1);
+const totalPages = $derived(Math.max(1, Math.ceil(total / PAGE_SIZE)));
+
+function goToPage(n: number) {
+  offset = (Math.min(Math.max(n, 1), totalPages) - 1) * PAGE_SIZE;
   reload();
 }
 </script>
 
-<div class="flex flex-wrap items-center gap-2">
-  <Button size="xs" variant="ghost" onclick={() => palim.navigate(PAGE_ROUTE)}>
-    <ArrowLeftIcon size={12} class="mr-1" aria-hidden="true" />Tables
-  </Button>
-  {#if table}
-    <h2 class="text-sm font-semibold">{table.label}</h2>
-    <code class="text-xs text-muted-foreground">{table.name}</code>
-    <Badge variant="secondary">{table.rowCount.toLocaleString()} rows</Badge>
-    {#if table.keyColumn}
-      <Badge variant="outline" title="Key column (used by upserts)">key: {table.keyColumn}</Badge>
-    {/if}
+{#snippet cellValue(
+  row: RowRecord,
+  col: ColumnDef,
+)}
+  {#if row[col.key] === null || row[col.key] === undefined}
+    <span class="text-muted-foreground/50">-</span>
+  {:else}
+    <span class="block max-w-72 truncate" title={displayValue(col, row[col.key])}
+      >{displayValue(col, row[col.key])}</span
+    >
   {/if}
-</div>
-{#if table?.description}
-  <p class="text-xs text-muted-foreground">{table.description}</p>
-{/if}
+{/snippet}
 
-<div class="flex flex-wrap items-center gap-2">
-  {#if canWrite}
-    <Button size="xs" disabled={!table || newRow !== null} onclick={startNewRow}>
-      <PlusIcon size={12} class="mr-1" aria-hidden="true" />Add row
-    </Button>
+<div class="flex min-h-0 flex-1 flex-col gap-3">
+  <div class="flex shrink-0 flex-wrap items-center justify-between gap-2">
+    <div class="flex min-w-0 items-center gap-3">
+      <Button size="sm" variant="outline" onclick={() => palim.navigate(PAGE_ROUTE)}>&laquo;&nbsp;Back</Button>
+      {#if table}
+        <h2 class="truncate text-lg font-semibold">{table.label}</h2>
+        <code class="hidden text-xs text-muted-foreground sm:inline">{table.name}</code>
+        <Badge variant="secondary">{table.rowCount.toLocaleString()} rows</Badge>
+        {#if table.keyColumn}
+          <Badge variant="outline" title="Key column (used by upserts)">key: {table.keyColumn}</Badge>
+        {/if}
+      {/if}
+    </div>
+    {#if canWrite}
+      <Button size="sm" disabled={!table || newRow !== null} onclick={startNewRow}>
+        <PlusIcon size={14} class="mr-1.5" aria-hidden="true" />Add row
+      </Button>
+    {/if}
+  </div>
+  {#if table?.description}
+    <p class="shrink-0 text-sm text-muted-foreground">{table.description}</p>
   {/if}
-  <Button size="xs" variant={filters.length > 0 ? "secondary" : "outline"} onclick={() => (showFilter = !showFilter)}>
-    <FunnelIcon size={12} class="mr-1" aria-hidden="true" />Filter{filters.length > 0 ? ` (${filters.length})` : ""}
-  </Button>
-  <div class="relative">
-    <Button size="xs" variant="outline" onclick={() => (exportOpen = !exportOpen)}>
-      <DownloadSimpleIcon size={12} class="mr-1" aria-hidden="true" />Export
+
+  <div class="flex shrink-0 flex-wrap items-center gap-2">
+    <Button size="sm" variant={filters.length > 0 ? "secondary" : "outline"} onclick={() => (showFilter = !showFilter)}>
+      <FunnelIcon size={14} class="mr-1.5" aria-hidden="true" />Filter{filters.length > 0 ? ` (${filters.length})` : ""}
     </Button>
-    {#if exportOpen}
-      <div class="absolute left-0 top-7 z-20 min-w-40 rounded-md border border-border bg-background p-1 shadow-md">
-        <button
-          type="button"
-          class="block w-full rounded px-2 py-1 text-left text-xs hover:bg-accent"
-          onclick={() => exportFile("csv")}
+    <div class="relative">
+      <Button size="sm" variant="outline" onclick={() => (exportOpen = !exportOpen)}>
+        <DownloadSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />Export
+      </Button>
+      {#if exportOpen}
+        <div class="absolute left-0 top-10 z-20 min-w-44 rounded-md border border-border bg-background p-1 shadow-md">
+          <button
+            type="button"
+            class="block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+            onclick={() => exportFile("csv")}
+          >
+            CSV{filters.length > 0 ? " (filtered)" : ""}
+          </button>
+          <button
+            type="button"
+            class="block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
+            onclick={() => exportFile("xlsx")}
+          >
+            Excel (.xlsx){filters.length > 0 ? " (filtered)" : ""}
+          </button>
+        </div>
+      {/if}
+    </div>
+    {#if canWrite}
+      <Button
+        size="sm"
+        variant="outline"
+        onclick={() => palim.navigate(`${PAGE_ROUTE}/import?table=${encodeURIComponent(name)}`)}
+      >
+        <FileArrowUpIcon size={14} class="mr-1.5" aria-hidden="true" />Import
+      </Button>
+      <Button
+        size="sm"
+        variant="outline"
+        onclick={() => palim.navigate(`${PAGE_ROUTE}/t/${encodeURIComponent(name)}/schema`)}
+      >
+        <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />Edit table
+      </Button>
+      <div class="ml-auto flex flex-wrap gap-1">
+        {#if selected.size > 0}
+          <Button size="sm" variant="destructive" onclick={deleteSelected}>
+            <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />Delete {selected.size}
+          </Button>
+        {/if}
+        <Button
+          size="sm"
+          variant="ghost"
+          class="text-destructive hover:text-destructive"
+          disabled={!table?.rowCount}
+          onclick={truncate}
         >
-          CSV{filters.length > 0 ? " (filtered)" : ""}
-        </button>
-        <button
-          type="button"
-          class="block w-full rounded px-2 py-1 text-left text-xs hover:bg-accent"
-          onclick={() => exportFile("xlsx")}
+          <EraserIcon size={14} class="mr-1.5" aria-hidden="true" />Delete all rows
+        </Button>
+        <Button
+          size="sm"
+          variant="ghost"
+          class="text-destructive hover:text-destructive"
+          disabled={!table}
+          onclick={dropTable}
         >
-          Excel (.xlsx){filters.length > 0 ? " (filtered)" : ""}
-        </button>
+          <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />Delete table
+        </Button>
       </div>
     {/if}
   </div>
-  {#if canWrite}
-    <Button
-      size="xs"
-      variant="outline"
-      onclick={() => palim.navigate(`${PAGE_ROUTE}/import?table=${encodeURIComponent(name)}`)}
-    >
-      <FileArrowUpIcon size={12} class="mr-1" aria-hidden="true" />Import
-    </Button>
-    <Button
-      size="xs"
-      variant="outline"
-      onclick={() => palim.navigate(`${PAGE_ROUTE}/t/${encodeURIComponent(name)}/schema`)}
-    >
-      <GearIcon size={12} class="mr-1" aria-hidden="true" />Columns
-    </Button>
-    <div class="ml-auto flex gap-2">
-      {#if selected.size > 0}
-        <Button size="xs" variant="destructive" onclick={deleteSelected}>
-          <TrashIcon size={12} class="mr-1" aria-hidden="true" />Delete {selected.size}
-        </Button>
+
+  {#if showFilter && table}
+    <div class="flex shrink-0 flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 p-2">
+      <select class="{INPUT_CLASS} w-auto" aria-label="Filter column" bind:value={filterDraft.column}>
+        <option value="" disabled>Column…</option>
+        {#each table.columns as col (col.key)}
+          <option value={col.key}>{col.label}</option>
+        {/each}
+        <option value="_id">ID</option>
+        <option value="_createdAt">Created</option>
+        <option value="_updatedAt">Updated</option>
+      </select>
+      <select class="{INPUT_CLASS} w-auto" aria-label="Filter operator" bind:value={filterDraft.op}>
+        {#each FILTER_OPS as op (op)}
+          <option value={op}>{FILTER_OP_LABELS[op]}</option>
+        {/each}
+      </select>
+      {#if !VALUELESS_OPS.includes(filterDraft.op)}
+        <input
+          class="{INPUT_CLASS} w-56"
+          aria-label="Filter value"
+          placeholder={filterDraft.op === "in" ? "a, b, c" : "Value"}
+          bind:value={filterDraft.value}
+          onkeydown={(e) => e.key === "Enter" && addFilter()}
+        >
       {/if}
-      <Button size="xs" variant="ghost" class="text-destructive" disabled={!table?.rowCount} onclick={truncate}>
-        Delete all rows
-      </Button>
-      <Button size="xs" variant="ghost" class="text-destructive" disabled={!table} onclick={dropTable}>
-        Delete table
-      </Button>
+      <Button size="sm" disabled={!filterDraft.column} onclick={addFilter}>Add filter</Button>
     </div>
   {/if}
-</div>
 
-{#if showFilter && table}
-  <div class="flex flex-wrap items-end gap-2 rounded-md border border-border p-2">
-    <select class="{INPUT_CLASS} w-auto" aria-label="Filter column" bind:value={filterDraft.column}>
-      <option value="" disabled>Column…</option>
-      {#each table.columns as col (col.key)}
-        <option value={col.key}>{col.label}</option>
-      {/each}
-      <option value="_id">ID</option>
-      <option value="_createdAt">Created</option>
-      <option value="_updatedAt">Updated</option>
-    </select>
-    <select class="{INPUT_CLASS} w-auto" aria-label="Filter operator" bind:value={filterDraft.op}>
-      {#each FILTER_OPS as op (op)}
-        <option value={op}>{FILTER_OP_LABELS[op]}</option>
-      {/each}
-    </select>
-    {#if !VALUELESS_OPS.includes(filterDraft.op)}
-      <input
-        class="{INPUT_CLASS} w-48"
-        aria-label="Filter value"
-        placeholder={filterDraft.op === "in" ? "a, b, c" : "Value"}
-        bind:value={filterDraft.value}
-        onkeydown={(e) => e.key === "Enter" && addFilter()}
-      >
-    {/if}
-    <Button size="xs" disabled={!filterDraft.column} onclick={addFilter}>Add</Button>
-  </div>
-{/if}
-
-{#if filters.length > 0}
-  <div class="flex flex-wrap gap-1.5">
-    {#each filters as f, i (i)}
-      <span class="inline-flex items-center gap-1 rounded-full border border-border bg-muted/50 px-2 py-0.5 text-xs">
-        <span class="font-medium">{columnLabel(f.column)}</span>
-        <span class="text-muted-foreground">{FILTER_OP_LABELS[f.op]}</span>
-        {#if f.value !== undefined}
-          <span>{String(f.value)}</span>
-        {/if}
-        <button
-          type="button"
-          class="text-muted-foreground hover:text-foreground"
-          aria-label="Remove filter"
-          onclick={() => removeFilter(i)}
+  {#if filters.length > 0}
+    <div class="flex shrink-0 flex-wrap gap-1.5">
+      {#each filters as f, i (i)}
+        <span
+          class="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs"
         >
-          <XIcon size={10} />
-        </button>
-      </span>
-    {/each}
-  </div>
-{/if}
-
-{#if loading}
-  <LoadingIndicator message="Loading rows..." />
-{:else if loadError}
-  <p class="rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive">{loadError}</p>
-{:else if table}
-  <div class="overflow-auto rounded-md border border-border">
-    <table class="w-full whitespace-nowrap text-xs">
-      <thead class="sticky top-0 z-10 bg-muted text-muted-foreground">
-        <tr>
-          {#if canWrite}
-            <th class="w-8 px-2 py-1.5">
-              <Checkbox aria-label="Select all" checked={allSelected} onCheckedChange={toggleAll} />
-            </th>
+          <span class="font-medium">{columnLabel(f.column)}</span>
+          <span class="text-muted-foreground">{FILTER_OP_LABELS[f.op]}</span>
+          {#if f.value !== undefined}
+            <span>{String(f.value)}</span>
           {/if}
-          <th class="px-2 py-1.5 text-right font-medium">
-            <button type="button" class="inline-flex items-center gap-0.5" onclick={() => toggleSort("_id")}>
-              #
-              {#if sort?.column === "_id"}
-                {#if sort.desc}
-                  <CaretDownIcon size={10} />
-                {:else}
-                  <CaretUpIcon size={10} />
-                {/if}
-              {/if}
-            </button>
-          </th>
-          {#each table.columns as col (col.key)}
-            <th
-              class="px-2 py-1.5 font-medium {col.type === "number" || col.type === "integer"
-                ? "text-right"
-                : "text-left"}"
-            >
+          <button
+            type="button"
+            class="text-muted-foreground hover:text-foreground"
+            aria-label="Remove filter"
+            onclick={() => removeFilter(i)}
+          >
+            <XIcon size={12} />
+          </button>
+        </span>
+      {/each}
+    </div>
+  {/if}
+
+  {#if loading}
+    <LoadingIndicator message="Loading rows..." />
+  {:else if loadError}
+    <p class="shrink-0 rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive">{loadError}</p>
+  {:else if table}
+    <!-- Own scroll box (both axes) so the scrollbars stay inside the border and the header can stick. -->
+    <div class="min-h-0 overflow-auto rounded-md border border-border">
+      <table class="w-full whitespace-nowrap text-sm">
+        <TableHeader class="sticky top-0 z-10 bg-muted">
+          <TableRow class="hover:bg-transparent">
+            {#if canWrite}
+              <TableHead class="w-10">
+                <div class="flex items-center">
+                  <Checkbox aria-label="Select all" checked={allSelected} onCheckedChange={toggleAll} />
+                </div>
+              </TableHead>
+            {/if}
+            <TableHead class="text-right">
               <button
                 type="button"
-                class="inline-flex items-center gap-0.5 hover:text-foreground"
-                title="{col.key} ({col.type}){col.required ? ", required" : ""}{col.unique ? ", unique" : ""}"
-                onclick={() => toggleSort(col.key)}
+                class="inline-flex items-center gap-1 hover:text-foreground"
+                onclick={() => toggleSort("_id")}
               >
-                {col.label}
-                {#if sort?.column === col.key}
+                #
+                {#if sort?.column === "_id"}
                   {#if sort.desc}
-                    <CaretDownIcon size={10} />
+                    <CaretDownIcon size={12} />
                   {:else}
-                    <CaretUpIcon size={10} />
+                    <CaretUpIcon size={12} />
                   {/if}
                 {/if}
               </button>
-            </th>
-          {/each}
-        </tr>
-      </thead>
-      <tbody>
-        {#if newRow}
-          <tr class="border-t border-border bg-primary/5">
-            <td class="px-2 py-1" colspan={canWrite ? 2 : 1}>
-              <div class="flex gap-1">
-                <Button size="xs" onclick={saveNewRow}>Save</Button>
-                <Button size="xs" variant="ghost" onclick={() => (newRow = null)}>Cancel</Button>
-              </div>
-            </td>
-            {#each table.columns as col, i (col.key)}
-              <td class="px-1 py-1">
-                <CellInput
-                  column={col}
-                  value={newRow[col.key]}
-                  focusOnMount={i === 0}
-                  commitOnBlur={false}
-                  onCommit={(v) => {
-                    if (newRow) newRow[col.key] = v;
-                  }}
-                  onCancel={() => (newRow = null)}
-                />
-              </td>
-            {/each}
-          </tr>
-        {/if}
-        {#each rows as row (row._id)}
-          <tr class="border-t border-border hover:bg-muted/30 {selected.has(row._id) ? "bg-primary/5" : ""}">
-            {#if canWrite}
-              <td class="px-2 py-1">
-                <Checkbox
-                  aria-label="Select row"
-                  checked={selected.has(row._id)}
-                  onCheckedChange={() => toggleRow(row._id)}
-                />
-              </td>
-            {/if}
-            <td class="px-2 py-1 text-right tabular-nums text-muted-foreground">{row._id}</td>
+            </TableHead>
             {#each table.columns as col (col.key)}
-              {@const numeric = col.type === "number" || col.type === "integer"}
-              <td
-                class="max-w-72 px-2 py-1 {numeric ? "text-right tabular-nums" : ""} {canWrite ? "cursor-text" : ""}"
-                ondblclick={() => startEdit(row, col)}
-              >
-                {#if editing?.id === row._id && editing.key === col.key}
+              <TableHead class={isNumeric(col) ? "text-right" : ""}>
+                <button
+                  type="button"
+                  class="inline-flex items-center gap-1 hover:text-foreground"
+                  title="{col.key} ({col.type}){col.required ? ", required" : ""}{col.unique ? ", unique" : ""}"
+                  onclick={() => toggleSort(col.key)}
+                >
+                  {col.label}
+                  {#if sort?.column === col.key}
+                    {#if sort.desc}
+                      <CaretDownIcon size={12} />
+                    {:else}
+                      <CaretUpIcon size={12} />
+                    {/if}
+                  {/if}
+                </button>
+              </TableHead>
+            {/each}
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {#if newRow}
+            <TableRow class="{ROW_CLASS} bg-primary/5 hover:bg-primary/5">
+              <TableCell class={CELL_CLASS} colspan={canWrite ? 2 : 1}>
+                <div class="flex gap-1">
+                  <Button size="xs" onclick={saveNewRow}>Save</Button>
+                  <Button size="xs" variant="ghost" onclick={() => (newRow = null)}>Cancel</Button>
+                </div>
+              </TableCell>
+              {#each table.columns as col, i (col.key)}
+                <TableCell class={CELL_CLASS}>
                   <CellInput
                     column={col}
-                    value={row[col.key]}
-                    focusOnMount
-                    onCommit={(v) => saveCell(row, col, v)}
-                    onCancel={() => (editing = null)}
+                    value={newRow[col.key]}
+                    focusOnMount={i === 0}
+                    commitOnBlur={false}
+                    onCommit={(v) => {
+                      if (newRow) newRow[col.key] = v;
+                    }}
+                    onCancel={() => (newRow = null)}
                   />
-                {:else if row[col.key] === null || row[col.key] === undefined}
-                  <span class="text-muted-foreground/50">-</span>
-                {:else}
-                  <span class="block truncate" title={displayValue(col, row[col.key])}
-                    >{displayValue(col, row[col.key])}</span
-                  >
-                {/if}
-              </td>
-            {/each}
-          </tr>
-        {:else}
-          {#if !newRow}
-            <tr>
-              <td
-                class="px-2 py-8 text-center text-muted-foreground"
-                colspan={table.columns.length + (canWrite ? 2 : 1)}
-              >
-                {filters.length > 0 ? "No rows match the filters." : "No rows yet."}
-              </td>
-            </tr>
+                </TableCell>
+              {/each}
+            </TableRow>
           {/if}
-        {/each}
-      </tbody>
-    </table>
-  </div>
-
-  <div class="flex items-center justify-between text-xs text-muted-foreground">
-    <span>
-      {#if total > 0}
-        {offset + 1}–{Math.min(offset + PAGE_SIZE, total)}
-        of {total.toLocaleString()}{filters.length > 0 ? " matching" : ""}
-      {/if}
-      {#if canWrite}
-        <span class="ml-2">Double-click a cell to edit.</span>
-      {/if}
-    </span>
-    <div class="flex gap-1">
-      <Button size="xs" variant="outline" disabled={offset === 0} onclick={() => page(-1)}>Previous</Button>
-      <Button size="xs" variant="outline" disabled={offset + PAGE_SIZE >= total} onclick={() => page(1)}>Next</Button>
+          {#each rows as row (row._id)}
+            <TableRow class="{ROW_CLASS} {selected.has(row._id) ? "bg-muted" : ""}">
+              {#if canWrite}
+                <TableCell class={CELL_CLASS}>
+                  <div class="flex items-center">
+                    <Checkbox
+                      aria-label="Select row"
+                      checked={selected.has(row._id)}
+                      onCheckedChange={() => toggleRow(row._id)}
+                    />
+                  </div>
+                </TableCell>
+              {/if}
+              <TableCell class="{CELL_CLASS} text-right tabular-nums text-muted-foreground">{row._id}</TableCell>
+              {#each table.columns as col (col.key)}
+                <TableCell
+                  class="{CELL_CLASS} relative {isNumeric(col) ? "text-right tabular-nums" : ""} {canWrite
+                    ? "cursor-text"
+                    : ""}"
+                  ondblclick={() => startEdit(row, col)}
+                >
+                  {#if editing?.id === row._id && editing.key === col.key}
+                    <!--
+                      The editor floats over the cell instead of sitting in it: an
+                      input's intrinsic width would otherwise widen the column and
+                      reflow the whole table. The hidden value keeps the cell's size.
+                    -->
+                    <span class="invisible">{@render cellValue(row, col)}</span>
+                    <div class="absolute inset-y-0 left-1 right-1 z-5 flex min-w-24 items-center">
+                      <CellInput
+                        column={col}
+                        value={row[col.key]}
+                        focusOnMount
+                        onCommit={(v) => saveCell(row, col, v)}
+                        onCancel={() => (editing = null)}
+                        onNavigate={(direction) => moveEdit(row, col, direction)}
+                      />
+                    </div>
+                  {:else}
+                    {@render cellValue(row, col)}
+                  {/if}
+                </TableCell>
+              {/each}
+            </TableRow>
+          {:else}
+            {#if !newRow}
+              <TableRow class="hover:bg-transparent">
+                <TableCell
+                  class="py-8 text-center text-muted-foreground"
+                  colspan={table.columns.length + (canWrite ? 2 : 1)}
+                >
+                  {filters.length > 0 ? "No rows match the filters." : "No rows yet."}
+                </TableCell>
+              </TableRow>
+            {/if}
+          {/each}
+        </TableBody>
+      </table>
     </div>
-  </div>
-{/if}
+
+    <div class="flex shrink-0 flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
+      <span>
+        {#if total > 0}
+          {offset + 1}–{Math.min(offset + PAGE_SIZE, total)}
+          of {total.toLocaleString()}{filters.length > 0 ? " matching" : ""}
+        {/if}
+        {#if canWrite}
+          <span class="ml-2 text-xs">Double-click a cell to edit.</span>
+        {/if}
+      </span>
+      {#if totalPages > 1}
+        <nav class="flex items-center gap-2" aria-label="Pagination">
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={currentPage <= 1}
+            onclick={() => goToPage(1)}
+            aria-label="First page"
+          >
+            <CaretLeftIcon size={14} aria-hidden="true" /><CaretLeftIcon size={14} class="-ml-1.5" aria-hidden="true" />
+          </Button>
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={currentPage <= 1}
+            onclick={() => goToPage(currentPage - 1)}
+            aria-label="Previous page"
+          >
+            <CaretLeftIcon size={14} aria-hidden="true" />
+          </Button>
+          <span class="text-sm text-muted-foreground">Page {currentPage} of {totalPages}</span>
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={currentPage >= totalPages}
+            onclick={() => goToPage(currentPage + 1)}
+            aria-label="Next page"
+          >
+            <CaretRightIcon size={14} aria-hidden="true" />
+          </Button>
+          <Button
+            size="xs"
+            variant="outline"
+            disabled={currentPage >= totalPages}
+            onclick={() => goToPage(totalPages)}
+            aria-label="Last page"
+          >
+            <CaretRightIcon size={14} aria-hidden="true" />
+            <CaretRightIcon size={14} class="-ml-1.5" aria-hidden="true" />
+          </Button>
+        </nav>
+      {/if}
+    </div>
+  {/if}
+</div>

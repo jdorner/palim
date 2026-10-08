@@ -424,6 +424,8 @@ Both accept an optional model `intent` (`"chat"`, `"vision"`, `"embedding"`) to 
 | Method | Description |
 | --- | --- |
 | `ctx.dynamicItems.register(name, fn)` | Register a dynamic item provider for settings and step type schema enrichment |
+| `ctx.dynamicItems.registerDefault(name, fn)` | Register a dynamic default provider (replaces a string property's `default`) |
+| `ctx.dynamicItems.invalidate()` | Tell connected clients the provider values changed, so open forms and step dropdowns refetch them |
 
 ### State
 
@@ -1236,6 +1238,16 @@ async initialize(ctx) {
 ```
 
 Any step type (from any extension) can reference this provider in its schema. Providers are global — one extension can register a provider that another extension's step type schema references.
+
+Providers are evaluated when the frontend fetches the extension list, so a dropdown that is already open in the workflow editor does not notice when the underlying data changes. Call `ctx.dynamicItems.invalidate()` after such a change; connected clients then refetch and show the current options. The `datatables` extension does this when a table is created or deleted:
+
+```typescript
+const store = new DataTableStore(ctx.db, {
+  onChange: (event) => {
+    if (event.created || event.deleted) ctx.dynamicItems.invalidate();
+  },
+});
+```
 
 ### Step Type Error Handling
 

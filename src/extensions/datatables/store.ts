@@ -324,7 +324,7 @@ export class DataTableStore {
       updatedAt: now,
     };
     this.#db.insert(dataTables).values(row).run();
-    this.#onChange({ table: input.name });
+    this.#onChange({ table: input.name, created: true });
     return this.#toTableDef(row);
   }
 

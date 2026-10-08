@@ -202,3 +202,15 @@ export interface ExtensionLifecycleEvent {
   /** Extension version string. */
   version: string;
 }
+
+/**
+ * WebSocket event broadcast when the data behind an extension's dynamic schema
+ * providers (`dynamicItems`/`dynamicDefault`) changed, e.g. a data table was
+ * created or deleted. Clients refetch the extension list so settings forms and
+ * workflow step-type dropdowns show the current options.
+ */
+export interface ExtensionSchemasChangedEvent {
+  type: "extension_schemas_changed";
+  /** Extension manifest name. */
+  name: string;
+}

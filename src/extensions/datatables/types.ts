@@ -221,6 +221,8 @@ export const TABLE_CHANGED_EVENT = "table_changed";
 export interface TableChangedEvent {
   /** Name of the changed table. */
   table: string;
+  /** Whether the table was created. */
+  created?: boolean;
   /** Whether the table was deleted. */
   deleted?: boolean;
 }

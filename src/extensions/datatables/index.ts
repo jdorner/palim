@@ -27,7 +27,7 @@ const EMIT_THROTTLE_MS = 500;
 
 const manifest = {
   name: "datatables",
-  version: "1.1.1",
+  version: "1.2.0",
   description: "Typed data tables with CSV/Excel import and export, workflow steps, and an agent command",
   dependencies: ["workflows"],
   ui: {
@@ -90,8 +90,15 @@ export function createExtension(): Extension {
     manifest,
 
     async initialize(ctx: ExtensionContext) {
-      emitter = createThrottledEmitter((event) => ctx.ui.emit(TABLE_CHANGED_EVENT, event));
-      const store = new DataTableStore(ctx.db, { onChange: emitter.push });
+      const throttled = createThrottledEmitter((event) => ctx.ui.emit(TABLE_CHANGED_EVENT, event));
+      emitter = throttled;
+      const store = new DataTableStore(ctx.db, {
+        onChange: (event) => {
+          // The table-name dropdowns (step configs) go stale when the set of tables changes.
+          if (event.created || event.deleted) ctx.dynamicItems.invalidate();
+          throttled.push(event);
+        },
+      });
 
       registerRoutes(ctx, store, requestUserId);
 

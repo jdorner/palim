@@ -333,7 +333,7 @@ fpcalcPath: Type.String({
 })
 ```
 
-The provider registry lives in `src/web/dynamicProviders.ts` (`enrichSchema` applies both facets). Extensions register providers via `ctx.dynamicItems.register(name, fn)` (items) and `ctx.dynamicItems.registerDefault(name, fn)` (defaults) during initialization. The `GET /api/extensions/:name/settings` route and the registry's step-type serialization invoke providers before returning schemas to the frontend. The frontend requires no changes since it already renders `availableItems` and `default`.
+The provider registry lives in `src/web/dynamicProviders.ts` (`enrichSchema` applies both facets). Extensions register providers via `ctx.dynamicItems.register(name, fn)` (items) and `ctx.dynamicItems.registerDefault(name, fn)` (defaults) during initialization. When the data behind a provider changes at runtime, `ctx.dynamicItems.invalidate()` broadcasts `extension_schemas_changed` so connected clients refetch the enriched schemas (datatables calls it on table create/delete). The `GET /api/extensions/:name/settings` route and the registry's step-type serialization invoke providers before returning schemas to the frontend. The frontend requires no changes since it already renders `availableItems` and `default`.
 
 Built-in providers (registered by extensions):
 

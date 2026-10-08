@@ -3,7 +3,9 @@
  * skills, and trigger refs, plus secret/variable keys for template
  * autocomplete. All fail soft, returning empty values on error.
  */
+import type { OutputSchemas } from "$shared/workflows";
 import { authFetch } from "./auth";
+import type { WorkflowWarning } from "./workflowDetail";
 
 /** Trigger refs available per trigger type (webhook names, schedule ids, ...). */
 export type TriggerRefs = Record<string, string[]>;
@@ -67,4 +69,39 @@ export function fetchSecretKeys(): Promise<string[]> {
 /** @returns Global variable keys for `{{var.*}}` autocomplete. */
 export function fetchVariableKeys(): Promise<string[]> {
   return fetchKeys("/api/variables", "variables");
+}
+
+/** Server analysis of an unsaved workflow draft (`POST /ext/workflows/meta/analyze`). */
+export interface WorkflowAnalysis {
+  /** Whether the draft is a valid workflow definition. */
+  valid: boolean;
+  /** Output schemas resolved for the draft (best effort when invalid). */
+  outputSchemas: OutputSchemas;
+  /** Advisory warnings, as the detail route reports them for a saved workflow. */
+  warnings: WorkflowWarning[];
+}
+
+/**
+ * Analyzes a workflow draft on the server: resolves output schemas for template
+ * autocomplete and collects template/config warnings without saving.
+ *
+ * @param definition - The serialized draft (see `serializeWorkflowDraft`).
+ * @param signal - Aborts the request when the draft changes again.
+ * @returns The analysis, or `null` if the request failed or was aborted.
+ */
+export async function fetchWorkflowAnalysis(
+  definition: Record<string, unknown>,
+  signal?: AbortSignal,
+): Promise<WorkflowAnalysis | null> {
+  try {
+    const res = await authFetch("/ext/workflows/meta/analyze", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(definition),
+      signal,
+    });
+    return res.ok ? ((await res.json()) as WorkflowAnalysis) : null;
+  } catch {
+    return null;
+  }
 }

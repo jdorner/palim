@@ -10,6 +10,7 @@ export type { ChatWebSocketEvent, TokenUsage } from "./chat";
 export type {
   ExtensionInfo,
   ExtensionLifecycleEvent,
+  ExtensionSchemasChangedEvent,
   ExtensionUiContribution,
   ExtensionUiPage,
   NavigationEntry,

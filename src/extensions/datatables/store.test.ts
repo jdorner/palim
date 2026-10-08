@@ -220,6 +220,14 @@ describe("DataTableStore", () => {
       expect(events.every((e) => e.table === "products")).toBe(true);
       expect(events.length).toBeGreaterThan(0);
     });
+
+    test("flags table creation and deletion in change events", () => {
+      expect(events[0]).toEqual({ table: "products", created: true });
+      store.insertRows("products", [{ sku: "z", name: "Z", price: 1 }]);
+      expect(events.at(-1)).toEqual({ table: "products" });
+      store.deleteTable("products");
+      expect(events.at(-1)).toEqual({ table: "products", deleted: true });
+    });
   });
 
   describe("schema changes", () => {

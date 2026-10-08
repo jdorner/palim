@@ -7,7 +7,6 @@
  */
 import type { PalimHost } from "@ext/ui";
 import { Button, Card, CardContent, CardHeader, LoadingIndicator } from "@palim/ui";
-import ArrowLeftIcon from "phosphor-svelte/lib/ArrowLeftIcon";
 import { onMount } from "svelte";
 import { type RowError, slugify, type TableDef } from "../types";
 import {
@@ -119,11 +118,9 @@ async function save(force = false) {
 }
 </script>
 
-<div class="flex items-center gap-2">
-  <Button size="xs" variant="ghost" onclick={back}>
-    <ArrowLeftIcon size={12} class="mr-1" aria-hidden="true" />Back
-  </Button>
-  <h2 class="text-sm font-semibold">{editing ? `Edit table: ${original?.label ?? name}` : "New table"}</h2>
+<div class="flex items-center gap-3">
+  <Button size="sm" variant="outline" onclick={back}>&laquo;&nbsp;Back</Button>
+  <h2 class="truncate text-lg font-semibold">{editing ? `Edit table: ${original?.label ?? name}` : "New table"}</h2>
 </div>
 
 {#if loading}
@@ -185,7 +182,7 @@ async function save(force = false) {
           <li>… and {conflicts.count - conflicts.rows.length} more</li>
         {/if}
       </ul>
-      <Button size="xs" variant="destructive" disabled={saving} onclick={() => save(true)}>
+      <Button size="sm" variant="destructive" disabled={saving} onclick={() => save(true)}>
         Save anyway and clear failing values
       </Button>
     </div>

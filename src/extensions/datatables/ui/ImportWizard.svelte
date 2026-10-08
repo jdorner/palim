@@ -5,8 +5,20 @@
  * with a file-column → table-column mapping).
  */
 import type { PalimHost } from "@ext/ui";
-import { Button, Card, CardContent, CardHeader, LoadingIndicator } from "@palim/ui";
-import ArrowLeftIcon from "phosphor-svelte/lib/ArrowLeftIcon";
+import {
+  Button,
+  Card,
+  CardContent,
+  CardHeader,
+  Checkbox,
+  LoadingIndicator,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@palim/ui";
 import { onMount } from "svelte";
 import { type ImportPreview, type ImportResult, slugify, type TableSummary } from "../types";
 import { type EditableColumn, errorText, INPUT_CLASS, PAGE_ROUTE, request, toColumnDefs, toEditable } from "./api";
@@ -141,11 +153,9 @@ async function runImport() {
 const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURIComponent(initialTable)}` : PAGE_ROUTE);
 </script>
 
-<div class="flex items-center gap-2">
-  <Button size="xs" variant="ghost" onclick={back}>
-    <ArrowLeftIcon size={12} class="mr-1" aria-hidden="true" />Back
-  </Button>
-  <h2 class="text-sm font-semibold">Import CSV / Excel</h2>
+<div class="flex items-center gap-3">
+  <Button size="sm" variant="outline" onclick={back}>&laquo;&nbsp;Back</Button>
+  <h2 class="text-lg font-semibold">Import CSV / Excel</h2>
 </div>
 
 {#if result}
@@ -183,17 +193,24 @@ const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURICom
 {:else}
   <Card>
     <CardHeader class="pb-2"><span class="text-sm font-medium">1. File</span></CardHeader>
-    <CardContent class="flex flex-wrap items-end gap-4">
+    <CardContent class="flex flex-wrap items-center gap-4">
       <input
         type="file"
         accept=".csv,.tsv,.txt,.xlsx,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        class="text-sm file:mr-3 file:rounded-md file:border file:border-input file:bg-background file:px-3 file:py-1 file:text-sm"
+        class="text-sm file:mr-3 file:h-9 file:cursor-pointer file:rounded-md file:border file:border-input file:bg-background file:px-3 file:text-sm file:font-medium hover:file:bg-accent"
         onchange={onFile}
       >
-      <label class="flex items-center gap-2 text-sm">
-        <input type="checkbox" bind:checked={headerRow} onchange={loadPreview}>
-        First row contains headers
-      </label>
+      <div class="flex h-9 items-center gap-2">
+        <Checkbox
+          id="dt-header-row"
+          checked={headerRow}
+          onCheckedChange={(v) => {
+            headerRow = v === true;
+            loadPreview();
+          }}
+        />
+        <label for="dt-header-row" class="text-sm">First row contains headers</label>
+      </div>
       {#if preview && preview.sheets.length > 1}
         <label class="flex items-center gap-2 text-sm">
           Sheet
@@ -221,24 +238,24 @@ const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURICom
         </span>
       </CardHeader>
       <CardContent>
-        <div class="max-h-64 overflow-auto rounded-md border border-border">
-          <table class="w-full whitespace-nowrap text-xs">
-            <thead class="sticky top-0 bg-muted text-muted-foreground">
-              <tr>
+        <div class="max-h-72 overflow-auto rounded-md border border-border">
+          <table class="w-full whitespace-nowrap text-sm">
+            <TableHeader class="sticky top-0 z-10 bg-muted">
+              <TableRow class="hover:bg-transparent">
                 {#each preview.headers as h, i (i)}
-                  <th class="px-2 py-1 text-left font-medium">{h}</th>
+                  <TableHead>{h}</TableHead>
                 {/each}
-              </tr>
-            </thead>
-            <tbody>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
               {#each preview.sampleRows.slice(0, 20) as row, r (r)}
-                <tr class="border-t border-border">
+                <TableRow class="h-9">
                   {#each row as cell, c (c)}
-                    <td class="max-w-56 truncate px-2 py-0.5">{cell}</td>
+                    <TableCell class="px-3 py-0"><span class="block max-w-56 truncate">{cell}</span></TableCell>
                   {/each}
-                </tr>
+                </TableRow>
               {/each}
-            </tbody>
+            </TableBody>
           </table>
         </div>
       </CardContent>
@@ -278,22 +295,22 @@ const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURICom
         </div>
 
         {#if target && targetTable}
-          <div class="overflow-x-auto rounded-md border border-border">
-            <table class="w-full text-sm">
-              <thead class="bg-muted/50 text-xs text-muted-foreground">
-                <tr>
-                  <th class="px-2 py-1.5 text-left font-medium">Table column</th>
-                  <th class="px-2 py-1.5 text-left font-medium">File column</th>
-                </tr>
-              </thead>
-              <tbody>
+          <div class="rounded-md border border-border">
+            <Table>
+              <TableHeader class="bg-muted/30">
+                <TableRow class="hover:bg-transparent">
+                  <TableHead>Table column</TableHead>
+                  <TableHead>File column</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {#each targetTable.columns as col (col.key)}
-                  <tr class="border-t border-border">
-                    <td class="px-2 py-1">
+                  <TableRow>
+                    <TableCell class="py-2">
                       {col.label}
                       <span class="text-xs text-muted-foreground">({col.type}{col.required ? ", required" : ""})</span>
-                    </td>
-                    <td class="px-2 py-1">
+                    </TableCell>
+                    <TableCell class="py-2">
                       <select
                         class={INPUT_CLASS}
                         aria-label="File column for {col.label}"
@@ -306,11 +323,11 @@ const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURICom
                           <option value={i}>{h}</option>
                         {/each}
                       </select>
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 {/each}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           </div>
         {:else if !target}
           <p class="text-xs text-muted-foreground">

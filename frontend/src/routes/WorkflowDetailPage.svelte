@@ -22,8 +22,10 @@ import {
   emptyTriggerRefs,
   fetchSecretKeys,
   fetchVariableKeys,
+  fetchWorkflowAnalysis,
   fetchWorkflowEditorMeta,
   type TriggerRefs,
+  type WorkflowAnalysis,
 } from "$lib/workflowEditorMeta";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import {
@@ -516,6 +518,37 @@ async function saveWorkflow() {
 let saveDisabled = $derived(saving || validationErrors.size > 0);
 
 /**
+ * Server analysis of the edit draft: output schemas for template autocomplete
+ * and template/config warnings, refreshed (debounced) as the draft changes, so
+ * neither depends on the last saved version. `null` outside edit mode and until
+ * the first response arrives.
+ */
+let draftAnalysis = $state<WorkflowAnalysis | null>(null);
+
+$effect(() => {
+  if (!editMode || !editDraft) {
+    draftAnalysis = null;
+    return;
+  }
+  const definition = serializeWorkflowDraft(editDraft);
+  const controller = new AbortController();
+  const timer = setTimeout(async () => {
+    const analysis = await fetchWorkflowAnalysis(definition, controller.signal);
+    if (analysis && !controller.signal.aborted) draftAnalysis = analysis;
+  }, 400);
+  return () => {
+    clearTimeout(timer);
+    controller.abort();
+  };
+});
+
+/** Warnings for the current mode: the draft's in edit mode (once analyzed), else the saved workflow's. */
+let activeWarnings = $derived(editMode && draftAnalysis?.valid ? draftAnalysis.warnings : (workflow?.warnings ?? []));
+
+/** Output schemas for template autocomplete: the draft's in edit mode (once analyzed), else the saved workflow's. */
+let activeOutputSchemas = $derived(editMode && draftAnalysis ? draftAnalysis.outputSchemas : workflow?.outputSchemas);
+
+/**
  * Slugs of steps that have a template/config warning, derived from the
  * workflow's `warnings`. Passed to the graph so the offending nodes render a
  * red error badge. Only meaningful in read-only view mode (warnings are not
@@ -530,11 +563,10 @@ let errorSlugs = $derived(new Set((workflow?.warnings ?? []).map((w) => w.stepSl
  *  1. Live draft `validationErrors` (keys like `steps[2].slug` or
  *     `steps[2].config.url`); the `steps[<index>]` segment maps to that step's
  *     synthetic id. These update as the user types.
- *  2. The backend template `warnings` carried over from the loaded workflow,
- *     mapped from their `stepSlug` to the matching draft step's synthetic id so
- *     the same badges shown in view mode persist into edit mode (they don't
- *     vanish just because editing started). A warning whose slug no longer
- *     matches any draft step (e.g. the step was renamed) is simply dropped.
+ *  2. The backend template `warnings` for the draft ({@link activeWarnings}:
+ *     the live draft analysis, or the loaded workflow's until it arrives),
+ *     mapped from their `stepSlug` to the matching draft step's synthetic id.
+ *     A warning whose slug matches no draft step is simply dropped.
  *
  * Matching on the id (not the slug) keeps the badge on the right node even when
  * a slug is temporarily empty or duplicated mid-edit. Empty outside edit mode.
@@ -554,7 +586,7 @@ let errorNodeIds = $derived.by(() => {
 
   // 2. Backend template warnings, mapped slug -> synthetic id.
   const slugToId = new Map(editDraft.steps.map((s) => [s.slug, s.id]));
-  for (const w of workflow?.warnings ?? []) {
+  for (const w of activeWarnings) {
     const id = slugToId.get(w.stepSlug);
     if (id) ids.add(id);
   }
@@ -741,9 +773,7 @@ onDestroy(() => {
       </div>
     {/if}
 
-    {#if !editMode}
-      <WorkflowWarningsBanner warnings={workflow.warnings ?? []} />
-    {/if}
+    <WorkflowWarningsBanner warnings={activeWarnings} />
 
     {#if editMode && editDraft}
       <div class="mb-4 shrink-0 p-4 border border-border rounded-md bg-muted/30" transition:slide={{ duration: 100 }}>
@@ -875,7 +905,7 @@ onDestroy(() => {
         {cachedSecretKeys}
         {cachedVariableKeys}
         {customStepTypes}
-        outputSchemas={workflow?.outputSchemas}
+        outputSchemas={activeOutputSchemas}
         onclose={closeSidebar}
         onSlugInput={onStepSlugInput}
         onRemoveStep={removeStep}

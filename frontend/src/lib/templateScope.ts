@@ -12,7 +12,7 @@ import {
   isObjectSchemaNode,
   type OutputSchema,
   type OutputSchemas,
-  unwrapArrayItems,
+  resolveIteratorItemSchema,
   walkSchemaPath,
 } from "../../../shared/workflows";
 import { getEnumOptions, isEnum } from "./schemaForm";
@@ -556,58 +556,6 @@ function findEnclosingIterator(config: ScopeConfig): IteratorBinding | undefined
   return undefined;
 }
 
-/** Matches a single leading `{{ ... }}` template expression and captures its body. */
-const SINGLE_TEMPLATE_EXPR = /^\s*\{\{\s*([^}]+?)\s*\}\}\s*$/;
-
-/**
- * Resolves the element schema of an iterator's `items` expression.
- *
- * The iterator's `items` is a template expression resolving to an array (e.g.
- * `{{steps.fetch.result.messages}}` or `{{trigger.payload.rows}}`). This resolves
- * the referenced array's JSON Schema via the workflow `outputSchemas`, then
- * unwraps it to the array element schema so `{{item.<path>}}` completions can be
- * derived from the element's `properties`.
- *
- * Only plain single-expression `items` are supported (a lone `{{ ... }}` naming a
- * `steps.<slug>.result[.<path>]` or `trigger.payload[.<path>]`). Anything else -
- * a function call, a literal, a compound string, an unresolved reference, or a
- * non-array target - yields `null`, and the caller offers no `item` completions.
- *
- * @param config - The scope configuration (carries `outputSchemas`)
- * @param itemsExpr - The iterator's raw `items` field value
- * @returns The element JSON Schema, or `null` when it cannot be derived
- */
-function resolveIteratorItemSchema(config: ScopeConfig, itemsExpr: string): OutputSchema | null {
-  const match = SINGLE_TEMPLATE_EXPR.exec(itemsExpr);
-  if (!match) return null;
-
-  const inner = match[1]!.trim();
-  // Reject function-call syntax and anything that is not a plain dot-path.
-  // Step slugs may contain hyphens (e.g. "fetch-mails"), so hyphens are allowed
-  // within segments alongside identifier characters.
-  if (!/^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(inner)) return null;
-
-  const parts = inner.split(".");
-  let arraySchema: OutputSchema | null = null;
-
-  if (parts[0] === "steps" && parts[2] === "result" && parts.length >= 3) {
-    const slug = parts[1]!;
-    const stepSchema = config.outputSchemas?.steps[slug];
-    if (!stepSchema) return null;
-    const walked = walkSchemaPath(stepSchema, parts.slice(3));
-    arraySchema = walked.resolved && walked.node !== undefined ? walked.node : null;
-  } else if (parts[0] === "trigger" && parts[1] === "payload") {
-    const triggerSchema = config.outputSchemas?.trigger;
-    if (!triggerSchema) return null;
-    const walked = walkSchemaPath(triggerSchema, parts.slice(2));
-    arraySchema = walked.resolved && walked.node !== undefined ? walked.node : null;
-  } else {
-    return null;
-  }
-
-  return unwrapArrayItems(arraySchema);
-}
-
 /**
  * Computes autocomplete suggestions for a given path and typed prefix.
  * Dispatches to the correct sub-function based on path segments.
@@ -640,7 +588,7 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
           // known object (so there are sub-properties to drill into).
           {
             label: iterator.as,
-            terminal: resolveIteratorItemSchema(config, iterator.itemsExpr) === null,
+            terminal: resolveIteratorItemSchema(config.outputSchemas, iterator.itemsExpr) === null,
           },
           { label: "itemIndex", terminal: true, schemaType: "number" },
         ].filter((s) => s.label.startsWith(prefix))
@@ -657,7 +605,7 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
   {
     const iterator = findEnclosingIterator(config);
     if (iterator && namespace === iterator.as) {
-      const elementSchema = resolveIteratorItemSchema(config, iterator.itemsExpr);
+      const elementSchema = resolveIteratorItemSchema(config.outputSchemas, iterator.itemsExpr);
       if (!elementSchema) return [];
       const subPath = path.slice(1); // segments after the loop variable
       return getOutputSchemaSuggestions(elementSchema, subPath, prefix);

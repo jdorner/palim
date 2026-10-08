@@ -726,6 +726,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     dynamicItems: {
       register: registerProviderFn,
       registerDefault: registerDefaultProviderFn,
+      invalidate: () => broadcast({ type: "extension_schemas_changed", name: extensionName }),
     },
     internal: {
       secrets: {

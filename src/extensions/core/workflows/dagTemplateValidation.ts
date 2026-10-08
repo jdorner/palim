@@ -14,7 +14,13 @@
  * @module
  */
 
-import { DEFAULT_ENV_ALLOWLIST, type OutputSchema, walkSchemaPath } from "@shared/workflows";
+import {
+  DEFAULT_ENV_ALLOWLIST,
+  type OutputSchema,
+  type OutputSchemas,
+  resolveIteratorItemSchema,
+  walkSchemaPath,
+} from "@shared/workflows";
 import type { DagStepDef, DagWorkflowDefinition } from "./schemas";
 import { findHyphenatedStepRefs } from "./stepRefs";
 import type { TemplateSecretResolver } from "./template";
@@ -257,13 +263,23 @@ function computeDominators(definition: DagWorkflowDefinition): Map<string, Set<s
   return dom;
 }
 
+/** The iterator whose body a step belongs to. */
+interface EnclosingIterator {
+  /** The loop variable name (the iterator's `as`, default "item"). */
+  as: string;
+  /** The iterator's raw `items` expression. */
+  items: string;
+}
+
 /**
- * Computes additional known prefixes for a step that is inside an iterator body.
- * Returns the iterator's `as` variable name (default "item") and "itemIndex".
- * Returns an empty set for steps not inside any iterator body.
+ * Finds the iterator whose body contains a step: reachable from the iterator's
+ * `each` targets without passing through its paired aggregator.
+ *
+ * @param slug - The step to locate
+ * @param definition - The workflow definition
+ * @returns The enclosing iterator, or `null` when the step is not in an iterator body
  */
-function getIterationPrefixesForStep(slug: string, definition: DagWorkflowDefinition): Set<string> {
-  const prefixes = new Set<string>();
+function findEnclosingIterator(slug: string, definition: DagWorkflowDefinition): EnclosingIterator | null {
   for (const [iterSlug, stepDef] of Object.entries(definition.steps)) {
     if (stepDef.type !== "iterator") continue;
     const iterDef = stepDef as { type: "iterator"; items: string; as?: string };
@@ -300,13 +316,9 @@ function getIterationPrefixesForStep(slug: string, definition: DagWorkflowDefini
       }
     }
 
-    if (reachable.has(slug)) {
-      prefixes.add(iterDef.as ?? "item");
-      prefixes.add("itemIndex");
-      break; // Found the enclosing iterator
-    }
+    if (reachable.has(slug)) return { as: iterDef.as ?? "item", items: iterDef.items };
   }
-  return prefixes;
+  return null;
 }
 
 /** Matches a function-call head: `name(` where `name` is an identifier. */
@@ -395,6 +407,18 @@ export async function validateDagWorkflowTemplates(
   } = options;
 
   const slugs = new Set(Object.keys(definition.steps));
+  // Resolved schemas for iterator loop-variable checks (needs a step resolver).
+  const iterationSchemas: OutputSchemas | null = resolveStepOutputSchema
+    ? {
+        trigger: resolveTriggerOutputSchema?.() ?? null,
+        steps: Object.fromEntries(
+          [...slugs].flatMap((s) => {
+            const schema = resolveStepOutputSchema(s);
+            return schema ? [[s, schema]] : [];
+          }),
+        ),
+      }
+    : null;
   const ancestors = computeAncestors(definition);
   const dominators = computeDominators(definition);
 
@@ -403,7 +427,12 @@ export async function validateDagWorkflowTemplates(
 
     // Compute iteration-scoped prefixes: if this step is inside an iterator body,
     // the iterator's `as` variable (e.g. "image") and "itemIndex" are valid prefixes.
-    const iterPrefixes = getIterationPrefixesForStep(slug, definition);
+    const iterator = findEnclosingIterator(slug, definition);
+    const iterPrefixes = new Set(iterator ? [iterator.as, "itemIndex"] : []);
+    // Element schema of the iterated array, when the iterator's `items` names a
+    // step result or trigger payload path with a known array schema.
+    const itemSchema =
+      iterator && iterationSchemas ? resolveIteratorItemSchema(iterationSchemas, iterator.items) : null;
 
     for (const [fieldName, fieldValue] of fields) {
       TEMPLATE_PATTERN.lastIndex = 0;
@@ -456,6 +485,19 @@ export async function validateDagWorkflowTemplates(
               field: fieldName,
               message: `Unknown expression prefix "${prefix}" in "{{${expr}}}"`,
             });
+            continue;
+          }
+
+          // Path-existence check: `{{<as>.<path>}}` against the iterated array's
+          // element schema. Silent when the element schema is unknown.
+          if (iterator && prefix === iterator.as && parts.length > 1 && itemSchema) {
+            if (!walkSchemaPath(itemSchema, parts.slice(1)).resolved) {
+              warnings.push({
+                stepSlug: slug,
+                field: fieldName,
+                message: `Reference to unknown field "${parts.slice(1).join(".")}" on "${prefix}" (an element of ${iterator.items.replace(/^\s*\{\{\s*|\s*\}\}\s*$/g, "")}) in "{{${expr}}}"`,
+              });
+            }
             continue;
           }
 

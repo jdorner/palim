@@ -119,7 +119,7 @@ Returns the rows that match `where`, sorted by `orderBy` (with `desc`), up to `l
 Output: `{ rows, count, total, first }`.
 
 - `first` is the first row, or `null` when nothing matches.
-- When `table` is a fixed name, the editor knows the table's columns, so `{{steps.<slug>.result.first.<column>}}` autocompletes.
+- When `table` is a fixed name, the editor knows the table's columns, so `{{steps.<slug>.result.first.<column>}}` autocompletes, as does `{{item.<column>}}` inside an iterator over `{{steps.<slug>.result.rows}}`. This works before the workflow is saved, and references to unknown columns are reported as template warnings.
 
 ```json5
 "lookup-customer": {

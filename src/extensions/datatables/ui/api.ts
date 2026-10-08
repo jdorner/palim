@@ -104,9 +104,12 @@ export function displayValue(column: ColumnDef, value: unknown): string {
   return String(value);
 }
 
+/** Where the cell editor moves after a keyboard commit. */
+export type NavigateDirection = "next" | "previous" | "up" | "down";
+
 /** Shared input classes. */
 export const INPUT_CLASS =
-  "w-full rounded-md border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
+  "w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-60";
 
 /** A column being edited in the UI. */
 export interface EditableColumn extends ColumnDef {
