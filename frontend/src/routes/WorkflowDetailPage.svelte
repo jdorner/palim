@@ -7,6 +7,7 @@ import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { detailPanelMode } from "$lib/detailPanelMode.svelte";
 import { extensions } from "$lib/extensionStore";
+import { UndoHistory } from "$lib/undoHistory";
 import { applyWorkflowEvent, normalizeWorkflow, type StepDef, type WorkflowDetail } from "$lib/workflowDetail";
 import {
   errorsAfterStepRemoval,
@@ -137,6 +138,7 @@ function enterEditMode() {
   saveError = null;
   saveErrorDetails = [];
   validationErrors = new Map();
+  clearHistory();
   editMode = true;
   loadEditorMeta();
 }
@@ -164,6 +166,7 @@ function cancelEdit() {
   validationErrors = new Map();
   editAsJson = false;
   viewAsJson = false;
+  clearHistory();
   resyncSelectionWithWorkflow();
 }
 
@@ -178,18 +181,123 @@ let editDraftStep = $derived.by(() => {
   return editDraft.steps[selectedStepIndex] ?? null;
 });
 
+/**
+ * One undo/redo step: the draft plus the editor state that is keyed to it.
+ * Validation errors are index-keyed and only partially recomputed, so they are
+ * restored with the draft rather than re-derived; selection is kept by step id.
+ */
+interface EditSnapshot {
+  draft: WorkflowDraft;
+  validationErrors: Map<string, string>;
+  selectedStepId: string | null;
+}
+
+/** Undo/redo history of the current edit session. */
+const history = new UndoHistory<EditSnapshot>();
+let canUndo = $state(false);
+let canRedo = $state(false);
+
+/** Mirrors the history's availability flags into reactive state for the toolbar. */
+function syncHistoryFlags() {
+  canUndo = history.canUndo;
+  canRedo = history.canRedo;
+}
+
+/** Drops all history (edit session start/end). */
+function clearHistory() {
+  history.clear();
+  syncHistoryFlags();
+}
+
+/** Captures the current editor state for the history. Requires an edit draft. */
+function snapshot(): EditSnapshot {
+  const selected =
+    sidebarOpen && !triggerSelected && selectedStepIndex >= 0 ? editDraft!.steps[selectedStepIndex] : null;
+  return { draft: editDraft!, validationErrors, selectedStepId: selected?.id ?? null };
+}
+
+/**
+ * Records the current state as an undo step. Call before mutating the draft.
+ *
+ * @param key - Coalescing key for continuous edits (typing); omit for discrete operations.
+ */
+function recordHistory(key?: string) {
+  if (!editDraft) return;
+  history.record(snapshot(), key);
+  syncHistoryFlags();
+}
+
+/**
+ * Replaces the draft, recording the previous state as an undo step.
+ *
+ * @param next - The new draft.
+ * @param key - Coalescing key for continuous edits (typing); omit for discrete operations.
+ */
+function commitDraft(next: WorkflowDraft, key?: string) {
+  // Forms may echo unchanged values back (e.g. a config form on mount); those
+  // must not become undo steps.
+  if (editDraft && JSON.stringify(next) === JSON.stringify(editDraft)) return;
+  recordHistory(key);
+  editDraft = next;
+}
+
+/** Restores a history snapshot, re-pointing the selection by step id. */
+function restoreSnapshot(snap: EditSnapshot) {
+  // Pending slug validations were computed against the replaced draft and
+  // would write stale index-keyed errors.
+  for (const timeout of stepSlugTimeouts.values()) clearTimeout(timeout);
+  stepSlugTimeouts.clear();
+  pendingSlugs.clear();
+
+  const currentId =
+    sidebarOpen && !triggerSelected && selectedStepIndex >= 0 ? editDraft?.steps[selectedStepIndex]?.id : null;
+  editDraft = snap.draft;
+  validationErrors = snap.validationErrors;
+  syncHistoryFlags();
+
+  if (triggerSelected && !snap.selectedStepId) return;
+  const targetId = snap.selectedStepId ?? currentId;
+  const index = targetId ? snap.draft.steps.findIndex((s) => s.id === targetId) : -1;
+  if (index >= 0) {
+    triggerSelected = false;
+    selectedStep = snap.draft.steps[index] as StepDef;
+    selectedStepIndex = index;
+    sidebarOpen = true;
+  } else if (currentId) {
+    closeSidebar();
+    selectedStepIndex = -1;
+  }
+}
+
+/** Undoes the last draft change. */
+function undo() {
+  if (!editDraft) return;
+  const snap = history.undo(snapshot());
+  if (snap) restoreSnapshot(snap);
+}
+
+/** Redoes the last undone draft change. */
+function redo() {
+  if (!editDraft) return;
+  const snap = history.redo(snapshot());
+  if (snap) restoreSnapshot(snap);
+}
+
 /** Update a field on the currently selected draft step. */
 function updateDraftStep(index: number, updater: (step: StepDraft) => void) {
   if (!editDraft || index < 0 || index >= editDraft.steps.length) return;
-  editDraft = {
-    ...editDraft,
-    steps: editDraft.steps.map((s, i) => {
-      if (i !== index) return s;
-      const copy = { ...s };
-      updater(copy);
-      return copy;
-    }),
-  };
+  commitDraft(
+    {
+      ...editDraft,
+      steps: editDraft.steps.map((s, i) => {
+        if (i !== index) return s;
+        const copy = { ...s };
+        updater(copy);
+        return copy;
+      }),
+    },
+    `step:${editDraft.steps[index]!.id}`,
+  );
 }
 
 /**
@@ -239,7 +347,7 @@ function commitNewStep(type: string, result: { steps: StepDraft[]; edges: EdgeDr
   if (!editDraft) return;
   if (result.steps === editDraft.steps && result.edges === editDraft.edges) return;
 
-  editDraft = { ...editDraft, steps: withConfigDefaults(result.steps, customStepTypes), edges: result.edges };
+  commitDraft({ ...editDraft, steps: withConfigDefaults(result.steps, customStepTypes), edges: result.edges });
 
   const newIndex = editDraft.steps.length - 1;
   const newErrors = new Map(validationErrors);
@@ -361,7 +469,7 @@ function handleEdgesChange(edges: Edge[]) {
   if (!editDraft) return;
 
   const stepIds = new Set(editDraft.steps.map((s) => s.id!));
-  editDraft = { ...editDraft, edges: graphEdgesToDraftEdges(edges, stepIds) };
+  commitDraft({ ...editDraft, edges: graphEdgesToDraftEdges(edges, stepIds) });
 
   // Connectivity errors are otherwise only recomputed on save, so drawing an
   // edge that reconnects an orphaned step would leave its stale "not connected"
@@ -372,6 +480,13 @@ function handleEdgesChange(edges: Edge[]) {
 
 /** Remove the step with the given synthetic id (the builder reconnects/cascades as needed). */
 function removeStep(id: string) {
+  if (!editDraft?.steps.some((s) => s.id === id)) return;
+  recordHistory();
+  removeStepWithoutHistory(id);
+}
+
+/** {@link removeStep} without recording an undo step, for batched removals. */
+function removeStepWithoutHistory(id: string) {
   if (!editDraft) return;
 
   const index = editDraft.steps.findIndex((s) => s.id === id);
@@ -397,6 +512,8 @@ function removeStep(id: string) {
  */
 function removeStepsByIds(ids: string[]) {
   if (!editDraft || ids.length === 0) return;
+  // One undo step for the whole batch, recorded before the selection changes.
+  recordHistory();
   // If the currently selected step is being deleted, close the sidebar first so
   // it does not linger on a removed step.
   const selectedId = selectedStepIndex >= 0 ? editDraft.steps[selectedStepIndex]?.id : undefined;
@@ -404,7 +521,7 @@ function removeStepsByIds(ids: string[]) {
     closeSidebar();
   }
   for (const id of ids) {
-    removeStep(id);
+    removeStepWithoutHistory(id);
   }
 }
 
@@ -428,7 +545,7 @@ function onStepSlugInput(index: number, value: string) {
     );
   }
 
-  editDraft = { ...editDraft, steps: updatedSteps };
+  commitDraft({ ...editDraft, steps: updatedSteps }, `step:${editDraft.steps[index]?.id}`);
 
   const existing = stepSlugTimeouts.get(index);
   if (existing) clearTimeout(existing);
@@ -507,6 +624,7 @@ async function saveWorkflow() {
     editMode = false;
     editDraft = null;
     validationErrors = new Map();
+    clearHistory();
     resyncSelectionWithWorkflow();
   } catch (err) {
     saveError = err instanceof Error ? err.message : "Failed to save. Please try again.";
@@ -727,15 +845,38 @@ function handleKeydown(e: KeyboardEvent) {
     if (!saveDisabled) saveWorkflow();
     return;
   }
+
+  // Draft undo/redo. Text fields keep their native undo, so skip while one is focused.
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && !isEditableTarget(e.target)) {
+    const key = e.key.toLowerCase();
+    if (key === "z" || key === "y") {
+      e.preventDefault();
+      if (key === "y" || e.shiftKey) redo();
+      else undo();
+    }
+  }
+}
+
+/** Whether a keyboard event target handles its own text undo (inputs, textareas, rich editors). */
+function isEditableTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return target.isContentEditable || target.closest("input, textarea, select, [contenteditable]") !== null;
+}
+
+/** Leaving a field ends its typing run, so the next edit starts a new undo step. */
+function handleFocusOut() {
+  history.breakCoalescing();
 }
 
 onMount(() => {
   window.addEventListener("keydown", handleKeydown);
+  window.addEventListener("focusout", handleFocusOut);
 });
 
 onDestroy(() => {
   unsubWorkflow();
   window.removeEventListener("keydown", handleKeydown);
+  window.removeEventListener("focusout", handleFocusOut);
 });
 </script>
 
@@ -751,6 +892,10 @@ onDestroy(() => {
       {editMode}
       {saving}
       {saveDisabled}
+      {canUndo}
+      {canRedo}
+      onUndo={undo}
+      onRedo={redo}
       onSave={saveWorkflow}
       onCancelEdit={cancelEdit}
       onEdit={enterEditMode}
@@ -786,7 +931,7 @@ onDestroy(() => {
             value={editDraft.description}
             maxlength={256}
             oninput={(e) => {
-              editDraft = { ...editDraft!, description: (e.target as HTMLInputElement).value };
+              commitDraft({ ...editDraft!, description: (e.target as HTMLInputElement).value }, "description");
             }}
             placeholder="Optional description"
           >
@@ -929,7 +1074,7 @@ onDestroy(() => {
         {metaLoading}
         onclose={closeSidebar}
         onTriggerChange={(trigger) => {
-          editDraft = { ...editDraft!, trigger };
+          commitDraft({ ...editDraft!, trigger }, "trigger");
         }}
         onValidationErrorsChange={(errors) => {
           validationErrors = errors;
