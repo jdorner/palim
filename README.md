@@ -132,6 +132,8 @@ bun run cli                      # Interactive sandbox shell (just-bash)
 
 `bun run dev` starts the backend with auto-restart on file changes. `bun run start` runs without watching (for production-like usage).
 
+`bun run cli` logs in to the running Palim server first, so programs that call the API (e.g. `datatable`) run as that user. It prompts for username and password, or reads `PALIM_USER` / `PALIM_PASSWORD` (required when stdin is not a terminal). If the login fails or the server is down, the shell starts unauthenticated.
+
 <details>
 <summary>Remote access during development</summary>
 
