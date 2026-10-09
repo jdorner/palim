@@ -1056,6 +1056,17 @@ export interface ExtensionContext {
      * @param fn - Function that returns the current default value
      */
     registerDefault(name: string, fn: () => string): void;
+
+    /**
+     * Signal that the values returned by this extension's providers changed.
+     *
+     * Enriched schemas are resolved when the frontend fetches the extension
+     * list, so options a client already loaded go stale when the underlying
+     * data changes. Call this after such a change (e.g. an item was created or
+     * deleted) to make connected clients refetch. Not needed for changes that
+     * leave the provider results unchanged.
+     */
+    invalidate(): void;
   };
 
   // -------------------------------------------------------------------------

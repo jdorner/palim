@@ -107,6 +107,9 @@ function handleMessage(message: WebSocketMessage) {
     case "extension_ui_event":
       dispatchExtensionUiEvent(message);
       break;
+    case "extension_schemas_changed":
+      fetchExtensions();
+      break;
     case "extension_lifecycle":
       fetchExtensions().then(() => {
         fetchBadgesForEnabledExtensions();

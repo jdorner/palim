@@ -176,3 +176,14 @@ describe("ctx.ui.emit", () => {
     expect(() => context.ui.emit("x".repeat(65))).toThrow("1-64 characters");
   });
 });
+
+describe("ctx.dynamicItems.invalidate", () => {
+  test("broadcasts extension_schemas_changed for the extension", () => {
+    const messages: unknown[] = [];
+    const { context } = createExtensionContext({ ...createMinimalDeps(), broadcastFn: (m) => messages.push(m) });
+
+    context.dynamicItems.invalidate();
+
+    expect(messages).toEqual([{ type: "extension_schemas_changed", name: "test-extension" }]);
+  });
+});

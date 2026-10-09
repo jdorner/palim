@@ -913,3 +913,89 @@ describe("trigger payload paths without a trigger output schema", () => {
     expect(await validateDagWorkflowTemplates(filenameWf({ type: "manual" }))).toEqual([]);
   });
 });
+
+describe("iterator loop-variable path checks", () => {
+  /** query -> loop(each) -> use -> done, iterating `steps.query.result.rows`. */
+  function loopWf(value: string): DagWorkflowDefinition {
+    return wf(
+      {
+        query: { type: "datatable-query", table: "artikel" },
+        loop: { type: "iterator", items: "{{steps.query.result.rows}}" },
+        use: { type: "set-variables", variables: [{ name: "v", value }] },
+        done: { type: "aggregator", iterator: "loop" },
+      } as unknown as DagWorkflowDefinition["steps"],
+      [
+        { from: "query", to: "loop" },
+        { from: "loop", to: "use", branch: "each" },
+        { from: "use", to: "done" },
+      ],
+    );
+  }
+
+  const row = (open: boolean): OutputSchema => ({
+    type: "object",
+    properties: { _id: { type: "integer" }, name: { type: "string" } },
+    ...(open ? { additionalProperties: true } : {}),
+  });
+  const querySchema = (open: boolean): OutputSchema => ({
+    type: "object",
+    properties: { rows: { type: "array", items: row(open) } },
+  });
+
+  test("warns on an unknown field of the element schema", async () => {
+    const warnings = await validateDagWorkflowTemplates(loopWf("{{item.name}} {{item.missing}}"), {
+      resolveStepOutputSchema: (slug) => (slug === "query" ? querySchema(false) : null),
+    });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]!.stepSlug).toBe("use");
+    expect(warnings[0]!.message).toContain('unknown field "missing" on "item"');
+    expect(warnings[0]!.message).toContain("steps.query.result.rows");
+  });
+
+  test("accepts any field when the element schema is open", async () => {
+    const warnings = await validateDagWorkflowTemplates(loopWf("{{item.missing}}"), {
+      resolveStepOutputSchema: (slug) => (slug === "query" ? querySchema(true) : null),
+    });
+    expect(warnings).toEqual([]);
+  });
+
+  test("stays silent when the element schema is unknown", async () => {
+    expect(
+      await validateDagWorkflowTemplates(loopWf("{{item.missing}}"), { resolveStepOutputSchema: () => null }),
+    ).toEqual([]);
+    expect(await validateDagWorkflowTemplates(loopWf("{{item.missing}}"))).toEqual([]);
+  });
+});
+
+describe("walkSchemaPath open objects", () => {
+  test("resolves unknown keys under additionalProperties: true", () => {
+    const schema: OutputSchema = { type: "object", properties: { a: { type: "string" } }, additionalProperties: true };
+    expect(walkSchemaPath(schema, ["b", "c"]).resolved).toBe(true);
+    expect(walkSchemaPath(schema, []).children).toEqual(["a"]);
+  });
+
+  test("walks an additionalProperties schema with the remaining segments", () => {
+    const schema: OutputSchema = {
+      type: "object",
+      additionalProperties: { type: "object", properties: { x: { type: "number" } } },
+    };
+    expect(walkSchemaPath(schema, ["any", "x"]).resolved).toBe(true);
+    expect(walkSchemaPath(schema, ["any", "y"]).resolved).toBe(false);
+  });
+
+  test("resolves array length and numeric indices", () => {
+    const schema: OutputSchema = {
+      type: "object",
+      properties: { list: { type: "array", items: { type: "object", properties: { a: { type: "string" } } } } },
+    };
+    expect(walkSchemaPath(schema, ["list", "length"]).resolved).toBe(true);
+    expect(walkSchemaPath(schema, ["list", "0", "a"]).resolved).toBe(true);
+    expect(walkSchemaPath(schema, ["list", "0", "b"]).resolved).toBe(false);
+    expect(walkSchemaPath(schema, ["list", "a"]).resolved).toBe(false);
+  });
+
+  test("still rejects unknown keys on closed objects", () => {
+    const schema: OutputSchema = { type: "object", properties: { a: { type: "string" } } };
+    expect(walkSchemaPath(schema, ["b"]).resolved).toBe(false);
+  });
+});

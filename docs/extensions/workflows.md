@@ -103,7 +103,13 @@ List all loaded workflow definitions.
 
 ### GET /ext/workflows/:name
 
-Get a single workflow definition.
+Get a single workflow definition, with its resolved `outputSchemas` and `warnings`.
+
+### POST /ext/workflows/meta/analyze
+
+Analyze an unsaved workflow definition (the JSON body) without storing it. Returns `{ valid, outputSchemas, warnings, errors }`, where `outputSchemas` and `warnings` are resolved exactly as for a saved workflow. The editor calls this while you edit, so template autocomplete and template warnings follow the draft instead of the last saved version. A body that is not yet a valid definition still gets best-effort `outputSchemas`; its validation errors are listed in `errors`.
+
+Warnings include references to unknown fields on an iterator's loop variable (`{{item.<field>}}`) when the iterated array's element schema is known.
 
 ### POST /ext/workflows
 

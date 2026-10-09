@@ -126,6 +126,19 @@ describe("authorizeRequest", () => {
       expect(authorizeRequest("POST", "/ext/webhooks", userAbility).allowed).toBe(false);
     });
 
+    test("data table writes need datatables:write; reads are open", () => {
+      expect(authorizeRequest("GET", "/ext/datatables/tables/t/rows", userAbility).allowed).toBe(true);
+      expect(authorizeRequest("GET", "/ext/datatables/tables/t/export", userAbility).allowed).toBe(true);
+      expect(authorizeRequest("POST", "/ext/datatables/tables", userAbility).allowed).toBe(false);
+      expect(authorizeRequest("POST", "/ext/datatables/tables/t/rows", userAbility).allowed).toBe(false);
+      expect(authorizeRequest("POST", "/ext/datatables/import", userAbility).allowed).toBe(false);
+      expect(authorizeRequest("PUT", "/ext/datatables/tables/t", builtInUserAbility).allowed).toBe(true);
+      expect(authorizeRequest("DELETE", "/ext/datatables/tables/t", builtInUserAbility).allowed).toBe(true);
+      expect(authorizeRequest("POST", "/ext/datatables/tables/t/truncate", builtInUserAbility).allowed).toBe(true);
+      const decision = authorizeRequest("POST", "/ext/datatables/tables", userAbility);
+      expect(decision.requiredSubject).toBe("DataTable");
+    });
+
     test("unlisted extension writes are admin-only", () => {
       expect(authorizeRequest("POST", "/ext/some-plugin/anything", builtInUserAbility).allowed).toBe(false);
       expect(authorizeRequest("POST", "/ext/ext-installer/approve/x", builtInUserAbility).allowed).toBe(false);

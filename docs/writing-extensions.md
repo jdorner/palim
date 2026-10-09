@@ -424,6 +424,8 @@ Both accept an optional model `intent` (`"chat"`, `"vision"`, `"embedding"`) to 
 | Method | Description |
 | --- | --- |
 | `ctx.dynamicItems.register(name, fn)` | Register a dynamic item provider for settings and step type schema enrichment |
+| `ctx.dynamicItems.registerDefault(name, fn)` | Register a dynamic default provider (replaces a string property's `default`) |
+| `ctx.dynamicItems.invalidate()` | Tell connected clients the provider values changed, so open forms and step dropdowns refetch them |
 
 ### State
 
@@ -1237,6 +1239,16 @@ async initialize(ctx) {
 
 Any step type (from any extension) can reference this provider in its schema. Providers are global — one extension can register a provider that another extension's step type schema references.
 
+Providers are evaluated when the frontend fetches the extension list, so a dropdown that is already open in the workflow editor does not notice when the underlying data changes. Call `ctx.dynamicItems.invalidate()` after such a change; connected clients then refetch and show the current options. The `datatables` extension does this when a table is created or deleted:
+
+```typescript
+const store = new DataTableStore(ctx.db, {
+  onChange: (event) => {
+    if (event.created || event.deleted) ctx.dynamicItems.invalidate();
+  },
+});
+```
+
 ### Step Type Error Handling
 
 If the extension providing a step type is disabled or unloaded, workflows using that type will fail with a clear error logged to the job:
@@ -1265,7 +1277,7 @@ Extensions can add pages to the web UI: full Svelte 5 pages that render inside t
 | `label` | Sidebar text (1-50 characters) |
 | `route` | App route, e.g. `/ext-page/<extension>/<page>` for an extension page |
 | `icon` | Icon name from the frontend icon registry (`frontend/src/lib/iconRegistry.ts`), e.g. `EnvelopeIcon` |
-| `order` | Position (0-999, ascending) |
+| `order` | Position (0-999, ascending). The built-in Job Queues entry sits at 100: lower values render above it, 100 and higher below |
 | `iconColor` | Optional Tailwind classes for the icon, e.g. `text-violet-600 dark:text-violet-500` |
 | `badgeKey` | Optional badge source; only keys known to the frontend badge registry show a count |
 

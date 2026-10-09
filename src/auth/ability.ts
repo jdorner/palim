@@ -99,6 +99,9 @@ function applyPermission(can: AbilityBuilder<AppAbility>["can"], permission: Per
     case PERMISSIONS.EXTENSIONS_WRITE:
       can("manage", "Extension");
       break;
+    case PERMISSIONS.DATATABLES_WRITE:
+      can("manage", "DataTable");
+      break;
     case PERMISSIONS.USERS_MANAGE:
       can("manage", "User");
       break;

@@ -67,7 +67,12 @@ export interface ResolvedExpression {
  * Behavior:
  * - A `null` schema yields `{ resolved: false, children: [] }`.
  * - A segment that is not present under the current node's `properties` yields
- *   `resolved: false` with no children.
+ *   `resolved: false` with no children, unless the object node is open:
+ *   `additionalProperties: true` resolves the rest of the path to an
+ *   unconstrained `{}` node, and an `additionalProperties` schema is walked with
+ *   the remaining segments.
+ * - On an array node, `length` resolves to an integer and a numeric segment
+ *   (`rows.0.name`) descends into the element schema.
  * - When the whole path lands on a node (object or leaf), it resolves
  *   (`resolved: true`). For object nodes, `children` lists the immediate
  *   `properties` keys; for leaf nodes, `children` is empty.
@@ -87,16 +92,38 @@ export function walkSchemaPath(schema: OutputSchema | null, path: string[]): Res
 
   let node: OutputSchema = schema;
 
-  for (const segment of path) {
-    const properties = getProperties(node);
-    if (properties === null) {
+  for (const [i, segment] of path.entries()) {
+    // Arrays: `length` and numeric indices (`rows.0.name`) are valid at runtime.
+    if (node.type === "array" || unwrapArrayItems(node) !== null) {
+      const element = unwrapArrayItems(node);
+      if (segment === "length") {
+        node = { type: "integer" };
+        continue;
+      }
+      if (element !== null && /^\d+$/.test(segment)) {
+        node = element;
+        continue;
+      }
       return { resolved: false, children: [] };
     }
-    const next = properties[segment];
-    if (next === undefined || next === null || typeof next !== "object") {
+    const next = getProperties(node)?.[segment];
+    if (next !== undefined && next !== null && typeof next === "object") {
+      node = next as OutputSchema;
+      continue;
+    }
+    if (!isObjectSchemaNode(node)) {
       return { resolved: false, children: [] };
     }
-    node = next as OutputSchema;
+    // Open object: unknown keys are allowed. `additionalProperties: true`
+    // admits anything below, so the rest of the path cannot be checked.
+    const additional = node.additionalProperties;
+    if (additional === true) {
+      return { resolved: true, node: {}, children: [] };
+    }
+    if (additional !== null && typeof additional === "object") {
+      return walkSchemaPath(additional as OutputSchema, path.slice(i + 1));
+    }
+    return { resolved: false, children: [] };
   }
 
   return { resolved: true, node, children: listChildren(node) };
@@ -185,6 +212,63 @@ function getProperties(node: OutputSchema): Record<string, unknown> | null {
 function listChildren(node: OutputSchema): string[] {
   const properties = getProperties(node);
   return properties === null ? [] : Object.keys(properties);
+}
+
+/** Matches a single leading `{{ ... }}` template expression and captures its body. */
+const SINGLE_TEMPLATE_EXPR = /^\s*\{\{\s*([^}]+?)\s*\}\}\s*$/;
+
+/**
+ * Resolves the element schema of an iterator's `items` expression.
+ *
+ * The iterator's `items` is a template expression resolving to an array (e.g.
+ * `{{steps.fetch.result.messages}}` or `{{trigger.payload.rows}}`). This resolves
+ * the referenced array's JSON Schema via the workflow `outputSchemas`, then
+ * unwraps it to the array element schema so `{{item.<path>}}` completions can be
+ * derived from the element's `properties`.
+ *
+ * Only plain single-expression `items` are supported (a lone `{{ ... }}` naming a
+ * `steps.<slug>.result[.<path>]` or `trigger.payload[.<path>]`). Anything else -
+ * a function call, a literal, a compound string, an unresolved reference, or a
+ * non-array target - yields `null`, and the caller offers no `item` completions.
+ *
+ * Shared by the frontend autocomplete and the backend template validator.
+ *
+ * @param outputSchemas - The workflow's resolved output schemas
+ * @param itemsExpr - The iterator's raw `items` field value
+ * @returns The element JSON Schema, or `null` when it cannot be derived
+ */
+export function resolveIteratorItemSchema(
+  outputSchemas: OutputSchemas | null | undefined,
+  itemsExpr: string,
+): OutputSchema | null {
+  const match = SINGLE_TEMPLATE_EXPR.exec(itemsExpr);
+  if (!match) return null;
+
+  const inner = match[1]!.trim();
+  // Reject function-call syntax and anything that is not a plain dot-path.
+  // Step slugs may contain hyphens (e.g. "fetch-mails"), so hyphens are allowed
+  // within segments alongside identifier characters.
+  if (!/^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(inner)) return null;
+
+  const parts = inner.split(".");
+  let arraySchema: OutputSchema | null = null;
+
+  if (parts[0] === "steps" && parts[2] === "result" && parts.length >= 3) {
+    const slug = parts[1]!;
+    const stepSchema = outputSchemas?.steps[slug];
+    if (!stepSchema) return null;
+    const walked = walkSchemaPath(stepSchema, parts.slice(3));
+    arraySchema = walked.resolved && walked.node !== undefined ? walked.node : null;
+  } else if (parts[0] === "trigger" && parts[1] === "payload") {
+    const triggerSchema = outputSchemas?.trigger;
+    if (!triggerSchema) return null;
+    const walked = walkSchemaPath(triggerSchema, parts.slice(2));
+    arraySchema = walked.resolved && walked.node !== undefined ? walked.node : null;
+  } else {
+    return null;
+  }
+
+  return unwrapArrayItems(arraySchema);
 }
 
 /** Step summary included in workflow WebSocket events. */

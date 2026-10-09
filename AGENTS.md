@@ -137,6 +137,7 @@ src/
 │   │   ├── webhooks/        # Authenticated HTTP endpoints for external events
 │   │   └── workflows/       # DAG job pipelines (JSON5: steps map + edges array)
 │   ├── core-wf-steps/       # Core (top-level): built-in workflow step types
+│   ├── datatables/          # Typed data tables (JSON rows), CSV/XLSX import/export, step types, `datatable` program, UI page
 │   └── <name>/index.ts      # Optional extensions (see list below)
 ├── secrets/
 │   ├── vault.ts             # SecretVault: SQLite-backed AES-256-GCM encrypted storage with per-row ACL
@@ -310,7 +311,7 @@ Extensions declare Svelte 5 pages in `manifest.ui.pages` (`{ id, title, entry: "
 
 Extension routes are not mounted on Elysia directly (Elysia cannot add routes after `listen()`). The web server mounts a fixed `/ext/*` catch-all that dispatches through `ExtensionRouter` (`src/web/extensionRouter.ts`); routes are added on registration and removed on deactivate/unload, so enabling, re-enabling, or hot-loading an extension at runtime takes effect immediately. The router parses the body per the route's `parse` option from a clone of the request, so handlers can still read `request` directly.
 
-Current extensions (13): **converter**, **error-analyzer**, **mcp**, **ntfy**, **steering**, **telegram**, **web-fetch**, **wiki** | Core: **core-wf-steps**, **filewatcher**, **scheduler**, **webhooks**, **workflows**
+Current extensions (14): **converter**, **datatables**, **error-analyzer**, **mcp**, **ntfy**, **steering**, **telegram**, **web-fetch**, **wiki** | Core: **core-wf-steps**, **filewatcher**, **scheduler**, **webhooks**, **workflows**
 
 #### Dynamic Schema Enrichment
 
@@ -332,12 +333,13 @@ fpcalcPath: Type.String({
 })
 ```
 
-The provider registry lives in `src/web/dynamicProviders.ts` (`enrichSchema` applies both facets). Extensions register providers via `ctx.dynamicItems.register(name, fn)` (items) and `ctx.dynamicItems.registerDefault(name, fn)` (defaults) during initialization. The `GET /api/extensions/:name/settings` route and the registry's step-type serialization invoke providers before returning schemas to the frontend. The frontend requires no changes since it already renders `availableItems` and `default`.
+The provider registry lives in `src/web/dynamicProviders.ts` (`enrichSchema` applies both facets). Extensions register providers via `ctx.dynamicItems.register(name, fn)` (items) and `ctx.dynamicItems.registerDefault(name, fn)` (defaults) during initialization. When the data behind a provider changes at runtime, `ctx.dynamicItems.invalidate()` broadcasts `extension_schemas_changed` so connected clients refetch the enriched schemas (datatables calls it on table create/delete). The `GET /api/extensions/:name/settings` route and the registry's step-type serialization invoke providers before returning schemas to the frontend. The frontend requires no changes since it already renders `availableItems` and `default`.
 
 Built-in providers (registered by extensions):
 
 - `all-queue-names` (error-analyzer) - Core queue names + extension names that have registered queues (short form, e.g. "converter" not "converter:jobs")
 - `workflow-names` (core-wf-steps) - Names of all loaded workflow definitions, populating the `workflowName` dropdown on the `start-workflow` step
+- `datatable-names` (datatables) - Names of all data tables, populating the `table` dropdown on the `datatable-*` steps
 
 ### Sessions
 

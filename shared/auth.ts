@@ -51,6 +51,8 @@ export const PERMISSIONS = {
   MODELS_WRITE: "models:write",
   /** Enable/disable extensions and edit their settings. */
   EXTENSIONS_WRITE: "extensions:write",
+  /** Create, edit, import, and delete data tables and their rows. */
+  DATATABLES_WRITE: "datatables:write",
   /** Manage users, roles, and role permissions. */
   USERS_MANAGE: "users:manage",
 } as const;
@@ -92,8 +94,8 @@ export interface RoleDefinition {
 }
 
 /**
- * The standard-user permission set: chat, run workflows, manage jobs and
- * triggers. Deliberately excludes editing workflow definitions and all write
+ * The standard-user permission set: chat, run workflows, manage jobs,
+ * triggers, and data tables. Deliberately excludes editing workflow definitions and all write
  * access to secrets, variables, extensions, models, and any user management.
  */
 const USER_PERMISSIONS: PermissionSet = [
@@ -101,6 +103,7 @@ const USER_PERMISSIONS: PermissionSet = [
   PERMISSIONS.WORKFLOWS_WRITE,
   PERMISSIONS.JOBS_WRITE,
   PERMISSIONS.TRIGGERS_WRITE,
+  PERMISSIONS.DATATABLES_WRITE,
 ];
 
 /**
@@ -127,7 +130,7 @@ export const BUILT_IN_ROLES: Readonly<Record<string, RoleDefinition>> = {
   },
   [ROLE_USER]: {
     name: ROLE_USER,
-    description: "Standard user: reads everything; chats, runs workflows, and manages jobs and triggers.",
+    description: "Standard user: reads everything; chats, runs workflows, and manages jobs, triggers, and data tables.",
     permissions: USER_PERMISSIONS,
   },
   [ROLE_SYSTEM]: {
@@ -154,6 +157,7 @@ export type AppSubject =
   | "Variable"
   | "Model"
   | "Extension"
+  | "DataTable"
   | "User"
   | "all";
 
@@ -201,6 +205,7 @@ export const READABLE_SUBJECTS: readonly AppSubject[] = [
   "Variable",
   "Model",
   "Extension",
+  "DataTable",
 ];
 
 /**
@@ -236,6 +241,7 @@ const PERMISSION_GRANTS: Readonly<Record<Permission, ReadonlyArray<[AppAction, A
   [PERMISSIONS.VARIABLES_WRITE]: [["manage", "Variable"]],
   [PERMISSIONS.MODELS_WRITE]: [["update", "Model"]],
   [PERMISSIONS.EXTENSIONS_WRITE]: [["manage", "Extension"]],
+  [PERMISSIONS.DATATABLES_WRITE]: [["manage", "DataTable"]],
   [PERMISSIONS.USERS_MANAGE]: [["manage", "User"]],
 };
 

@@ -132,7 +132,7 @@ Only list proxies that put the address of the connection they received as the la
 
 ### Roles and permissions
 
-Every signed-in user may read everything without any permission: workflow definitions and runs, jobs and their logs, triggers, secret metadata and audit logs, variables, models and extensions. There are three exceptions:
+Every signed-in user may read everything without any permission: workflow definitions and runs, jobs and their logs, triggers, secret metadata and audit logs, variables, models, extensions and data tables. There are three exceptions:
 
 - **Chat sessions** are private to their owner.
 - **Chat jobs** are private to the user who started them, admins included. They are left out of the job feed (see [WebSocket](#websocket)), and the per-job routes (`GET /api/jobs/:id/logs`, `GET /api/jobs/:id/chain`, `POST /api/jobs/:id/cancel`, `POST /api/jobs/:id/retry`) answer `404` to anyone else. Bulk cleanup (`POST /api/queues/clean`) still removes finished jobs of every user by state.
@@ -153,6 +153,7 @@ Writes need a permission. Permissions are `<domain>:<action>` strings. A role is
 | `variables:write` | Manage global variables |
 | `models:write` | Change the selected model |
 | `extensions:write` | Enable, disable and configure extensions |
+| `datatables:write` | Create, edit, import and delete data tables and their rows |
 | `users:manage` | Manage users, roles and role permissions |
 
 Three roles are built in:
@@ -160,7 +161,7 @@ Three roles are built in:
 | Role | Permissions |
 | ---- | ----------- |
 | `admin` | Everything (superuser) |
-| `user` | `chat:write`, `workflows:write`, `jobs:write`, `triggers:write`. No workflow definition edits, secrets, variables, models, extension settings or user management. |
+| `user` | `chat:write`, `workflows:write`, `jobs:write`, `triggers:write`, `datatables:write`. No workflow definition edits, secrets, variables, models, extension settings or user management. |
 | `system` | Reserved for the built-in `system` account: `chat:write` only. Never `users:manage` or `secrets:write`. |
 
 Built-in role permissions are defined in code and re-applied on every boot, so they can't be edited. Create custom roles for other combinations.
@@ -168,7 +169,7 @@ Built-in role permissions are defined in code and re-applied on every boot, so t
 ### How a request is checked
 
 1. **Authentication**: the token must resolve to an enabled user (otherwise `401`).
-2. **Route rules**: a central table (`src/web/authorize.ts`) maps write routes to required permissions, for example user and role administration, secret and variable writes, job control, model selection, and extension settings (otherwise `403`). `GET` and `HEAD` requests are allowed unless a rule says otherwise (only user and role administration does). Extension writes (`/ext/*`) fail closed: each first-party route is listed explicitly (for example, MCP server changes need `extensions:write`, workflow definition edits need `workflows:manage`), and any `/ext/*` write not in the table needs `extensions:write`, which only admins have by default. An extension write route meant for regular users has to be added to the table.
+2. **Route rules**: a central table (`src/web/authorize.ts`) maps write routes to required permissions, for example user and role administration, secret and variable writes, job control, model selection, and extension settings (otherwise `403`). `GET` and `HEAD` requests are allowed unless a rule says otherwise (only user and role administration does). Extension writes (`/ext/*`) fail closed: each first-party route is listed explicitly (for example, MCP server changes need `extensions:write`, workflow definition edits need `workflows:manage`, data table writes need `datatables:write`), and any `/ext/*` write not in the table needs `extensions:write`, which only admins have by default. An extension write route meant for regular users has to be added to the table.
 3. **Chat ownership**: chat sessions belong to the user who created them. Non-admins can read and post only in their own sessions. A non-owner gets `404`, so the response doesn't reveal that the session exists.
 
 ### Trigger ownership

@@ -12,7 +12,10 @@ export interface NavigationEntry {
   route: string;
   /** Icon component identifier (1-64 characters). */
   icon: string;
-  /** Display position (ascending integer, 0-999). */
+  /**
+   * Display position (ascending integer, 0-999). The built-in Job Queues entry
+   * sits at 100: lower values render above it, 100 and higher below.
+   */
   order: number;
   /** Optional badge data source key. */
   badgeKey?: string;
@@ -201,4 +204,16 @@ export interface ExtensionLifecycleEvent {
   name: string;
   /** Extension version string. */
   version: string;
+}
+
+/**
+ * WebSocket event broadcast when the data behind an extension's dynamic schema
+ * providers (`dynamicItems`/`dynamicDefault`) changed, e.g. a data table was
+ * created or deleted. Clients refetch the extension list so settings forms and
+ * workflow step-type dropdowns show the current options.
+ */
+export interface ExtensionSchemasChangedEvent {
+  type: "extension_schemas_changed";
+  /** Extension manifest name. */
+  name: string;
 }

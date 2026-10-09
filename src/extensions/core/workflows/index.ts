@@ -474,7 +474,7 @@ export function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: Ex
 
 const manifest = {
   name: "workflows",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -812,6 +812,46 @@ export function createExtension(): Extension {
           }
         : undefined;
 
+      /**
+       * Resolves a workflow's output schemas and collects every advisory warning
+       * (trigger refs, templates, step dependencies, iterator pairing, schema
+       * compiler). Shared by the list, detail, and draft-analysis routes so the
+       * three cannot diverge.
+       */
+      async function analyzeWorkflow(
+        def: DagWorkflowDefinition,
+        triggerRefs: TriggerRefLookup,
+      ): Promise<{ outputSchemas: OutputSchemas; warnings: TemplateWarning[] }> {
+        // Schemas are resolved BEFORE template validation so the validator and
+        // the editor share one resolution.
+        const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(def, (type, stepDef, schemaCtx) =>
+          resolveHandlerOutputSchema(ctx.stepTypes.get(type)?.outputSchema, stepDef, schemaCtx),
+        );
+        const templateWarnings = await validateDagWorkflowTemplates(def, {
+          workflowName: def.name,
+          secretStore: secretResolver,
+          variableStore: variableResolver,
+          resolveStepOutputSchema: (slug) => outputSchemas.steps[slug] ?? null,
+          resolveTriggerOutputSchema: () => outputSchemas.trigger,
+          allowsSelfReference: (type) => ctx.stepTypes.get(type)?.selfReference === true,
+        });
+        const pairingWarnings: TemplateWarning[] = validateIteratorPairing(def).map((e) => ({
+          stepSlug: "",
+          field: "pairing",
+          message: e.message,
+        }));
+        return {
+          outputSchemas,
+          warnings: [
+            ...getTriggerRefWarnings(def, triggerRefs),
+            ...templateWarnings,
+            ...getDependencyWarnings(def, ctx),
+            ...pairingWarnings,
+            ...schemaWarnings,
+          ],
+        };
+      }
+
       ctx.routes.register("GET", "/meta/tools", async () => {
         return Response.json(ctx.tools.names().sort());
       });
@@ -876,6 +916,44 @@ export function createExtension(): Extension {
       });
 
       /**
+       * Analyzes an unsaved workflow draft for the editor: resolves its output
+       * schemas (for template autocomplete) and collects the same advisory
+       * warnings the detail route reports for a saved workflow.
+       *
+       * Returns `{ valid, outputSchemas, warnings, errors }`. A draft that is not
+       * yet a valid definition (e.g. a half-filled step) still gets best-effort
+       * output schemas so autocomplete keeps working; its schema errors go to
+       * `errors` (the editor validates those fields itself) and `warnings` is
+       * empty. Never responds with an error status.
+       */
+      ctx.routes.register("POST", "/meta/analyze", async (reqCtx) => {
+        const body = reqCtx.body;
+        if (!Value.Check(DagWorkflowDefinitionSchema, body)) {
+          const errors = [...Value.Errors(DagWorkflowDefinitionSchema, body)]
+            .slice(0, 20)
+            .map((e) => `${e.path || "(root)"}: ${e.message}`);
+          let outputSchemas: OutputSchemas = { trigger: null, steps: {} };
+          const steps = (body as { steps?: unknown } | null)?.steps;
+          if (steps !== null && typeof steps === "object") {
+            try {
+              outputSchemas = buildOutputSchemas(body as DagWorkflowDefinition, (type, stepDef, schemaCtx) =>
+                resolveHandlerOutputSchema(ctx.stepTypes.get(type)?.outputSchema, stepDef, schemaCtx),
+              ).outputSchemas;
+            } catch {
+              // Best effort only: keep the empty schemas.
+            }
+          }
+          return Response.json({ valid: false, outputSchemas, warnings: [], errors });
+        }
+        const triggerRefs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin);
+        return Response.json({
+          valid: true,
+          ...(await analyzeWorkflow(body as DagWorkflowDefinition, triggerRefs)),
+          errors: [],
+        });
+      });
+
+      /**
        * Returns available trigger refs grouped by trigger type.
        */
       ctx.routes.register("GET", "/meta/triggers", async (reqCtx) => {
@@ -912,28 +990,9 @@ export function createExtension(): Extension {
               }
             }
 
-            // Resolve output schemas so path-existence diagnostics in the list
-            // view use the SAME resolution as the detail route (buildOutputSchemas
-            // + handler precedence). The list route does not ship outputSchemas to
-            // the client, but merges the compiler warnings for parity.
-            const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(w, (type, stepDef, schemaCtx) =>
-              resolveHandlerOutputSchema(ctx.stepTypes.get(type)?.outputSchema, stepDef, schemaCtx),
-            );
-
-            const templateWarnings = await validateDagWorkflowTemplates(w, {
-              workflowName: w.name,
-              secretStore: secretResolver,
-              variableStore: variableResolver,
-              resolveStepOutputSchema: (slug) => outputSchemas.steps[slug] ?? null,
-              resolveTriggerOutputSchema: () => outputSchemas.trigger,
-              allowsSelfReference: (type) => ctx.stepTypes.get(type)?.selfReference === true,
-            });
-            const depWarnings = getDependencyWarnings(w, ctx);
-            const pairingWarnings: TemplateWarning[] = validateIteratorPairing(w).map((e) => ({
-              stepSlug: "",
-              field: "pairing",
-              message: e.message,
-            }));
+            // The list route does not ship outputSchemas to the client, only the
+            // warnings, computed exactly as the detail route does.
+            const { warnings } = await analyzeWorkflow(w, triggerRefs);
 
             return {
               name: w.name,
@@ -946,13 +1005,7 @@ export function createExtension(): Extension {
               activeRuns,
               completedRuns,
               failedRuns,
-              warnings: [
-                ...getTriggerRefWarnings(w, triggerRefs),
-                ...templateWarnings,
-                ...depWarnings,
-                ...pairingWarnings,
-                ...schemaWarnings,
-              ],
+              warnings,
             };
           }),
         );
@@ -984,42 +1037,13 @@ export function createExtension(): Extension {
           .sort((a, b) => b.startedAt - a.startedAt)
           .slice(0, 20);
 
-        // Build resolved output schemas (canonical JSON Schema) for the editor's
-        // autocomplete and diagnostics, applying source precedence and per-step
-        // resilience. Compiler warnings merge into the same warnings stream.
-        // This must run BEFORE template validation so the same resolved schemas
-        // can be injected into the validator: the validator and the detail API
-        // then share one resolution and cannot diverge.
-        const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(wf, (type, stepDef, schemaCtx) =>
-          resolveHandlerOutputSchema(ctx.stepTypes.get(type)?.outputSchema, stepDef, schemaCtx),
-        );
-
-        const templateWarnings = await validateDagWorkflowTemplates(wf, {
-          workflowName: wf.name,
-          secretStore: secretResolver,
-          variableStore: variableResolver,
-          resolveStepOutputSchema: (slug) => outputSchemas.steps[slug] ?? null,
-          resolveTriggerOutputSchema: () => outputSchemas.trigger,
-          allowsSelfReference: (type) => ctx.stepTypes.get(type)?.selfReference === true,
-        });
-        const depWarnings = getDependencyWarnings(wf, ctx);
         const triggerRefs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin);
-        const pairingWarnings: TemplateWarning[] = validateIteratorPairing(wf).map((e) => ({
-          stepSlug: "",
-          field: "pairing",
-          message: e.message,
-        }));
+        const { outputSchemas, warnings } = await analyzeWorkflow(wf, triggerRefs);
 
         return Response.json({
           ...wf,
           runs,
-          warnings: [
-            ...getTriggerRefWarnings(wf, triggerRefs),
-            ...templateWarnings,
-            ...depWarnings,
-            ...pairingWarnings,
-            ...schemaWarnings,
-          ],
+          warnings,
           outputSchemas,
         });
       });
