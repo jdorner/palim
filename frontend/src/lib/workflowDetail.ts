@@ -165,6 +165,9 @@ export function applyWorkflowEvent(
       );
     case "workflow_step_completed":
       return updateRun(workflow, msg.workflowRunId, {}, { slug: msg.stepSlug, patch: { status: "completed" } });
+    case "workflow_step_dead":
+      // Not-taken branch (or a step swept when the run failed).
+      return updateRun(workflow, msg.workflowRunId, {}, { slug: msg.stepSlug, patch: { status: "dead" } });
     case "workflow_step_waiting":
       return updateRun(
         workflow,
@@ -187,9 +190,9 @@ export function applyWorkflowEvent(
         { slug: msg.stepSlug, patch: { status: "failed" } },
       );
     case "workflow_completed":
-      return updateRun(workflow, msg.workflowRunId, { status: "completed" });
+      return updateRun(workflow, msg.workflowRunId, { status: "completed", completedAt: Date.now() });
     case "workflow_failed":
-      return updateRun(workflow, msg.workflowRunId, { status: "failed" });
+      return updateRun(workflow, msg.workflowRunId, { status: "failed", completedAt: Date.now() });
     case "workflow_run_removed":
       // The run was cancelled or cleaned (its record is gone from the run store).
       // Drop it from the list so the "Runs (N)" count and failed-run entries stay

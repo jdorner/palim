@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { aggregateStepStatus } from "./utils";
 import { applyWorkflowEvent, normalizeWorkflow, type WorkflowDetail } from "./workflowDetail";
 
 describe("normalizeWorkflow", () => {
@@ -93,10 +94,28 @@ describe("applyWorkflowEvent", () => {
     expect(wf.runs[0]!.steps[0]!.status).toBe("failed");
   });
 
-  test("sets the final run status", () => {
-    expect(applyWorkflowEvent(base(), { type: "workflow_completed", workflowRunId: "r1" }, "w").runs[0]!.status).toBe(
-      "completed",
+  test("sets the final run status and completion time", () => {
+    const completed = applyWorkflowEvent(base(), { type: "workflow_completed", workflowRunId: "r1" }, "w").runs[0]!;
+    expect(completed.status).toBe("completed");
+    expect(completed.completedAt).toBeNumber();
+    const failed = applyWorkflowEvent(
+      base(),
+      { type: "workflow_failed", workflowRunId: "r1", failedStep: "a", error: "boom" },
+      "w",
+    ).runs[0]!;
+    expect(failed.status).toBe("failed");
+    expect(failed.completedAt).toBeNumber();
+  });
+
+  test("marks dead steps so not-taken branches don't keep the run waiting", () => {
+    let wf = applyWorkflowEvent(
+      base(),
+      { type: "workflow_step_completed", workflowRunId: "r1", stepSlug: "a", jobId: "j" },
+      "w",
     );
+    wf = applyWorkflowEvent(wf, { type: "workflow_step_dead", workflowRunId: "r1", stepSlug: "b" }, "w");
+    expect(wf.runs[0]!.steps[1]!.status).toBe("dead");
+    expect(aggregateStepStatus(wf.runs[0]!.steps)).toBe("completed");
   });
 
   test("removes deleted runs", () => {
