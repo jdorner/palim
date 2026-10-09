@@ -50,7 +50,7 @@ After first start, check Settings > Extensions in the web UI to enable the capab
 
 - **Conversational AI** - Multi-turn sessions with streamed responses and persistent chat history
 - **Local LLM support** - Use any inference engine with an OpenAI-compatible API (llama.cpp, llama-swap, vLLM, etc.)
-- **Extension system** - 13 built-in extensions covering webhooks, scheduling, Telegram, workflows, wiki, MCP bridging, ntfy notifications, and more
+- **Extension system** - 14 built-in extensions covering webhooks, scheduling, Telegram, workflows, data tables, wiki, MCP bridging, ntfy notifications, and more. Extensions can add their own Svelte pages to the web UI
 - **Sandboxed execution** - The agent's shell runs inside a virtual filesystem where only `AGENT_WORK_DIR` is mounted - file operations are real, but the agent cannot access anything outside that directory
 
 ## Scope
@@ -62,7 +62,7 @@ After first start, check Settings > Extensions in the web UI to enable the capab
 
 ## Extensions
 
-Palim ships with 13 built-in extensions (8 optional, 5 core):
+Palim ships with 14 built-in extensions (9 optional, 5 core):
 
 | Extension | Type | Purpose |
 | --------- | ---- | ------- |
@@ -70,8 +70,9 @@ Palim ships with 13 built-in extensions (8 optional, 5 core):
 | `scheduler` | Core | Cron and interval-based job scheduling with persistence |
 | `webhooks` | Core | Authenticated HTTP endpoints for receiving external service events |
 | `workflows` | Core | DAG job pipelines defined in JSON5 (parallel steps, joins, control flow, `{{...}}` template expressions with function calls) |
-| `core-wf-steps` | Core | Built-in workflow step types (HTTP request, fail, chunk, start-workflow) |
+| `core-wf-steps` | Core | Built-in workflow step types (HTTP request, fail, noop, chunk, set-variables, start-workflow) |
 | `converter` | Optional | Converts files (PDFs, images) to markdown via vision LLM |
+| `datatables` | Optional | Typed data tables with CSV/Excel import and export, a UI page, workflow step types, and a `datatable` agent command |
 | `error-analyzer` | Optional | Automatic failure analysis and error reporting for jobs and workflows |
 | `mcp` | Optional | Bridges MCP (Model Context Protocol) servers into the skill system |
 | `ntfy` | Optional | Sends push notifications via ntfy.sh, exposed as a workflow step type |
@@ -82,7 +83,7 @@ Palim ships with 13 built-in extensions (8 optional, 5 core):
 
 Core extensions cannot be deactivated. Optional extensions are disabled by default on first setup - enable the ones you need in the web UI under Settings > Extensions.
 
-For writing your own extensions, see [docs/writing-extensions.md](docs/writing-extensions.md).
+Per-extension documentation lives in [docs/extensions/](docs/extensions/). For writing your own extensions, see [docs/writing-extensions.md](docs/writing-extensions.md).
 
 ## Configuration
 
@@ -94,6 +95,7 @@ For writing your own extensions, see [docs/writing-extensions.md](docs/writing-e
 | `OPENAI_API_BASE_URL` | LLM endpoint base URL | `http://localhost:11434/v1` |
 | `OPENAI_DEFAULT_MODEL` | LLM default model | - |
 | `AGENT_WORK_DIR` | Agent working directory (mounted into the sandbox) | `.work/` |
+| `WEB_SCHEME` | URL scheme (`http` or `https`) | `http` |
 | `WEB_HOST` | Web server bind address | `localhost` |
 | `WEB_PORT` | Web server port | `3000` |
 | `TRUSTED_PROXIES` | Comma-separated IPs/CIDRs of reverse proxies whose `X-Forwarded-For` header is trusted | - (header ignored) |
@@ -183,7 +185,7 @@ src/
 ├── jobs/          # Job queue definitions (agent, chat)
 ├── queue/         # ManagedQueue abstraction over bunqueue
 ├── web/           # Elysia HTTP server, WebSocket, REST routes
-├── extensions/    # Plugin system (13 built-in extensions)
+├── extensions/    # Plugin system (14 built-in extensions)
 │   └── core/      # Non-deactivatable infrastructure extensions
 ├── secrets/       # Encrypted vault, ACL, audit logging
 ├── variables/     # Plaintext global variable store (no ACL, no encryption)
