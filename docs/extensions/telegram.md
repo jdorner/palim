@@ -24,6 +24,14 @@ The extension will not start without this secret set.
 4. When the agent finishes, the response is sent back to the originating chat
 5. A typing indicator is shown while the agent is processing
 
+## Formatting
+
+Outgoing messages (agent replies, the `send_telegram_message` tool, and the `notify-telegram` workflow step) are rendered as Markdown by default. They are sent as Telegram rich messages, which support GitHub Flavored Markdown: headings, bold/italic, links, lists, task lists, tables, quotes, and fenced code blocks.
+
+- If Telegram rejects a rich message (for example in a chat type that does not support it, or malformed content), the message is sent again as plain text, and a warning is logged.
+- Plain text longer than Telegram's 4096-character limit is split into several messages at paragraph or line boundaries.
+- Set the **Message format** setting to `plain` to disable Markdown rendering.
+
 ## Images
 
 Photos and images sent as files (uncompressed) are downloaded and passed to the LLM together with the message caption.
@@ -49,12 +57,19 @@ Incoming images larger than this are rejected. Telegram's Bot API does not allow
 
 Default: `20`
 
+### Message Format
+
+How outgoing messages are rendered: `markdown` (rich messages with plain-text fallback) or `plain`.
+
+Default: `markdown`
+
 ## Environment Variable Override
 
 | Setting | Environment Variable |
 | --- | --- |
 | Default Chat ID | `EXT_TELEGRAM_CHAT_ID` |
 | Max Image Size (MB) | `EXT_TELEGRAM_MAX_IMAGE_SIZE_MB` |
+| Message Format | `EXT_TELEGRAM_FORMAT` |
 
 ## Agent Tool
 
@@ -62,8 +77,16 @@ The extension registers a `send_telegram_message` tool that the agent can use to
 
 **Parameters:**
 
-- `message` (required) - The text to send
+- `message` (required) - The text to send (Markdown supported)
 - `chat_id` (optional) - Target chat ID. Falls back to the configured default.
+
+## Workflow Step
+
+The `notify-telegram` step sends a message without an LLM call. Fields:
+
+- `message` (required) - The text to send. Supports `{{template}}` expressions.
+- `chatId` (optional) - Target chat ID. Falls back to the configured default.
+- `format` (optional) - `markdown` or `plain`. Overrides the **Message format** setting; use `plain` when templated values may contain Markdown characters such as `_` or `*`.
 
 ## Session Persistence
 

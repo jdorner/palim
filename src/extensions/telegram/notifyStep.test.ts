@@ -19,11 +19,11 @@ function createFakeContext(overrides?: Partial<StepExecutionContext>): StepExecu
 /** Records the arguments passed to the send function and returns the resolved chat ID. */
 function createRecordingSend(deliveredChatId = "999"): {
   send: TelegramSendFn;
-  calls: { message: string; chatId?: string }[];
+  calls: { message: string; chatId?: string; format?: string }[];
 } {
-  const calls: { message: string; chatId?: string }[] = [];
-  const send: TelegramSendFn = async (message, chatId) => {
-    calls.push({ message, chatId });
+  const calls: { message: string; chatId?: string; format?: string }[] = [];
+  const send: TelegramSendFn = async (message, chatId, format) => {
+    calls.push({ message, chatId, format });
     return chatId || deliveredChatId;
   };
   return { send, calls };
@@ -86,6 +86,33 @@ describe("createNotifyStepHandler", () => {
 
       expect(calls[0]!.chatId).toBe("12345");
       expect(result).toEqual({ sent: true, chatId: "12345" });
+    });
+
+    test("leaves format undefined so the extension setting applies", async () => {
+      const { send, calls } = createRecordingSend();
+      const handler = createNotifyStepHandler(send);
+
+      await handler.execute({ slug: "notify", type: "notify", message: "hi" }, createFakeContext());
+
+      expect(calls[0]!.format).toBeUndefined();
+    });
+
+    test("passes an explicit format through to the send function", async () => {
+      const { send, calls } = createRecordingSend();
+      const handler = createNotifyStepHandler(send);
+
+      await handler.execute({ slug: "notify", type: "notify", message: "a_b", format: "plain" }, createFakeContext());
+
+      expect(calls[0]!.format).toBe("plain");
+    });
+
+    test("rejects an unknown format", async () => {
+      const { send } = createRecordingSend();
+      const handler = createNotifyStepHandler(send);
+
+      await expect(
+        handler.execute({ slug: "notify", type: "notify", message: "hi", format: "html" }, createFakeContext()),
+      ).rejects.toThrow(/Invalid notify step configuration/);
     });
   });
 
