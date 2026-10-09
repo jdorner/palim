@@ -1,10 +1,12 @@
 <script lang="ts">
 /**
  * Header bar of the workflow detail page: back button, title, and the
- * mode-dependent actions (Save/Cancel in edit mode; Edit/Run/Delete otherwise,
+ * mode-dependent actions (Undo/Redo/Save/Cancel in edit mode; Edit/Run/Delete otherwise,
  * collapsing into a dropdown on narrow screens). Owns the delete confirmation.
  */
 import { DropdownMenu } from "bits-ui";
+import ArrowUUpLeftIcon from "phosphor-svelte/lib/ArrowUUpLeftIcon";
+import ArrowUUpRightIcon from "phosphor-svelte/lib/ArrowUUpRightIcon";
 import DotsThreeVerticalIcon from "phosphor-svelte/lib/DotsThreeVerticalIcon";
 import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import PlayIcon from "phosphor-svelte/lib/PlayIcon";
@@ -24,6 +26,14 @@ interface Props {
   saving: boolean;
   /** Whether the Save button is disabled. */
   saveDisabled: boolean;
+  /** Whether there is a draft change to undo. */
+  canUndo: boolean;
+  /** Whether there is an undone draft change to redo. */
+  canRedo: boolean;
+  /** Undo the last draft change. */
+  onUndo: () => void;
+  /** Redo the last undone draft change. */
+  onRedo: () => void;
   /** Save the edit draft. */
   onSave: () => void;
   /** Leave edit mode, discarding changes. */
@@ -36,8 +46,22 @@ interface Props {
   onDelete: () => void;
 }
 
-let { name, description, editMode, saving, saveDisabled, onSave, onCancelEdit, onEdit, onRun, onDelete }: Props =
-  $props();
+let {
+  name,
+  description,
+  editMode,
+  saving,
+  saveDisabled,
+  canUndo,
+  canRedo,
+  onUndo,
+  onRedo,
+  onSave,
+  onCancelEdit,
+  onEdit,
+  onRun,
+  onDelete,
+}: Props = $props();
 
 let confirmingDelete = $state(false);
 </script>
@@ -60,6 +84,28 @@ let confirmingDelete = $state(false);
   </div>
   <div class="flex items-center gap-2 shrink-0">
     {#if editMode}
+      <Button
+        size="sm"
+        variant="ghost"
+        class="min-w-0! w-9! p-0!"
+        onclick={onUndo}
+        disabled={!canUndo}
+        title="Undo (Ctrl+Z)"
+        aria-label="Undo"
+      >
+        <ArrowUUpLeftIcon size={16} aria-hidden="true" />
+      </Button>
+      <Button
+        size="sm"
+        variant="ghost"
+        class="min-w-0! w-9! p-0!"
+        onclick={onRedo}
+        disabled={!canRedo}
+        title="Redo (Ctrl+Shift+Z)"
+        aria-label="Redo"
+      >
+        <ArrowUUpRightIcon size={16} aria-hidden="true" />
+      </Button>
       <Button size="sm" variant="default" onclick={onSave} disabled={saveDisabled}>
         {#if saving}
           Saving...
