@@ -474,7 +474,7 @@ export function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: Ex
 
 const manifest = {
   name: "workflows",
-  version: "1.1.0",
+  version: "1.1.1",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -529,14 +529,20 @@ export function createExtension(): Extension {
         if (filename) {
           // Single-file reload via shared loader
           const filePath = path.join(state.workflowsDir, filename);
-          const definition = await loadSingleWorkflow(filePath, logger);
-          if (definition) {
-            store.set(definition.name, definition);
-            logger.info(`Reloaded workflow "${definition.name}" from ${filename}`);
+          if (!(await Bun.file(filePath).exists())) {
+            // File deleted (possibly via the DELETE route, which already updated the store)
+            const name = filename.replace(/\.json5$/, "");
+            if (store.delete(name)) logger.info(`Removed workflow "${name}" from store (file deleted)`);
           } else {
-            // File was invalid or deleted — remove from store
-            store.delete(filename.replace(".json5", ""));
-            logger.info(`Removed workflow "${filename}" from store`);
+            const definition = await loadSingleWorkflow(filePath, logger);
+            if (definition) {
+              store.set(definition.name, definition);
+              logger.info(`Reloaded workflow "${definition.name}" from ${filename}`);
+            } else {
+              // File was invalid — remove from store
+              store.delete(filename.replace(".json5", ""));
+              logger.info(`Removed workflow "${filename}" from store`);
+            }
           }
         } else {
           // Full reload
