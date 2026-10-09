@@ -16,7 +16,7 @@
     "bits-ui": "^2.19.5",
     "clsx": "^2.1.1",
     "comark": "^0.7.0",
-    "phosphor-svelte": "^3.1.0",
+    "phosphor-svelte": "^3.1.1",
     "rangi": "^2.2.0",
     "sv-router": "^0.19.0",
     "tailwind-merge": "^3.7.0",
@@ -33,6 +33,6 @@
     "svelte-check": "^4.7.6",
     "tailwindcss": "^4.3.3",
     "typescript": "~6",
-    "vite": "^8.3.3"
+    "vite": "^8.3.4"
   }
 }
