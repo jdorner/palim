@@ -9,9 +9,11 @@ import { Dialog } from "$lib/components/ui/dialog";
 import type { OutputSchemas } from "$lib/templateScope";
 import type { StepDraft, WorkflowDraft } from "$lib/workflowValidation";
 import { edgesToSlugEdges, validateStepConfig } from "$lib/workflowValidation";
+import type { OutputSchemaShorthand } from "$shared/workflows";
 import ChatMarkdown from "./ChatMarkdown.svelte";
 import ConditionForm from "./ConditionForm.svelte";
 import MultiSelect from "./MultiSelect.svelte";
+import OutputSchemaEditor from "./OutputSchemaEditor.svelte";
 import StepConfigForm from "./StepConfigForm.svelte";
 import StepPanelHeader from "./StepPanelHeader.svelte";
 import TemplateAutocomplete from "./TemplateAutocomplete.svelte";
@@ -28,6 +30,7 @@ interface StepDef {
   id: string;
   slug: string;
   type: string;
+  outputSchema?: OutputSchemaShorthand;
   prompt?: string;
   tools?: string[];
   skills?: string[];
@@ -39,6 +42,8 @@ interface StepDef {
 }
 
 interface Props {
+  /** Saved workflow name (for inferring the result schema from past runs). */
+  workflowName?: string;
   /** The step currently displayed (source-of-truth in view mode). */
   selectedStep: StepDef;
   /** Index of the selected step. */
@@ -86,6 +91,7 @@ interface Props {
 }
 
 let {
+  workflowName,
   selectedStep,
   selectedStepIndex,
   editMode,
@@ -137,6 +143,14 @@ let jsonActive = $derived(hasForm && (editMode ? editAsJson : viewAsJson));
 // edges by synthetic id, but the preceding-step rule works in slug space, so
 // convert the draft's id-based edges here before passing them to children.
 let slugEdges = $derived(editDraft ? edgesToSlugEdges(editDraft.steps, editDraft.edges) : []);
+
+/**
+ * Whether the edited step has successors. Only descendants can reference a
+ * step's result, so a terminal step needs no output schema.
+ */
+let hasSuccessors = $derived(
+  !!editDraft && !!editDraftStep && editDraft.edges.some((e) => e.from === (editDraftStep.id ?? editDraftStep.slug)),
+);
 
 // Element references for template autocomplete
 let promptEl = $state<HTMLTextAreaElement | null>(null);
@@ -290,455 +304,461 @@ function clearConditionError(index: number) {
 
   <!-- Sidebar content -->
   <div class="flex-1 overflow-y-auto min-h-0 p-4 flex flex-col [scrollbar-gutter:stable]">
-    {#if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) === "agent"}
-      <!-- Edit mode: agent step. Fills the panel height (flex-1, not h-full, so
+    <!-- Step content fills the panel but never shrinks below its own height:
+         its branches use `flex-1 min-h-0`, which would otherwise let the
+         content overflow onto the output schema section that follows. -->
+    <div class="flex flex-col flex-1 shrink-0">
+      {#if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) === "agent"}
+        <!-- Edit mode: agent step. Fills the panel height (flex-1, not h-full, so
            the scroll area's padding is not added on top); the prompt textarea
            takes the remaining space and never shrinks below its minimum. -->
-      <div class="flex flex-col gap-4 flex-1">
-        <div class="flex flex-col gap-1.5 shrink-0">
-          <span class="text-xs font-medium text-muted-foreground">Tools</span>
-          <MultiSelect
-            size="xs"
-            items={availableTools}
-            selected={editDraftStep.tools ?? []}
-            placeholder="Search tools..."
-            disabled={metaLoading || availableTools.length === 0}
-            onchange={(newSelected) =>
-              onUpdateDraftStep(selectedStepIndex, (s) => {
-                s.tools = newSelected;
-              })}
-          />
-        </div>
-
-        <div class="flex flex-col gap-1.5 shrink-0">
-          <span class="text-xs font-medium text-muted-foreground">Skills</span>
-          <MultiSelect
-            size="xs"
-            items={availableSkills}
-            selected={editDraftStep.skills ?? []}
-            placeholder="Search skills..."
-            disabled={metaLoading || availableSkills.length === 0}
-            onchange={(newSelected) =>
-              onUpdateDraftStep(selectedStepIndex, (s) => {
-                s.skills = newSelected;
-              })}
-          />
-        </div>
-
-        <div class="flex flex-col gap-1.5 flex-1">
-          <div class="flex items-center justify-between shrink-0">
-            <label for="step-prompt" class="text-xs font-medium text-muted-foreground">Prompt</label>
-            <div class="flex items-center gap-1.5">
-              <span class="text-xs text-muted-foreground">{(editDraftStep.prompt ?? "").length}/ 10000</span>
-              <button
-                type="button"
-                class="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                onclick={() => (promptExpanded = true)}
-                aria-label="Expand prompt editor"
-                title="Expand"
-              >
-                <ArrowsOutSimpleIcon size={14} aria-hidden="true" />
-              </button>
-            </div>
+        <div class="flex flex-col gap-4 flex-1">
+          <div class="flex flex-col gap-1.5 shrink-0">
+            <span class="text-xs font-medium text-muted-foreground">Tools</span>
+            <MultiSelect
+              size="xs"
+              items={availableTools}
+              selected={editDraftStep.tools ?? []}
+              placeholder="Search tools..."
+              disabled={metaLoading || availableTools.length === 0}
+              onchange={(newSelected) =>
+                onUpdateDraftStep(selectedStepIndex, (s) => {
+                  s.tools = newSelected;
+                })}
+            />
           </div>
-          <textarea
-            id="step-prompt"
-            bind:this={promptEl}
-            class="w-full flex-1 min-h-20 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-            maxlength={10000}
-            value={editDraftStep.prompt ?? ""}
-            oninput={(e) => setPrompt((e.target as HTMLTextAreaElement).value)}
-            placeholder="Enter step prompt..."
-          ></textarea>
-          {#if validationErrors.get(`steps[${selectedStepIndex}].prompt`)}
-            <span class="text-xs text-destructive shrink-0"
-              >{validationErrors.get(`steps[${selectedStepIndex}].prompt`)}</span
-            >
-          {/if}
-          <TemplateAutocomplete
-            targetElement={promptEl}
-            steps={editDraft?.steps ?? []}
-            currentStepIndex={selectedStepIndex}
-            secretKeys={cachedSecretKeys}
-            variableKeys={cachedVariableKeys}
-            {outputSchemas}
-            edges={slugEdges}
-            onChange={setPrompt}
-          />
-        </div>
-      </div>
 
-      {#if promptExpanded}
-        <!-- Portaled so the fixed overlay escapes the floating panel (which can
+          <div class="flex flex-col gap-1.5 shrink-0">
+            <span class="text-xs font-medium text-muted-foreground">Skills</span>
+            <MultiSelect
+              size="xs"
+              items={availableSkills}
+              selected={editDraftStep.skills ?? []}
+              placeholder="Search skills..."
+              disabled={metaLoading || availableSkills.length === 0}
+              onchange={(newSelected) =>
+                onUpdateDraftStep(selectedStepIndex, (s) => {
+                  s.skills = newSelected;
+                })}
+            />
+          </div>
+
+          <div class="flex flex-col gap-1.5 flex-1">
+            <div class="flex items-center justify-between shrink-0">
+              <label for="step-prompt" class="text-xs font-medium text-muted-foreground">Prompt</label>
+              <div class="flex items-center gap-1.5">
+                <span class="text-xs text-muted-foreground">{(editDraftStep.prompt ?? "").length}/ 10000</span>
+                <button
+                  type="button"
+                  class="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  onclick={() => (promptExpanded = true)}
+                  aria-label="Expand prompt editor"
+                  title="Expand"
+                >
+                  <ArrowsOutSimpleIcon size={14} aria-hidden="true" />
+                </button>
+              </div>
+            </div>
+            <textarea
+              id="step-prompt"
+              bind:this={promptEl}
+              class="w-full flex-1 min-h-20 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+              maxlength={10000}
+              value={editDraftStep.prompt ?? ""}
+              oninput={(e) => setPrompt((e.target as HTMLTextAreaElement).value)}
+              placeholder="Enter step prompt..."
+            ></textarea>
+            {#if validationErrors.get(`steps[${selectedStepIndex}].prompt`)}
+              <span class="text-xs text-destructive shrink-0"
+                >{validationErrors.get(`steps[${selectedStepIndex}].prompt`)}</span
+              >
+            {/if}
+            <TemplateAutocomplete
+              targetElement={promptEl}
+              steps={editDraft?.steps ?? []}
+              currentStepIndex={selectedStepIndex}
+              secretKeys={cachedSecretKeys}
+              variableKeys={cachedVariableKeys}
+              {outputSchemas}
+              edges={slugEdges}
+              onChange={setPrompt}
+            />
+          </div>
+        </div>
+
+        {#if promptExpanded}
+          <!-- Portaled so the fixed overlay escapes the floating panel (which can
              sit inside the graph's transformed viewport). Escape is marked as
              handled so the page does not also close the panel or leave edit mode. -->
-        <div
-          use:portal
-          role="presentation"
-          onkeydown={(e) => {
-            if (e.key === "Escape") e.preventDefault();
-          }}
-        >
-          <Dialog
-            open
-            title="Prompt"
-            description={editDraftStep.slug}
-            class="max-w-4xl"
-            onClose={() => (promptExpanded = false)}
+          <div
+            use:portal
+            role="presentation"
+            onkeydown={(e) => {
+              if (e.key === "Escape") e.preventDefault();
+            }}
           >
-            <!-- Single child of the dialog body: its space-y spacing would otherwise
+            <Dialog
+              open
+              title="Prompt"
+              description={editDraftStep.slug}
+              class="max-w-4xl"
+              onClose={() => (promptExpanded = false)}
+            >
+              <!-- Single child of the dialog body: its space-y spacing would otherwise
                  add a margin under the textarea while the autocomplete popup is open. -->
-            <div>
-              <textarea
-                bind:this={expandedPromptEl}
-                aria-label="Prompt"
-                class="block w-full h-[60vh] px-3 py-2 text-sm font-mono border border-border rounded-md bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-                maxlength={10000}
-                value={editDraftStep.prompt ?? ""}
-                oninput={(e) => setPrompt((e.target as HTMLTextAreaElement).value)}
-                placeholder="Enter step prompt..."
-              ></textarea>
-              <TemplateAutocomplete
-                targetElement={expandedPromptEl}
+              <div>
+                <textarea
+                  bind:this={expandedPromptEl}
+                  aria-label="Prompt"
+                  class="block w-full h-[60vh] px-3 py-2 text-sm font-mono border border-border rounded-md bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                  maxlength={10000}
+                  value={editDraftStep.prompt ?? ""}
+                  oninput={(e) => setPrompt((e.target as HTMLTextAreaElement).value)}
+                  placeholder="Enter step prompt..."
+                ></textarea>
+                <TemplateAutocomplete
+                  targetElement={expandedPromptEl}
+                  steps={editDraft?.steps ?? []}
+                  currentStepIndex={selectedStepIndex}
+                  secretKeys={cachedSecretKeys}
+                  variableKeys={cachedVariableKeys}
+                  {outputSchemas}
+                  edges={slugEdges}
+                  onChange={setPrompt}
+                />
+              </div>
+              {#snippet footer()}
+                <span class="mr-auto self-center text-xs text-muted-foreground"
+                  >{(editDraftStep.prompt ?? "").length}/ 10000</span
+                >
+                <Button size="sm" onclick={() => (promptExpanded = false)}>Done</Button>
+              {/snippet}
+            </Dialog>
+          </div>
+        {/if}
+      {:else if !editMode && selectedStep?.type === "agent" && selectedStep.prompt}
+        <div class="space-y-3">
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="text-xs font-medium text-muted-foreground">Tools:</span>
+            {#if selectedStep.tools?.length}
+              {#each selectedStep.tools as tool}
+                <Badge variant="outline" class="text-xs">{tool}</Badge>
+              {/each}
+            {:else}
+              <Badge variant="outline" class="text-xs">none</Badge>
+            {/if}
+          </div>
+
+          <div class="flex items-center gap-1.5 flex-wrap">
+            <span class="text-xs font-medium text-muted-foreground">Skills:</span>
+            {#if selectedStep.skills?.length}
+              {#each selectedStep.skills as skill}
+                <Badge variant="outline" class="text-xs">{skill}</Badge>
+              {/each}
+            {:else}
+              <Badge variant="outline" class="text-xs">none</Badge>
+            {/if}
+          </div>
+
+          <div>
+            <span class="text-xs font-medium text-muted-foreground">Prompt:</span>
+            <div class="text-xs whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded mt-1">
+              <ChatMarkdown content={selectedStep.prompt} />
+            </div>
+          </div>
+        </div>
+      {:else if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) !== "agent"}
+        <!-- Edit mode: control flow or custom step type -->
+        {@const stepType = editDraftStep.type ?? selectedStep?.type}
+        {@const isCFStep = CF_TYPES.has(stepType)}
+        {#if isCFStep}
+          <!-- Built-in control-flow step: form-based config with a JSON fallback -->
+          {@const cfSchema = builtinConfigSchema(stepType)}
+          <div class="flex flex-col flex-1 min-h-0 gap-4">
+            {#if !editAsJson && stepType === "if"}
+              <!-- `if`: dedicated condition form (nested ref + operator) -->
+              <ConditionForm
+                condition={(editDraftStep.condition as Record<string, unknown>) ?? { ref: "" }}
+                refError={validationErrors.get(`steps[${selectedStepIndex}].condition`)}
                 steps={editDraft?.steps ?? []}
                 currentStepIndex={selectedStepIndex}
                 secretKeys={cachedSecretKeys}
                 variableKeys={cachedVariableKeys}
                 {outputSchemas}
                 edges={slugEdges}
-                onChange={setPrompt}
+                onchange={(cond) => {
+                  onUpdateDraftStep(selectedStepIndex, (s) => {
+                    s.condition = cond;
+                  });
+                  clearConditionError(selectedStepIndex);
+                }}
               />
-            </div>
-            {#snippet footer()}
-              <span class="mr-auto self-center text-xs text-muted-foreground"
-                >{(editDraftStep.prompt ?? "").length}/ 10000</span
-              >
-              <Button size="sm" onclick={() => (promptExpanded = false)}>Done</Button>
-            {/snippet}
-          </Dialog>
-        </div>
-      {/if}
-    {:else if !editMode && selectedStep?.type === "agent" && selectedStep.prompt}
-      <div class="space-y-3">
-        <div class="flex items-center gap-1.5 flex-wrap">
-          <span class="text-xs font-medium text-muted-foreground">Tools:</span>
-          {#if selectedStep.tools?.length}
-            {#each selectedStep.tools as tool}
-              <Badge variant="outline" class="text-xs">{tool}</Badge>
-            {/each}
-          {:else}
-            <Badge variant="outline" class="text-xs">none</Badge>
-          {/if}
-        </div>
 
-        <div class="flex items-center gap-1.5 flex-wrap">
-          <span class="text-xs font-medium text-muted-foreground">Skills:</span>
-          {#if selectedStep.skills?.length}
-            {#each selectedStep.skills as skill}
-              <Badge variant="outline" class="text-xs">{skill}</Badge>
-            {/each}
-          {:else}
-            <Badge variant="outline" class="text-xs">none</Badge>
-          {/if}
-        </div>
-
-        <div>
-          <span class="text-xs font-medium text-muted-foreground">Prompt:</span>
-          <div class="text-xs whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded mt-1">
-            <ChatMarkdown content={selectedStep.prompt} />
-          </div>
-        </div>
-      </div>
-    {:else if editMode && editDraftStep && (editDraftStep.type ?? selectedStep?.type) !== "agent"}
-      <!-- Edit mode: control flow or custom step type -->
-      {@const stepType = editDraftStep.type ?? selectedStep?.type}
-      {@const isCFStep = CF_TYPES.has(stepType)}
-      {#if isCFStep}
-        <!-- Built-in control-flow step: form-based config with a JSON fallback -->
-        {@const cfSchema = builtinConfigSchema(stepType)}
-        <div class="flex flex-col flex-1 min-h-0 gap-4">
-          {#if !editAsJson && stepType === "if"}
-            <!-- `if`: dedicated condition form (nested ref + operator) -->
-            <ConditionForm
-              condition={(editDraftStep.condition as Record<string, unknown>) ?? { ref: "" }}
-              refError={validationErrors.get(`steps[${selectedStepIndex}].condition`)}
-              steps={editDraft?.steps ?? []}
-              currentStepIndex={selectedStepIndex}
-              secretKeys={cachedSecretKeys}
-              variableKeys={cachedVariableKeys}
-              {outputSchemas}
-              edges={slugEdges}
-              onchange={(cond) => {
-                onUpdateDraftStep(selectedStepIndex, (s) => {
-                  s.condition = cond;
-                });
-                clearConditionError(selectedStepIndex);
-              }}
-            />
-
-            <!-- Optional branch edge label overrides. Display-only: the branch
+              <!-- Optional branch edge label overrides. Display-only: the branch
                  routing keys stay "then"/"else"; these just relabel the edges. -->
-            {@const bl = (editDraftStep.branchLabels as { then?: string; else?: string } | undefined) ?? {}}
-            <div class="flex flex-col gap-3">
-              <span class="text-xs font-medium text-muted-foreground">Branch edge labels (optional)</span>
-              <div class="flex flex-col gap-1">
-                <label for="if-then-label" class="text-[11px] text-muted-foreground">Then edge label</label>
-                <input
-                  id="if-then-label"
-                  type="text"
-                  class="px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                  maxlength={64}
-                  value={bl.then ?? ""}
-                  placeholder="then"
-                  oninput={(e) => {
-                    const v = (e.target as HTMLInputElement).value;
-                    onUpdateDraftStep(selectedStepIndex, (s) => {
-                      const next = { ...(s.branchLabels ?? {}) };
-                      // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
-                      next.then = v;
-                      s.branchLabels = next;
-                    });
-                  }}
-                >
+              {@const bl = (editDraftStep.branchLabels as { then?: string; else?: string } | undefined) ?? {}}
+              <div class="flex flex-col gap-3">
+                <span class="text-xs font-medium text-muted-foreground">Branch edge labels (optional)</span>
+                <div class="flex flex-col gap-1">
+                  <label for="if-then-label" class="text-[11px] text-muted-foreground">Then edge label</label>
+                  <input
+                    id="if-then-label"
+                    type="text"
+                    class="px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                    maxlength={64}
+                    value={bl.then ?? ""}
+                    placeholder="then"
+                    oninput={(e) => {
+                      const v = (e.target as HTMLInputElement).value;
+                      onUpdateDraftStep(selectedStepIndex, (s) => {
+                        const next = { ...(s.branchLabels ?? {}) };
+                        // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
+                        next.then = v;
+                        s.branchLabels = next;
+                      });
+                    }}
+                  >
+                </div>
+                <div class="flex flex-col gap-1">
+                  <label for="if-else-label" class="text-[11px] text-muted-foreground">Else edge label</label>
+                  <input
+                    id="if-else-label"
+                    type="text"
+                    class="px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
+                    maxlength={64}
+                    value={bl.else ?? ""}
+                    placeholder="else"
+                    oninput={(e) => {
+                      const v = (e.target as HTMLInputElement).value;
+                      onUpdateDraftStep(selectedStepIndex, (s) => {
+                        const next = { ...(s.branchLabels ?? {}) };
+                        next.else = v;
+                        s.branchLabels = next;
+                      });
+                    }}
+                  >
+                </div>
               </div>
-              <div class="flex flex-col gap-1">
-                <label for="if-else-label" class="text-[11px] text-muted-foreground">Else edge label</label>
-                <input
-                  id="if-else-label"
-                  type="text"
-                  class="px-2 py-1 text-xs border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-                  maxlength={64}
-                  value={bl.else ?? ""}
-                  placeholder="else"
-                  oninput={(e) => {
-                    const v = (e.target as HTMLInputElement).value;
-                    onUpdateDraftStep(selectedStepIndex, (s) => {
-                      const next = { ...(s.branchLabels ?? {}) };
-                      next.else = v;
-                      s.branchLabels = next;
-                    });
-                  }}
-                >
-              </div>
-            </div>
-          {:else if !editAsJson && cfSchema}
-            <!-- `waitFor` / `emit` / `case`: schema-driven form on flat fields -->
-            <StepConfigForm
-              schema={cfSchema}
-              values={cfStepConfig(editDraftStep)}
-              onchange={(vals) => {
-                applyCfValues(selectedStepIndex, vals);
-                revalidateCf(selectedStepIndex, vals, cfSchema);
-              }}
-              steps={editDraft?.steps ?? []}
-              currentStepIndex={selectedStepIndex}
-              secretKeys={cachedSecretKeys}
-              variableKeys={cachedVariableKeys}
-              {outputSchemas}
-              edges={slugEdges}
-              fieldErrors={(() => {
-                const prefix = `steps[${selectedStepIndex}].`;
-                const m = new Map<string, string>();
-                for (const [k, v] of validationErrors) {
-                  if (k.startsWith(prefix)) {
-                    const field = k.slice(prefix.length);
-                    if (!field.includes(".")) m.set(field, v);
-                  }
-                }
-                return m;
-              })()}
-            />
-          {:else}
-            <!-- JSON fallback: all fields except slug/type -->
-            <div class="flex flex-col gap-1.5 flex-1 min-h-0">
-              <div class="flex items-center justify-between">
-                <label for="step-cf-config" class="text-xs font-medium text-muted-foreground"
-                  >Configuration (JSON)</label
-                >
-              </div>
-              <textarea
-                id="step-cf-config"
-                class="w-full flex-1 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-                value={JSON.stringify(cfStepConfig(editDraftStep), null, 2)}
-                oninput={(e) => {
-                  const raw = (e.target as HTMLTextAreaElement).value;
-                  try {
-                    const parsed = JSON.parse(raw);
-                    applyCfValues(selectedStepIndex, parsed);
-                  } catch {
-                    // Invalid JSON - ignore until valid
-                  }
+            {:else if !editAsJson && cfSchema}
+              <!-- `waitFor` / `emit` / `case`: schema-driven form on flat fields -->
+              <StepConfigForm
+                schema={cfSchema}
+                values={cfStepConfig(editDraftStep)}
+                onchange={(vals) => {
+                  applyCfValues(selectedStepIndex, vals);
+                  revalidateCf(selectedStepIndex, vals, cfSchema);
                 }}
-              ></textarea>
-            </div>
-          {/if}
-        </div>
-      {:else}
-        <!-- Custom step type - schema-driven form or JSON fallback -->
-        {@const stepTypeInfo = customStepTypes.find((st) => st.type === stepType)}
-        <div class="flex flex-col flex-1 min-h-0 gap-4">
-          {#if stepTypeInfo?.configSchema && !editAsJson}
-            <StepConfigForm
-              schema={stepTypeInfo.configSchema}
-              values={editDraftStep.config ?? {}}
-              onchange={(vals) => {
-                onUpdateDraftStep(selectedStepIndex, (s) => {
-                  s.config = vals;
-                });
-                // Live validation: re-check config against schema and update errors
-                const prefix = `steps[${selectedStepIndex}].config.`;
-                const newErrors = new Map(validationErrors);
-                // Remove old config errors for this step
-                for (const k of [...newErrors.keys()]) {
-                  if (k.startsWith(prefix)) newErrors.delete(k);
-                }
-                // Run validation and add fresh errors
-                const configErrors = validateStepConfig(vals ?? {}, stepTypeInfo.configSchema!);
-                for (const [field, msg] of configErrors) {
-                  newErrors.set(`${prefix}${field}`, msg);
-                }
-                onValidationErrorsChange(newErrors);
-              }}
-              steps={editDraft?.steps ?? []}
-              currentStepIndex={selectedStepIndex}
-              secretKeys={cachedSecretKeys}
-              variableKeys={cachedVariableKeys}
-              {outputSchemas}
-              edges={slugEdges}
-              itemOptions={{ skills: availableSkills }}
-              fieldErrors={(() => {
-                const prefix = `steps[${selectedStepIndex}].config.`;
-                const m = new Map<string, string>();
-                for (const [k, v] of validationErrors) {
-                  if (k.startsWith(prefix)) m.set(k.slice(prefix.length), v);
-                }
-                return m;
-              })()}
-            />
-          {:else}
-            <div class="flex flex-col gap-1.5 flex-1 min-h-0">
-              <div class="flex items-center justify-between">
-                <label for="step-config" class="text-xs font-medium text-muted-foreground">Configuration (JSON)</label>
-              </div>
-              <textarea
-                id="step-config"
-                class="w-full flex-1 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-                value={JSON.stringify(editDraftStep.config ?? {}, null, 2)}
-                oninput={(e) => {
-                  const raw = (e.target as HTMLTextAreaElement).value;
-                  try {
-                    const parsed = JSON.parse(raw);
-                    onUpdateDraftStep(selectedStepIndex, (s) => {
-                      s.config = parsed;
-                    });
-                    const newErrors = new Map(validationErrors);
-                    newErrors.delete(`steps[${selectedStepIndex}].config`);
-                    // Live schema validation for JSON editor
-                    const prefix = `steps[${selectedStepIndex}].config.`;
-                    for (const k of [...newErrors.keys()]) {
-                      if (k.startsWith(prefix)) newErrors.delete(k);
+                steps={editDraft?.steps ?? []}
+                currentStepIndex={selectedStepIndex}
+                secretKeys={cachedSecretKeys}
+                variableKeys={cachedVariableKeys}
+                {outputSchemas}
+                edges={slugEdges}
+                fieldErrors={(() => {
+                  const prefix = `steps[${selectedStepIndex}].`;
+                  const m = new Map<string, string>();
+                  for (const [k, v] of validationErrors) {
+                    if (k.startsWith(prefix)) {
+                      const field = k.slice(prefix.length);
+                      if (!field.includes(".")) m.set(field, v);
                     }
-                    if (stepTypeInfo?.configSchema) {
-                      const configErrors = validateStepConfig(parsed, stepTypeInfo.configSchema);
-                      for (const [field, msg] of configErrors) {
-                        newErrors.set(`${prefix}${field}`, msg);
-                      }
-                    }
-                    onValidationErrorsChange(newErrors);
-                  } catch {
-                    const newErrors = new Map(validationErrors);
-                    newErrors.set(`steps[${selectedStepIndex}].config`, "Invalid JSON");
-                    onValidationErrorsChange(newErrors);
                   }
-                }}
-              ></textarea>
-              {#if validationErrors.get(`steps[${selectedStepIndex}].config`)}
-                <span class="text-xs text-destructive"
-                  >{validationErrors.get(`steps[${selectedStepIndex}].config`)}</span
-                >
-              {/if}
-            </div>
-          {/if}
-        </div>
-      {/if}
-    {:else if !editMode &&
-      (selectedStep.type === "if" ||
-        selectedStep.type === "case" ||
-        selectedStep.type === "waitFor" ||
-        selectedStep.type === "emit" ||
-        selectedStep.type === "iterator" ||
-        selectedStep.type === "aggregator")}
-      <!-- Read-only: built-in control-flow step config -->
-      {@const roCfType = selectedStep.type}
-      {@const roCfSchema = builtinConfigSchema(roCfType)}
-      {#if viewAsJson}
-        <div class="flex flex-col gap-1.5 flex-1 min-h-0">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-muted-foreground">Configuration (JSON)</span>
+                  return m;
+                })()}
+              />
+            {:else}
+              <!-- JSON fallback: all fields except slug/type -->
+              <div class="flex flex-col gap-1.5 flex-1 min-h-0">
+                <div class="flex items-center justify-between">
+                  <label for="step-cf-config" class="text-xs font-medium text-muted-foreground"
+                    >Configuration (JSON)</label
+                  >
+                </div>
+                <textarea
+                  id="step-cf-config"
+                  class="w-full flex-1 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                  value={JSON.stringify(cfStepConfig(editDraftStep), null, 2)}
+                  oninput={(e) => {
+                    const raw = (e.target as HTMLTextAreaElement).value;
+                    try {
+                      const parsed = JSON.parse(raw);
+                      applyCfValues(selectedStepIndex, parsed);
+                    } catch {
+                      // Invalid JSON - ignore until valid
+                    }
+                  }}
+                ></textarea>
+              </div>
+            {/if}
           </div>
-          <pre
-            class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded flex-1 overflow-y-auto"
-          >{JSON.stringify(cfStepConfig(selectedStep as unknown as StepDraft), null, 2)}</pre>
-        </div>
-      {:else if roCfType === "if"}
-        <ConditionForm
-          condition={((selectedStep as unknown as StepDraft).condition as Record<string, unknown>) ?? { ref: "" }}
-          readonly={true}
-        />
-        {@const roBl = (selectedStep as unknown as StepDraft).branchLabels as
-          | { then?: string; else?: string }
-          | undefined}
-        {#if roBl && (roBl.then || roBl.else)}
-          <div class="flex flex-col gap-1.5 mt-3">
-            <span class="text-xs font-medium text-muted-foreground">Branch edge labels</span>
-            <div class="flex items-center gap-2">
-              <span class="text-[11px] text-muted-foreground w-10">then:</span>
-              <Badge variant="outline" class="text-xs">{roBl.then || "then"}</Badge>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="text-[11px] text-muted-foreground w-10">else:</span>
-              <Badge variant="outline" class="text-xs">{roBl.else || "else"}</Badge>
-            </div>
+        {:else}
+          <!-- Custom step type - schema-driven form or JSON fallback -->
+          {@const stepTypeInfo = customStepTypes.find((st) => st.type === stepType)}
+          <div class="flex flex-col flex-1 min-h-0 gap-4">
+            {#if stepTypeInfo?.configSchema && !editAsJson}
+              <StepConfigForm
+                schema={stepTypeInfo.configSchema}
+                values={editDraftStep.config ?? {}}
+                onchange={(vals) => {
+                  onUpdateDraftStep(selectedStepIndex, (s) => {
+                    s.config = vals;
+                  });
+                  // Live validation: re-check config against schema and update errors
+                  const prefix = `steps[${selectedStepIndex}].config.`;
+                  const newErrors = new Map(validationErrors);
+                  // Remove old config errors for this step
+                  for (const k of [...newErrors.keys()]) {
+                    if (k.startsWith(prefix)) newErrors.delete(k);
+                  }
+                  // Run validation and add fresh errors
+                  const configErrors = validateStepConfig(vals ?? {}, stepTypeInfo.configSchema!);
+                  for (const [field, msg] of configErrors) {
+                    newErrors.set(`${prefix}${field}`, msg);
+                  }
+                  onValidationErrorsChange(newErrors);
+                }}
+                steps={editDraft?.steps ?? []}
+                currentStepIndex={selectedStepIndex}
+                secretKeys={cachedSecretKeys}
+                variableKeys={cachedVariableKeys}
+                {outputSchemas}
+                edges={slugEdges}
+                itemOptions={{ skills: availableSkills }}
+                fieldErrors={(() => {
+                  const prefix = `steps[${selectedStepIndex}].config.`;
+                  const m = new Map<string, string>();
+                  for (const [k, v] of validationErrors) {
+                    if (k.startsWith(prefix)) m.set(k.slice(prefix.length), v);
+                  }
+                  return m;
+                })()}
+              />
+            {:else}
+              <div class="flex flex-col gap-1.5 flex-1 min-h-0">
+                <div class="flex items-center justify-between">
+                  <label for="step-config" class="text-xs font-medium text-muted-foreground"
+                    >Configuration (JSON)</label
+                  >
+                </div>
+                <textarea
+                  id="step-config"
+                  class="w-full flex-1 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+                  value={JSON.stringify(editDraftStep.config ?? {}, null, 2)}
+                  oninput={(e) => {
+                    const raw = (e.target as HTMLTextAreaElement).value;
+                    try {
+                      const parsed = JSON.parse(raw);
+                      onUpdateDraftStep(selectedStepIndex, (s) => {
+                        s.config = parsed;
+                      });
+                      const newErrors = new Map(validationErrors);
+                      newErrors.delete(`steps[${selectedStepIndex}].config`);
+                      // Live schema validation for JSON editor
+                      const prefix = `steps[${selectedStepIndex}].config.`;
+                      for (const k of [...newErrors.keys()]) {
+                        if (k.startsWith(prefix)) newErrors.delete(k);
+                      }
+                      if (stepTypeInfo?.configSchema) {
+                        const configErrors = validateStepConfig(parsed, stepTypeInfo.configSchema);
+                        for (const [field, msg] of configErrors) {
+                          newErrors.set(`${prefix}${field}`, msg);
+                        }
+                      }
+                      onValidationErrorsChange(newErrors);
+                    } catch {
+                      const newErrors = new Map(validationErrors);
+                      newErrors.set(`steps[${selectedStepIndex}].config`, "Invalid JSON");
+                      onValidationErrorsChange(newErrors);
+                    }
+                  }}
+                ></textarea>
+                {#if validationErrors.get(`steps[${selectedStepIndex}].config`)}
+                  <span class="text-xs text-destructive"
+                    >{validationErrors.get(`steps[${selectedStepIndex}].config`)}</span
+                  >
+                {/if}
+              </div>
+            {/if}
           </div>
         {/if}
-      {:else if roCfSchema}
-        <StepConfigForm
-          schema={roCfSchema}
-          values={cfStepConfig(selectedStep as unknown as StepDraft)}
-          readonly={true}
-        />
-      {/if}
-    {:else if !editMode && selectedStep.type !== "agent"}
-      <!-- Read-only: custom step type config -->
-      {@const roStepType = selectedStep.type}
-      {@const roStepTypeInfo = customStepTypes.find((st) => st.type === roStepType)}
-      {#if viewAsJson}
-        <div class="flex flex-col gap-1.5 flex-1 min-h-0">
-          <div class="flex items-center justify-between">
-            <span class="text-xs font-medium text-muted-foreground">Configuration (JSON)</span>
-          </div>
-          <pre
-            class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded flex-1 overflow-y-auto"
-          >{JSON.stringify(selectedStep, null, 2)}</pre>
-        </div>
-      {:else if roStepTypeInfo?.configSchema}
-        {@const roConfig = (() => {
-          const { slug: _s, type: _t, ...rest } = selectedStep;
-          return rest;
-        })()}
-        <StepConfigForm
-          schema={roStepTypeInfo.configSchema}
-          values={roConfig}
-          readonly={true}
-          itemOptions={{ skills: availableSkills }}
-        />
-      {:else}
-        <div class="space-y-3">
-          <div>
-            <span class="text-xs font-medium text-muted-foreground">Configuration</span>
+      {:else if !editMode &&
+        (selectedStep.type === "if" ||
+          selectedStep.type === "case" ||
+          selectedStep.type === "waitFor" ||
+          selectedStep.type === "emit" ||
+          selectedStep.type === "iterator" ||
+          selectedStep.type === "aggregator")}
+        <!-- Read-only: built-in control-flow step config -->
+        {@const roCfType = selectedStep.type}
+        {@const roCfSchema = builtinConfigSchema(roCfType)}
+        {#if viewAsJson}
+          <div class="flex flex-col gap-1.5 flex-1 min-h-0">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-muted-foreground">Configuration (JSON)</span>
+            </div>
             <pre
-              class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-64 overflow-y-auto mt-0.5"
-            >{JSON.stringify(
+              class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded flex-1 overflow-y-auto"
+            >{JSON.stringify(cfStepConfig(selectedStep as unknown as StepDraft), null, 2)}</pre>
+          </div>
+        {:else if roCfType === "if"}
+          <ConditionForm
+            condition={((selectedStep as unknown as StepDraft).condition as Record<string, unknown>) ?? { ref: "" }}
+            readonly={true}
+          />
+          {@const roBl = (selectedStep as unknown as StepDraft).branchLabels as
+            | { then?: string; else?: string }
+            | undefined}
+          {#if roBl && (roBl.then || roBl.else)}
+            <div class="flex flex-col gap-1.5 mt-3">
+              <span class="text-xs font-medium text-muted-foreground">Branch edge labels</span>
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-muted-foreground w-10">then:</span>
+                <Badge variant="outline" class="text-xs">{roBl.then || "then"}</Badge>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="text-[11px] text-muted-foreground w-10">else:</span>
+                <Badge variant="outline" class="text-xs">{roBl.else || "else"}</Badge>
+              </div>
+            </div>
+          {/if}
+        {:else if roCfSchema}
+          <StepConfigForm
+            schema={roCfSchema}
+            values={cfStepConfig(selectedStep as unknown as StepDraft)}
+            readonly={true}
+          />
+        {/if}
+      {:else if !editMode && selectedStep.type !== "agent"}
+        <!-- Read-only: custom step type config -->
+        {@const roStepType = selectedStep.type}
+        {@const roStepTypeInfo = customStepTypes.find((st) => st.type === roStepType)}
+        {#if viewAsJson}
+          <div class="flex flex-col gap-1.5 flex-1 min-h-0">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-medium text-muted-foreground">Configuration (JSON)</span>
+            </div>
+            <pre
+              class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded flex-1 overflow-y-auto"
+            >{JSON.stringify(selectedStep, null, 2)}</pre>
+          </div>
+        {:else if roStepTypeInfo?.configSchema}
+          {@const roConfig = (() => {
+            const { slug: _s, type: _t, ...rest } = selectedStep;
+            return rest;
+          })()}
+          <StepConfigForm
+            schema={roStepTypeInfo.configSchema}
+            values={roConfig}
+            readonly={true}
+            itemOptions={{ skills: availableSkills }}
+          />
+        {:else}
+          <div class="space-y-3">
+            <div>
+              <span class="text-xs font-medium text-muted-foreground">Configuration</span>
+              <pre
+                class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-64 overflow-y-auto mt-0.5"
+              >{JSON.stringify(
   (() => {
     const { slug: _s, type: _t, ...rest } = selectedStep;
     return rest;
@@ -746,11 +766,35 @@ function clearConditionError(index: number) {
   null,
   2,
 )}</pre>
+            </div>
           </div>
-        </div>
+        {/if}
+      {:else}
+        <p class="text-sm text-muted-foreground">No details available for this step type.</p>
       {/if}
-    {:else}
-      <p class="text-sm text-muted-foreground">No details available for this step type.</p>
+    </div>
+
+    <!-- Hand-authored result shape: agent and custom steps only (control-flow
+         nodes have fixed, built-in result shapes). Hidden for terminal steps,
+         whose result nothing can reference, unless one is already declared. -->
+    {#if !CF_TYPES.has(currentType) && (!editMode || hasSuccessors || editDraftStep?.outputSchema)}
+      {@const slug = editDraftStep?.slug ?? selectedStep.slug}
+      <div class="mt-4 shrink-0">
+        {#if editMode && editDraftStep}
+          <OutputSchemaEditor
+            value={editDraftStep.outputSchema}
+            {workflowName}
+            source={{ kind: "step", slug }}
+            onChange={(outputSchema) =>
+              onUpdateDraftStep(selectedStepIndex, (step) => {
+                if (outputSchema) step.outputSchema = outputSchema;
+                else delete step.outputSchema;
+              })}
+          />
+        {:else}
+          <OutputSchemaEditor value={selectedStep.outputSchema} readonly source={{ kind: "step", slug }} />
+        {/if}
+      </div>
     {/if}
   </div>
 

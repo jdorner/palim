@@ -10,7 +10,7 @@ import {
   toStepDraft,
   withConfigDefaults,
 } from "./workflowDraft";
-import { disconnectedStepError, type WorkflowDraft } from "./workflowValidation";
+import { disconnectedStepError, serializeStep, serializeWorkflowDraft, type WorkflowDraft } from "./workflowValidation";
 
 describe("nextStepId", () => {
   test("mints unique ids", () => {
@@ -187,5 +187,41 @@ describe("parseSaveErrorDetails", () => {
 
   test("returns an empty list for missing details", () => {
     expect(parseSaveErrorDetails(undefined)).toEqual([]);
+  });
+});
+
+describe("outputSchema round-trip", () => {
+  test("toStepDraft + serializeStep keep an agent step's outputSchema", () => {
+    const draft = toStepDraft({ id: "n1", slug: "a", type: "agent", prompt: "p", outputSchema: { x: "string" } });
+    expect(draft.outputSchema).toEqual({ x: "string" });
+    expect(serializeStep(draft)).toEqual({ type: "agent", prompt: "p", outputSchema: { x: "string" } });
+  });
+
+  test("custom steps keep outputSchema out of config but serialize it", () => {
+    const draft = toStepDraft({
+      id: "n2",
+      slug: "fetch",
+      type: "http-request",
+      url: "http://x",
+      outputSchema: { body: { ok: "boolean" }, tags: ["string"] },
+    });
+    expect(draft.config).toEqual({ url: "http://x" });
+    expect(serializeStep(draft)).toEqual({
+      type: "http-request",
+      url: "http://x",
+      outputSchema: { body: { ok: "boolean" }, tags: ["string"] },
+    });
+  });
+
+  test("serializeWorkflowDraft keeps the trigger outputSchema", () => {
+    const out = serializeWorkflowDraft({
+      name: "wf",
+      description: "",
+      trigger: { type: "webhook", ref: "hook", outputSchema: { task: { id: "string" } } },
+      enabled: true,
+      steps: [],
+      edges: [],
+    });
+    expect(out.trigger).toEqual({ type: "webhook", ref: "hook", outputSchema: { task: { id: "string" } } });
   });
 });

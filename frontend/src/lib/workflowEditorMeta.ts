@@ -3,8 +3,9 @@
  * skills, and trigger refs, plus secret/variable keys for template
  * autocomplete. All fail soft, returning empty values on error.
  */
-import type { OutputSchemas } from "$shared/workflows";
+import type { OutputSchemaShorthand, OutputSchemas } from "$shared/workflows";
 import { authFetch } from "./auth";
+import type { InferSource } from "./outputSchemaShorthand";
 import type { WorkflowWarning } from "./workflowDetail";
 
 /** Trigger refs available per trigger type (webhook names, schedule ids, ...). */
@@ -104,4 +105,29 @@ export async function fetchWorkflowAnalysis(
   } catch {
     return null;
   }
+}
+
+/** A shorthand inferred from a run (`GET /ext/workflows/meta/infer-schema/:name`). */
+export interface InferredSchema {
+  runId: string;
+  runCreatedAt: number;
+  shorthand: OutputSchemaShorthand;
+}
+
+/**
+ * Fetches a shorthand inferred from the newest run of a saved workflow that has
+ * an object-shaped sample for the trigger or step.
+ *
+ * @param workflowName - The saved workflow name
+ * @param source - The trigger, or a step by slug
+ * @returns The inferred schema
+ * @throws {Error} With the server's message when no sample exists or the request fails
+ */
+export async function fetchInferredSchema(workflowName: string, source: InferSource): Promise<InferredSchema> {
+  const params = new URLSearchParams({ source: source.kind });
+  if (source.kind === "step") params.set("slug", source.slug);
+  const res = await authFetch(`/ext/workflows/meta/infer-schema/${encodeURIComponent(workflowName)}?${params}`);
+  const body = (await res.json().catch(() => ({}))) as Partial<InferredSchema> & { error?: string };
+  if (!res.ok || !body.shorthand) throw new Error(body.error ?? `Request failed (${res.status})`);
+  return body as InferredSchema;
 }

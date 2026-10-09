@@ -8,13 +8,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/component
 import { visualForStepType } from "$lib/nodeVisuals";
 import type { WorkflowTrigger } from "$lib/workflowDetail";
 import type { TriggerRefs } from "$lib/workflowEditorMeta";
+import type { DraftTrigger } from "$lib/workflowValidation";
+import OutputSchemaEditor from "./OutputSchemaEditor.svelte";
 import StepPanelHeader from "./StepPanelHeader.svelte";
 
 interface Props {
   /** The saved trigger, shown in view mode. */
   trigger: WorkflowTrigger;
+  /** Saved workflow name (for inferring the payload schema from past runs). */
+  workflowName?: string;
   /** The draft trigger when editing; null in view mode. */
-  draftTrigger: { type: string; ref: string } | null;
+  draftTrigger: DraftTrigger | null;
   /** Validation errors map (reads `trigger.type` / `trigger.ref`). */
   validationErrors: Map<string, string>;
   /** Available refs per trigger type. */
@@ -24,13 +28,14 @@ interface Props {
   /** Close the panel. */
   onclose: () => void;
   /** Replace the draft trigger. */
-  onTriggerChange: (trigger: { type: string; ref: string }) => void;
+  onTriggerChange: (trigger: DraftTrigger) => void;
   /** Replace the validation errors. */
   onValidationErrorsChange: (errors: Map<string, string>) => void;
 }
 
 let {
   trigger,
+  workflowName,
   draftTrigger,
   validationErrors,
   availableTriggerRefs,
@@ -133,11 +138,24 @@ const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
           {/if}
         </div>
       {/if}
-    {:else if trigger.ref}
-      <div class="flex items-center gap-2">
-        <span class="text-xs font-medium text-muted-foreground">Ref:</span>
-        <Badge variant="outline">{trigger.ref}</Badge>
-      </div>
+      <OutputSchemaEditor
+        value={draftTrigger.outputSchema}
+        {workflowName}
+        source={{ kind: "trigger" }}
+        onChange={(outputSchema) => {
+          if (!draftTrigger) return;
+          const { outputSchema: _old, ...rest } = draftTrigger;
+          onTriggerChange(outputSchema ? { ...rest, outputSchema } : rest);
+        }}
+      />
+    {:else}
+      {#if trigger.ref}
+        <div class="flex items-center gap-2">
+          <span class="text-xs font-medium text-muted-foreground">Ref:</span>
+          <Badge variant="outline">{trigger.ref}</Badge>
+        </div>
+      {/if}
+      <OutputSchemaEditor value={trigger.outputSchema} readonly source={{ kind: "trigger" }} />
     {/if}
   </div>
 </div>

@@ -2,7 +2,7 @@
  * Data model for the workflow detail page: the normalized workflow shape,
  * conversion from the API response, and applying live run events.
  */
-import type { WorkflowWebSocketEvent } from "$shared/workflows";
+import type { OutputSchemaShorthand, WorkflowWebSocketEvent } from "$shared/workflows";
 import type { OutputSchemas } from "./templateScope";
 import { nextStepId } from "./workflowDraft";
 
@@ -53,6 +53,8 @@ export interface WorkflowRunSummary {
 export interface WorkflowTrigger {
   type: string;
   ref?: string;
+  /** Hand-authored payload shape, when declared. */
+  outputSchema?: OutputSchemaShorthand;
 }
 
 export interface WorkflowDetail {

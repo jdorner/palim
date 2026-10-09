@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import type { OutputSchema } from "@shared/workflows";
+import { walkSchemaPath } from "@shared/workflows";
 import fc from "fast-check";
 import { compileOutputSchema } from "./outputSchemaCompiler";
 import type { OutputSchemaShorthand } from "./schemas";
@@ -23,7 +24,7 @@ const recognizedLeafArb = fc.constantFrom(...RECOGNIZED_HINTS);
  */
 const unrecognizedLeafArb = fc
   .string({ minLength: 1, maxLength: 12 })
-  .filter((s) => !(RECOGNIZED_HINTS as readonly string[]).includes(s));
+  .filter((s) => !(RECOGNIZED_HINTS as readonly string[]).includes(s) && s !== "object" && s !== "any");
 
 /**
  * Builds a shorthand arbitrary containing only recognized leaves and nested maps.
@@ -85,7 +86,8 @@ function legacyWalk(shorthand: OutputSchemaShorthand, path: string[]): { key: st
       // Descended into a leaf: no further children.
       return [];
     }
-    const next: string | OutputSchemaShorthand | undefined = current[segment];
+    // The generated shorthands never contain `[item]` arrays.
+    const next = current[segment] as string | OutputSchemaShorthand | undefined;
     if (next === undefined) {
       // Missing key: nothing completable.
       return [];
@@ -138,7 +140,7 @@ function collectShorthandPaths(shorthand: OutputSchemaShorthand, prefix: string[
   const paths: string[][] = [prefix];
   for (const key of Object.keys(shorthand)) {
     const value = shorthand[key];
-    if (value !== undefined && typeof value !== "string") {
+    if (value !== undefined && typeof value !== "string" && !Array.isArray(value)) {
       paths.push(...collectShorthandPaths(value, [...prefix, key]));
     }
   }
@@ -207,7 +209,7 @@ describe("compileOutputSchema", () => {
         for (const key of Object.keys(source)) {
           const sourceValue = source[key];
           const compiledChild = properties[key];
-          if (sourceValue === undefined || typeof sourceValue === "string") {
+          if (sourceValue === undefined || typeof sourceValue === "string" || Array.isArray(sourceValue)) {
             // Leaf string -> non-object node (no `properties`, no `type: object`).
             expect(isRecord(compiledChild)).toBe(true);
             const childRecord = compiledChild as Record<string, unknown>;
@@ -283,5 +285,43 @@ describe("compileOutputSchema", () => {
         { numRuns: 100 },
       );
     });
+  });
+});
+
+describe("array, object, and any hints", () => {
+  test("[item] compiles to an array with an item schema", () => {
+    const warnings: string[] = [];
+    const compiled = compileOutputSchema({ tags: ["string"], rows: [{ id: "number" }] }, (m) => warnings.push(m));
+    expect(compiled).toEqual({
+      type: "object",
+      properties: {
+        tags: { type: "array", items: { type: "string" } },
+        rows: { type: "array", items: { type: "object", properties: { id: { type: "number" } } } },
+      },
+    });
+    expect(warnings).toEqual([]);
+    expect(walkSchemaPath(compiled, ["rows", "0", "id"]).resolved).toBe(true);
+    expect(walkSchemaPath(compiled, ["tags", "length"]).resolved).toBe(true);
+  });
+
+  test("nested arrays compile recursively", () => {
+    expect(compileOutputSchema({ grid: [["number"]] })).toEqual({
+      type: "object",
+      properties: { grid: { type: "array", items: { type: "array", items: { type: "number" } } } },
+    });
+  });
+
+  test('"object" compiles to an open object that resolves any sub-path', () => {
+    const warnings: string[] = [];
+    const compiled = compileOutputSchema({ meta: "object" }, (m) => warnings.push(m));
+    expect(warnings).toEqual([]);
+    expect(walkSchemaPath(compiled, ["meta", "a", "b"]).resolved).toBe(true);
+  });
+
+  test('"any" compiles to an unconstrained node without a warning', () => {
+    const warnings: string[] = [];
+    const compiled = compileOutputSchema({ value: "any" }, (m) => warnings.push(m));
+    expect(compiled).toEqual({ type: "object", properties: { value: {} } });
+    expect(warnings).toEqual([]);
   });
 });

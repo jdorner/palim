@@ -13,38 +13,42 @@
  */
 
 import type { OutputSchema } from "@shared/workflows";
-import type { OutputSchemaShorthand } from "./schemas";
+import type { OutputSchemaShorthand, OutputSchemaShorthandValue } from "./schemas";
 import { BUILTIN_TRIGGER_SCHEMAS } from "./triggerSchemas";
 
 /**
  * Recognized leaf type-hint strings and their JSON Schema `type` mapping.
  *
- * Any leaf string outside this closed set is treated as unrecognized and
- * compiled to an unconstrained JSON Schema node.
+ * Besides these, `"object"` compiles to an open object and `"any"` to an
+ * unconstrained node. Any other leaf string is treated as unrecognized and
+ * compiled to an unconstrained JSON Schema node with a warning.
  */
 const RECOGNIZED_LEAF_TYPES = new Set(["string", "number", "boolean"]);
 
 /**
- * Compiles a single shorthand value (leaf type-hint string or nested map) into
- * a canonical JSON Schema node.
+ * Compiles a single shorthand value (leaf type-hint string, nested map, or
+ * one-element item array) into a canonical JSON Schema node.
  *
  * Best effort: any failure to build a nested node is isolated by the caller, so
  * this helper focuses on the mapping rules. Unrecognized leaf strings produce an
  * unconstrained node and record a warning via the sink.
  *
  * @param key - The property name being compiled (used for warning messages)
- * @param value - The shorthand value: a type-hint string or a nested shorthand map
+ * @param value - The shorthand value: a type-hint string, a nested shorthand map, or `[item]`
  * @param sink - Optional best-effort warning sink for unrecognized type hints
  * @returns A JSON Schema node describing the value
  */
-function compileValue(
-  key: string,
-  value: string | OutputSchemaShorthand,
-  sink?: (message: string) => void,
-): OutputSchema {
+function compileValue(key: string, value: OutputSchemaShorthandValue, sink?: (message: string) => void): OutputSchema {
   if (typeof value === "string") {
     if (RECOGNIZED_LEAF_TYPES.has(value)) {
       return { type: value };
+    }
+    if (value === "object") {
+      // Open object: any key below it resolves.
+      return { type: "object", additionalProperties: true };
+    }
+    if (value === "any") {
+      return {};
     }
     // Unrecognized leaf: unconstrained node plus a best-effort warning.
     invokeSink(
@@ -52,6 +56,10 @@ function compileValue(
       `Unrecognized output schema type hint "${value}" for property "${key}"; treating as unconstrained.`,
     );
     return {};
+  }
+  if (Array.isArray(value)) {
+    // `[item]`: an array whose elements are described by the single entry.
+    return { type: "array", items: value.length > 0 ? compileValue(key, value[0]!, sink) : {} };
   }
   // Nested shorthand map: compile recursively, preserving the hierarchy.
   return compileOutputSchema(value, sink);
@@ -81,6 +89,9 @@ function invokeSink(sink: ((message: string) => void) | undefined, message: stri
  * - `"string"`  -> `{ type: "string" }`
  * - `"number"`  -> `{ type: "number" }`
  * - `"boolean"` -> `{ type: "boolean" }`
+ * - `"object"`  -> `{ type: "object", additionalProperties: true }` (open object)
+ * - `"any"`     -> `{}` (unconstrained, no warning)
+ * - `[item]`    -> `{ type: "array", items: <compiled item> }`
  * - nested map  -> `{ type: "object", properties: { ...recursively compiled... } }`
  *   with the property hierarchy preserved exactly (same keys, same nesting depth).
  * - unrecognized leaf string -> `{}` (unconstrained node) plus a Template_Warning
