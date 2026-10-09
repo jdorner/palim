@@ -111,6 +111,10 @@ Analyze an unsaved workflow definition (the JSON body) without storing it. Retur
 
 Warnings include references to unknown fields on an iterator's loop variable (`{{item.<field>}}`) when the iterated array's element schema is known.
 
+### GET /ext/workflows/meta/infer-schema/:name
+
+Infer an `outputSchema` shorthand from the newest run of a saved workflow. Query: `source=trigger`, or `source=step&slug=<slug>`. Runs whose sample is missing or not a JSON object (a text payload, an agent's string result) are skipped. Returns `{ runId, runCreatedAt, shorthand }` with the inferred types only, never the sample values. Returns 404 when no run has a usable sample and 400 for an invalid source. The editor's **Infer from last run** button uses this.
+
 ### POST /ext/workflows
 
 Create a new workflow definition (writes a JSON5 file).

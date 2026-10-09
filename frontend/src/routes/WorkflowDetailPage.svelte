@@ -130,7 +130,13 @@ function enterEditMode() {
   editDraft = {
     name: workflow.name,
     description: workflow.description ?? "",
-    trigger: { type: workflow.trigger.type, ref: workflow.trigger.ref ?? "" },
+    trigger: {
+      type: workflow.trigger.type,
+      ref: workflow.trigger.ref ?? "",
+      ...(workflow.trigger.outputSchema
+        ? { outputSchema: JSON.parse(JSON.stringify(workflow.trigger.outputSchema)) }
+        : {}),
+    },
     enabled: workflow.enabled ?? true,
     steps: workflow.steps.map((s) => toStepDraft({ ...s })),
     edges: (workflow.edges ?? []).map((e) => ({ ...e })),
@@ -1036,6 +1042,7 @@ onDestroy(() => {
   {#if workflow}
     {#if selectedStep}
       <WorkflowStepSidebar
+        workflowName={workflow.name}
         {selectedStep}
         {selectedStepIndex}
         {editMode}
@@ -1068,6 +1075,7 @@ onDestroy(() => {
     {:else if triggerSelected}
       <WorkflowTriggerPanel
         trigger={workflow.trigger}
+        workflowName={workflow.name}
         draftTrigger={editMode && editDraft ? editDraft.trigger : null}
         {validationErrors}
         {availableTriggerRefs}

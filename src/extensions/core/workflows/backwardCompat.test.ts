@@ -60,7 +60,8 @@ function legacyWalk(shorthand: OutputSchemaShorthand, path: string[]): { key: st
       // Descended into a leaf: no further children.
       return [];
     }
-    const next: string | OutputSchemaShorthand | undefined = current[segment];
+    // The generated shorthands never contain `[item]` arrays.
+    const next = current[segment] as string | OutputSchemaShorthand | undefined;
     if (next === undefined) {
       // Missing key: nothing completable.
       return [];
@@ -124,7 +125,7 @@ function collectShorthandPaths(shorthand: OutputSchemaShorthand, prefix: string[
   const paths: string[][] = [prefix];
   for (const key of Object.keys(shorthand)) {
     const value = shorthand[key];
-    if (value !== undefined && typeof value !== "string") {
+    if (value !== undefined && typeof value !== "string" && !Array.isArray(value)) {
       paths.push(...collectShorthandPaths(value, [...prefix, key]));
     }
   }

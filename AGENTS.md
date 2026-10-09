@@ -180,8 +180,9 @@ shared/                      # Types + pure helpers shared between backend and f
 ├── schedules.ts             # ScheduleEntry
 ├── variables.ts             # GlobalVariableEntry
 ├── websocket.ts             # WebSocketMessage, ApprovalRequestEvent, PushMessageEvent
-├── workflows.ts             # WorkflowWebSocketEvent, WorkflowStepSummary, OutputSchema(s), walkSchemaPath, DEFAULT_ENV_ALLOWLIST
+├── workflows.ts             # WorkflowWebSocketEvent, WorkflowStepSummary, OutputSchema(s), OutputSchemaShorthand, walkSchemaPath, DEFAULT_ENV_ALLOWLIST
 ├── workflowBuilder.ts       # WorkflowBuilder + builder draft types (BUILTIN_STEP_TYPES, getDescriptor)
+├── schemaInference.ts       # inferOutputShorthand: outputSchema shorthand from a sample value (editor "Infer from last run")
 └── templateFunctionMeta.ts  # Pure metadata table for built-in template functions (name,
                              #  signature, description, returnType). Single source of truth for
                              #  valid function names, consumed by the backend runtime registry
@@ -286,6 +287,7 @@ Workflow string fields, agent prompts, and `if`/`case`/`iterator` expressions su
 - **Namespaces**: beyond `trigger`/`steps`, expressions resolve `{{env.<VAR>}}` (environment variable), `{{secret.<KEY>}}` (encrypted vault secret, ACL-checked, decrypted at access), and `{{var.<KEY>}}` (plaintext global variable from the `VariableStore` - no decryption, no ACL). Missing variables and secrets are left literal with a warning.
 - **Sandboxed evaluation** (`templateEval.ts`): expressions are evaluated by `subscript` (Justin preset). Guarded namespaces (`secret`, `env`) are resolved (ACL/allowlist) BEFORE evaluation and never placed in the evaluated scope; `var` is exposed as a lazy null-prototype proxy backed by the resolver. Unresolvable paths, unknown functions, and parse errors leave the expression literal with a warning.
 - **Load-time validation** (`dagTemplateValidation.ts`): parses function-call syntax and validates argument paths under the same namespace rules, sharing the function-name allowlist so validation cannot diverge from evaluation. Warnings are advisory (surfaced non-blocking on the workflow list/detail API).
+- **Output schemas**: path checks and autocomplete for `trigger.payload.*` / `steps.<slug>.result.*` use each node's schema, which comes from a hand-authored `outputSchema` shorthand on the trigger or step (leaves `string`/`number`/`boolean`/`object`/`any`, nested maps, `[item]` arrays; compiled by `outputSchemaCompiler.ts`) or else from the built-in trigger / step-handler schema. The editor's *Output schema* panel can fill the shorthand from the newest run via `GET /ext/workflows/meta/infer-schema/:name` (`schemaSample.ts` + `shared/schemaInference.ts`).
 - **Frontend autocomplete** (`frontend/src/lib/autocompleteEngine.ts`, `templateScope.ts`): the `{{...}}` editor offers namespaces and built-in functions (sourced from the shared metadata) in value positions, classifies path vs function-argument cursor context, and closes open call parentheses when completing a value inside a call.
 
 ### Extension System

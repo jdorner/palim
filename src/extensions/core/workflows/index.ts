@@ -50,6 +50,7 @@ import { type TemplateWarning, validateDagWorkflowTemplates } from "./dagTemplat
 import { validateCfEdges, validateDag, validateIteratorPairing } from "./dagValidation";
 import { createDagStepProcessor } from "./dagWorker";
 import { compileOutputSchema, resolveTriggerOutputSchemaJson } from "./outputSchemaCompiler";
+import { inferSchemaFromRuns, type SchemaSampleSource } from "./schemaSample";
 import type { DagWorkflowDefinition, OutputSchemaShorthand } from "./schemas";
 import { DagWorkflowDefinitionSchema } from "./schemas";
 import * as signalStore from "./signalStore";
@@ -474,7 +475,7 @@ export function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: Ex
 
 const manifest = {
   name: "workflows",
-  version: "1.1.1",
+  version: "1.2.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -969,6 +970,38 @@ export function createExtension(): Extension {
           schedule: refs.schedule ?? [],
           filewatcher: refs.filewatcher ?? [],
         });
+      });
+
+      /**
+       * Infers an outputSchema shorthand for the trigger (`?source=trigger`) or a
+       * step (`?source=step&slug=<slug>`) from the newest run with a usable
+       * sample. Returns only the inferred types, never the sample values.
+       */
+      ctx.routes.register("GET", "/meta/infer-schema/:name", async (reqCtx) => {
+        const name = (reqCtx.params as Record<string, string>).name;
+        const wf = store.get(name ?? "");
+        if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
+
+        const params = new URL(reqCtx.request.url).searchParams;
+        const sourceParam = params.get("source");
+        const slug = params.get("slug") ?? "";
+        let source: SchemaSampleSource;
+        if (sourceParam === "trigger") {
+          source = { kind: "trigger" };
+        } else if (sourceParam === "step" && wf.steps[slug]) {
+          source = { kind: "step", slug };
+        } else {
+          return Response.json(
+            { error: 'Expected "source=trigger" or "source=step&slug=<existing step slug>"' },
+            { status: 400 },
+          );
+        }
+
+        const sample = inferSchemaFromRuns(dagRunStore.getByWorkflowName(name!), source);
+        if (!sample) {
+          return Response.json({ error: "No run with an object-shaped sample found" }, { status: 404 });
+        }
+        return Response.json(sample);
       });
 
       ctx.routes.register("GET", "/", async (reqCtx) => {

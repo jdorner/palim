@@ -226,7 +226,17 @@ Triggered when a matching webhook receives a POST request. The webhook emits a `
 "trigger": { "type": "webhook", "ref": "my-webhook-slug" }
 ```
 
-The payload is available as `{{trigger.payload}}`.
+The payload is available as `{{trigger.payload}}`. A JSON body is parsed, so fields are reachable directly (`{{trigger.payload.task.id}}`) without converting text to JSON. Declare the body's shape with `outputSchema` on the trigger so these paths validate and autocomplete. Leaves are `"string"`, `"number"`, `"boolean"`, `"object"` (open) or `"any"`; arrays are written `[item]`:
+
+```json5
+"trigger": {
+  "type": "webhook",
+  "ref": "my-webhook-slug",
+  "outputSchema": { "task": { "id": "string", "title": "string", "tagIds": ["string"] } }
+}
+```
+
+The same `outputSchema` field on an `http-request` (or any agent/custom) step describes its result. It replaces the handler's schema, so include `status` and `body`.
 
 **Atomic creation rule:** When creating a webhook-triggered workflow, always create both the webhook and the workflow together in one operation. The workflow will NOT start if `trigger.ref` doesn't match an existing webhook slug.
 

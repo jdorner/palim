@@ -3,6 +3,7 @@
  * Pure TypeScript module with no Svelte dependencies.
  */
 
+import type { OutputSchemaShorthand } from "$shared/workflows";
 import type { SlugEdge } from "./templateScope";
 
 /** Result of a single validation check. */
@@ -25,11 +26,19 @@ export interface EdgeDraft {
   branch?: string;
 }
 
+/** Draft trigger: type, ref, and an optional hand-authored output schema. */
+export interface DraftTrigger {
+  type: string;
+  ref: string;
+  /** Hand-authored payload shape for autocomplete/validation. */
+  outputSchema?: OutputSchemaShorthand;
+}
+
 /** Draft workflow being edited or created (DAG model). */
 export interface WorkflowDraft {
   name: string;
   description: string;
-  trigger: { type: string; ref: string };
+  trigger: DraftTrigger;
   enabled: boolean;
   /** Steps as a flat array with slug (converted to a map on serialize). */
   steps: StepDraft[];
@@ -60,6 +69,8 @@ export interface StepDraft {
   branchLabels?: { then?: string; else?: string };
   /** Raw JSON config for custom (extension-registered) step types. */
   config?: Record<string, unknown>;
+  /** Hand-authored result shape (agent and custom steps) for autocomplete/validation. */
+  outputSchema?: OutputSchemaShorthand;
 }
 
 /**
@@ -497,6 +508,7 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
     if (step.skills && step.skills.length > 0) {
       result.skills = step.skills;
     }
+    if (step.outputSchema) result.outputSchema = step.outputSchema;
     return result;
   }
 
@@ -572,6 +584,7 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
   return {
     type: step.type,
     ...(step.config ?? {}),
+    ...(step.outputSchema ? { outputSchema: step.outputSchema } : {}),
   };
 }
 
@@ -610,6 +623,7 @@ export function serializeWorkflowDraft(draft: WorkflowDraft): Record<string, unk
     trigger: {
       type: draft.trigger.type,
       ...(draft.trigger.ref && draft.trigger.type !== "manual" ? { ref: draft.trigger.ref } : {}),
+      ...(draft.trigger.outputSchema ? { outputSchema: draft.trigger.outputSchema } : {}),
     },
     enabled: draft.enabled,
     steps,

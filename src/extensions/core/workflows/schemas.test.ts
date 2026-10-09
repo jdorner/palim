@@ -6,6 +6,7 @@ import {
   ConditionSchema,
   EmitStepSchema,
   IfStepSchema,
+  OutputSchemaSchema,
   StepSchema,
   validateGlobalSlugUniqueness,
   WaitForStepSchema,
@@ -916,5 +917,27 @@ describe("validateTerminalStepSuccessors", () => {
       { slug: "after", type: "agent", prompt: "p" },
     ];
     expect(validateTerminalStepSuccessors(steps, new Set())).toEqual([]);
+  });
+});
+
+describe("OutputSchemaSchema", () => {
+  test("accepts leaves, nested maps, and one-element item arrays", () => {
+    expect(
+      Value.Check(OutputSchemaSchema, {
+        id: "string",
+        meta: { size: "number", extra: "object" },
+        tags: ["string"],
+        rows: [{ id: "number", cells: [["any"]] }],
+      }),
+    ).toBe(true);
+  });
+
+  test("rejects empty or multi-element arrays", () => {
+    expect(Value.Check(OutputSchemaSchema, { tags: [] })).toBe(false);
+    expect(Value.Check(OutputSchemaSchema, { tags: ["string", "number"] })).toBe(false);
+  });
+
+  test("rejects non-string leaves", () => {
+    expect(Value.Check(OutputSchemaSchema, { id: 1 })).toBe(false);
   });
 });

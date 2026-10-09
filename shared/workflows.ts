@@ -16,6 +16,22 @@
 export type OutputSchema = Record<string, unknown>;
 
 /**
+ * A single value in the output-schema shorthand: a leaf type hint
+ * (`"string"`, `"number"`, `"boolean"`, `"object"` for an open object, `"any"`
+ * for an unconstrained value), a nested map, or a one-element array whose
+ * element describes the array items (`["string"]`, `[{ id: "string" }]`).
+ */
+export type OutputSchemaShorthandValue = string | OutputSchemaShorthand | [OutputSchemaShorthandValue];
+
+/**
+ * The type-hint shorthand used to author a node's output shape in JSON5
+ * workflow definitions. Keys are property names, values are
+ * {@link OutputSchemaShorthandValue}s. Compiled to the canonical
+ * {@link OutputSchema} by the backend.
+ */
+export type OutputSchemaShorthand = { [key: string]: OutputSchemaShorthandValue };
+
+/**
  * The `outputSchemas` payload returned by the workflow detail API.
  *
  * Carries the resolved canonical JSON Schemas for the workflow trigger and for

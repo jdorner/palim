@@ -8,39 +8,43 @@
  * step schema so that branches can nest arbitrary step types.
  */
 
+import type { OutputSchemaShorthand } from "@shared/workflows";
 import { type Static, Type } from "@sinclair/typebox";
 
 /**
- * Recursive schema for describing the shape of a node's output.
- *
- * Used by the frontend autocomplete to suggest deep property paths.
- * Values are either a type-hint string (leaf/terminal, e.g. "string", "number")
- * or a nested object describing sub-properties (non-terminal).
- *
- * Example:
- * ```json
- * { "filename": "string", "metadata": { "size": "number", "type": "string" } }
- * ```
+ * Recursive schema for a single output-schema shorthand value: a type-hint
+ * string, a nested map, or a one-element array describing the array items.
  */
-export const OutputSchemaSchema: ReturnType<typeof Type.Recursive> = Type.Recursive(
+const OutputSchemaValueSchema = Type.Recursive(
   (Self) =>
-    Type.Record(Type.String(), Type.Union([Type.String(), Self]), {
-      description: "Output schema: keys are property names, values are type hints or nested schemas",
-    }),
-  { $id: "OutputSchema" },
+    Type.Union([Type.String(), Type.Record(Type.String(), Self), Type.Array(Self, { minItems: 1, maxItems: 1 })]),
+  { $id: "OutputSchemaValue" },
 );
 
 /**
- * TypeScript type for the legacy type-hint shorthand used to author a node's
- * output shape in JSON5 workflow definitions.
+ * Schema for describing the shape of a node's output.
  *
- * Keys are property names; values are either a type-hint string (leaf/terminal,
- * e.g. "string", "number") or a nested shorthand map (non-terminal). This is the
- * authoring format validated by {@link OutputSchemaSchema}; it is distinct from
- * the canonical JSON Schema `OutputSchema` type defined in `shared/workflows.ts`,
- * which is what the shorthand compiles to.
+ * Used by the frontend autocomplete to suggest deep property paths.
+ * Values are either a type-hint string (leaf/terminal, e.g. "string", "number",
+ * "object", "any"), a nested object describing sub-properties (non-terminal),
+ * or a one-element array describing the array items.
+ *
+ * Example:
+ * ```json
+ * { "filename": "string", "metadata": { "size": "number" }, "tags": ["string"] }
+ * ```
  */
-export type OutputSchemaShorthand = { [key: string]: string | OutputSchemaShorthand };
+export const OutputSchemaSchema = Type.Record(Type.String(), OutputSchemaValueSchema, {
+  $id: "OutputSchema",
+  description: "Output schema: keys are property names, values are type hints, nested schemas, or [item] arrays",
+});
+
+/**
+ * TypeScript type for the type-hint shorthand used to author a node's output
+ * shape in JSON5 workflow definitions. Defined in `shared/workflows.ts` so the
+ * frontend can produce it too; re-exported here for backend callers.
+ */
+export type { OutputSchemaShorthand, OutputSchemaShorthandValue } from "@shared/workflows";
 
 /** Trigger configuration - how a workflow is started. */
 export const TriggerSchema = Type.Object(

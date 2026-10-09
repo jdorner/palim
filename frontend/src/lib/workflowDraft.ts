@@ -4,6 +4,7 @@
  * edges back into draft edges, and maintaining derived validation errors.
  */
 import { BUILTIN_STEP_TYPES } from "$shared/workflowBuilder";
+import type { OutputSchemaShorthand } from "$shared/workflows";
 import { buildInitialValues } from "./schemaForm";
 import {
   computeOrphanedStepIndices,
@@ -56,7 +57,12 @@ export function toStepDraft(s: Record<string, unknown>): StepDraft {
 
   // Agent steps: extract known fields
   if (type === "agent") {
-    const { prompt, tools, skills } = raw as { prompt?: string; tools?: string[]; skills?: string[] };
+    const { prompt, tools, skills, outputSchema } = raw as {
+      prompt?: string;
+      tools?: string[];
+      skills?: string[];
+      outputSchema?: OutputSchemaShorthand;
+    };
     return {
       id,
       slug,
@@ -64,6 +70,7 @@ export function toStepDraft(s: Record<string, unknown>): StepDraft {
       prompt,
       tools: tools ? [...tools] : undefined,
       skills: skills ? [...skills] : undefined,
+      ...(outputSchema ? { outputSchema: JSON.parse(JSON.stringify(outputSchema)) as OutputSchemaShorthand } : {}),
     };
   }
 
@@ -139,12 +146,16 @@ export function toStepDraft(s: Record<string, unknown>): StepDraft {
   // flattened on the persisted step). Do NOT strip `input`/`output` here - those
   // are not reserved step fields, and stripping them would silently drop a
   // legitimate config field named `input` or `output` (e.g. the `chunk` step).
-  const { id: _id, slug: _s, type: _t, ...config } = raw;
+  // `outputSchema` is a reserved step field (edited in its own panel), not config.
+  const { id: _id, slug: _s, type: _t, outputSchema, ...config } = raw;
   return {
     id,
     slug,
     type,
     config: Object.keys(config).length > 0 ? (config as Record<string, unknown>) : undefined,
+    ...(outputSchema && typeof outputSchema === "object"
+      ? { outputSchema: JSON.parse(JSON.stringify(outputSchema)) as OutputSchemaShorthand }
+      : {}),
   };
 }
 

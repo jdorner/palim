@@ -947,7 +947,18 @@ Webhook and manual triggers have no built-in schema since their payload is user-
 
 #### Hand-authored output schemas in workflow definitions
 
-For `agent` and `trigger` nodes (which have no handler to declare a schema), or to override a handler's declared schema for one specific step, add an `outputSchema` field directly to a trigger or step in the JSON5. This uses the friendly **type-hint shorthand**: values are either type-hint strings (terminal) or nested objects (non-terminal). The engine compiles this shorthand to JSON Schema when building the editor payload:
+For `agent` and `trigger` nodes (which have no handler to declare a schema), or to override a handler's declared schema for one specific step, add an `outputSchema` field directly to a trigger or step in the JSON5. This uses the friendly **type-hint shorthand**: values are type-hint strings (terminal), nested objects (non-terminal), or one-element arrays describing the array items. The engine compiles this shorthand to JSON Schema when building the editor payload.
+
+| Shorthand | Meaning |
+| --- | --- |
+| `"string"`, `"number"`, `"boolean"` | Primitive value |
+| `"object"` | Open object: any sub-path is accepted (use for maps with dynamic keys) |
+| `"any"` | Unconstrained value; the path itself resolves, sub-paths do not |
+| `{ ... }` | Nested object with the listed properties |
+| `[item]` | Array whose elements match `item`, e.g. `["string"]` or `[{ id: "string" }]`; `{{x.0.id}}` and `{{x.length}}` resolve, and iterators get the element schema |
+
+Any other leaf string is treated as unconstrained and produces a warning.
+
 
 ```json5
 {
@@ -973,7 +984,7 @@ For `agent` and `trigger` nodes (which have no handler to declare a schema), or 
       tools: ["exec"],
       // Describes the shape of {{steps.fetch-data.result.<path>}}
       outputSchema: {
-        items: "array",
+        items: [{ id: "string", title: "string" }],
         count: "number",
         metadata: { source: "string", timestamp: "string" }
       }
@@ -986,6 +997,10 @@ For `agent` and `trigger` nodes (which have no handler to declare a schema), or 
 With these schemas, the editor autocomplete will suggest `repository`, `action`, `sender` after typing `{{trigger.payload.`, and `name`, `url`, `owner` after `{{trigger.payload.repository.`.
 
 An explicit `outputSchema` on a trigger overrides the built-in default for that trigger type.
+
+A hand-authored `outputSchema` on a step replaces the handler's declared schema entirely, so restate every field you reference (e.g. `status` and `body` for `http-request`).
+
+You don't have to write the shorthand by hand. In the workflow editor, select the trigger or a step and click **Infer from last run** in its *Output schema* panel. It fills the shorthand from the newest run that has an object-shaped trigger payload or step result (via `GET /ext/workflows/meta/infer-schema/:name`). Review and trim it, then save.
 
 #### Config path autocomplete
 
