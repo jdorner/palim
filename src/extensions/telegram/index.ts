@@ -11,6 +11,7 @@ import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ex
 import type { ImageContent } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import { Bot, type Message } from "node-telegram-bot-api";
+import { DEFAULT_MESSAGE_FORMAT, deliverMessage, type MessageFormat, parseMessageFormat } from "./delivery";
 import {
   buildUserContent,
   downloadImage,
@@ -29,7 +30,7 @@ const TELEGRAM_BOT_TOKEN = "TELEGRAM_BOT_TOKEN" as const;
 
 const manifest = {
   name: "telegram",
-  version: "1.1.0",
+  version: "1.2.0",
   description: "Telegram bot integration with message queuing and persistent conversation history",
   dependencies: ["workflows"],
   settingsSchema: Type.Object({
@@ -46,6 +47,14 @@ const manifest = {
         default: MAX_IMAGE_SIZE_MB,
         minimum: 1,
         maximum: MAX_IMAGE_SIZE_MB,
+      }),
+    ),
+    format: Type.Optional(
+      Type.Union([Type.Literal("markdown"), Type.Literal("plain")], {
+        title: "Message format",
+        description:
+          "How outgoing messages are rendered. 'markdown' sends rich messages (GitHub Flavored Markdown) and falls back to plain text if Telegram rejects them.",
+        default: DEFAULT_MESSAGE_FORMAT,
       }),
     ),
   }),
@@ -71,6 +80,7 @@ export function createExtension(): Extension {
   let botToken: string | null = null;
   let defaultChatId: string | undefined;
   let maxImageSizeMb = MAX_IMAGE_SIZE_MB;
+  let messageFormat: MessageFormat = DEFAULT_MESSAGE_FORMAT;
 
   // Album items buffered per media_group_id
   const mediaGroups = new Map<string, PendingMediaGroup>();
@@ -111,6 +121,7 @@ export function createExtension(): Extension {
       defaultChatId =
         typeof chatIdCfg === "string" ? chatIdCfg : chatIdCfg !== undefined ? String(chatIdCfg) : undefined;
       maxImageSizeMb = parseMaxImageSizeMb(ctx.config.get("MAX_IMAGE_SIZE_MB"));
+      messageFormat = parseMessageFormat(ctx.config.get("FORMAT"));
 
       /**
        * Appends the user message to the chat's session and enqueues an agent
@@ -274,7 +285,7 @@ export function createExtension(): Extension {
         if (!finalText) return;
 
         try {
-          await bot!.api.sendMessage({ chat_id: chatId, text: finalText });
+          await deliverMessage(bot!, chatId, finalText, messageFormat, logger);
           logger.info(`Sent response to chat ${chatId}`);
         } catch (err) {
           logger.error(`Failed to send response to chat ${chatId}:`, err);
@@ -290,10 +301,11 @@ export function createExtension(): Extension {
        *
        * @param message - The message text to send
        * @param chatId - Target chat ID; falls back to the configured default when omitted
+       * @param format - Message format; falls back to the configured format when omitted
        * @returns The chat ID the message was delivered to
        * @throws If no chat ID is available, the bot is not connected, or the send fails
        */
-      async function sendTelegramMessage(message: string, chatId?: string): Promise<string> {
+      async function sendTelegramMessage(message: string, chatId?: string, format?: MessageFormat): Promise<string> {
         const targetChatId = chatId || defaultChatId;
 
         if (!targetChatId) {
@@ -303,7 +315,7 @@ export function createExtension(): Extension {
           throw new Error("Telegram bot is not connected (missing or invalid bot token).");
         }
 
-        await bot.api.sendMessage({ chat_id: Number(targetChatId), text: message });
+        await deliverMessage(bot, Number(targetChatId), message, format ?? messageFormat, logger);
 
         // Persist the sent message in the session so the agent has context
         // when the user replies later.
@@ -334,7 +346,10 @@ export function createExtension(): Extension {
 
       // Register the send_telegram_message tool for proactive messaging
       const SendTelegramMessageParams = Type.Object({
-        message: Type.String({ minLength: 1, description: "The message text to send" }),
+        message: Type.String({
+          minLength: 1,
+          description: "The message text to send. Supports GitHub Flavored Markdown.",
+        }),
         chat_id: Type.Optional(Type.String({ description: "Target Telegram chat ID. Uses default if omitted." })),
       });
 
@@ -372,6 +387,7 @@ export function createExtension(): Extension {
 
         const values = (event as { values?: Record<string, unknown> }).values;
         maxImageSizeMb = parseMaxImageSizeMb(values?.maxImageSizeMb);
+        messageFormat = parseMessageFormat(values?.format);
 
         const raw = values?.chatId;
         const newChatId = raw != null ? String(raw) : undefined;

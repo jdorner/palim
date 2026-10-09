@@ -19,6 +19,7 @@ import type { StepExecutionContext, StepTypeHandler } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { formatValidationErrors } from "@src/utils/validation";
+import type { MessageFormat } from "./delivery";
 
 /** TypeBox schema for the notify step configuration. */
 const NotifyStepConfigSchema = Type.Object(
@@ -34,6 +35,13 @@ const NotifyStepConfigSchema = Type.Object(
         title: "Chat ID",
         description:
           "Target Telegram chat ID. Supports {{template}} expressions. Uses the extension's default chat if omitted.",
+      }),
+    ),
+    format: Type.Optional(
+      Type.Union([Type.Literal("markdown"), Type.Literal("plain")], {
+        title: "Format",
+        description:
+          "Render the message as Markdown or send it as plain text. Use 'plain' when templated values may contain Markdown characters. Uses the extension's format setting if omitted.",
       }),
     ),
   },
@@ -53,14 +61,16 @@ export interface NotifyStepResult {
  *
  * Implemented by the telegram extension against its live bot instance. When
  * `chatId` is omitted, the implementation falls back to its configured default
- * chat ID and rejects if none is available.
+ * chat ID and rejects if none is available. When `format` is omitted, the
+ * extension's configured message format is used.
  *
  * @param message - The resolved message text to send
  * @param chatId - Optional resolved target chat ID
+ * @param format - Optional message format override
  * @returns The chat ID the message was delivered to
  * @throws If no chat ID is available or the send fails
  */
-export type TelegramSendFn = (message: string, chatId?: string) => Promise<string>;
+export type TelegramSendFn = (message: string, chatId?: string, format?: MessageFormat) => Promise<string>;
 
 /**
  * Creates the Notify step type handler.
@@ -86,7 +96,7 @@ export function createNotifyStepHandler(send: TelegramSendFn): StepTypeHandler {
         throw new Error(`Invalid notify step configuration: ${errorMsg}`);
       }
 
-      const config = configFields as { message: string; chatId?: string };
+      const config = configFields as { message: string; chatId?: string; format?: MessageFormat };
 
       // Resolve the message body template.
       const { resolved: message, warnings: messageWarnings } = await ctx.resolveTemplate(config.message);
@@ -108,7 +118,7 @@ export function createNotifyStepHandler(send: TelegramSendFn): StepTypeHandler {
         chatId = resolved.trim() || undefined;
       }
 
-      const deliveredTo = await send(message, chatId);
+      const deliveredTo = await send(message, chatId, config.format);
       await ctx.jobLog(`Notification sent to chat ${deliveredTo}`);
 
       return { sent: true, chatId: deliveredTo };
