@@ -480,7 +480,8 @@ function caseBranchLabels(node: GraphNode, edges: GraphEdge[]): string[] {
   const paths = Array.isArray(node.data.paths)
     ? (node.data.paths as unknown[]).filter((p): p is string => typeof p === "string" && p.length > 0)
     : [];
-  const hasDefaultKey = typeof node.data.default === "string" && (node.data.default as string).length > 0;
+  // `default` names the fallback branch key; it gets a handle like a path key.
+  const defaultKey = typeof node.data.default === "string" ? (node.data.default as string) : "";
 
   // Use the canonical branch keys (not display labels) so this returns routing
   // keys consistent with everything else the layout matches on.
@@ -489,7 +490,7 @@ function caseBranchLabels(node: GraphNode, edges: GraphEdge[]): string[] {
   const labels: string[] = [];
   const seen = new Set<string>();
   // Declared path keys first (preserves the order the user entered them).
-  for (const key of paths) {
+  for (const key of defaultKey && defaultKey !== "default" ? [...paths, defaultKey] : paths) {
     if (key === "default") continue;
     if (seen.has(key)) continue;
     seen.add(key);
@@ -502,8 +503,8 @@ function caseBranchLabels(node: GraphNode, edges: GraphEdge[]): string[] {
     seen.add(branch);
     labels.push(branch);
   }
-  // "default" always sorts last when the step declares it or an edge uses it.
-  if (hasDefaultKey || edgeBranches.includes("default")) {
+  // A literal "default" branch always sorts last.
+  if (defaultKey === "default" || edgeBranches.includes("default")) {
     labels.push("default");
   }
   return labels;

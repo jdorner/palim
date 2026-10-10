@@ -367,6 +367,21 @@ describe("validateCfEdges", () => {
     const errors = validateCfEdges(def);
     expect(errors).toEqual([]);
   });
+
+  test("allows a case-node branch named by default", () => {
+    const def = makeDag({
+      steps: {
+        a: { type: "agent", prompt: "x" },
+        route: { type: "case", match: "{{steps.a.result}}", paths: ["low", "high"], default: "other" },
+        fallback: { type: "agent", prompt: "fallback" },
+      },
+      edges: [
+        { from: "a", to: "route" },
+        { from: "route", to: "fallback", branch: "other" },
+      ],
+    });
+    expect(validateCfEdges(def)).toEqual([]);
+  });
 });
 
 describe("computeRootSteps", () => {

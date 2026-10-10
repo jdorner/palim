@@ -190,6 +190,67 @@ describe("handleDagStepCompletion", () => {
     expect(deps.dispatched).toEqual(["done"]);
   });
 
+  describe("case default", () => {
+    /** A case node whose match never hits a path, with the given default and fallback edge branch. */
+    function caseDef(defaultKey: string | undefined, fallbackBranch: string): DagWorkflowDefinition {
+      return {
+        name: "case-default-wf",
+        trigger: { type: "manual" },
+        steps: {
+          classify: { type: "agent", prompt: "classify input" },
+          route: {
+            type: "case",
+            match: "{{steps.classify.result}}",
+            paths: ["low", "high"],
+            ...(defaultKey ? { default: defaultKey } : {}),
+          },
+          handle_low: { type: "agent", prompt: "low path" },
+          handle_high: { type: "agent", prompt: "high path" },
+          fallback: { type: "agent", prompt: "fallback" },
+        },
+        edges: [
+          { from: "classify", to: "route" },
+          { from: "route", to: "handle_low", branch: "low" },
+          { from: "route", to: "handle_high", branch: "high" },
+          { from: "route", to: "fallback", branch: fallbackBranch },
+        ],
+      };
+    }
+
+    /** Runs classify with an unmatched result and returns what was dispatched. */
+    async function runUnmatched(def: DagWorkflowDefinition) {
+      const run = initRun(def);
+      dagRunStore.updateStepStatus(run.id, "classify", "running");
+      const deps = createTestDeps(def);
+      await handleDagStepCompletion(run.id, "classify", "unknown", "job-classify", deps);
+      return { dispatched: deps.dispatched, run: dagRunStore.get(run.id)! };
+    }
+
+    test("routes to the branch named by default", async () => {
+      const { dispatched, run } = await runUnmatched(caseDef("other", "other"));
+      expect(dispatched).toEqual(["fallback"]);
+      expect(run.stepResults.route).toEqual({ matched: "other" });
+    });
+
+    test("default can name a path key", async () => {
+      const def = caseDef("high", "other");
+      def.edges = def.edges.filter((e) => e.to !== "fallback");
+      delete def.steps.fallback;
+      const { dispatched } = await runUnmatched(def);
+      expect(dispatched).toEqual(["handle_high"]);
+    });
+
+    test("falls back to a literal default edge (earlier engine)", async () => {
+      const { dispatched } = await runUnmatched(caseDef("other", "default"));
+      expect(dispatched).toEqual(["fallback"]);
+    });
+
+    test("a literal default edge needs no default key", async () => {
+      const { dispatched } = await runUnmatched(caseDef(undefined, "default"));
+      expect(dispatched).toEqual(["fallback"]);
+    });
+  });
+
   test("run completes when all terminal steps finish", async () => {
     const def: DagWorkflowDefinition = {
       name: "complete-wf",

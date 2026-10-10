@@ -160,7 +160,7 @@ export function validateDag(definition: DagWorkflowDefinition): DagValidationErr
  * - CF nodes (`if`/`case`) must have ONLY branch-labeled outgoing edges
  * - Non-CF nodes must NOT have branch-labeled outgoing edges
  * - `if` nodes: branch values restricted to "then" and "else"
- * - `case` nodes: branch values restricted to declared paths keys + "default"
+ * - `case` nodes: branch values restricted to declared paths keys, the `default` key, and "default"
  *
  * @param definition - The parsed DAG workflow definition
  * @returns Array of CF-edge validation errors (empty means valid)
@@ -208,7 +208,8 @@ export function validateCfEdges(definition: DagWorkflowDefinition): DagValidatio
         }
       } else if (stepDef.type === "case") {
         const caseStep = stepDef as { type: "case"; paths: string[]; default?: string };
-        const validBranches = new Set([...caseStep.paths, "default"]);
+        // `default` names the fallback branch; a literal "default" branch is accepted too.
+        const validBranches = new Set([...caseStep.paths, ...(caseStep.default ? [caseStep.default] : []), "default"]);
         for (const edge of outEdges) {
           if (edge.branch && !validBranches.has(edge.branch)) {
             errors.push({

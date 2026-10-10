@@ -163,7 +163,7 @@ For `null` or `undefined` resolved values, all operators except `exists` return 
 
 ## Case step (multi-way branching)
 
-Resolves a `match` template and routes to the matching branch. The `paths` field is an **array of branch key strings** (not nested step arrays). Branch steps are separate top-level steps connected via edges whose `branch` matches a path key. An optional `default` names the fallback branch key.
+Resolves a `match` template and routes to the matching branch. The `paths` field is an **array of branch key strings** (not nested step arrays). Branch steps are separate top-level steps connected via edges whose `branch` matches a path key. An optional `default` names the branch key taken when nothing matches: one of the `paths` (as below) or a key of its own with its own edge. An edge with `branch: "default"` also works as the fallback. Without a fallback, an unmatched value fails the run.
 
 ```json5
 {

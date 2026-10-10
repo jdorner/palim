@@ -293,6 +293,25 @@ async function evaluateIfNode(
 }
 
 /**
+ * Picks the branch a `case` node takes when no path matched.
+ *
+ * `default` names the fallback branch key (a path key or a key of its own).
+ * An edge with the literal branch `"default"` is the fallback when the named
+ * key has no edge or no `default` is declared, so definitions written for the
+ * earlier engine (which always routed to `"default"`) keep working.
+ *
+ * @param stepDef - The case step definition
+ * @param outEdges - The case node's outgoing edges
+ * @returns The fallback branch key, or null when the node has no fallback
+ */
+export function caseFallbackBranch(stepDef: DagCaseStep, outEdges: readonly Edge[]): string | null {
+  const hasEdge = (branch: string) => outEdges.some((e) => e.branch === branch);
+  if (stepDef.default && hasEdge(stepDef.default)) return stepDef.default;
+  if (hasEdge("default")) return "default";
+  return stepDef.default ?? null;
+}
+
+/**
  * Evaluates a `case` node: resolves match, marks chosen/dead edges, checks successors.
  */
 async function evaluateCaseNode(
@@ -334,9 +353,11 @@ async function evaluateCaseNode(
     }
   }
 
-  // Fall back to default
-  if (matchedBranch === null && stepDef.default) {
-    matchedBranch = "default";
+  const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
+
+  // Fall back to the default branch
+  if (matchedBranch === null) {
+    matchedBranch = caseFallbackBranch(stepDef, outEdges);
   }
 
   if (matchedBranch === null) {
@@ -355,7 +376,6 @@ async function evaluateCaseNode(
   dagRunStore.updateStepStatus(runId, stepSlug, "completed");
 
   // Mark edges: matched branch = satisfied, others = dead
-  const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
   for (const edge of outEdges) {
     const eid = edgeId(edge.from, edge.to, edge.branch);
     if (edge.branch === matchedBranch) {
