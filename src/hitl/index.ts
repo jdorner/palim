@@ -9,6 +9,7 @@
  * @module
  */
 
+export { createUserDirectory } from "./directory";
 export {
   type CompleteTaskInput,
   type CreateTaskInput,

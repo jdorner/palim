@@ -70,6 +70,8 @@ export interface HitlChange {
   type: "created" | "updated";
   /** The task after the change. */
   task: TaskRecord;
+  /** The task before the change (`updated` only), to detect who lost visibility. */
+  previous?: TaskRecord;
 }
 
 /** Error with an HTTP-style status. */
@@ -500,7 +502,7 @@ export function createHitlService(deps: HitlServiceDeps) {
       }
 
       const updated = store.get(id)!;
-      notify({ type: "updated", task: updated });
+      notify({ type: "updated", task: updated, previous: task });
       await callSource(updated, (h) => h.onCompleted && (() => h.onCompleted!(updated)));
       return toView(updated, viewer);
     },
@@ -521,7 +523,7 @@ export function createHitlService(deps: HitlServiceDeps) {
         throw new HitlError(409, `Task is already ${store.get(id)?.status ?? task.status}`);
       }
       const updated = store.get(id)!;
-      notify({ type: "updated", task: updated });
+      notify({ type: "updated", task: updated, previous: task });
       await callSource(updated, (h) => h.onCancelled && (() => h.onCancelled!(updated, reason)));
       return toView(updated, viewer);
     },
@@ -537,13 +539,13 @@ export function createHitlService(deps: HitlServiceDeps) {
      */
     reassignTask(id: string, viewer: HitlViewer, assignees: { users?: string[]; roles?: string[] }): HumanTask {
       requireManager(viewer);
-      loadVisible(id, viewer);
+      const previous = loadVisible(id, viewer);
       const resolved = resolveAssignees(assignees);
       if (!store.reassign(id, resolved, viewer.userId, now())) {
         throw new HitlError(409, `Task is already ${store.get(id)?.status ?? "closed"}`);
       }
       const updated = store.get(id)!;
-      notify({ type: "updated", task: updated });
+      notify({ type: "updated", task: updated, previous });
       return toView(updated, viewer);
     },
 
@@ -561,7 +563,7 @@ export function createHitlService(deps: HitlServiceDeps) {
       for (const task of store.listOpenBySource(kind, sourceId)) {
         if (store.finish(task.id, "cancelled", { data: reason ? { reason } : null, at: now() })) {
           cancelled++;
-          notify({ type: "updated", task: store.get(task.id)! });
+          notify({ type: "updated", task: store.get(task.id)!, previous: task });
         }
       }
       return cancelled;
@@ -574,8 +576,9 @@ export function createHitlService(deps: HitlServiceDeps) {
      * @returns True if the task was open and is now expired
      */
     expireTask(id: string): boolean {
-      if (!store.finish(id, "expired", { at: now() })) return false;
-      notify({ type: "updated", task: store.get(id)! });
+      const previous = store.get(id);
+      if (!previous || !store.finish(id, "expired", { at: now() })) return false;
+      notify({ type: "updated", task: store.get(id)!, previous });
       return true;
     },
 

@@ -52,6 +52,7 @@ The web UI is served at `http://localhost:3000` by default (configurable via `WE
 | `AUTH_ADMIN_PASSWORD`  | Seeded admin password (empty = generate + log) | -                          |
 | `AUTH_SESSION_TTL_MS`  | Login token lifetime (ms)                      | `604800000` (7 days)       |
 | `DATA_DIR`             | Directory for databases and generated content  | `<AGENT_WORK_DIR>/.palim/` |
+| `PORTAL_PUBLIC_URL`    | Public URL of the portal (deep links, hint for portal accounts) | - |
 | `TELEGRAM_BOT_TOKEN`   | Telegram bot token                             | -                          |
 | `EXT_TELEGRAM_CHAT_ID` | Default Telegram chat ID                       | -                          |
 | `EXT_TELEGRAM_MAX_IMAGE_SIZE_MB` | Max size of incoming Telegram images (MB, ≤ 20) | `20`              |
@@ -101,6 +102,7 @@ src/
 │   ├── loginThrottle.ts     # Per-IP + per-username login failure lockouts
 │   ├── chatEvents.ts        # Agent event to chat WS event mappingg
 │   ├── sessionChatMap.ts    # In-memory session-to-chat mapping for push routing
+│   ├── portalEvents.ts      # PortalEventHub: per-user SSE fan-out of HITL task changes (/api/portal/events)
 │   └── routes/
 │       ├── auth.ts          # POST /api/auth/login|logout, GET /api/auth/me, PUT /api/auth/me/locale
 │       ├── i18n.ts          # GET /api/i18n/:locale (extension translation catalogs)
@@ -112,7 +114,8 @@ src/
 │       ├── secrets.ts       # Extension secret CRUD + audit log
 │       ├── globalSecrets.ts # Global secret CRUD + audit log
 │       ├── globalVariables.ts # Global variable CRUD (plaintext, no ACL)
-│       └── sessions.ts      # GET/DELETE /api/sessions/:id/messages
+│       ├── sessions.ts      # GET/DELETE /api/sessions/:id/messages
+│       └── portal/          # /api/portal/*: tasks.ts (human task API), events.ts (SSE stream)
 ├── extensions/
 │   ├── types.ts             # Public extension API (Extension, ExtensionContext)
 │   ├── publicTypes.ts       # Public-facing type definitions for extension authors
@@ -157,6 +160,7 @@ src/
 │   ├── hitlSchema.ts        # Drizzle schema: hitl_tasks, hitl_task_assignees, hitl_task_events
 │   ├── taskStore.ts         # TaskStore: task persistence, atomic complete/cancel/expire, visibility queries
 │   ├── hitlService.ts       # createHitlService: create/list/answer tasks, source handlers, change listeners
+│   ├── directory.ts         # createUserDirectory: user/role lookups for the service, backed by UserStore
 │   └── index.ts             # Re-exports
 ├── skills/
 │   ├── skills.ts            # Skill directory loading and system prompt building
@@ -391,7 +395,7 @@ Elysia serves the built frontend as static files and exposes:
 - `GET /api/jobs/:jobId/logs` - Retrieve job logs
 - `POST /api/auth/login` - Exchange username/password for a bearer token
 - `POST /api/auth/logout` - Revoke the presented token
-- `GET /api/auth/me` - Current user (incl. `locale`) and serialized ability
+- `GET /api/auth/me` - Current user (incl. `locale`, `kind`), serialized ability, and `portalUrl`
 - `PUT /api/auth/me/locale` - Set or clear (`null`) the caller's UI language
 - `GET /api/i18n/:locale` - Translation catalogs of loaded extensions for a locale, plus their English fallbacks
 - `GET/POST/PATCH/DELETE /api/users` - User management (admin; create/update accept `locale` and `kind`; delete also removes the user's chat sessions and is refused while they still own webhooks, file watchers, or schedules)
@@ -412,6 +416,13 @@ Elysia serves the built frontend as static files and exposes:
 - `POST /api/variables` - Create global variables (409 if a key already exists)
 - `PUT /api/variables` - Upsert global variables with optional descriptions
 - `DELETE /api/variables/:key` - Remove a global variable (workflow-reference check; `confirm=true` to force)
+- `GET /api/portal/tasks` - Human tasks visible to the caller (`scope=mine|completed|all`, `status`, `limit`, `cursor`; `hitl:respond`)
+- `GET /api/portal/tasks/counts` - Open / due-soon counts of the caller's tasks
+- `GET /api/portal/tasks/:id` - Task detail with history (404 when not visible)
+- `POST /api/portal/tasks/:id/complete` - Answer a task (`outcome`, `data`, `comment`, `version`; 409 when already answered or changed, 422 invalid answer)
+- `POST /api/portal/tasks/:id/cancel` - Cancel a task (`hitl:manage`)
+- `PATCH /api/portal/tasks/:id/assignees` - Reassign a task (`hitl:manage`)
+- `GET /api/portal/events` - Server-sent events: `ready`, `task_created`, `task_updated`, `task_removed` (per-user, with badge counts)
 - `GET /api/models` - List available LLM models
 - `GET /api/models/selected` - Get currently selected model
 - `PUT /api/models/selected` - Change selected model

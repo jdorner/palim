@@ -44,6 +44,7 @@ import { deleteByRunIds as deleteSignalsByRunIds } from "@src/extensions/core/wo
 import type { EventBus } from "@src/extensions/engine/eventBus";
 import { ExtensionWatcher } from "@src/extensions/engine/extensionWatcher";
 import { ExternalDependencyResolver } from "@src/extensions/engine/externalDependencyResolver";
+import { createHitlService, createUserDirectory, TaskStore } from "@src/hitl";
 import type { AgentJob, AgentProcessorConfig, AgentProcessorResult, ChatJob } from "@src/jobs";
 import { runAgent as coreRunAgent } from "@src/jobs";
 import { buildModelConfig, detectAndSetProvider, fetchAvailableModels, getModelForIntent } from "@src/models";
@@ -251,6 +252,14 @@ export class AppBootstrap {
     // ---------------------------------------------------------------------------
     const userStore = new UserStore(getDb());
     const authService = new AuthService(userStore, { sessionTtlMs: AUTH_SESSION_TTL_MS });
+
+    // ---------------------------------------------------------------------------
+    // Initialize human tasks (HITL), answered by users in the portal
+    // ---------------------------------------------------------------------------
+    const hitlService = createHitlService({
+      store: new TaskStore(getDb()),
+      directory: createUserDirectory(userStore),
+    });
     try {
       const seed = await seedAuth({
         userStore,
@@ -383,6 +392,7 @@ export class AppBootstrap {
       variableStore,
       authService,
       userStore,
+      hitlService,
     });
 
     // Route registry backed by the runtime extension router (served via `/ext/*`),

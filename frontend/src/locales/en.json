@@ -845,6 +845,8 @@
   },
   "portalAccount": {
     "title": "This is a portal account",
-    "description": "The account {username} can only be used in the portal, where you find the tasks assigned to you. Ask an administrator for the portal address."
+    "description": "The account {username} can only be used in the portal, where you find the tasks assigned to you. Ask an administrator for the portal address.",
+    "descriptionWithLink": "The account {username} can only be used in the portal, where you find the tasks assigned to you.",
+    "openPortal": "Open the portal"
   }
 }

@@ -9,6 +9,7 @@ import { isPortalPath } from "@shared/auth";
 import { type AuthService, hashToken, type UserStore } from "@src/auth";
 import { EXT_UI_DIR } from "@src/config";
 import type { ExtensionRegistry } from "@src/extensions";
+import type { HitlService } from "@src/hitl";
 import type { AgentJob, ChatJob } from "@src/jobs";
 import { createPushService } from "@src/push";
 import type { ManagedQueuePort } from "@src/queue";
@@ -25,6 +26,7 @@ import { ExtensionRouter } from "./extensionRouter";
 import { serveExtensionUiAsset } from "./extensionUiAssets";
 import { LoginThrottle } from "./loginThrottle";
 import { QueueMonitor, WS_CLOSE_PORTAL_ACCOUNT } from "./monitor";
+import { PortalEventHub } from "./portalEvents";
 import { authRoutes } from "./routes/auth";
 import { chatRoutes } from "./routes/chat";
 import { extensionRoutes } from "./routes/extensions";
@@ -33,6 +35,7 @@ import { globalVariableRoutes } from "./routes/globalVariables";
 import { i18nRoutes } from "./routes/i18n";
 import { jobRoutes } from "./routes/jobs";
 import { modelRoutes } from "./routes/models";
+import { portalRoutes } from "./routes/portal";
 import { pushRoutes } from "./routes/push";
 import { secretRoutes } from "./routes/secrets";
 import { sessionRoutes } from "./routes/sessions";
@@ -68,6 +71,8 @@ interface WebServerDeps {
   authService?: AuthService;
   /** User store for account/role lookups (used by admin routes). */
   userStore?: UserStore;
+  /** Human task (HITL) service backing the portal API. */
+  hitlService?: HitlService;
 }
 
 /** Options for starting the web server. */
@@ -105,6 +110,9 @@ export async function createWebServer(deps: WebServerDeps) {
 
   // Create the push service with broadcast wired to the monitor
   const pushService = createPushService({ broadcastFn: (msg) => monitor.broadcast(msg) });
+  // Live task updates for the portal (portal accounts cannot use the WebSocket).
+  const portalEventHub =
+    deps.hitlService && authService ? new PortalEventHub(deps.hitlService, authService) : undefined;
   const app = new Elysia()
     .get("/health", () => "OK")
     .use(compression())
@@ -156,6 +164,12 @@ export async function createWebServer(deps: WebServerDeps) {
     .use(globalSecretRoutes(() => deps.secretVault))
     .use(globalVariableRoutes(() => deps.variableStore))
     .use(
+      portalRoutes(
+        () => deps.hitlService,
+        () => portalEventHub,
+      ),
+    )
+    .use(
       userRoutes(
         () => deps.userStore,
         () => authService,
@@ -194,7 +208,7 @@ export async function createWebServer(deps: WebServerDeps) {
       },
     });
 
-  return { app, monitor, pushMessage: pushService.pushMessage, extensionRouter };
+  return { app, monitor, pushMessage: pushService.pushMessage, extensionRouter, portalEventHub };
 }
 
 /**

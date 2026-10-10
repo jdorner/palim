@@ -845,6 +845,8 @@
   },
   "portalAccount": {
     "title": "Dies ist ein Portal-Konto",
-    "description": "Das Konto {username} kann nur im Portal verwendet werden, wo du die dir zugewiesenen Aufgaben findest. Frag eine Administratorin oder einen Administrator nach der Portal-Adresse."
+    "description": "Das Konto {username} kann nur im Portal verwendet werden, wo du die dir zugewiesenen Aufgaben findest. Frag eine Administratorin oder einen Administrator nach der Portal-Adresse.",
+    "descriptionWithLink": "Das Konto {username} kann nur im Portal verwendet werden, wo du die dir zugewiesenen Aufgaben findest.",
+    "openPortal": "Portal öffnen"
   }
 }

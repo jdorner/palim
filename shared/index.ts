@@ -53,6 +53,7 @@ export type {
   HumanTaskPriority,
   HumanTaskStatus,
   HumanTaskUserRef,
+  PortalEvent,
 } from "./portal";
 export { DEFAULT_HUMAN_TASK_OUTCOMES, HUMAN_TASK_PRIORITIES, HUMAN_TASK_STATUSES } from "./portal";
 export type { ScheduleEntry } from "./schedules";

@@ -89,6 +89,28 @@ const RULES: readonly AuthorizationRule[] = [
     subject: "Extension",
   },
 
+  // Portal human tasks: cancelling and reassigning need hitl:manage; every
+  // other portal call (reads included) needs hitl:respond. Which tasks a caller
+  // may see is decided by the HITL service.
+  {
+    methods: ["POST"],
+    pattern: /^\/api\/portal\/tasks\/[^/]+\/cancel$/,
+    action: "manage",
+    subject: "HumanTask",
+  },
+  {
+    methods: ["PATCH"],
+    pattern: /^\/api\/portal\/tasks\/[^/]+\/assignees$/,
+    action: "manage",
+    subject: "HumanTask",
+  },
+  {
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+    pattern: /^\/api\/portal(\/|$)/,
+    action: "update",
+    subject: "HumanTask",
+  },
+
   // --- Extension routes (/ext/*). Anything unlisted hits EXT_FALLBACK_RULE. ---
 
   // Workflows: running needs workflows:write; definitions are shared, so

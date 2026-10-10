@@ -183,10 +183,12 @@ A portal account is fenced in at the authentication layer, whatever its roles gr
 
 - It may only call `/api/auth/*`, `/api/portal/*` and `/api/i18n/*`. Every other `/api/` and `/ext/` request answers `403`, reads included.
 - It gets none of the open reads that operator accounts have.
-- It can't open the WebSocket (`4003`); the portal has its own event stream.
+- It can't open the WebSocket (`4003`); the portal has its own event stream, `GET /api/portal/events`.
 - It may only hold roles whose permissions are all `hitl:*` (for example the built-in `portal-user` role), never `admin`. Assigning such a role, switching an account with other roles to the portal kind, or adding other permissions to a role that a portal account holds is refused with `409`.
 
-If a portal account signs in to the Palim web interface, it only sees a notice to use the portal.
+If a portal account signs in to the Palim web interface, it only sees a notice to use the portal, with a link when `PORTAL_PUBLIC_URL` is set.
+
+The portal API itself needs `hitl:respond` for everything (reads included) and `hitl:manage` to cancel or reassign tasks. Which tasks a caller sees is decided per task: tasks assigned to them directly or through one of their roles, tasks they answered, and with `hitl:manage` all tasks. A task the caller can't see answers `404`, like a missing one. The event stream only delivers changes of tasks the caller can see, and re-checks the caller's token on every event.
 
 ### Trigger ownership
 

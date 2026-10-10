@@ -44,8 +44,11 @@ const DEFAULT_THRESHOLD = 1024;
 const DEFAULT_MAX_ENTRIES = 256;
 const DEFAULT_MAX_SIZE = 1024 * 1024;
 
-/** Content types that should not be compressed (already compressed or binary). */
-const INCOMPRESSIBLE_TYPES = /^(image|audio|video|font)\//;
+/**
+ * Content types that should not be compressed: already compressed or binary,
+ * and `text/event-stream` (an open-ended stream; reading it whole would never finish).
+ */
+const INCOMPRESSIBLE_TYPES = /^(image|audio|video|font)\/|^text\/event-stream/;
 const INCOMPRESSIBLE_SUFFIXES = [
   "woff",
   "woff2",

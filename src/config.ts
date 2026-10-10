@@ -126,3 +126,20 @@ export const AUTH_SESSION_TTL_MS: number = (() => {
   );
   return ttl;
 })();
+
+// ---------------------------------------------------------------------------
+// Portal (end-user frontend)
+// ---------------------------------------------------------------------------
+
+/**
+ * Public base URL of the portal (e.g. "https://tasks.example.com"), used for
+ * deep links in notifications and for the hint shown to portal accounts that
+ * sign in to the operator UI. Empty when not configured. A trailing slash is
+ * removed.
+ */
+export const PORTAL_PUBLIC_URL: string = (() => {
+  const raw = process.env.PORTAL_PUBLIC_URL?.trim() ?? "";
+  if (!raw) return "";
+  assert(/^https?:\/\/[^\s]+$/.test(raw), `Invalid PORTAL_PUBLIC_URL: "${raw}" (must be an http(s) URL)`);
+  return raw.replace(/\/+$/, "");
+})();

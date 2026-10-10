@@ -136,3 +136,19 @@ export interface HumanTaskCounts {
   /** Open tasks the viewer may answer that are due within 24 hours or overdue. */
   dueSoon: number;
 }
+
+/**
+ * A server-sent event on `GET /api/portal/events`. The SSE event name is the
+ * `type`; the data line is this object as JSON. Every event carries the
+ * viewer's current badge counts.
+ *
+ * - `ready`: sent once after connecting.
+ * - `task_created`: a task became visible to the viewer (new, or reassigned to them).
+ * - `task_updated`: a visible task changed (answered, cancelled, expired, reassigned).
+ * - `task_removed`: a task the viewer could see is no longer visible to them.
+ */
+export type PortalEvent =
+  | { type: "ready"; counts: HumanTaskCounts }
+  | { type: "task_created"; task: HumanTask; counts: HumanTaskCounts }
+  | { type: "task_updated"; task: HumanTask; counts: HumanTaskCounts }
+  | { type: "task_removed"; taskId: string; counts: HumanTaskCounts };

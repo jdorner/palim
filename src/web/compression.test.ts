@@ -72,4 +72,25 @@ describe("compression", () => {
     expect(res.headers.get("content-encoding")).toBeNull();
     expect(new Uint8Array(await res.arrayBuffer())).toEqual(bytes);
   });
+
+  test("passes event streams through without reading them to the end", async () => {
+    const encoder = new TextEncoder();
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        // Large enough to pass the threshold; the stream is never closed.
+        controller.enqueue(encoder.encode(`event: ready\ndata: ${"x".repeat(2048)}\n\n`));
+      },
+    });
+    const app = new Elysia()
+      .use(compression())
+      .get("/events", () => new Response(stream, { headers: { "content-type": "text/event-stream" } }));
+
+    const res = await app.handle(new Request("http://localhost/events", { headers: { "accept-encoding": "gzip" } }));
+
+    expect(res.headers.get("content-encoding")).toBeNull();
+    const reader = res.body!.getReader();
+    const { value } = await reader.read();
+    expect(new TextDecoder().decode(value)).toStartWith("event: ready");
+    await reader.cancel();
+  });
 });
