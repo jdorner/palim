@@ -44,7 +44,7 @@ export const workflowSignals = sqliteTable(
      * Delivery scope: `broadcast` signals can be matched by `emit` steps,
      * `instance` signals only by direct delivery (signal ID or run + step).
      */
-    scope: text("scope").notNull().default("broadcast"),
+    scope: text("scope").notNull().default("instance"),
     /** Correlation key resolved at registration (null = matches any emit of the event). */
     correlationKey: text("correlation_key"),
     /** The node type that created the signal (`waitFor`, later `humanTask`). */

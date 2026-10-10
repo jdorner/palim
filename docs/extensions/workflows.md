@@ -75,13 +75,12 @@ The `http-request` step type supports additional options: custom `headers`, `tim
 Each `waitFor` step that is reached creates a signal record for exactly that step of that run. How it can be resumed:
 
 - **Direct delivery** reaches one specific waiting step: by run and step (`POST /ext/workflows/runs/:runId/steps/:slug/signal`) or by signal ID (`POST /ext/workflows/signals/:signalId`). Steps can hand out their own address with `{{run.id}}`, e.g. as a callback URL in an `http-request` step.
-- **`emit`** reaches every waiting step whose event matches, across runs. Narrow it down with:
-  - `scope: "instance"` on the `waitFor` - the wait ignores `emit` entirely and only accepts direct delivery
+- **`emit`** reaches waiting steps that opt in with `scope: "broadcast"` (the default `instance` scope ignores `emit` entirely) and whose event matches, across runs. Narrow it down with:
   - `correlate` on both steps - a `waitFor` with a correlation key (e.g. `"{{trigger.payload.orderId}}"`, resolved when the wait is reached) only accepts an `emit` with the same key; a `waitFor` without a key accepts any `emit` of the event
   - `targetRun` on the `emit` - only waits of that run (e.g. `"{{steps.start-child.result.workflowRunId}}"`)
 
 ```json5
-"await-payment": { "type": "waitFor", "event": "order.paid", "correlate": "{{trigger.payload.orderId}}", "timeout": 86400000 },
+"await-payment": { "type": "waitFor", "event": "order.paid", "scope": "broadcast", "correlate": "{{trigger.payload.orderId}}", "timeout": 86400000 },
 // in another workflow:
 "payment-done": { "type": "emit", "event": "order.paid", "correlate": "{{trigger.payload.orderId}}", "payload": "{{trigger.payload}}" }
 ```

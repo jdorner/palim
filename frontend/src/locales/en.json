@@ -67,7 +67,7 @@
       },
       "scope": {
         "title": "Scope",
-        "description": "broadcast: resumed by emit steps and direct delivery. instance: only by direct delivery to this run (signal ID or run + step)."
+        "description": "instance: only by direct delivery to this run (signal ID or run + step). broadcast: also resumed by emit steps."
       },
       "correlate": {
         "title": "Correlation Key",

@@ -54,9 +54,9 @@ export const WaitForConfigSchema: Record<string, unknown> = {
     scope: {
       title: "Scope",
       description:
-        "broadcast: resumed by emit steps and direct delivery. instance: only by direct delivery to this run (signal ID or run + step).",
-      anyOf: [{ const: "broadcast" }, { const: "instance" }],
-      default: "broadcast",
+        "instance: only by direct delivery to this run (signal ID or run + step). broadcast: also resumed by emit steps.",
+      anyOf: [{ const: "instance" }, { const: "broadcast" }],
+      default: "instance",
     },
     correlate: {
       type: "string",

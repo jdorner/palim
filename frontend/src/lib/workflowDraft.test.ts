@@ -233,19 +233,19 @@ describe("signal scoping round-trip", () => {
       slug: "wait",
       type: "waitFor",
       event: "order.paid",
-      scope: "instance",
+      scope: "broadcast",
       correlate: "{{trigger.payload.orderId}}",
     });
     expect(serializeStep(draft)).toEqual({
       type: "waitFor",
       event: "order.paid",
-      scope: "instance",
+      scope: "broadcast",
       correlate: "{{trigger.payload.orderId}}",
     });
   });
 
-  test("waitFor omits the default broadcast scope and an empty correlate", () => {
-    const draft = toStepDraft({ id: "w2", slug: "wait", type: "waitFor", event: "go", scope: "broadcast" });
+  test("waitFor omits the default instance scope and an empty correlate", () => {
+    const draft = toStepDraft({ id: "w2", slug: "wait", type: "waitFor", event: "go", scope: "instance" });
     draft.correlate = "";
     expect(serializeStep(draft)).toEqual({ type: "waitFor", event: "go" });
   });

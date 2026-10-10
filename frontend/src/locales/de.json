@@ -67,7 +67,7 @@
       },
       "scope": {
         "title": "Geltungsbereich",
-        "description": "broadcast: wird durch Emit-Schritte und direkte Zustellung fortgesetzt. instance: nur durch direkte Zustellung an diesen Lauf (Signal-ID oder Lauf + Schritt)."
+        "description": "instance: nur durch direkte Zustellung an diesen Lauf (Signal-ID oder Lauf + Schritt). broadcast: zusätzlich durch Emit-Schritte fortsetzbar."
       },
       "correlate": {
         "title": "Korrelationsschlüssel",

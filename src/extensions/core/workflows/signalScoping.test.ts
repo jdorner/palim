@@ -71,8 +71,8 @@ const twoWaitsDef: DagWorkflowDefinition = {
   trigger: { type: "manual" },
   steps: {
     start: { type: "agent", prompt: "start" },
-    left: { type: "waitFor", event: "go" },
-    right: { type: "waitFor", event: "go" },
+    left: { type: "waitFor", event: "go", scope: "broadcast" },
+    right: { type: "waitFor", event: "go", scope: "broadcast" },
     afterLeft: { type: "agent", prompt: "left done" },
     afterRight: { type: "agent", prompt: "right done" },
   },
@@ -90,7 +90,7 @@ const correlatedDef: DagWorkflowDefinition = {
   trigger: { type: "manual" },
   steps: {
     start: { type: "agent", prompt: "start" },
-    paid: { type: "waitFor", event: "order.paid", correlate: "{{trigger.payload.orderId}}" },
+    paid: { type: "waitFor", event: "order.paid", scope: "broadcast", correlate: "{{trigger.payload.orderId}}" },
     ship: { type: "agent", prompt: "ship" },
   },
   edges: [
@@ -258,11 +258,11 @@ describe("waitFor correlation and scope", () => {
     expect(signalStore.listWaitingForRun(run.id)).toHaveLength(0);
   });
 
-  test("stores the instance scope", async () => {
+  test("defaults to the instance scope", async () => {
     const def: DagWorkflowDefinition = {
       ...twoWaitsDef,
       name: "instance-waits",
-      steps: { ...twoWaitsDef.steps, left: { type: "waitFor", event: "go", scope: "instance" } },
+      steps: { ...twoWaitsDef.steps, left: { type: "waitFor", event: "go" } },
     };
     const deps = createTestDeps([def]);
     const run = await startAndPark(def, deps);
@@ -309,11 +309,11 @@ describe("emit scoping", () => {
     expect(dagRunStore.get(runB.id)!.stepStatuses.right).toBe("completed");
   });
 
-  test("instance-scoped waits are never reached by emit", async () => {
+  test("instance-scoped waits (the default) are never reached by emit", async () => {
     const def: DagWorkflowDefinition = {
       ...twoWaitsDef,
       name: "instance-emit",
-      steps: { ...twoWaitsDef.steps, left: { type: "waitFor", event: "go", scope: "instance" } },
+      steps: { ...twoWaitsDef.steps, left: { type: "waitFor", event: "go" } },
     };
     const deps = createTestDeps([def]);
     const run = await startAndPark(def, deps);
@@ -326,7 +326,7 @@ describe("emit scoping", () => {
     expect(after.stepStatuses.right).toBe("completed");
   });
 
-  test("an uncorrelated broadcast emit still reaches every unkeyed wait", async () => {
+  test("an uncorrelated emit reaches every unkeyed broadcast wait", async () => {
     const deps = createTestDeps([twoWaitsDef]);
     const runA = await startAndPark(twoWaitsDef, deps);
     const runB = await startAndPark(twoWaitsDef, deps);
@@ -344,7 +344,7 @@ describe("emit scoping", () => {
       trigger: { type: "manual" },
       steps: {
         start: { type: "agent", prompt: "start" },
-        wait: { type: "waitFor", event: "typed", inputSchema: { type: "object", required: ["n"] } },
+        wait: { type: "waitFor", event: "typed", scope: "broadcast", inputSchema: { type: "object", required: ["n"] } },
       },
       edges: [{ from: "start", to: "wait" }],
     };

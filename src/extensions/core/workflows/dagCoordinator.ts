@@ -1145,7 +1145,7 @@ async function registerWaitForNode(
       event: stepDef.event,
       timeoutMs: stepDef.timeout ?? null,
       inputSchema: stepDef.inputSchema ?? null,
-      scope: stepDef.scope ?? "broadcast",
+      scope: stepDef.scope ?? "instance",
       correlationKey,
       source: "waitFor",
     });

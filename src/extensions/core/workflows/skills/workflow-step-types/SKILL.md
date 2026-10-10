@@ -311,10 +311,10 @@ Pauses its own branch and releases the worker slot until an external signal is d
     },
     "required": ["approver"],
   },
-  // Optional: who may resume the wait (default "broadcast")
-  //   "broadcast" - emit steps and direct delivery
+  // Optional: who may resume the wait (default "instance")
   //   "instance"  - only direct delivery to this run (see below)
-  "scope": "instance",
+  //   "broadcast" - additionally emit steps (from other workflows)
+  "scope": "broadcast",
   // Optional correlation key, resolved when the wait is reached.
   // Only emits carrying the same key resume this wait.
   "correlate": "{{trigger.payload.orderId}}",
@@ -369,9 +369,9 @@ Sends a named signal to workflows currently waiting for that event. The emitting
 ```
 
 Which waits an emit resumes:
-- only `waitFor` steps with `scope: "broadcast"` (the default); `instance` waits are never reached by emit
+- only `waitFor` steps with `scope: "broadcast"`; waits with the default `instance` scope are never reached by emit
 - a wait with a `correlate` key only when the emit carries the same key; a wait without a key on any emit of the event
 - with `targetRun`, only waits of that run
 - never waits of the emitting run itself
 
-Without `correlate` or `targetRun`, every unkeyed wait on the event, in every run, is resumed. To address a single workflow instance, use a correlation key, `targetRun`, or direct delivery.
+Without `correlate` or `targetRun`, every unkeyed broadcast wait on the event, in every run, is resumed. To address a single workflow instance, use a correlation key, `targetRun`, or direct delivery.

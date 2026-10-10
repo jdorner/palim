@@ -84,7 +84,7 @@ export interface CreateSignalInput {
   inputSchema: object | null;
   /** Timeout duration in ms (null = no timeout). */
   timeoutMs: number | null;
-  /** Delivery scope (default `broadcast`). */
+  /** Delivery scope (default `instance`). */
   scope?: SignalScope;
   /** Correlation key (default null). */
   correlationKey?: string | null;
@@ -170,7 +170,7 @@ function rowToSignal(row: typeof workflowSignals.$inferSelect): SignalRecord {
 export function create(record: CreateSignalInput): SignalRecord {
   const now = Date.now();
   const id = nanoid();
-  const scope = record.scope ?? "broadcast";
+  const scope = record.scope ?? "instance";
   const correlationKey = record.correlationKey ?? null;
   const source = record.source ?? "waitFor";
 

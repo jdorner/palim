@@ -140,9 +140,9 @@ export type ConditionDef = Static<typeof ConditionSchema>;
 const EventNamePattern = "^[a-z][a-z0-9._-]*$";
 
 /**
- * Delivery scope of a `waitFor` signal: `broadcast` (default) can be resumed by
- * `emit` steps and direct delivery, `instance` only by direct delivery (signal
- * ID or run + step).
+ * Delivery scope of a `waitFor` signal: `instance` (default) can only be resumed
+ * by direct delivery (signal ID or run + step), `broadcast` additionally by
+ * `emit` steps.
  */
 const SignalScopeSchema = Type.Union([Type.Literal("broadcast"), Type.Literal("instance")]);
 
@@ -162,7 +162,7 @@ export const WaitForStepSchema = Type.Object(
     timeout: Type.Optional(Type.Integer({ minimum: 1000, maximum: 604800000 })),
     /** JSON Schema for validating the incoming signal payload. */
     inputSchema: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
-    /** Delivery scope (default `broadcast`). */
+    /** Delivery scope (default `instance`). */
     scope: Type.Optional(SignalScopeSchema),
     /** Correlation key template; only emits with an equal key resume the wait. */
     correlate: Type.Optional(CorrelateSchema),
@@ -524,7 +524,7 @@ export interface DagWaitForStep {
   event: string;
   timeout?: number;
   inputSchema?: Record<string, unknown>;
-  /** Delivery scope (default `broadcast`); `instance` waits ignore `emit`. */
+  /** Delivery scope (default `instance`); only `broadcast` waits can be resumed by `emit`. */
   scope?: "broadcast" | "instance";
   /** Correlation key template, resolved when the wait is registered. */
   correlate?: string;

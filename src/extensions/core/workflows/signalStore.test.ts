@@ -457,10 +457,10 @@ describe("Signal Store scoping", () => {
     createWorkflowTestDb();
   });
 
-  test("create defaults to broadcast scope, no correlation key, waitFor source", () => {
+  test("create defaults to instance scope, no correlation key, waitFor source", () => {
     const signal = createMinimalSignal();
 
-    expect(signal.scope).toBe("broadcast");
+    expect(signal.scope).toBe("instance");
     expect(signal.correlationKey).toBeNull();
     expect(signal.source).toBe("waitFor");
     expect(getById(signal.id)).toEqual(signal);
@@ -513,15 +513,31 @@ describe("Signal Store scoping", () => {
 
     test("never matches instance-scoped signals", () => {
       create({ runId: "r", stepSlug: "inst", event: "go", inputSchema: null, timeoutMs: null, scope: "instance" });
-      create({ runId: "r", stepSlug: "bc", event: "go", inputSchema: null, timeoutMs: null });
+      create({ runId: "r", stepSlug: "bc", event: "go", inputSchema: null, timeoutMs: null, scope: "broadcast" });
 
       expect(slugs("go")).toEqual(["bc"]);
     });
 
     test("a keyed wait only matches an emit with the same key", () => {
-      create({ runId: "r1", stepSlug: "k1", event: "go", inputSchema: null, timeoutMs: null, correlationKey: "A" });
-      create({ runId: "r2", stepSlug: "k2", event: "go", inputSchema: null, timeoutMs: null, correlationKey: "B" });
-      create({ runId: "r3", stepSlug: "open", event: "go", inputSchema: null, timeoutMs: null });
+      create({
+        runId: "r1",
+        stepSlug: "k1",
+        event: "go",
+        inputSchema: null,
+        timeoutMs: null,
+        correlationKey: "A",
+        scope: "broadcast",
+      });
+      create({
+        runId: "r2",
+        stepSlug: "k2",
+        event: "go",
+        inputSchema: null,
+        timeoutMs: null,
+        correlationKey: "B",
+        scope: "broadcast",
+      });
+      create({ runId: "r3", stepSlug: "open", event: "go", inputSchema: null, timeoutMs: null, scope: "broadcast" });
 
       expect(slugs("go", { correlationKey: "A" })).toEqual(["k1", "open"]);
       expect(slugs("go", { correlationKey: "C" })).toEqual(["open"]);
@@ -530,14 +546,21 @@ describe("Signal Store scoping", () => {
     });
 
     test("narrows to a single run", () => {
-      create({ runId: "r1", stepSlug: "a", event: "go", inputSchema: null, timeoutMs: null });
-      create({ runId: "r2", stepSlug: "b", event: "go", inputSchema: null, timeoutMs: null });
+      create({ runId: "r1", stepSlug: "a", event: "go", inputSchema: null, timeoutMs: null, scope: "broadcast" });
+      create({ runId: "r2", stepSlug: "b", event: "go", inputSchema: null, timeoutMs: null, scope: "broadcast" });
 
       expect(slugs("go", { runId: "r2" })).toEqual(["b"]);
     });
 
     test("ignores signals that are no longer waiting", () => {
-      const s = create({ runId: "r1", stepSlug: "a", event: "go", inputSchema: null, timeoutMs: null });
+      const s = create({
+        runId: "r1",
+        stepSlug: "a",
+        event: "go",
+        inputSchema: null,
+        timeoutMs: null,
+        scope: "broadcast",
+      });
       markReceived(s.id, null);
 
       expect(slugs("go")).toEqual([]);
