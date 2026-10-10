@@ -153,6 +153,11 @@ src/
 │   ├── variablesSchema.ts   # Drizzle schema for global_variables table
 │   ├── types.ts             # GlobalVariableEntry re-export for backend use
 │   └── index.ts             # Re-exports
+├── hitl/
+│   ├── hitlSchema.ts        # Drizzle schema: hitl_tasks, hitl_task_assignees, hitl_task_events
+│   ├── taskStore.ts         # TaskStore: task persistence, atomic complete/cancel/expire, visibility queries
+│   ├── hitlService.ts       # createHitlService: create/list/answer tasks, source handlers, change listeners
+│   └── index.ts             # Re-exports
 ├── skills/
 │   ├── skills.ts            # Skill directory loading and system prompt building
 │   ├── frontmatter.ts       # YAML frontmatter parsing for skill markdown
@@ -181,6 +186,7 @@ shared/                      # Types + pure helpers shared between backend and f
 ├── i18n.ts                  # Pure i18n runtime: SUPPORTED_LOCALES, createTranslator (fallback, {param}, plurals), createFormatters, resolveLocale
 ├── jobs.ts                  # JobEntry, LogEntry
 ├── models.ts                # AvailableModel, ModelIntent, SelectedModelResponse, MODEL_INTENTS
+├── portal.ts                # Portal wire types: HumanTask, HumanTaskDetail, HumanTaskCounts, outcomes, statuses
 ├── schedules.ts             # ScheduleEntry
 ├── variables.ts             # GlobalVariableEntry
 ├── websocket.ts             # WebSocketMessage, ApprovalRequestEvent, PushMessageEvent

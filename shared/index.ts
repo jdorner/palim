@@ -41,6 +41,20 @@ export {
 export type { JobEntry, LogEntry } from "./jobs";
 export type { AvailableModel, ModelIntent, SelectedModelResponse } from "./models";
 export { MODEL_INTENTS } from "./models";
+export type {
+  HumanTask,
+  HumanTaskCompletion,
+  HumanTaskCounts,
+  HumanTaskDetail,
+  HumanTaskEventKind,
+  HumanTaskHistoryEntry,
+  HumanTaskOutcome,
+  HumanTaskOutcomeStyle,
+  HumanTaskPriority,
+  HumanTaskStatus,
+  HumanTaskUserRef,
+} from "./portal";
+export { DEFAULT_HUMAN_TASK_OUTCOMES, HUMAN_TASK_PRIORITIES, HUMAN_TASK_STATUSES } from "./portal";
 export type { ScheduleEntry } from "./schedules";
 export type { TemplateFunctionMeta } from "./templateFunctionMeta";
 export { TEMPLATE_FUNCTION_META, TEMPLATE_FUNCTION_NAME_LIST } from "./templateFunctionMeta";

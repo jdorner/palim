@@ -106,6 +106,13 @@
       "when": 1790760200000,
       "tag": "0015_signal-scoping",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "6",
+      "when": 1790760300000,
+      "tag": "0016_add-hitl",
+      "breakpoints": true
     }
   ]
 }
