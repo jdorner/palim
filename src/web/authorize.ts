@@ -94,12 +94,14 @@ const RULES: readonly AuthorizationRule[] = [
   // Workflows: running needs workflows:write; definitions are shared, so
   // editing them needs workflows:manage.
   { methods: ["POST"], pattern: /^\/ext\/workflows\/run\/[^/]+$/, action: "create", subject: "WorkflowRun" },
+  // Signal delivery: by run + event, by run + step, or by signal ID.
   {
     methods: ["POST"],
-    pattern: /^\/ext\/workflows\/runs\/[^/]+\/signal\/[^/]+$/,
+    pattern: /^\/ext\/workflows\/runs\/[^/]+\/(signal\/[^/]+|steps\/[^/]+\/signal)$/,
     action: "update",
     subject: "WorkflowRun",
   },
+  { methods: ["POST"], pattern: /^\/ext\/workflows\/signals\/[^/]+$/, action: "update", subject: "WorkflowRun" },
   { methods: ["DELETE"], pattern: /^\/ext\/workflows\/runs\/[^/]+$/, action: "delete", subject: "WorkflowRun" },
   { methods: ["POST"], pattern: /^\/ext\/workflows\/meta\/validate$/, action: "read", subject: "Workflow" },
   { methods: WRITE_METHODS, pattern: /^\/ext\/workflows(\/|$)/, action: "manage", subject: "Workflow" },

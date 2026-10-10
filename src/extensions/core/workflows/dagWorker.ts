@@ -97,6 +97,7 @@ async function buildDagTemplateContext(data: DagStepJobData, deps: DagStepWorker
     stepResults,
     stepConfigs: data.allStepDefs,
     workflowName,
+    run: run ? dagRunStore.toRunTemplateInfo(run) : undefined,
     secretStore,
     variableStore,
     iterationContext,

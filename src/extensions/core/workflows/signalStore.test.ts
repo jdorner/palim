@@ -9,7 +9,23 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createWorkflowTestDb } from "@src/test/db";
-import { create, deleteByRunIds, getAllWaiting, getWaiting, markReceived, markTimedOut } from "./signalStore";
+import {
+  create,
+  deleteByRunIds,
+  findBroadcastMatches,
+  getAllWaiting,
+  getById,
+  getWaitingForStep,
+  listWaitingForRun,
+  listWaitingForRunEvent,
+  markReceived,
+  markTimedOut,
+} from "./signalStore";
+
+/** Helper: the first waiting signal of a run for an event (null if none). */
+function getWaiting(runId: string, event: string) {
+  return listWaitingForRunEvent(runId, event)[0] ?? null;
+}
 
 /** Helper: creates a minimal signal record for testing. */
 function createMinimalSignal(overrides: Partial<Parameters<typeof create>[0]> = {}) {
@@ -432,6 +448,99 @@ describe("Signal Store", () => {
 
       // Both should be gone (received and waiting)
       expect(getAllWaiting().filter((s) => s.runId === "run-mixed")).toHaveLength(0);
+    });
+  });
+});
+
+describe("Signal Store scoping", () => {
+  beforeEach(() => {
+    createWorkflowTestDb();
+  });
+
+  test("create defaults to broadcast scope, no correlation key, waitFor source", () => {
+    const signal = createMinimalSignal();
+
+    expect(signal.scope).toBe("broadcast");
+    expect(signal.correlationKey).toBeNull();
+    expect(signal.source).toBe("waitFor");
+    expect(getById(signal.id)).toEqual(signal);
+  });
+
+  test("getById returns null for an unknown ID", () => {
+    expect(getById("nope")).toBeNull();
+  });
+
+  test("getWaitingForStep addresses one step of one run", () => {
+    const a = create({ runId: "run-1", stepSlug: "a", event: "go", inputSchema: null, timeoutMs: null });
+    create({ runId: "run-1", stepSlug: "b", event: "go", inputSchema: null, timeoutMs: null });
+    create({ runId: "run-2", stepSlug: "a", event: "go", inputSchema: null, timeoutMs: null });
+
+    expect(getWaitingForStep("run-1", "a")?.id).toBe(a.id);
+    markReceived(a.id, null);
+    expect(getWaitingForStep("run-1", "a")).toBeNull();
+  });
+
+  test("listWaitingForRunEvent returns every step of a run waiting on the event", () => {
+    create({ runId: "run-1", stepSlug: "a", event: "go", inputSchema: null, timeoutMs: null });
+    create({ runId: "run-1", stepSlug: "b", event: "go", inputSchema: null, timeoutMs: null });
+    create({ runId: "run-1", stepSlug: "c", event: "other", inputSchema: null, timeoutMs: null });
+
+    expect(
+      listWaitingForRunEvent("run-1", "go")
+        .map((s) => s.stepSlug)
+        .sort(),
+    ).toEqual(["a", "b"]);
+    expect(listWaitingForRun("run-1")).toHaveLength(3);
+  });
+
+  test("markReceived and markTimedOut report whether they claimed the signal", () => {
+    const received = createMinimalSignal({ stepSlug: "r" });
+    expect(markReceived(received.id, { ok: true })).toBe(true);
+    expect(markReceived(received.id, { ok: false })).toBe(false);
+    expect(markTimedOut(received.id)).toBe(false);
+
+    const timedOut = createMinimalSignal({ stepSlug: "t" });
+    expect(markTimedOut(timedOut.id)).toBe(true);
+    expect(markReceived(timedOut.id, null)).toBe(false);
+  });
+
+  describe("findBroadcastMatches", () => {
+    function slugs(event: string, filter?: Parameters<typeof findBroadcastMatches>[1]) {
+      return findBroadcastMatches(event, filter)
+        .map((s) => s.stepSlug)
+        .sort();
+    }
+
+    test("never matches instance-scoped signals", () => {
+      create({ runId: "r", stepSlug: "inst", event: "go", inputSchema: null, timeoutMs: null, scope: "instance" });
+      create({ runId: "r", stepSlug: "bc", event: "go", inputSchema: null, timeoutMs: null });
+
+      expect(slugs("go")).toEqual(["bc"]);
+    });
+
+    test("a keyed wait only matches an emit with the same key", () => {
+      create({ runId: "r1", stepSlug: "k1", event: "go", inputSchema: null, timeoutMs: null, correlationKey: "A" });
+      create({ runId: "r2", stepSlug: "k2", event: "go", inputSchema: null, timeoutMs: null, correlationKey: "B" });
+      create({ runId: "r3", stepSlug: "open", event: "go", inputSchema: null, timeoutMs: null });
+
+      expect(slugs("go", { correlationKey: "A" })).toEqual(["k1", "open"]);
+      expect(slugs("go", { correlationKey: "C" })).toEqual(["open"]);
+      // An emit without a key reaches only unkeyed waits.
+      expect(slugs("go")).toEqual(["open"]);
+    });
+
+    test("narrows to a single run", () => {
+      create({ runId: "r1", stepSlug: "a", event: "go", inputSchema: null, timeoutMs: null });
+      create({ runId: "r2", stepSlug: "b", event: "go", inputSchema: null, timeoutMs: null });
+
+      expect(slugs("go", { runId: "r2" })).toEqual(["b"]);
+    });
+
+    test("ignores signals that are no longer waiting", () => {
+      const s = create({ runId: "r1", stepSlug: "a", event: "go", inputSchema: null, timeoutMs: null });
+      markReceived(s.id, null);
+
+      expect(slugs("go")).toEqual([]);
     });
   });
 });

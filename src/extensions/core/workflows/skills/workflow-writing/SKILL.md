@@ -152,6 +152,7 @@ Use inside `prompt`, `url`, `body`, and control flow `ref`/`match`/`payload` fie
 - `{{item}}` - current array element (inside an iterator body; name configurable via `as`)
 - `{{item.field}}` - dot-path into the current element
 - `{{itemIndex}}` - zero-based iteration index (inside an iterator body)
+- `{{run.id}}` / `{{run.workflow}}` / `{{run.createdBy}}` - the current run's ID, workflow name, and creator's user ID (e.g. to give an external system a callback address for a `waitFor` step)
 - `{{env.VAR_NAME}}` - environment variable value
 - `{{secret.SECRET_NAME}}` - encrypted secret (decrypted at access, ACL-checked)
 

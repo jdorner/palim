@@ -5,8 +5,9 @@
  * `waitFor` node. Returns the event name and delivery count.
  *
  * Registered as a `StepTypeHandler` by the workflows extension. When executed,
- * it queries the Signal Store for runs waiting on the resolved event and resumes
- * each via the DAG coordinator's {@link resumeWaitForNode}.
+ * it queries the Signal Store for `broadcast` signals waiting on the resolved
+ * event, narrowed by an optional correlation key and target run, and delivers
+ * to each through {@link deliverSignal}. `instance` signals are never reached.
  *
  * @module
  */
@@ -14,9 +15,8 @@
 import type { StepExecutionContext, StepTypeHandler } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 import type { DagCoordinatorDeps } from "./dagCoordinator";
-import { resumeWaitForNode } from "./dagCoordinator";
+import { deliverSignal } from "./signalDelivery";
 import * as signalStore from "./signalStore";
-import * as signalTimers from "./signalTimers";
 
 /** Dependencies injected into the DAG emit handler factory. */
 export interface DagEmitHandlerDeps {
@@ -36,6 +36,19 @@ const EmitStepConfigSchema = Type.Object({
     Type.String({
       title: "Payload",
       description: "Optional payload template expression delivered to waiting runs.",
+    }),
+  ),
+  correlate: Type.Optional(
+    Type.String({
+      title: "Correlation Key",
+      description:
+        "Only resume waits whose correlation key equals this value (waits without a key are still resumed). Supports {{template}} expressions.",
+    }),
+  ),
+  targetRun: Type.Optional(
+    Type.String({
+      title: "Target Run",
+      description: "Only resume waits of this workflow run ID. Supports {{template}} expressions.",
     }),
   ),
 });
@@ -63,35 +76,34 @@ export function createDagEmitHandler(deps: DagEmitHandlerDeps): StepTypeHandler 
     async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<EmitStepResult> {
       const eventTemplate = stepDef.event as string;
       const payloadTemplate = stepDef.payload as string | undefined;
+      const correlateTemplate = stepDef.correlate as string | undefined;
+      const targetRunTemplate = stepDef.targetRun as string | undefined;
       const runId = ctx.workflowRunId;
 
-      // Resolve the event name template expression
-      const { resolved: resolvedEvent, warnings: eventWarnings } = await ctx.resolveTemplate(eventTemplate);
-      for (const w of eventWarnings) {
-        await ctx.jobLog(`Warning (event): ${w}`);
+      /**
+       * Resolves a template field, logging warnings and failing the step when
+       * any expression stays unresolved.
+       */
+      async function resolveRequired(template: string, field: string): Promise<string> {
+        const { resolved, warnings } = await ctx.resolveTemplate(template);
+        for (const w of warnings) {
+          await ctx.jobLog(`Warning (${field}): ${w}`);
+        }
+        const unresolvable =
+          warnings.some((w) => w.includes("Unresolvable") || w.includes("Unknown step slug")) ||
+          resolved.includes("{{");
+        if (unresolvable) {
+          throw new Error(`Template resolution failed for emit ${field}: unresolvable expression in "${template}"`);
+        }
+        return resolved;
       }
-      const hasUnresolvableEvent =
-        eventWarnings.some((w) => w.includes("Unresolvable") || w.includes("Unknown step slug")) ||
-        resolvedEvent.includes("{{");
-      if (hasUnresolvableEvent) {
-        throw new Error(`Template resolution failed for emit event: unresolvable expression in "${eventTemplate}"`);
-      }
+
+      const resolvedEvent = await resolveRequired(eventTemplate, "event");
 
       // Resolve the optional payload template expression
       let resolvedPayload: unknown = null;
       if (payloadTemplate) {
-        const { resolved, warnings } = await ctx.resolveTemplate(payloadTemplate);
-        for (const w of warnings) {
-          await ctx.jobLog(`Warning (payload): ${w}`);
-        }
-        const hasUnresolvablePayload =
-          warnings.some((w) => w.includes("Unresolvable") || w.includes("Unknown step slug")) ||
-          resolved.includes("{{");
-        if (hasUnresolvablePayload) {
-          throw new Error(
-            `Template resolution failed for emit payload: unresolvable expression in "${payloadTemplate}"`,
-          );
-        }
+        const resolved = await resolveRequired(payloadTemplate, "payload");
         try {
           resolvedPayload = JSON.parse(resolved);
         } catch {
@@ -99,8 +111,11 @@ export function createDagEmitHandler(deps: DagEmitHandlerDeps): StepTypeHandler 
         }
       }
 
-      // Query Signal Store for all runs waiting on the resolved event
-      const waitingSignals = signalStore.getAllWaitingByEvent(resolvedEvent);
+      const correlationKey = correlateTemplate ? await resolveRequired(correlateTemplate, "correlate") : undefined;
+      const targetRun = targetRunTemplate ? await resolveRequired(targetRunTemplate, "targetRun") : undefined;
+
+      // Broadcast signals waiting on the event, narrowed by key and target run
+      const waitingSignals = signalStore.findBroadcastMatches(resolvedEvent, { correlationKey, runId: targetRun });
 
       let deliveredCount = 0;
 
@@ -109,23 +124,19 @@ export function createDagEmitHandler(deps: DagEmitHandlerDeps): StepTypeHandler 
         if (runId && signal.runId === runId) continue;
 
         try {
-          // Atomically mark the signal received
-          signalStore.markReceived(signal.id, resolvedPayload);
-          signalTimers.cancel(signal.id);
-
-          // Verify the mark succeeded (race protection)
-          const stillWaiting = signalStore.getWaiting(signal.runId, signal.event);
-          if (stillWaiting) continue;
-
-          // Resume the waiting run via the DAG coordinator (fire-and-forget)
-          resumeWaitForNode(signal.runId, signal.stepSlug, resolvedPayload, deps.coordinatorDeps).catch((err) => {
-            deps.coordinatorDeps.log.error(
-              `Failed to resume run ${signal.runId} (step ${signal.stepSlug}) after emit "${resolvedEvent}":`,
-              err,
-            );
+          const result = deliverSignal(signal.id, resolvedPayload, {
+            via: "emit",
+            coordinatorDeps: deps.coordinatorDeps,
           });
-
-          deliveredCount++;
+          if (result.ok) {
+            deliveredCount++;
+          } else {
+            await ctx.jobLog(
+              `Skipped run ${signal.runId} (step ${signal.stepSlug}): ${result.error}${
+                result.details ? ` ${JSON.stringify(result.details)}` : ""
+              }`,
+            );
+          }
         } catch (err) {
           deps.coordinatorDeps.log.error(
             `Failed to deliver emit signal "${resolvedEvent}" to run ${signal.runId} (step ${signal.stepSlug}):`,

@@ -51,6 +51,20 @@ export const WaitForConfigSchema: Record<string, unknown> = {
       title: "Input Schema",
       description: "Optional JSON Schema used to validate the incoming signal payload.",
     },
+    scope: {
+      title: "Scope",
+      description:
+        "broadcast: resumed by emit steps and direct delivery. instance: only by direct delivery to this run (signal ID or run + step).",
+      anyOf: [{ const: "broadcast" }, { const: "instance" }],
+      default: "broadcast",
+    },
+    correlate: {
+      type: "string",
+      title: "Correlation Key",
+      description:
+        "Optional key resolved when the wait is reached (e.g. '{{trigger.payload.orderId}}'). Only emits with the same key resume it.",
+      maxLength: 512,
+    },
   },
 };
 
@@ -74,6 +88,18 @@ export const EmitConfigSchema: Record<string, unknown> = {
       title: "Payload",
       description: "Optional payload. Supports {{template}} expressions.",
       multiline: true,
+    },
+    correlate: {
+      type: "string",
+      title: "Correlation Key",
+      description:
+        "Optional. Only resume waits with this correlation key (waits without a key are still resumed). Supports {{template}} expressions.",
+      maxLength: 512,
+    },
+    targetRun: {
+      type: "string",
+      title: "Target Run",
+      description: "Optional workflow run ID. Only waits of that run are resumed. Supports {{template}} expressions.",
     },
   },
 };

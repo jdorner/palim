@@ -39,7 +39,6 @@ import {
   evaluateInlineRoot,
   handleDagStepCompletion,
   handleDagStepFailure,
-  resumeWaitForNode,
 } from "./dagCoordinator";
 import { createDagEmitHandler } from "./dagEmitHandler";
 import { type DagStepJobData, dispatchDagWorkflow, type SessionFactory } from "./dagEngine";
@@ -53,6 +52,7 @@ import { compileOutputSchema, resolveTriggerOutputSchemaJson } from "./outputSch
 import { inferSchemaFromRuns, type SchemaSampleSource } from "./schemaSample";
 import type { DagWorkflowDefinition, OutputSchemaShorthand } from "./schemas";
 import { DagWorkflowDefinitionSchema } from "./schemas";
+import { deliverSignal } from "./signalDelivery";
 import * as signalStore from "./signalStore";
 import { initSignalStore } from "./signalStore";
 import * as signalTimers from "./signalTimers";
@@ -475,7 +475,7 @@ export function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: Ex
 
 const manifest = {
   name: "workflows",
-  version: "1.3.0",
+  version: "1.4.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -623,6 +623,11 @@ export function createExtension(): Extension {
 
       // Register the DAG emit step type handler
       ctx.stepTypes.register("emit", createDagEmitHandler({ coordinatorDeps }));
+
+      // Timeout timers live in memory: re-arm the ones of runs still parked on a
+      // signal from before the restart (elapsed deadlines fire immediately).
+      const rearmed = signalTimers.rearmWaiting({ log: logger, broadcast: coordinatorDeps.broadcast });
+      if (rearmed > 0) logger.info(`Re-armed ${rearmed} signal timeout(s)`);
 
       /**
        * Shared DAG dispatch helper. Dispatches a workflow, broadcasts the
@@ -1122,8 +1127,8 @@ export function createExtension(): Extension {
         // waitFor steps with their event name and input schema. A run may have
         // more than one step paused concurrently.
         const waitingSignalsByStep = new Map<string, signalStore.SignalRecord>();
-        for (const signal of signalStore.getAllWaiting()) {
-          if (signal.runId === runId) waitingSignalsByStep.set(signal.stepSlug, signal);
+        for (const signal of signalStore.listWaitingForRun(runId)) {
+          waitingSignalsByStep.set(signal.stepSlug, signal);
         }
 
         // Extract chosenBranch info from step results for CF nodes
@@ -1151,6 +1156,9 @@ export function createExtension(): Extension {
             jobId: string;
             waitEvent?: string;
             waitInputSchema?: Record<string, unknown> | null;
+            waitSignalId?: string;
+            waitScope?: signalStore.SignalScope;
+            waitCorrelationKey?: string | null;
           } = {
             slug,
             type: stepDef?.type ?? "unknown",
@@ -1161,6 +1169,9 @@ export function createExtension(): Extension {
           if (signal) {
             entry.waitEvent = signal.event;
             entry.waitInputSchema = signal.inputSchema as Record<string, unknown> | null;
+            entry.waitSignalId = signal.id;
+            entry.waitScope = signal.scope;
+            entry.waitCorrelationKey = signal.correlationKey;
           }
           return entry;
         });
@@ -1197,7 +1208,92 @@ export function createExtension(): Extension {
       });
 
       /**
-       * Signal delivery endpoint - resumes a waiting workflow run.
+       * Reads and parses a signal payload body. An empty body is `null`.
+       *
+       * @returns The payload, or an error response for oversized or invalid JSON
+       */
+      async function readSignalPayload(request: Request): Promise<{ payload: unknown } | { error: Response }> {
+        const rawBody = await request.text();
+        if (rawBody.length > 1_000_000) {
+          return { error: Response.json({ error: "Payload too large" }, { status: 413 }) };
+        }
+        if (rawBody.length === 0) return { payload: null };
+        try {
+          return { payload: JSON.parse(rawBody) };
+        } catch {
+          return { error: Response.json({ error: "Invalid JSON payload" }, { status: 400 }) };
+        }
+      }
+
+      /**
+       * Delivers a payload to one signal through the shared delivery path and
+       * maps the result to an HTTP response.
+       */
+      function deliverAndRespond(signalId: string, payload: unknown): Response {
+        const result = deliverSignal(signalId, payload, { via: "route", coordinatorDeps });
+        if (!result.ok) {
+          return Response.json(
+            { error: result.error, ...(result.details ? { details: result.details } : {}) },
+            { status: result.status },
+          );
+        }
+        const { signal } = result;
+        return Response.json({
+          accepted: true,
+          runId: signal.runId,
+          stepSlug: signal.stepSlug,
+          signalId: signal.id,
+          event: signal.event,
+        });
+      }
+
+      /**
+       * Signal delivery by signal ID - resumes exactly one waiting step.
+       */
+      ctx.routes.register(
+        "POST",
+        "/signals/:signalId",
+        async (reqCtx) => {
+          const signalId = (reqCtx.params as Record<string, string>).signalId;
+          if (!signalId) return Response.json({ error: "Missing signalId" }, { status: 400 });
+
+          const body = await readSignalPayload(reqCtx.request);
+          if ("error" in body) return body.error;
+
+          return deliverAndRespond(signalId, body.payload);
+        },
+        { parse: "none" },
+      );
+
+      /**
+       * Signal delivery by run and step - resumes the named waiting step of one run.
+       */
+      ctx.routes.register(
+        "POST",
+        "/runs/:runId/steps/:slug/signal",
+        async (reqCtx) => {
+          const { runId, slug } = reqCtx.params as Record<string, string>;
+          if (!runId || !slug) return Response.json({ error: "Missing runId or step slug" }, { status: 400 });
+
+          const body = await readSignalPayload(reqCtx.request);
+          if ("error" in body) return body.error;
+
+          if (!dagRunStore.get(runId)) {
+            return Response.json({ error: "Run not found" }, { status: 404 });
+          }
+          const signal = signalStore.getWaitingForStep(runId, slug);
+          if (!signal) {
+            return Response.json({ error: `Step "${slug}" is not awaiting a signal` }, { status: 409 });
+          }
+
+          return deliverAndRespond(signal.id, body.payload);
+        },
+        { parse: "none" },
+      );
+
+      /**
+       * Signal delivery by run and event name. Ambiguous when several steps of
+       * the run wait on the same event; the caller must then address a step.
        */
       ctx.routes.register(
         "POST",
@@ -1207,19 +1303,8 @@ export function createExtension(): Extension {
           const event = (reqCtx.params as Record<string, string>).event;
           if (!runId || !event) return Response.json({ error: "Missing runId or event" }, { status: 400 });
 
-          const rawBody = await reqCtx.request.text();
-          if (rawBody.length > 1_000_000) {
-            return Response.json({ error: "Payload too large" }, { status: 413 });
-          }
-
-          let payload: unknown = null;
-          if (rawBody.length > 0) {
-            try {
-              payload = JSON.parse(rawBody);
-            } catch {
-              return Response.json({ error: "Invalid JSON payload" }, { status: 400 });
-            }
-          }
+          const body = await readSignalPayload(reqCtx.request);
+          if ("error" in body) return body.error;
 
           const run = dagRunStore.get(runId);
           if (!run) {
@@ -1233,45 +1318,21 @@ export function createExtension(): Extension {
             );
           }
 
-          const signal = signalStore.getWaiting(runId, event);
-          if (!signal) {
+          const candidates = signalStore.listWaitingForRunEvent(runId, event);
+          if (candidates.length === 0) {
             return Response.json({ error: `Run is not awaiting signal "${event}"` }, { status: 409 });
           }
-
-          // Validate payload against inputSchema if defined
-          if (signal.inputSchema) {
-            const schema = signal.inputSchema as TSchema;
-            if (!Value.Check(schema, payload)) {
-              const errors = [...Value.Errors(schema, payload)];
-              return Response.json(
-                { error: "Validation failed", details: errors.map((e) => ({ path: e.path, message: e.message })) },
-                { status: 422 },
-              );
-            }
+          if (candidates.length > 1) {
+            return Response.json(
+              {
+                error: `Several steps await signal "${event}"; deliver to a step via /runs/${runId}/steps/<slug>/signal`,
+                steps: candidates.map((c) => c.stepSlug),
+              },
+              { status: 409 },
+            );
           }
 
-          // Atomically mark signal received
-          signalStore.markReceived(signal.id, payload);
-          signalTimers.cancel(signal.id);
-
-          const stillWaiting = signalStore.getWaiting(runId, event);
-          if (stillWaiting) {
-            return Response.json({ error: "Signal has already been delivered" }, { status: 409 });
-          }
-
-          ctx.messaging.broadcast({
-            type: "workflow_step_resumed",
-            workflowRunId: runId,
-            stepSlug: signal.stepSlug,
-            signalEvent: event,
-          });
-
-          // Resume the run via the DAG coordinator
-          resumeWaitForNode(runId, signal.stepSlug, payload, coordinatorDeps).catch((err) => {
-            logger.error(`Failed to resume run ${runId} after signal delivery:`, err);
-          });
-
-          return Response.json({ accepted: true, runId, event, runStatus: "running" });
+          return deliverAndRespond(candidates[0]!.id, body.payload);
         },
         { parse: "none" },
       );
@@ -1293,6 +1354,7 @@ export function createExtension(): Extension {
         // they do not resurface after a restart.
         const cancelled = await stepsQueue.removeJobs(stepJobs.map((d) => d.id));
 
+        for (const signal of signalStore.listWaitingForRun(runId)) signalTimers.cancel(signal.id);
         signalStore.deleteByRunIds([runId]);
         dagRunStore.deleteByIds([runId]);
 
@@ -1465,6 +1527,7 @@ export function createExtension(): Extension {
         clearTimeout(state.reloadTimer);
         state.reloadTimer = null;
       }
+      signalTimers.cleanup();
       store.clear();
     },
   };

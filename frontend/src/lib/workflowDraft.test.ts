@@ -225,3 +225,45 @@ describe("outputSchema round-trip", () => {
     expect(out.trigger).toEqual({ type: "webhook", ref: "hook", outputSchema: { task: { id: "string" } } });
   });
 });
+
+describe("signal scoping round-trip", () => {
+  test("waitFor keeps scope and correlate", () => {
+    const draft = toStepDraft({
+      id: "w1",
+      slug: "wait",
+      type: "waitFor",
+      event: "order.paid",
+      scope: "instance",
+      correlate: "{{trigger.payload.orderId}}",
+    });
+    expect(serializeStep(draft)).toEqual({
+      type: "waitFor",
+      event: "order.paid",
+      scope: "instance",
+      correlate: "{{trigger.payload.orderId}}",
+    });
+  });
+
+  test("waitFor omits the default broadcast scope and an empty correlate", () => {
+    const draft = toStepDraft({ id: "w2", slug: "wait", type: "waitFor", event: "go", scope: "broadcast" });
+    draft.correlate = "";
+    expect(serializeStep(draft)).toEqual({ type: "waitFor", event: "go" });
+  });
+
+  test("emit keeps correlate and targetRun", () => {
+    const draft = toStepDraft({
+      id: "e1",
+      slug: "send",
+      type: "emit",
+      event: "order.paid",
+      correlate: "A-1",
+      targetRun: "{{steps.child.result.workflowRunId}}",
+    });
+    expect(serializeStep(draft)).toEqual({
+      type: "emit",
+      event: "order.paid",
+      correlate: "A-1",
+      targetRun: "{{steps.child.result.workflowRunId}}",
+    });
+  });
+});

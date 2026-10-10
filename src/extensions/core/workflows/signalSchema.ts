@@ -3,7 +3,8 @@
  *
  * Persists signal records for `waitFor` and `emit` coordination across
  * workflow runs. Tracks pending, received, and timed-out signals with
- * optional payload validation schemas and timeout durations.
+ * optional payload validation schemas, timeout durations, a delivery scope,
+ * and an optional correlation key.
  *
  * @module
  */
@@ -39,9 +40,19 @@ export const workflowSignals = sqliteTable(
     createdAt: integer("created_at").notNull(),
     /** Delivery timestamp (epoch ms, null until received). */
     receivedAt: integer("received_at"),
+    /**
+     * Delivery scope: `broadcast` signals can be matched by `emit` steps,
+     * `instance` signals only by direct delivery (signal ID or run + step).
+     */
+    scope: text("scope").notNull().default("broadcast"),
+    /** Correlation key resolved at registration (null = matches any emit of the event). */
+    correlationKey: text("correlation_key"),
+    /** The node type that created the signal (`waitFor`, later `humanTask`). */
+    source: text("source").notNull().default("waitFor"),
   },
   (table) => [
     index("idx_workflow_signals_run_event").on(table.runId, table.event),
     index("idx_workflow_signals_status").on(table.status),
+    index("idx_workflow_signals_event_corr").on(table.event, table.correlationKey, table.status),
   ],
 );

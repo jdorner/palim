@@ -556,6 +556,9 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
     };
     if (step.timeout) result.timeout = step.timeout;
     if (step.inputSchema) result.inputSchema = step.inputSchema;
+    // "broadcast" is the default, so only the non-default scope is written.
+    if (step.scope === "instance") result.scope = "instance";
+    if (typeof step.correlate === "string" && step.correlate.length > 0) result.correlate = step.correlate;
     return result;
   }
 
@@ -566,6 +569,8 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
       event: step.event,
     };
     if (step.payload) result.payload = step.payload;
+    if (typeof step.correlate === "string" && step.correlate.length > 0) result.correlate = step.correlate;
+    if (typeof step.targetRun === "string" && step.targetRun.length > 0) result.targetRun = step.targetRun;
     return result;
   }
 

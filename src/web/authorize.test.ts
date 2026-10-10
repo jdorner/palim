@@ -110,12 +110,22 @@ describe("authorizeRequest", () => {
       expect(authorizeRequest("GET", "/ext/workflows/runs", builtInUserAbility).allowed).toBe(true);
       expect(authorizeRequest("GET", "/ext/workflows/runs/r1/logs", builtInUserAbility).allowed).toBe(true);
       expect(authorizeRequest("POST", "/ext/workflows/runs/r1/signal/go", builtInUserAbility).allowed).toBe(true);
+      expect(authorizeRequest("POST", "/ext/workflows/runs/r1/steps/wait/signal", builtInUserAbility).allowed).toBe(
+        true,
+      );
+      expect(authorizeRequest("POST", "/ext/workflows/signals/s1", builtInUserAbility).allowed).toBe(true);
       expect(authorizeRequest("DELETE", "/ext/workflows/runs/r1", builtInUserAbility).allowed).toBe(true);
     });
 
     test("a user without workflows:write cannot start or delete runs", () => {
       expect(authorizeRequest("POST", "/ext/workflows/run/wf", userAbility).allowed).toBe(false);
       expect(authorizeRequest("DELETE", "/ext/workflows/runs/r1", userAbility).allowed).toBe(false);
+    });
+
+    test("a user without workflows:write cannot deliver signals", () => {
+      expect(authorizeRequest("POST", "/ext/workflows/runs/r1/signal/go", userAbility).allowed).toBe(false);
+      expect(authorizeRequest("POST", "/ext/workflows/runs/r1/steps/wait/signal", userAbility).allowed).toBe(false);
+      expect(authorizeRequest("POST", "/ext/workflows/signals/s1", userAbility).allowed).toBe(false);
     });
 
     test("built-in user can manage any trigger", () => {
