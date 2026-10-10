@@ -110,8 +110,13 @@ export interface HumanTask {
   updatedAt: number;
   /** Who the task is assigned to. */
   assignees: { users: HumanTaskUserRef[]; roles: string[] };
-  /** Whether the viewing user may answer the task. */
+  /** Whether the viewing user may answer the task (assignees and managers). */
   canRespond: boolean;
+  /**
+   * Whether the task is assigned to the viewing user, directly or via a role.
+   * Decides inbox membership; managers can answer tasks that are not theirs.
+   */
+  assignedToMe: boolean;
   /** The recorded answer (null until completed). */
   completion: HumanTaskCompletion | null;
   /**

@@ -141,7 +141,9 @@ class TaskStore {
   #upsert(task: HumanTask): void {
     const open = this.lists.open;
     open.tasks = open.tasks.filter((t) => t.id !== task.id);
-    if (task.status === "open" && task.canRespond) open.tasks = [task, ...open.tasks].sort(byNewest);
+    // Same rule as the server's `scope=mine` list, so a reload keeps the list as is.
+    if (task.status === "open" && task.canRespond && task.assignedToMe)
+      open.tasks = [task, ...open.tasks].sort(byNewest);
 
     const done = this.lists.done;
     const inDone = done.tasks.some((t) => t.id === task.id);

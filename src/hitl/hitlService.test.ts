@@ -127,6 +127,14 @@ describe("visibility", () => {
     expect(service.getTask(task.id, admin).canRespond).toBe(true);
   });
 
+  test("assignedToMe is set for assignees only, not for managers", () => {
+    const task = service.createTask(input());
+
+    expect(service.getTask(task.id, alice).assignedToMe).toBe(true);
+    expect(service.getTask(task.id, bob).assignedToMe).toBe(true);
+    expect(service.getTask(task.id, admin).assignedToMe).toBe(false);
+  });
+
   test("listTasks(mine) returns only visible tasks, newest first", () => {
     const a = service.createTask(input({ title: "for alice", assignees: { users: ["alice"] } }));
     clock++;

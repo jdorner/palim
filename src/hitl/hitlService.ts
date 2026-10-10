@@ -315,6 +315,7 @@ export function createHitlService(deps: HitlServiceDeps) {
         roles: task.assignees.roles,
       },
       canRespond: task.status === "open" && canRespond(task, viewer),
+      assignedToMe: TaskStore.isAssignee(task, visibility(viewer)),
       completion:
         task.status === "completed" && task.completedAt !== null && task.outcome !== null
           ? {
