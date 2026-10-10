@@ -16,7 +16,7 @@ function fakeWs() {
 /** Builds a principal for a given user id / admin flag. */
 function principal(userId: string, isAdmin = false): ResolvedPrincipal {
   return {
-    user: { id: userId, username: userId, roles: [] },
+    user: { id: userId, username: userId, roles: [], kind: "operator" },
     isAdmin,
     permissions: [],
     ability: buildAbility({ userId, isAdmin, permissions: [] }),

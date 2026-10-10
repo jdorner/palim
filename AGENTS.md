@@ -394,7 +394,7 @@ Elysia serves the built frontend as static files and exposes:
 - `GET /api/auth/me` - Current user (incl. `locale`) and serialized ability
 - `PUT /api/auth/me/locale` - Set or clear (`null`) the caller's UI language
 - `GET /api/i18n/:locale` - Translation catalogs of loaded extensions for a locale, plus their English fallbacks
-- `GET/POST/PATCH/DELETE /api/users` - User management (admin; create/update accept `locale`; delete also removes the user's chat sessions and is refused while they still own webhooks, file watchers, or schedules)
+- `GET/POST/PATCH/DELETE /api/users` - User management (admin; create/update accept `locale` and `kind`; delete also removes the user's chat sessions and is refused while they still own webhooks, file watchers, or schedules)
 - `GET/POST /api/roles`, `PATCH/DELETE /api/roles/:id`, `PUT /api/roles/:id/permissions` - Role management (admin; delete only for unassigned custom roles)
 - `GET /api/extensions` - List loaded extensions
 - `PUT /api/extensions/:name` - Enable/disable an extension
@@ -423,7 +423,7 @@ Elysia serves the built frontend as static files and exposes:
 
 Rate limiting: authenticated requests are limited per token (1000/min), so a user's browser session and the internal token their agent jobs use get separate buckets; everything else is limited per client IP (60/min). Failed logins are additionally throttled per IP and per username with exponential lockouts (`src/web/loginThrottle.ts`). Behind a reverse proxy, set `TRUSTED_PROXIES` so the client IP is taken from `X-Forwarded-For`.
 
-Auth is always on: all `/api/` and `/ext/` routes (except login, health, and extension routes registered with `{ public: true }`, such as webhook receive) and the WebSocket require a per-user bearer token. Every user can read everything except other users' chat sessions; roles map to write/management permissions (RBAC). See `docs/api-security-model.md`.
+Auth is always on: all `/api/` and `/ext/` routes (except login, health, and extension routes registered with `{ public: true }`, such as webhook receive) and the WebSocket require a per-user bearer token. Every user can read everything except other users' chat sessions; roles map to write/management permissions (RBAC). Accounts have a `kind` (`users.kind`, migration `0017`): `operator` (default) or `portal`. Portal accounts are fenced in `authCheck` to `PORTAL_PATH_PREFIXES` (`/api/auth/`, `/api/portal/`, `/api/i18n/`, `shared/auth.ts`), get no implicit reads in the ability, are refused the WebSocket (close `4003`), and may only hold roles whose permissions are all portal-safe (`hitl:*`; built-in role `portal-user`), enforced by the guards in `src/auth/guards.ts`. See `docs/api-security-model.md`.
 
 ### Secrets Management
 

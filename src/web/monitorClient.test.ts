@@ -18,9 +18,9 @@ function fakeWs() {
 }
 
 /** Builds a resolved principal for a given user id. */
-function principal(userId: string, isAdmin = false): ResolvedPrincipal {
+function principal(userId: string, isAdmin = false, kind: "operator" | "portal" = "operator"): ResolvedPrincipal {
   return {
-    user: { id: userId, username: userId, roles: [] },
+    user: { id: userId, username: userId, roles: [], kind },
     isAdmin,
     permissions: [],
     ability: buildAbility({ userId, isAdmin, permissions: [] }),
@@ -53,6 +53,18 @@ describe("QueueMonitor client revalidation", () => {
   function resolver(tokens: Map<string, ResolvedPrincipal>) {
     return { resolveToken: (t: string) => tokens.get(t) ?? null };
   }
+
+  test("closes clients whose account became a portal account with 4003", () => {
+    const tokens = new Map([["tok-a", principal("alice")]]);
+    const monitor = new QueueMonitor([]);
+    monitor.setAuthResolver(resolver(tokens));
+    const alice = fakeWs();
+    monitor.addClient(alice.ws, principal("alice"), "tok-a");
+
+    tokens.set("tok-a", principal("alice", false, "portal"));
+    expect(monitor.revalidateClients()).toBe(1);
+    expect(alice.closed[0]?.code).toBe(4003);
+  });
 
   test("closes clients whose token no longer resolves and stops broadcasting to them", () => {
     const tokens = new Map([

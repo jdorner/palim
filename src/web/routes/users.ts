@@ -16,7 +16,7 @@
  * Endpoints:
  * - `GET    /api/users`               - list users (no hashes)
  * - `POST   /api/users`               - create a user with roles
- * - `PATCH  /api/users/:id`           - update display name, locale, roles, disabled, or password
+ * - `PATCH  /api/users/:id`           - update display name, locale, kind, roles, disabled, or password
  * - `DELETE /api/users/:id`           - delete a user and their chat sessions (refused while they own triggers)
  * - `GET    /api/roles`               - list roles with their permissions and user counts
  * - `POST   /api/roles`               - create a role
@@ -34,6 +34,7 @@ import {
   checkRoleAssignment,
   checkRoleDelete,
   checkRolePermissionsChange,
+  checkRolePermissionsForPortalUsers,
   checkUserChange,
   checkUserDelete,
   type UserStore,
@@ -43,12 +44,16 @@ import { getPrincipal } from "../auth";
 import { countTriggersOwnedBy } from "../triggerOwnership";
 import { LocaleValue } from "./auth";
 
+/** Account kind ("operator" uses the Palim UI, "portal" only the portal). */
+const UserKindValue = Type.Union([Type.Literal("operator"), Type.Literal("portal")]);
+
 /** Body schema for creating a user. */
 const CreateUserBody = Type.Object({
   username: Type.String({ minLength: 1, maxLength: 64, description: "Unique login username" }),
   password: Type.String({ minLength: 8, description: "Initial password (min 8 chars)" }),
   displayName: Type.Optional(Type.String({ maxLength: 128 })),
   locale: Type.Optional(LocaleValue),
+  kind: Type.Optional(UserKindValue),
   roleIds: Type.Optional(Type.Array(Type.String(), { description: "Role ids to assign" })),
 });
 
@@ -56,6 +61,7 @@ const CreateUserBody = Type.Object({
 const UpdateUserBody = Type.Object({
   displayName: Type.Optional(Type.String({ maxLength: 128 })),
   locale: Type.Optional(LocaleValue),
+  kind: Type.Optional(UserKindValue),
   disabled: Type.Optional(Type.Boolean()),
   roleIds: Type.Optional(Type.Array(Type.String())),
   password: Type.Optional(Type.String({ minLength: 8, description: "New password (min 8 chars)" })),
@@ -125,7 +131,7 @@ export function userRoutes(
           return status(409, { error: `User "${body.username}" already exists` });
         }
         if (body.roleIds) {
-          const violation = checkRoleAssignment(store, body.roleIds);
+          const violation = checkRoleAssignment(store, body.roleIds, body.kind);
           if (violation) return status(409, { error: violation });
         }
 
@@ -135,6 +141,7 @@ export function userRoutes(
           passwordHash,
           ...(body.displayName ? { displayName: body.displayName } : {}),
           ...(body.locale ? { locale: body.locale } : {}),
+          ...(body.kind ? { kind: body.kind } : {}),
         });
         if (body.roleIds && body.roleIds.length > 0) {
           store.setUserRoles(user.id, body.roleIds);
@@ -156,6 +163,7 @@ export function userRoutes(
         const violation = checkUserChange(store, getPrincipal(request)?.user.id, user, {
           ...(body.disabled !== undefined ? { disabled: body.disabled } : {}),
           ...(body.roleIds !== undefined ? { roleIds: body.roleIds } : {}),
+          ...(body.kind !== undefined ? { kind: body.kind } : {}),
         });
         if (violation) return status(409, { error: violation });
 
@@ -167,6 +175,9 @@ export function userRoutes(
         if (body.roleIds !== undefined) {
           store.setUserRoles(user.id, body.roleIds);
         }
+        if (body.kind !== undefined) {
+          store.setUserKind(user.id, body.kind);
+        }
         if (body.displayName !== undefined) {
           store.setDisplayName(user.id, body.displayName.trim() || null);
         }
@@ -177,7 +188,7 @@ export function userRoutes(
           const passwordHash = await auth.hashPassword(body.password);
           store.setPasswordHash(user.id, passwordHash);
         }
-        if (body.disabled !== undefined || body.roleIds !== undefined) onAuthChanged?.();
+        if (body.disabled !== undefined || body.roleIds !== undefined || body.kind !== undefined) onAuthChanged?.();
 
         const updated = store.getUserById(user.id);
         return status(200, { user: updated ? { ...updated, roles: store.getUserRoleNames(user.id) } : null });
@@ -296,6 +307,9 @@ export function userRoutes(
 
         const check = validatePermissions(body.permissions);
         if (!check.ok) return status(400, { error: `Unknown permission: ${check.invalid}` });
+
+        const portalViolation = checkRolePermissionsForPortalUsers(store, role, check.value);
+        if (portalViolation) return status(409, { error: portalViolation });
 
         store.setRolePermissions(role.id, check.value);
         onAuthChanged?.();

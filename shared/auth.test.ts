@@ -3,6 +3,8 @@ import {
   ALL_PERMISSIONS,
   BUILT_IN_ROLES,
   canPerform,
+  isPortalPath,
+  isPortalSafePermissionSet,
   PERMISSIONS,
   ROLE_ADMIN,
   ROLE_SYSTEM,
@@ -112,5 +114,40 @@ describe("canPerform (dependency-free UI gating)", () => {
     };
     expect(canPerform(secretAdmin, "read", "Secret")).toBe(true);
     expect(canPerform(secretAdmin, "delete", "Secret")).toBe(true);
+  });
+});
+
+describe("portal accounts", () => {
+  test("canPerform grants a portal account no implicit reads", () => {
+    const portal: SerializedAbility = {
+      userId: "p",
+      isAdmin: false,
+      permissions: [PERMISSIONS.HITL_RESPOND],
+      kind: "portal",
+    };
+    expect(canPerform(portal, "read", "Workflow")).toBe(false);
+    expect(canPerform(portal, "read", "Session", "p")).toBe(false);
+    expect(canPerform(portal, "update", "HumanTask")).toBe(true);
+  });
+
+  test("only hitl permission sets are portal-safe; admin (null) never is", () => {
+    expect(isPortalSafePermissionSet([PERMISSIONS.HITL_RESPOND, PERMISSIONS.HITL_MANAGE])).toBe(true);
+    expect(isPortalSafePermissionSet([])).toBe(true);
+    expect(isPortalSafePermissionSet([PERMISSIONS.HITL_RESPOND, PERMISSIONS.CHAT_WRITE])).toBe(false);
+    expect(isPortalSafePermissionSet(null)).toBe(false);
+  });
+
+  test("isPortalPath matches the portal, auth, and i18n APIs only", () => {
+    expect(isPortalPath("/api/portal/tasks")).toBe(true);
+    expect(isPortalPath("/api/auth/me")).toBe(true);
+    expect(isPortalPath("/api/i18n/de")).toBe(true);
+    expect(isPortalPath("/api/portalx")).toBe(false);
+    expect(isPortalPath("/api/jobs")).toBe(false);
+    expect(isPortalPath("/ext/workflows/runs")).toBe(false);
+  });
+
+  test("the portal-user role is portal-safe and the user role can respond to tasks", () => {
+    expect(isPortalSafePermissionSet(BUILT_IN_ROLES["portal-user"]!.permissions)).toBe(true);
+    expect(BUILT_IN_ROLES[ROLE_USER]!.permissions).toContain(PERMISSIONS.HITL_RESPOND);
   });
 });

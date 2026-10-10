@@ -55,6 +55,10 @@ export const PERMISSIONS = {
   DATATABLES_WRITE: "datatables:write",
   /** Manage users, roles, and role permissions. */
   USERS_MANAGE: "users:manage",
+  /** See and answer the human tasks assigned to you (directly or via a role). */
+  HITL_RESPOND: "hitl:respond",
+  /** See and answer all human tasks, cancel and reassign them. */
+  HITL_MANAGE: "hitl:manage",
 } as const;
 
 /** A single permission string drawn from the {@link PERMISSIONS} catalog. */
@@ -66,10 +70,54 @@ export const ALL_PERMISSIONS: readonly Permission[] = Object.values(PERMISSIONS)
 /** An immutable set of permissions granted to a principal. */
 export type PermissionSet = readonly Permission[];
 
+/**
+ * Permissions a portal account may hold. Portal accounts only reach the
+ * portal API, so their roles must not grant anything beyond these.
+ */
+export const PORTAL_SAFE_PERMISSIONS: readonly Permission[] = [PERMISSIONS.HITL_RESPOND, PERMISSIONS.HITL_MANAGE];
+
+/**
+ * Whether a role's permission set may be held by a portal account.
+ *
+ * @param permissions - The role's permissions; `null` for the superuser `admin` role.
+ * @returns True when every permission is portal-safe.
+ */
+export function isPortalSafePermissionSet(permissions: PermissionSet | null): boolean {
+  return permissions?.every((p) => PORTAL_SAFE_PERMISSIONS.includes(p)) ?? false;
+}
+
+/**
+ * Account kind.
+ *
+ * - `operator`: uses the Palim web UI and API (the default).
+ * - `portal`: an end user who only uses the portal. Such a principal may only
+ *   reach {@link PORTAL_PATH_PREFIXES}, cannot open the WebSocket, and gets no
+ *   implicit read access.
+ */
+export type UserKind = "operator" | "portal";
+
+/** All account kinds. */
+export const USER_KINDS: readonly UserKind[] = ["operator", "portal"];
+
+/** API path prefixes a portal account may call. */
+export const PORTAL_PATH_PREFIXES: readonly string[] = ["/api/auth/", "/api/portal/", "/api/i18n/"];
+
+/**
+ * Whether a request path is reachable by a portal account.
+ *
+ * @param path - The request pathname.
+ * @returns True for paths under {@link PORTAL_PATH_PREFIXES}.
+ */
+export function isPortalPath(path: string): boolean {
+  return PORTAL_PATH_PREFIXES.some((prefix) => path.startsWith(prefix));
+}
+
 /** The canonical name of the built-in administrator role. */
 export const ROLE_ADMIN = "admin";
 /** The canonical name of the built-in standard-user role. */
 export const ROLE_USER = "user";
+/** The canonical name of the built-in role for portal accounts. */
+export const ROLE_PORTAL_USER = "portal-user";
 /**
  * The canonical name of the built-in system role.
  *
@@ -95,8 +143,9 @@ export interface RoleDefinition {
 
 /**
  * The standard-user permission set: chat, run workflows, manage jobs,
- * triggers, and data tables. Deliberately excludes editing workflow definitions and all write
- * access to secrets, variables, extensions, models, and any user management.
+ * triggers, and data tables, and answer assigned human tasks. Deliberately excludes editing
+ * workflow definitions and all write access to secrets, variables, extensions, models, and any
+ * user management.
  */
 const USER_PERMISSIONS: PermissionSet = [
   PERMISSIONS.CHAT_WRITE,
@@ -104,7 +153,11 @@ const USER_PERMISSIONS: PermissionSet = [
   PERMISSIONS.JOBS_WRITE,
   PERMISSIONS.TRIGGERS_WRITE,
   PERMISSIONS.DATATABLES_WRITE,
+  PERMISSIONS.HITL_RESPOND,
 ];
+
+/** The portal-user permission set: answer assigned human tasks. */
+const PORTAL_USER_PERMISSIONS: PermissionSet = [PERMISSIONS.HITL_RESPOND];
 
 /**
  * The narrow system permission set for background/boot calls with no user.
@@ -119,8 +172,8 @@ const SYSTEM_PERMISSIONS: PermissionSet = [PERMISSIONS.CHAT_WRITE];
  * The built-in roles seeded on first boot, keyed by role name.
  *
  * `admin` is a superuser (`permissions: null` -> implicit `manage all`);
- * `user` is the standard scoped role; `system` is the narrow non-login
- * background principal.
+ * `user` is the standard scoped role; `portal-user` is the role for portal
+ * accounts; `system` is the narrow non-login background principal.
  */
 export const BUILT_IN_ROLES: Readonly<Record<string, RoleDefinition>> = {
   [ROLE_ADMIN]: {
@@ -130,8 +183,14 @@ export const BUILT_IN_ROLES: Readonly<Record<string, RoleDefinition>> = {
   },
   [ROLE_USER]: {
     name: ROLE_USER,
-    description: "Standard user: reads everything; chats, runs workflows, and manages jobs, triggers, and data tables.",
+    description:
+      "Standard user: reads everything; chats, runs workflows, manages jobs, triggers, and data tables, and answers assigned human tasks.",
     permissions: USER_PERMISSIONS,
+  },
+  [ROLE_PORTAL_USER]: {
+    name: ROLE_PORTAL_USER,
+    description: "Portal account: sees and answers the human tasks assigned to it in the portal.",
+    permissions: PORTAL_USER_PERMISSIONS,
   },
   [ROLE_SYSTEM]: {
     name: ROLE_SYSTEM,
@@ -158,6 +217,7 @@ export type AppSubject =
   | "Model"
   | "Extension"
   | "DataTable"
+  | "HumanTask"
   | "User"
   | "all";
 
@@ -178,6 +238,8 @@ export interface SerializedAbility {
   isAdmin: boolean;
   /** The user's effective permission set (empty for admins, who use `manage all`). */
   permissions: Permission[];
+  /** The account kind; portal accounts get no implicit read access. Absent means `operator`. */
+  kind?: UserKind;
 }
 
 /** The authenticated user identity returned by `GET /api/auth/me`. */
@@ -192,6 +254,8 @@ export interface AuthenticatedUser {
   locale?: string;
   /** The names of roles assigned to the user. */
   roles: string[];
+  /** The account kind. */
+  kind: UserKind;
 }
 
 /**
@@ -245,6 +309,8 @@ const PERMISSION_GRANTS: Readonly<Record<Permission, ReadonlyArray<[AppAction, A
   [PERMISSIONS.EXTENSIONS_WRITE]: [["manage", "Extension"]],
   [PERMISSIONS.DATATABLES_WRITE]: [["manage", "DataTable"]],
   [PERMISSIONS.USERS_MANAGE]: [["manage", "User"]],
+  [PERMISSIONS.HITL_RESPOND]: [["update", "HumanTask"]],
+  [PERMISSIONS.HITL_MANAGE]: [["manage", "HumanTask"]],
 };
 
 /**
@@ -261,8 +327,8 @@ function manageImplies(action: AppAction): boolean {
  * Lightweight, dependency-free authorization check from a {@link SerializedAbility}.
  *
  * Mirrors the backend CASL ability for the purpose of UI gating. Admins can do
- * anything. Non-admins may read every {@link READABLE_SUBJECTS} subject and
- * their own sessions; otherwise a permission's grants are consulted and a
+ * anything. Non-admin operator accounts may read every {@link READABLE_SUBJECTS} subject and
+ * their own sessions (portal accounts get no implicit reads); otherwise a permission's grants are consulted and a
  * `manage` grant subsumes the CRUD actions. For `Session`, pass `ownerUserId`:
  * the check additionally requires the session to be owned by the ability's user
  * (admins bypass this).
@@ -284,13 +350,15 @@ export function canPerform(
 ): boolean {
   if (ability.isAdmin) return true;
 
-  if (action === "read" && READABLE_SUBJECTS.includes(subject)) return true;
+  // Portal accounts get no implicit reads (no sessions either).
+  const portal = ability.kind === "portal";
+  if (!portal && action === "read" && READABLE_SUBJECTS.includes(subject)) return true;
 
   // Sessions are owner-scoped: everyone may read their own, and non-create
   // actions on a known session require ownership.
   if (subject === "Session" && action !== "create") {
     if (ownerUserId !== undefined && ownerUserId !== ability.userId) return false;
-    if (action === "read") return true;
+    if (action === "read") return !portal;
   }
 
   for (const permission of ability.permissions) {

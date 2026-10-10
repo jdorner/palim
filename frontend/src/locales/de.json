@@ -715,7 +715,14 @@
     "updatedUser": "{username} aktualisiert",
     "username": "Benutzername",
     "usernameRequired": "Benutzername ist erforderlich",
-    "you": "du"
+    "you": "du",
+    "accountType": "Kontotyp",
+    "kindOperator": "Betreiber",
+    "kindPortal": "Portal-Konto",
+    "kindOperatorHint": "Nutzt diese Weboberfläche im Rahmen der zugewiesenen Rollen.",
+    "kindPortalHint": "Nutzt nur das Portal, um die zugewiesenen Aufgaben zu bearbeiten. Kein Zugriff auf diese Weboberfläche.",
+    "portalBadge": "Portal",
+    "reasonNotForPortal": "Für Portal-Konten nicht verfügbar"
   },
   "validation": {
     "conditionRequired": "Bedingungs-Ref ist erforderlich",
@@ -835,5 +842,9 @@
     "templateIssues_other": "{count} Template-Probleme",
     "undo": "Rückgängig",
     "undoTitle": "Rückgängig (Strg+Z)"
+  },
+  "portalAccount": {
+    "title": "Dies ist ein Portal-Konto",
+    "description": "Das Konto {username} kann nur im Portal verwendet werden, wo du die dir zugewiesenen Aufgaben findest. Frag eine Administratorin oder einen Administrator nach der Portal-Adresse."
   }
 }

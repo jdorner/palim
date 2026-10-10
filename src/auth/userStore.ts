@@ -13,8 +13,8 @@
  * @module
  */
 
-import type { Permission } from "@shared/auth";
-import { eq, inArray, lt } from "drizzle-orm";
+import type { Permission, UserKind } from "@shared/auth";
+import { and, eq, inArray, lt } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { nanoid } from "nanoid";
 import { rolePermissions, roles, userRoles, userSessions, users } from "./schema";
@@ -33,6 +33,8 @@ export interface UserRecord {
   provider: string;
   /** Whether the account is disabled. */
   disabled: boolean;
+  /** Account kind ("operator" or "portal"). */
+  kind: UserKind;
   /** Epoch timestamp (ms) when created. */
   createdAt: number;
   /** Epoch timestamp (ms) of last modification. */
@@ -89,6 +91,8 @@ export interface CreateUserOptions {
   locale?: string;
   /** Identity provider; defaults to "local". */
   provider?: string;
+  /** Account kind; defaults to "operator". */
+  kind?: UserKind;
   /** Optional explicit id (defaults to a generated nanoid). */
   id?: string;
 }
@@ -136,6 +140,7 @@ export class UserStore {
         locale: opts.locale ?? null,
         provider: opts.provider ?? "local",
         disabled: false,
+        kind: opts.kind ?? "operator",
         createdAt: now,
         updatedAt: now,
       })
@@ -147,6 +152,7 @@ export class UserStore {
       locale: opts.locale,
       provider: opts.provider ?? "local",
       disabled: false,
+      kind: opts.kind ?? "operator",
       createdAt: now,
       updatedAt: now,
     };
@@ -211,6 +217,34 @@ export class UserStore {
    */
   setUserDisabled(id: string, disabled: boolean): void {
     this.db.update(users).set({ disabled, updatedAt: Date.now() }).where(eq(users.id, id)).run();
+  }
+
+  /**
+   * Change a user's account kind.
+   *
+   * @param id - The user id.
+   * @param kind - The new account kind.
+   * @throws When the write fails.
+   */
+  setUserKind(id: string, kind: UserKind): void {
+    this.db.update(users).set({ kind, updatedAt: Date.now() }).where(eq(users.id, id)).run();
+  }
+
+  /**
+   * List the ids of portal accounts holding a role.
+   *
+   * @param roleId - The role id.
+   * @returns Ids of users with kind "portal" that hold the role.
+   * @throws When the read fails.
+   */
+  listPortalUserIdsWithRole(roleId: string): string[] {
+    return this.db
+      .select({ id: users.id })
+      .from(users)
+      .innerJoin(userRoles, eq(userRoles.userId, users.id))
+      .where(and(eq(userRoles.roleId, roleId), eq(users.kind, "portal")))
+      .all()
+      .map((r) => r.id);
   }
 
   /**
@@ -606,6 +640,7 @@ export class UserStore {
       locale: row.locale ?? undefined,
       provider: row.provider,
       disabled: row.disabled,
+      kind: row.kind as UserKind,
       createdAt: row.createdAt,
       updatedAt: row.updatedAt,
     };

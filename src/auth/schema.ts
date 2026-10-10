@@ -42,6 +42,8 @@ export const users = sqliteTable(
     providerSubject: text("provider_subject"),
     /** Whether the account is disabled (cannot log in). */
     disabled: integer("disabled", { mode: "boolean" }).notNull().default(false),
+    /** Account kind: "operator" (Palim UI and API) or "portal" (portal API only). */
+    kind: text("kind").notNull().default("operator"),
     /** Epoch timestamp (ms) when the account was created. */
     createdAt: integer("created_at").notNull(),
     /** Epoch timestamp (ms) of the last modification. */

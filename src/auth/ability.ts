@@ -26,6 +26,7 @@ import {
   type PermissionSet,
   READABLE_SUBJECTS,
   type SerializedAbility,
+  type UserKind,
 } from "@shared/auth";
 
 export type { PermissionSet };
@@ -56,6 +57,8 @@ export interface AbilityPrincipal {
   isAdmin: boolean;
   /** The principal's effective permission set (ignored when `isAdmin`). */
   permissions: PermissionSet;
+  /** Account kind; `portal` principals get no implicit read grants. Defaults to `operator`. */
+  kind?: UserKind;
 }
 
 /**
@@ -105,6 +108,12 @@ function applyPermission(can: AbilityBuilder<AppAbility>["can"], permission: Per
     case PERMISSIONS.USERS_MANAGE:
       can("manage", "User");
       break;
+    case PERMISSIONS.HITL_RESPOND:
+      can("update", "HumanTask");
+      break;
+    case PERMISSIONS.HITL_MANAGE:
+      can("manage", "HumanTask");
+      break;
     default:
       // Unknown permission strings grant nothing (deny by default).
       break;
@@ -114,9 +123,10 @@ function applyPermission(can: AbilityBuilder<AppAbility>["can"], permission: Per
 /**
  * Builds a CASL ability for a principal from their permission set.
  *
- * Admins receive an unconditional `manage all`. Non-admins may read every
- * {@link READABLE_SUBJECTS} subject and their own sessions, plus the write
- * grants derived from each permission.
+ * Admins receive an unconditional `manage all`. Non-admin operator accounts may
+ * read every {@link READABLE_SUBJECTS} subject and their own sessions; portal
+ * accounts get no implicit reads. Both get the write grants derived from each
+ * permission.
  *
  * @param principal - The principal's id, admin flag, and effective permissions.
  * @returns An {@link AppAbility} ready for `can(action, subject)` checks.
@@ -129,8 +139,12 @@ export function buildAbility(principal: AbilityPrincipal): AppAbility {
     return builder.build();
   }
 
-  builder.can("read", [...READABLE_SUBJECTS] as AppSubject[]);
-  builder.can("read", "Session", { userId: principal.userId });
+  // Open reads are an operator convenience; portal accounts only see what the
+  // portal API hands them.
+  if (principal.kind !== "portal") {
+    builder.can("read", [...READABLE_SUBJECTS] as AppSubject[]);
+    builder.can("read", "Session", { userId: principal.userId });
+  }
 
   for (const permission of principal.permissions) {
     applyPermission(builder.can, permission, principal.userId);
@@ -153,5 +167,6 @@ export function abilityFromSerialized(serialized: SerializedAbility): AppAbility
     userId: serialized.userId,
     isAdmin: serialized.isAdmin,
     permissions: serialized.permissions,
+    kind: serialized.kind,
   });
 }

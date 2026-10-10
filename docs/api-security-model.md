@@ -4,7 +4,7 @@
 
 Palim protects its HTTP API and WebSocket with **local user accounts** and **role-based access control (RBAC)**. Every request to `/api/*` or `/ext/*` must carry a bearer token that belongs to a user. The token decides who is calling, and that user's roles decide what the call may change.
 
-Palim is a tool for developers, so **reading is open**: every signed-in user can see everything except other users' chat conversations and the jobs that process them. Roles only guard writes and management.
+Palim is a tool for developers, so **reading is open**: every signed-in user can see everything except other users' chat conversations and the jobs that process them. Roles only guard writes and management. The exception is **portal accounts**: end users who only answer the tasks assigned to them in the portal, and who can't see anything else (see [Portal accounts](#portal-accounts)).
 
 Extensions, skill scripts and workflows also call the API internally. They never hold a shared master token. Instead, each internal call runs as **the user who started the work**, or as a narrow built-in `system` principal when no user is involved. An extension can't borrow more authority than the person who triggered it.
 
@@ -73,7 +73,7 @@ The web UI keeps the token in `localStorage`, so every tab on the same origin sh
 
 ### WebSocket
 
-WebSocket connections pass the token in the `Sec-WebSocket-Protocol` header, using the `auth-<token>` subprotocol convention. A connection without a valid token is closed with code `4001`.
+WebSocket connections pass the token in the `Sec-WebSocket-Protocol` header, using the `auth-<token>` subprotocol convention. A connection without a valid token is closed with code `4001`. Portal accounts can't use the WebSocket: their connections are closed with code `4003`, including open connections of an account that is switched to the portal kind.
 
 Job, workflow, trigger and extension events go to every connected user, with one exception: **chat jobs** (jobs routed to a chat) are visible only to the user who started the chat, admins included. Their `job_added`, `job_updated`, `job_log` and `job_removed` events and their entries in `initial_state` snapshots are filtered per connection. A chat job with no recorded initiator is shown to no one.
 
@@ -155,13 +155,16 @@ Writes need a permission. Permissions are `<domain>:<action>` strings. A role is
 | `extensions:write` | Enable, disable and configure extensions |
 | `datatables:write` | Create, edit, import and delete data tables and their rows |
 | `users:manage` | Manage users, roles and role permissions |
+| `hitl:respond` | See and answer the human tasks assigned to you, directly or through one of your roles |
+| `hitl:manage` | See and answer all human tasks, cancel and reassign them |
 
-Three roles are built in:
+Four roles are built in:
 
 | Role | Permissions |
 | ---- | ----------- |
 | `admin` | Everything (superuser) |
-| `user` | `chat:write`, `workflows:write`, `jobs:write`, `triggers:write`, `datatables:write`. No workflow definition edits, secrets, variables, models, extension settings or user management. |
+| `user` | `chat:write`, `workflows:write`, `jobs:write`, `triggers:write`, `datatables:write`, `hitl:respond`. No workflow definition edits, secrets, variables, models, extension settings or user management. |
+| `portal-user` | `hitl:respond` only. Meant for portal accounts. |
 | `system` | Reserved for the built-in `system` account: `chat:write` only. Never `users:manage` or `secrets:write`. |
 
 Built-in role permissions are defined in code and re-applied on every boot, so they can't be edited. Create custom roles for other combinations.
@@ -171,6 +174,19 @@ Built-in role permissions are defined in code and re-applied on every boot, so t
 1. **Authentication**: the token must resolve to an enabled user (otherwise `401`).
 2. **Route rules**: a central table (`src/web/authorize.ts`) maps write routes to required permissions, for example user and role administration, secret and variable writes, job control, model selection, and extension settings (otherwise `403`). `GET` and `HEAD` requests are allowed unless a rule says otherwise (only user and role administration does). Extension writes (`/ext/*`) fail closed: each first-party route is listed explicitly (for example, MCP server changes need `extensions:write`, workflow definition edits need `workflows:manage`, data table writes need `datatables:write`), and any `/ext/*` write not in the table needs `extensions:write`, which only admins have by default. An extension write route meant for regular users has to be added to the table.
 3. **Chat ownership**: chat sessions belong to the user who created them. Non-admins can read and post only in their own sessions. A non-owner gets `404`, so the response doesn't reveal that the session exists.
+
+### Portal accounts
+
+Every account has a **kind**: `operator` (the default) uses the Palim web interface and API as described above. `portal` is for end users who only use the portal to answer the human tasks assigned to them. Set the kind when creating a user, or change it later, on the **Users** page (`kind` on `/api/users`).
+
+A portal account is fenced in at the authentication layer, whatever its roles grant:
+
+- It may only call `/api/auth/*`, `/api/portal/*` and `/api/i18n/*`. Every other `/api/` and `/ext/` request answers `403`, reads included.
+- It gets none of the open reads that operator accounts have.
+- It can't open the WebSocket (`4003`); the portal has its own event stream.
+- It may only hold roles whose permissions are all `hitl:*` (for example the built-in `portal-user` role), never `admin`. Assigning such a role, switching an account with other roles to the portal kind, or adding other permissions to a role that a portal account holds is refused with `409`.
+
+If a portal account signs in to the Palim web interface, it only sees a notice to use the portal.
 
 ### Trigger ownership
 
@@ -184,6 +200,7 @@ User administration refuses changes that would lock everyone out (`409 Conflict`
 - You can't disable your own account or remove your own `admin` role. Another admin has to do it.
 - The `system` account can't be modified, and the `system` role can't be assigned to anyone.
 - Built-in roles' permissions can't be edited.
+- Portal accounts can only hold `hitl:*` roles (see [Portal accounts](#portal-accounts)), so an admin can't be turned into a portal account.
 
 If admin access is lost anyway (for example a forgotten password), run the break-glass command on the host:
 
@@ -191,7 +208,7 @@ If admin access is lost anyway (for example a forgotten password), run the break
 bun run reset-admin [username]   # defaults to AUTH_ADMIN_USER
 ```
 
-It re-enables the account (creating it if missing), adds the `admin` role, sets a new random password and prints it once, and revokes the account's existing tokens.
+It re-enables the account (creating it if missing), makes it an operator account, adds the `admin` role, sets a new random password and prints it once, and revokes the account's existing tokens.
 
 ## Internal calls
 
@@ -246,3 +263,4 @@ Extension and workflow secrets are stored in the SecretVault (SQLite, AES-256-GC
 | Webhook forgery | Per-webhook HMAC or bearer validation, constant-time comparison |
 | Secret file compromise | Optional dotenvx encryption of `.env`; SecretVault encryption at rest |
 | Unauthorized secret reads by extensions | Per-secret ACL and audit log |
+| End users seeing operational data | Portal accounts are fenced to the portal API, get no open reads, no WebSocket, and only `hitl:*` roles |

@@ -10,6 +10,8 @@
  *   cannot be assigned to other users.
  * - Built-in roles' permission sets are managed by the catalog and cannot be
  *   edited (they would be reset on the next boot anyway).
+ * - Portal accounts only hold roles whose permissions are all portal-safe, and
+ *   a role held by a portal account cannot be widened beyond that.
  *
  * Guards are pure decision functions over the {@link UserStore}; callers map a
  * returned violation message to an HTTP 409.
@@ -17,7 +19,7 @@
  * @module
  */
 
-import { ROLE_ADMIN, ROLE_SYSTEM } from "@shared/auth";
+import { isPortalSafePermissionSet, type Permission, ROLE_ADMIN, ROLE_SYSTEM, type UserKind } from "@shared/auth";
 import { SYSTEM_USERNAME } from "./constants";
 import type { RoleRecord, UserRecord, UserStore } from "./userStore";
 
@@ -27,6 +29,8 @@ export interface UserChange {
   disabled?: boolean;
   /** Replacement role id set, when changing roles. */
   roleIds?: readonly string[];
+  /** New account kind, when changing it. */
+  kind?: UserKind;
 }
 
 /**
@@ -43,16 +47,54 @@ function isActiveAdmin(store: UserStore, user: UserRecord): boolean {
 /**
  * Checks role ids requested for assignment to a (non-system) user.
  *
+ * Portal accounts may only hold roles whose permissions are all portal-safe
+ * (never `admin`, which implicitly holds everything).
+ *
  * @param store - The user store.
  * @param roleIds - The role ids to assign.
+ * @param kind - The account kind of the user receiving the roles (default "operator").
  * @returns A violation message, or null when the assignment is allowed.
  */
-export function checkRoleAssignment(store: UserStore, roleIds: readonly string[]): string | null {
+export function checkRoleAssignment(
+  store: UserStore,
+  roleIds: readonly string[],
+  kind: UserKind = "operator",
+): string | null {
   const system = store.getRoleByName(ROLE_SYSTEM);
   if (system && roleIds.includes(system.id)) {
     return `The "${ROLE_SYSTEM}" role is reserved for the built-in system account`;
   }
+  if (kind === "portal") {
+    for (const roleId of roleIds) {
+      const role = store.getRoleById(roleId);
+      if (!role) continue;
+      const permissions = role.name === ROLE_ADMIN ? null : store.getRolePermissions(role.id);
+      if (!isPortalSafePermissionSet(permissions)) {
+        return `Role "${role.name}" grants more than a portal account may hold`;
+      }
+    }
+  }
   return null;
+}
+
+/**
+ * Checks whether a role's permissions may be replaced given the portal
+ * accounts holding it.
+ *
+ * @param store - The user store.
+ * @param role - The role being edited.
+ * @param permissions - The proposed permission set.
+ * @returns A violation message, or null when the change is allowed.
+ */
+export function checkRolePermissionsForPortalUsers(
+  store: UserStore,
+  role: RoleRecord,
+  permissions: readonly Permission[],
+): string | null {
+  if (isPortalSafePermissionSet(permissions)) return null;
+  const holders = store.listPortalUserIdsWithRole(role.id).length;
+  if (holders === 0) return null;
+  return `Role "${role.name}" is held by ${holders} portal account${holders === 1 ? "" : "s"}, which may only hold hitl permissions`;
 }
 
 /**
@@ -74,8 +116,15 @@ export function checkUserChange(
     return "The built-in system account cannot be modified";
   }
 
-  if (change.roleIds !== undefined) {
-    const violation = checkRoleAssignment(store, change.roleIds);
+  const kind = change.kind ?? target.kind;
+  if (change.roleIds !== undefined || change.kind !== undefined) {
+    const roleIds =
+      change.roleIds ??
+      store
+        .getUserRoleNames(target.id)
+        .map((name) => store.getRoleByName(name)?.id)
+        .filter((id): id is string => id !== undefined);
+    const violation = checkRoleAssignment(store, roleIds, kind);
     if (violation) return violation;
   }
 

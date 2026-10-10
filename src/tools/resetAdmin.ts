@@ -1,9 +1,9 @@
 /**
  * Break-glass CLI to recover administrative access.
  *
- * Re-enables the given user (creating it when missing), grants it the `admin`
- * role in addition to its existing roles, sets a freshly generated password,
- * and revokes its active sessions. The new password is printed once.
+ * Re-enables the given user (creating it when missing), makes it an operator
+ * account, grants it the `admin` role in addition to its existing roles, sets
+ * a freshly generated password, and revokes its active sessions. The new password is printed once.
  *
  * Usage: bun run reset-admin [username]
  * Default username: AUTH_ADMIN_USER (default "admin").
@@ -53,6 +53,8 @@ export async function resetAdmin(store: UserStore, auth: AuthService, username: 
   if (existing) {
     store.setPasswordHash(user.id, passwordHash);
     store.setUserDisabled(user.id, false);
+    // Admins are operators; a portal account cannot hold the admin role.
+    store.setUserKind(user.id, "operator");
     store.deleteSessionsForUser(user.id);
   }
 

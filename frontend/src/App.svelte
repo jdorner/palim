@@ -35,6 +35,7 @@ import { automationStyle } from "$lib/utils";
 import { workflowStore } from "$lib/workflowRunStore.svelte";
 import { resolveLocale } from "$shared/i18n";
 import type { WebSocketMessage } from "../../shared/types";
+import PortalAccountNotice from "./components/PortalAccountNotice.svelte";
 import Sidebar from "./components/Sidebar.svelte";
 import UserMenu from "./components/UserMenu.svelte";
 import ConnectionError from "./lib/components/ConnectionError.svelte";
@@ -159,6 +160,8 @@ onDestroy(() => {
 });
 
 let isLoginPage = $derived($pathname === "/login");
+// Portal accounts only use the portal; the server refuses this UI's APIs and socket.
+let isPortalAccount = $derived(identity.user?.kind === "portal");
 let isChat = $derived($pathname === "/" || $pathname === "/chat" || $pathname.startsWith("/chat/"));
 let isExtensionPage = $derived($pathname.startsWith("/ext-page/"));
 let isFullHeight = $derived(isChat || isExtensionPage);
@@ -166,7 +169,7 @@ let isFullHeight = $derived(isChat || isExtensionPage);
 // Connect when navigating away from login (after successful login),
 // disconnect when navigating to login (logout).
 $effect(() => {
-  if (isLoginPage) {
+  if (isLoginPage || isPortalAccount) {
     connectionManager.disconnect();
   } else {
     connectionManager.connect();
@@ -191,7 +194,9 @@ $effect(() => {
   }, 500);
   return () => clearTimeout(timer);
 });
-let showConnectionError = $derived(!$connected && !$hasConnected && !isLoginPage && !initialGracePeriod);
+let showConnectionError = $derived(
+  !$connected && !$hasConnected && !isLoginPage && !isPortalAccount && !initialGracePeriod,
+);
 
 let hasUnreadChats = $derived(chatStream.conversations.some((c) => readState.isUnread(c.id, c.updatedAt)));
 
@@ -258,7 +263,9 @@ let currentExtPageTitle = $derived.by(() => {
 </script>
 
 <Tooltip.Provider delayDuration={0}>
-  {#if showConnectionError}
+  {#if isPortalAccount && !isLoginPage}
+    <PortalAccountNotice />
+  {:else if showConnectionError}
     <ConnectionError />
   {:else}
     <div class={isLoginPage ? "min-h-screen" : `flex ${isFullHeight ? "h-screen overflow-hidden" : "min-h-screen"}`}>

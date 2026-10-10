@@ -22,6 +22,7 @@ export {
   checkRoleAssignment,
   checkRoleDelete,
   checkRolePermissionsChange,
+  checkRolePermissionsForPortalUsers,
   checkUserChange,
   checkUserDelete,
 } from "./guards";

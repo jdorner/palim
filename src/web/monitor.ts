@@ -44,6 +44,8 @@ function extractChatId(data: unknown): string | null {
 
 /** WebSocket close code telling the client its credentials are no longer valid. */
 const WS_CLOSE_UNAUTHORIZED = 4001;
+/** Close code for portal accounts, which may not use the operator WebSocket. */
+export const WS_CLOSE_PORTAL_ACCOUNT = 4003;
 
 /** Per-connection auth state tracked by the monitor. */
 interface ClientAuth {
@@ -431,7 +433,8 @@ export class QueueMonitor {
    *
    * A WebSocket otherwise keeps the identity it had when it opened. Clients
    * whose token no longer resolves (logout, expiry, revoked sessions, disabled
-   * user) are closed with code 4001 and stop receiving broadcasts immediately;
+   * user) are closed with code 4001, accounts switched to the portal kind with
+   * 4003; both stop receiving broadcasts immediately;
    * the rest pick up their current principal so role and permission changes
    * apply to subsequent broadcasts, and receive a fresh `initial_state` when
    * their admin status flips. Call after auth state changes, and
@@ -454,14 +457,16 @@ export class QueueMonitor {
         log.error("Failed to revalidate monitor client:", error);
         continue;
       }
-      if (principal) {
+      if (principal && principal.user.kind !== "portal") {
         auth.principal = principal;
         continue;
       }
       this.clients.delete(ws);
       closed++;
       try {
-        ws.close(WS_CLOSE_UNAUTHORIZED, "Unauthorized");
+        // An account switched to the portal kind loses the operator socket.
+        if (principal) ws.close(WS_CLOSE_PORTAL_ACCOUNT, "Portal accounts cannot use the operator WebSocket");
+        else ws.close(WS_CLOSE_UNAUTHORIZED, "Unauthorized");
       } catch (error) {
         log.debug("Failed to close revoked monitor client:", error);
       }

@@ -5,6 +5,7 @@
 
 import { cors } from "@elysia/cors";
 import { staticPlugin } from "@elysiajs/static";
+import { isPortalPath } from "@shared/auth";
 import { type AuthService, hashToken, type UserStore } from "@src/auth";
 import { EXT_UI_DIR } from "@src/config";
 import type { ExtensionRegistry } from "@src/extensions";
@@ -23,7 +24,7 @@ import { compression } from "./compression";
 import { ExtensionRouter } from "./extensionRouter";
 import { serveExtensionUiAsset } from "./extensionUiAssets";
 import { LoginThrottle } from "./loginThrottle";
-import { QueueMonitor } from "./monitor";
+import { QueueMonitor, WS_CLOSE_PORTAL_ACCOUNT } from "./monitor";
 import { authRoutes } from "./routes/auth";
 import { chatRoutes } from "./routes/chat";
 import { extensionRoutes } from "./routes/extensions";
@@ -180,6 +181,11 @@ export async function createWebServer(deps: WebServerDeps) {
           ws.close(4001, "Unauthorized");
           return;
         }
+        // Portal accounts use the portal's own event stream, never the operator socket.
+        if (principal.user.kind === "portal") {
+          ws.close(WS_CLOSE_PORTAL_ACCOUNT, "Portal accounts cannot use the operator WebSocket");
+          return;
+        }
         // Keep the token so the monitor can revalidate this connection later.
         monitor.addClient(ws, principal, token);
       },
@@ -210,7 +216,8 @@ export function startWebServer(app: AnyElysia, opts: WebServerListenOptions) {
  *
  * Public paths (static assets, `/api/auth/login`, extension routes registered
  * with `{ public: true }` such as webhook receive) are exempt. Protected paths require a resolvable token (else 401) and must pass
- * the authorization rules for the method+path (else 403). Fine-grained
+ * the authorization rules for the method+path (else 403). Portal accounts may
+ * only reach the portal path prefixes (else 403). Fine-grained
  * ownership checks live in the individual route handlers.
  *
  * @param params - Elysia handler parameters (request + status helper).
@@ -246,6 +253,11 @@ export function authCheck(
 
   // Attach identity for downstream handlers (ownership checks, admin routes).
   setPrincipal(params.request, principal);
+
+  // Portal accounts are fenced to the portal API, whatever their roles grant.
+  if (principal.user.kind === "portal" && !isPortalPath(path)) {
+    return params.status(403, { error: "Portal accounts can only use the portal" });
+  }
 
   // Coarse, feature-level authorization from the central rule table.
   const decision = authorizeRequest(params.request.method, path, principal.ability);

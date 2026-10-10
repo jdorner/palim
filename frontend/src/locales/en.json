@@ -715,7 +715,14 @@
     "updatedUser": "Updated {username}",
     "username": "Username",
     "usernameRequired": "Username is required",
-    "you": "you"
+    "you": "you",
+    "accountType": "Account type",
+    "kindOperator": "Operator",
+    "kindPortal": "Portal account",
+    "kindOperatorHint": "Uses this web interface, within the limits of their roles.",
+    "kindPortalHint": "Only uses the portal to answer the tasks assigned to them. Cannot use this web interface.",
+    "portalBadge": "Portal",
+    "reasonNotForPortal": "Not available for portal accounts"
   },
   "validation": {
     "conditionRequired": "Condition ref is required",
@@ -835,5 +842,9 @@
     "templateIssues_other": "{count} template issues",
     "undo": "Undo",
     "undoTitle": "Undo (Ctrl+Z)"
+  },
+  "portalAccount": {
+    "title": "This is a portal account",
+    "description": "The account {username} can only be used in the portal, where you find the tasks assigned to you. Ask an administrator for the portal address."
   }
 }

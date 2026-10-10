@@ -8,7 +8,7 @@
  */
 
 import { type CoreTranslate, englishT } from "$lib/i18nCore";
-import { ROLE_ADMIN, ROLE_SYSTEM } from "$shared/auth";
+import { isPortalSafePermissionSet, type Permission, ROLE_ADMIN, ROLE_SYSTEM, type UserKind } from "$shared/auth";
 
 /** A user row returned by GET /api/users. */
 export interface UserRow {
@@ -18,6 +18,8 @@ export interface UserRow {
   /** Preferred UI locale; undefined follows the browser language. */
   locale?: string;
   disabled: boolean;
+  /** Account kind: "operator" (Palim UI) or "portal" (portal only). */
+  kind: UserKind;
   roles: string[];
 }
 
@@ -29,6 +31,17 @@ export interface RoleRow {
   builtIn: boolean;
   permissions: string[];
   userCount: number;
+}
+
+/**
+ * Whether a portal account may hold a role: never `admin`, and only roles
+ * whose permissions are all portal-safe (mirrors the server guard).
+ *
+ * @param role - The role row.
+ * @returns True when the role may be assigned to a portal account.
+ */
+export function isPortalRole(role: RoleRow): boolean {
+  return role.name !== ROLE_ADMIN && isPortalSafePermissionSet(role.permissions as Permission[]);
 }
 
 /** Minimum password length accepted by the server. */

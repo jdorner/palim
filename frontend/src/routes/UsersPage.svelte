@@ -283,6 +283,9 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
                     {#if user.id === currentUserId}
                       <Badge variant="outline" class="text-[10px] px-1.5 py-0">{t("users.you")}</Badge>
                     {/if}
+                    {#if user.kind === "portal"}
+                      <Badge variant="outline" class="text-[10px] px-1.5 py-0">{t("users.portalBadge")}</Badge>
+                    {/if}
                     {#if user.disabled}
                       <Badge variant="warning-outline" class="text-[10px] px-1.5 py-0"
                         >{t("users.disabledBadge")}</Badge
