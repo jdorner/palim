@@ -106,7 +106,7 @@ export function toStepDraft(s: Record<string, unknown>): StepDraft {
     return result;
   }
 
-  // Control flow: waitFor - preserve event + optional timeout / inputSchema
+  // Control flow: waitFor - preserve event + optional timeout / inputSchema / scope / correlate
   if (type === "waitFor") {
     const result: StepDraft = { id, slug, type, event: raw.event as string };
     if (typeof raw.timeout === "number") {
@@ -115,14 +115,26 @@ export function toStepDraft(s: Record<string, unknown>): StepDraft {
     if (raw.inputSchema && typeof raw.inputSchema === "object") {
       result.inputSchema = JSON.parse(JSON.stringify(raw.inputSchema));
     }
+    if (raw.scope === "broadcast" || raw.scope === "instance") {
+      result.scope = raw.scope;
+    }
+    if (typeof raw.correlate === "string") {
+      result.correlate = raw.correlate;
+    }
     return result;
   }
 
-  // Control flow: emit - preserve event + optional payload
+  // Control flow: emit - preserve event + optional payload / correlate / targetRun
   if (type === "emit") {
     const result: StepDraft = { id, slug, type, event: raw.event as string };
     if (raw.payload !== undefined) {
       result.payload = raw.payload;
+    }
+    if (typeof raw.correlate === "string") {
+      result.correlate = raw.correlate;
+    }
+    if (typeof raw.targetRun === "string") {
+      result.targetRun = raw.targetRun;
     }
     return result;
   }

@@ -29,28 +29,23 @@ export interface SignalTimeoutDeps {
 /** Module-level map of signal ID -> armed timeout timer. */
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
+/** The signal fields a timeout timer needs. */
+export type TimedSignal = Pick<signalStore.SignalRecord, "id" | "runId" | "stepSlug" | "event">;
+
 /**
  * Arms a timeout timer for a signal record.
  *
- * When the timer fires, it re-checks the signal's current status
- * to prevent a race condition with concurrent signal delivery.
- * Only fails the run if the signal is still in `waiting` status.
+ * When the timer fires, it claims the signal with an atomic
+ * `markTimedOut`, so a signal delivered between timer expiry and the
+ * callback is left alone. The run is only failed if it is still active.
  *
- * @param signalId - The signal record ID (from Signal Store)
- * @param runId - The workflow run ID
- * @param stepSlug - The waitFor step's slug
- * @param event - The signal event name
- * @param timeoutMs - Timeout duration in milliseconds
+ * @param signal - The signal record (ID, run, step, and event)
+ * @param timeoutMs - Delay until the timeout fires, in milliseconds (0 = next tick)
  * @param deps - Logger and broadcast function
  */
-export function arm(
-  signalId: string,
-  runId: string,
-  stepSlug: string,
-  event: string,
-  timeoutMs: number,
-  deps: SignalTimeoutDeps,
-): void {
+export function arm(signal: TimedSignal, timeoutMs: number, deps: SignalTimeoutDeps): void {
+  const { id: signalId, runId, stepSlug, event } = signal;
+
   // Cancel any existing timer for this signal (defensive, shouldn't happen)
   cancel(signalId);
 
@@ -58,15 +53,14 @@ export function arm(
     // Remove from registry since the timer has fired
     timers.delete(signalId);
 
-    // Re-check signal status to prevent race with concurrent delivery
-    const signal = signalStore.getWaiting(runId, event);
-    if (!signal || signal.id !== signalId) {
-      // Signal was already received or timed out by another path
-      return;
-    }
+    // Claim the signal. Losing the claim means it was delivered (or timed out)
+    // by another path in the meantime.
+    if (!signalStore.markTimedOut(signalId)) return;
 
-    // Mark signal as timed out
-    signalStore.markTimedOut(signalId);
+    // A run that already ended (failed by another branch, cancelled) keeps its
+    // terminal status; the stale wait just expires.
+    const run = runStore.get(runId);
+    if (!run || !runStore.isActiveRunStatus(run.status)) return;
 
     // Fail the run and mark the waitFor step failed. Without the step update the
     // node would linger in "waiting-signal" after the run is already failed,
@@ -96,6 +90,29 @@ export function arm(
   }, timeoutMs);
 
   timers.set(signalId, timer);
+}
+
+/**
+ * Re-arms the timeout timers of all waiting signals.
+ *
+ * Timers live in memory, so a restart would otherwise drop every pending
+ * timeout. Called once at boot: the deadline is derived from the signal's
+ * creation time and timeout, and an already elapsed deadline fires on the
+ * next tick.
+ *
+ * @param deps - Logger and broadcast function
+ * @param now - Current time in epoch ms (injectable for tests)
+ * @returns The number of timers armed
+ */
+export function rearmWaiting(deps: SignalTimeoutDeps, now: number = Date.now()): number {
+  let armed = 0;
+  for (const signal of signalStore.getAllWaiting()) {
+    if (signal.timeoutMs == null || signal.timeoutMs <= 0) continue;
+    const remaining = Math.max(0, signal.createdAt + signal.timeoutMs - now);
+    arm(signal, remaining, deps);
+    armed++;
+  }
+  return armed;
 }
 
 /**

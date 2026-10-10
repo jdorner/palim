@@ -7,6 +7,7 @@ import {
   getEnvSuggestions,
   getFunctionSuggestions,
   getOutputSchemaSuggestions,
+  getRunSuggestions,
   getSecretSuggestions,
   getStepSlugs,
   getSuggestions,
@@ -56,14 +57,14 @@ const secretKeyArb = fc
 /** Env name: same pattern as secret keys */
 const envNameArb = secretKeyArb;
 
-const TOP_LEVEL_NAMESPACES = ["trigger", "steps", "env", "secret", "var"];
+const TOP_LEVEL_NAMESPACES = ["trigger", "steps", "env", "secret", "var", "run"];
 
 describe("Template Scope Registry - Property Tests", () => {
   describe("Prefix filtering returns only matches", () => {
     /**
      * For any typed prefix string, getTopLevelSuggestions(prefix) SHALL return
      * only suggestions whose label starts with prefix (case-sensitive), and SHALL
-     * return all such matches from the fixed set ["trigger", "steps", "env", "secret"].
+     * return all such matches from the fixed set ["trigger", "steps", "env", "secret", "var", "run"].
      */
     test("returns only labels starting with prefix and all such matches", () => {
       fc.assert(
@@ -1542,5 +1543,24 @@ describe("iterator loop variable", () => {
       steps: {},
     };
     expect(getSuggestions(config, ["item"], "").map((s) => s.label)).toEqual(["id"]);
+  });
+});
+
+describe("run namespace suggestions", () => {
+  test("getRunSuggestions offers the run fields filtered by prefix", () => {
+    expect(getRunSuggestions("").map((s) => s.label)).toEqual(["id", "workflow", "createdBy"]);
+    expect(getRunSuggestions("w")).toEqual([{ label: "workflow", terminal: true }]);
+  });
+
+  test("getSuggestions offers run fields under the run namespace", () => {
+    const config: ScopeConfig = {
+      steps: [{ slug: "a" }],
+      currentStepIndex: 0,
+      edges: [],
+      secretKeys: [],
+      variableKeys: [],
+    };
+    expect(getSuggestions(config, ["run"], "").map((s) => s.label)).toEqual(["id", "workflow", "createdBy"]);
+    expect(getSuggestions(config, [], "ru").some((s) => s.label === "run")).toBe(true);
   });
 });

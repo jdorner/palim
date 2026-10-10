@@ -309,6 +309,7 @@ onDestroy(() => {
           {#if inspectedStep.waitEvent}
             <SignalDeliveryForm
               runId={run.runId}
+              stepSlug={inspectedStep.slug}
               event={inspectedStep.waitEvent}
               inputSchema={inspectedStep.waitInputSchema}
             />

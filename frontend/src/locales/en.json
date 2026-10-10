@@ -32,6 +32,14 @@
       "payload": {
         "description": "Optional payload. Supports {{template}} expressions.",
         "title": "Payload"
+      },
+      "correlate": {
+        "title": "Correlation Key",
+        "description": "Optional. Only resume waits with this correlation key (waits without a key are still resumed). Supports {{template}} expressions."
+      },
+      "targetRun": {
+        "title": "Target Run",
+        "description": "Optional workflow run ID. Only waits of that run are resumed. Supports {{template}} expressions."
       }
     },
     "iterator": {
@@ -56,6 +64,14 @@
       "timeout": {
         "description": "How long to wait before failing, in milliseconds (1 second to 7 days). Leave empty to wait indefinitely.",
         "title": "Timeout (ms)"
+      },
+      "scope": {
+        "title": "Scope",
+        "description": "instance: only by direct delivery to this run (signal ID or run + step). broadcast: also resumed by emit steps."
+      },
+      "correlate": {
+        "title": "Correlation Key",
+        "description": "Optional key resolved when the wait is reached (e.g. '{{trigger.payload.orderId}}'). Only emits with the same key resume it."
       }
     }
   },

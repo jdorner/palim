@@ -3,7 +3,8 @@
 
   Renders a schema-driven form (via StepConfigForm pattern) when the waitFor step
   defines an inputSchema, or a freeform JSON textarea otherwise.
-  Submits signal payload via POST to the signal delivery endpoint.
+  Submits the payload to this run's waiting step (not by event name, which is
+  ambiguous when several steps of a run wait on the same event).
 -->
 <script lang="ts">
 import PaperPlaneTiltIcon from "phosphor-svelte/lib/PaperPlaneTiltIcon";
@@ -16,13 +17,15 @@ import StepConfigForm from "./StepConfigForm.svelte";
 interface Props {
   /** The workflow run ID. */
   runId: string;
-  /** The signal event name to deliver. */
+  /** Slug of the waiting step the signal is delivered to. */
+  stepSlug: string;
+  /** The signal event name the step waits for (display only). */
   event: string;
   /** Optional JSON Schema for structured payload input. */
   inputSchema?: Record<string, unknown> | null;
 }
 
-let { runId, event, inputSchema }: Props = $props();
+let { runId, stepSlug, event, inputSchema }: Props = $props();
 
 /** Whether the schema has actual properties (use structured form). */
 let hasSchemaFields = $derived(
@@ -82,7 +85,7 @@ async function handleSubmit() {
 
   submitting = true;
   try {
-    const res = await authFetch(`/ext/workflows/runs/${runId}/signal/${event}`, {
+    const res = await authFetch(`/ext/workflows/runs/${runId}/steps/${encodeURIComponent(stepSlug)}/signal`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),

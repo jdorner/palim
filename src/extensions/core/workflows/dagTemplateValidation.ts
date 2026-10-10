@@ -18,6 +18,7 @@ import {
   DEFAULT_ENV_ALLOWLIST,
   type OutputSchema,
   type OutputSchemas,
+  RUN_TEMPLATE_FIELDS,
   resolveIteratorItemSchema,
   walkSchemaPath,
 } from "@shared/workflows";
@@ -74,7 +75,7 @@ export interface TemplateValidationOptions {
 const TEMPLATE_PATTERN = /\{\{([^}]+)\}\}/g;
 
 /** Known expression prefixes. */
-const KNOWN_PREFIXES = new Set(["trigger", "steps", "env", "secret", "var"]);
+const KNOWN_PREFIXES = new Set(["trigger", "steps", "env", "secret", "var", "run"]);
 
 let _envAllowlist: Set<string> | undefined;
 
@@ -644,6 +645,17 @@ export async function validateDagWorkflowTemplates(
                   });
                 }
               }
+            }
+            continue;
+          }
+
+          if (prefix === "run") {
+            if (parts.length !== 2 || !(RUN_TEMPLATE_FIELDS as readonly string[]).includes(parts[1]!)) {
+              warnings.push({
+                stepSlug: slug,
+                field: fieldName,
+                message: `Invalid run expression "{{${expr}}}" - expected one of ${RUN_TEMPLATE_FIELDS.map((f) => `"run.${f}"`).join(", ")}`,
+              });
             }
             continue;
           }

@@ -32,6 +32,14 @@
       "payload": {
         "description": "Optionale Nutzdaten. Unterstützt {{template}}-Ausdrücke.",
         "title": "Nutzdaten"
+      },
+      "correlate": {
+        "title": "Korrelationsschlüssel",
+        "description": "Optional. Setzt nur Wartevorgänge mit diesem Korrelationsschlüssel fort (Wartevorgänge ohne Schlüssel werden weiterhin fortgesetzt). Unterstützt {{template}}-Ausdrücke."
+      },
+      "targetRun": {
+        "title": "Ziellauf",
+        "description": "Optionale Workflow-Lauf-ID. Nur Wartevorgänge dieses Laufs werden fortgesetzt. Unterstützt {{template}}-Ausdrücke."
       }
     },
     "iterator": {
@@ -56,6 +64,14 @@
       "timeout": {
         "description": "Wie lange gewartet wird, bevor der Schritt fehlschlägt, in Millisekunden (1 Sekunde bis 7 Tage). Leer lassen, um unbegrenzt zu warten.",
         "title": "Zeitlimit (ms)"
+      },
+      "scope": {
+        "title": "Geltungsbereich",
+        "description": "instance: nur durch direkte Zustellung an diesen Lauf (Signal-ID oder Lauf + Schritt). broadcast: zusätzlich durch Emit-Schritte fortsetzbar."
+      },
+      "correlate": {
+        "title": "Korrelationsschlüssel",
+        "description": "Optionaler Schlüssel, der beim Erreichen des Wartens aufgelöst wird (z. B. '{{trigger.payload.orderId}}'). Nur Emits mit demselben Schlüssel setzen es fort."
       }
     }
   },

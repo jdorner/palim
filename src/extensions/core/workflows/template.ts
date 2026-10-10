@@ -11,7 +11,7 @@
  * LLM outputs) can exfiltrate sensitive env vars through chained step results.
  */
 
-import { DEFAULT_ENV_ALLOWLIST } from "@shared/workflows";
+import { DEFAULT_ENV_ALLOWLIST, RUN_TEMPLATE_FIELDS, type RunTemplateInfo } from "@shared/workflows";
 import type { TemplateVariableResolver } from "@src/variables";
 import { quoteHyphenatedStepRefs } from "./stepRefs";
 import { evaluateExpression, isForbiddenKey, referencesForbiddenKey } from "./templateEval";
@@ -67,6 +67,8 @@ export interface TemplateContext {
   stepConfigs?: Record<string, unknown>;
   /** The workflow name (used as consumer identity for secret resolution). */
   workflowName?: string;
+  /** The current run, exposed as `{{run.id}}`, `{{run.workflow}}`, `{{run.createdBy}}`. */
+  run?: RunTemplateInfo;
   /** The secret resolver instance (optional - secret templates ignored if not provided). */
   secretStore?: TemplateSecretResolver;
   /** Variable resolver (optional - {{var.KEY}} left literal if absent). */
@@ -128,6 +130,7 @@ function stringify(value: unknown): string {
  * - `{{env.<VAR>}}` - environment variable
  * - `{{secret.<KEY>}}` - encrypted secret (decrypted at access, ACL-checked)
  * - `{{var.<KEY>}}` - plaintext global variable (no ACL, no decryption)
+ * - `{{run.id}}` / `{{run.workflow}}` / `{{run.createdBy}}` - the current run
  *
  * @param template - The template string with `{{...}}` expressions
  * @param ctx - The resolution context (trigger payload + step results + step configs)
@@ -230,6 +233,15 @@ export async function resolveTemplates(
       }
       resolved += value;
       continue;
+    }
+
+    // {{run.<field>}} - the current workflow run (id, workflow, createdBy)
+    if (parts[0] === "run" && parts.length === 2 && ctx.run) {
+      const field = parts[1]!;
+      if ((RUN_TEMPLATE_FIELDS as readonly string[]).includes(field)) {
+        resolved += ctx.run[field as keyof RunTemplateInfo] ?? "";
+        continue;
+      }
     }
 
     // {{trigger.payload}} or {{trigger.payload.field.subfield}}
@@ -349,7 +361,7 @@ function isExpressionSyntax(trimmed: string): boolean {
 
 /**
  * Builds the non-sensitive namespace values exposed to the expression
- * evaluator. Includes `trigger`, `steps` (result + config), `var`, and - when
+ * evaluator. Includes `trigger`, `run`, `steps` (result + config), `var`, and - when
  * inside an iterator body - the iterator alias and `itemIndex`.
  *
  * Deliberately EXCLUDES `secret` and `env`: those are access-controlled and are
@@ -364,6 +376,9 @@ function buildExpressionScopeNamespaces(ctx: TemplateContext): Record<string, un
 
   // trigger.payload -> expose as `trigger: { payload }`
   ns.trigger = { payload: ctx.triggerPayload };
+
+  // run.<field> -> the current workflow run
+  if (ctx.run) ns.run = { ...ctx.run };
 
   // steps.<slug>.result / .config -> expose as `steps: { <slug>: { result, config } }`
   const steps: Record<string, { result?: unknown; config?: unknown }> = {};

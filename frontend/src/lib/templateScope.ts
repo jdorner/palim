@@ -12,6 +12,7 @@ import {
   isObjectSchemaNode,
   type OutputSchema,
   type OutputSchemas,
+  RUN_TEMPLATE_FIELDS,
   resolveIteratorItemSchema,
   walkSchemaPath,
 } from "../../../shared/workflows";
@@ -95,11 +96,11 @@ export interface ScopeConfig {
 }
 
 /** Fixed set of top-level namespace names. */
-const TOP_LEVEL_NAMESPACES = ["trigger", "steps", "env", "secret", "var"] as const;
+const TOP_LEVEL_NAMESPACES = ["trigger", "steps", "env", "secret", "var", "run"] as const;
 
 /**
  * Returns top-level namespace suggestions, filtered by prefix.
- * Always returns from: ["trigger", "steps", "env", "secret", "var"].
+ * Always returns from: ["trigger", "steps", "env", "secret", "var", "run"].
  * Uses case-sensitive startsWith matching. All are non-terminal.
  *
  * @param prefix - The currently typed text used for filtering
@@ -208,6 +209,20 @@ export function getVariableSuggestions(variableKeys: string[], prefix: string): 
       label: key,
       terminal: true,
     }));
+}
+
+/**
+ * Returns `run` namespace field suggestions (`id`, `workflow`, `createdBy`),
+ * filtered by prefix. All are terminal.
+ *
+ * @param prefix - The currently typed text used for filtering
+ * @returns Array of matching run field suggestions, in declaration order
+ */
+export function getRunSuggestions(prefix: string): Suggestion[] {
+  return RUN_TEMPLATE_FIELDS.filter((field) => field.startsWith(prefix)).map((field) => ({
+    label: field,
+    terminal: true,
+  }));
 }
 
 /**
@@ -716,6 +731,14 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
     if (path.length === 1) {
       // path=["var"] -> show variable keys
       return getVariableSuggestions(config.variableKeys, prefix);
+    }
+    return [];
+  }
+
+  if (namespace === "run") {
+    if (path.length === 1) {
+      // path=["run"] -> show run fields
+      return getRunSuggestions(prefix);
     }
     return [];
   }

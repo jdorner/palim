@@ -140,6 +140,16 @@ export type ConditionDef = Static<typeof ConditionSchema>;
 const EventNamePattern = "^[a-z][a-z0-9._-]*$";
 
 /**
+ * Delivery scope of a `waitFor` signal: `instance` (default) can only be resumed
+ * by direct delivery (signal ID or run + step), `broadcast` additionally by
+ * `emit` steps.
+ */
+const SignalScopeSchema = Type.Union([Type.Literal("broadcast"), Type.Literal("instance")]);
+
+/** Correlation key template shared by `waitFor` and `emit` nodes. */
+const CorrelateSchema = Type.String({ minLength: 1, maxLength: 512 });
+
+/**
  * WaitFor node schema - pauses execution until an external signal arrives.
  */
 export const WaitForStepSchema = Type.Object(
@@ -152,6 +162,10 @@ export const WaitForStepSchema = Type.Object(
     timeout: Type.Optional(Type.Integer({ minimum: 1000, maximum: 604800000 })),
     /** JSON Schema for validating the incoming signal payload. */
     inputSchema: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    /** Delivery scope (default `instance`). */
+    scope: Type.Optional(SignalScopeSchema),
+    /** Correlation key template; only emits with an equal key resume the wait. */
+    correlate: Type.Optional(CorrelateSchema),
   },
   { additionalProperties: false },
 );
@@ -167,6 +181,10 @@ export const EmitStepSchema = Type.Object(
     event: Type.String({ minLength: 1, maxLength: 128, pattern: EventNamePattern }),
     /** Optional payload template expression. */
     payload: Type.Optional(Type.String()),
+    /** Correlation key template; narrows delivery to waits with an equal key. */
+    correlate: Type.Optional(CorrelateSchema),
+    /** Run ID template; narrows delivery to a single run. */
+    targetRun: Type.Optional(Type.String({ minLength: 1 })),
   },
   { additionalProperties: false },
 );
@@ -278,6 +296,8 @@ export interface WaitForStep {
   event: string;
   timeout?: number;
   inputSchema?: Record<string, unknown>;
+  scope?: "broadcast" | "instance";
+  correlate?: string;
 }
 
 /** TypeScript type for an `emit` step. */
@@ -286,6 +306,8 @@ export interface EmitStep {
   type: "emit";
   event: string;
   payload?: string;
+  correlate?: string;
+  targetRun?: string;
 }
 
 /** TypeScript type for a single workflow step (all types). */
@@ -390,6 +412,8 @@ export const DagWaitForStepSchema = Type.Object(
     event: Type.String({ minLength: 1, maxLength: 128, pattern: EventNamePattern }),
     timeout: Type.Optional(Type.Integer({ minimum: 1000, maximum: 604800000 })),
     inputSchema: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    scope: Type.Optional(SignalScopeSchema),
+    correlate: Type.Optional(CorrelateSchema),
   },
   { additionalProperties: false },
 );
@@ -402,6 +426,8 @@ export const DagEmitStepSchema = Type.Object(
     type: Type.Literal("emit"),
     event: Type.String({ minLength: 1, maxLength: 128, pattern: EventNamePattern }),
     payload: Type.Optional(Type.String()),
+    correlate: Type.Optional(CorrelateSchema),
+    targetRun: Type.Optional(Type.String({ minLength: 1 })),
   },
   { additionalProperties: false },
 );
@@ -498,6 +524,10 @@ export interface DagWaitForStep {
   event: string;
   timeout?: number;
   inputSchema?: Record<string, unknown>;
+  /** Delivery scope (default `instance`); only `broadcast` waits can be resumed by `emit`. */
+  scope?: "broadcast" | "instance";
+  /** Correlation key template, resolved when the wait is registered. */
+  correlate?: string;
 }
 
 /** TypeScript type for a DAG `emit` step. */
@@ -505,6 +535,10 @@ export interface DagEmitStep {
   type: "emit";
   event: string;
   payload?: string;
+  /** Correlation key template; narrows delivery to waits with an equal key. */
+  correlate?: string;
+  /** Run ID template; narrows delivery to a single run. */
+  targetRun?: string;
 }
 
 /** TypeScript type for a DAG `iterator` step. */

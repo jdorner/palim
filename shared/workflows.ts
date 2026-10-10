@@ -55,6 +55,26 @@ export interface OutputSchemas {
 export const DEFAULT_ENV_ALLOWLIST: readonly string[] = ["WEB_HOST", "WEB_PORT", "AGENT_WORK_DIR", "NODE_ENV"];
 
 /**
+ * Fields of the `run` template namespace (`{{run.id}}`, ...), describing the
+ * workflow run a template is resolved in. Single source of truth for the
+ * backend template engine, the DAG validator, and the frontend autocomplete.
+ */
+export const RUN_TEMPLATE_FIELDS = ["id", "workflow", "createdBy"] as const;
+
+/** A field of the `run` template namespace. */
+export type RunTemplateField = (typeof RUN_TEMPLATE_FIELDS)[number];
+
+/** Values of the `run` template namespace. */
+export interface RunTemplateInfo {
+  /** The workflow run ID. */
+  id: string;
+  /** The workflow name. */
+  workflow: string;
+  /** User ID of the run's creator, or null for system-started runs. */
+  createdBy: string | null;
+}
+
+/**
  * The node a dot-path resolves to within an {@link OutputSchema}, plus what is
  * reachable from it.
  *

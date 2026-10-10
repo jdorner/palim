@@ -311,6 +311,13 @@ Pauses its own branch and releases the worker slot until an external signal is d
     },
     "required": ["approver"],
   },
+  // Optional: who may resume the wait (default "instance")
+  //   "instance"  - only direct delivery to this run (see below)
+  //   "broadcast" - additionally emit steps (from other workflows)
+  "scope": "broadcast",
+  // Optional correlation key, resolved when the wait is reached.
+  // Only emits carrying the same key resume this wait.
+  "correlate": "{{trigger.payload.orderId}}",
 }
 ```
 
@@ -318,20 +325,26 @@ When the signal arrives, its payload becomes the step result. Successor steps ac
 
 ### Delivering a signal
 
-Send a POST request to resume a waiting workflow:
+Every waiting step of every run has its own address, so a signal resumes exactly one wait. Deliver it with a POST (JSON body = payload):
 
 ```
-POST /ext/workflows/runs/<runId>/signal/<event>
+POST /ext/workflows/runs/<runId>/steps/<stepSlug>/signal   # preferred: one step of one run
+POST /ext/workflows/signals/<signalId>                     # signal ID from GET /ext/workflows/runs/<runId>
+POST /ext/workflows/runs/<runId>/signal/<event>            # by event; 409 if several steps wait on it
 Content-Type: application/json
 
 { "approver": "joe", "comment": "Looks good" }
 ```
 
+To let an external system call back into the right run, pass it the address from a template: `/ext/workflows/runs/{{run.id}}/steps/await-approval/signal`.
+
 Response codes:
 - `200` - Signal accepted, workflow resumed
-- `404` - Run not found
-- `409` - Run not waiting for this event, or signal already delivered
+- `404` - Run or signal not found
+- `409` - Not waiting (already delivered, timed out, run ended), or the event matches several steps
 - `422` - Payload fails inputSchema validation
+
+A timeout survives restarts: after a restart, pending timeouts are re-armed and already elapsed ones fire immediately.
 
 ### Event name rules
 
@@ -339,7 +352,7 @@ Event names must match `^[a-z][a-z0-9._-]*$` (max 128 characters). Examples: `ap
 
 ## Emit step (cross-workflow signal)
 
-Sends a named signal to all workflows currently waiting for that event. The emitting branch continues immediately (fire-and-forget).
+Sends a named signal to workflows currently waiting for that event. The emitting branch continues immediately (fire-and-forget).
 
 ```json5
 "notify-ready": {
@@ -348,7 +361,17 @@ Sends a named signal to all workflows currently waiting for that event. The emit
   "event": "data.processed",
   // Optional payload template (resolved before emission)
   "payload": "{{steps.transform.result}}",
+  // Optional: only resume waits with this correlation key
+  "correlate": "{{trigger.payload.orderId}}",
+  // Optional: only resume waits of this run (e.g. a run started by start-workflow)
+  "targetRun": "{{steps.start-child.result.workflowRunId}}",
 }
 ```
 
-Any workflow with a `waitFor` step listening for `"data.processed"` will be resumed with the emitted payload.
+Which waits an emit resumes:
+- only `waitFor` steps with `scope: "broadcast"`; waits with the default `instance` scope are never reached by emit
+- a wait with a `correlate` key only when the emit carries the same key; a wait without a key on any emit of the event
+- with `targetRun`, only waits of that run
+- never waits of the emitting run itself
+
+Without `correlate` or `targetRun`, every unkeyed broadcast wait on the event, in every run, is resumed. To address a single workflow instance, use a correlation key, `targetRun`, or direct delivery.

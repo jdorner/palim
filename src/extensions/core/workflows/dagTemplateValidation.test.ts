@@ -133,6 +133,36 @@ describe("validateDagWorkflowTemplates", () => {
       expect(warnings).toEqual([]);
     });
   });
+
+  describe("run namespace", () => {
+    test("accepts run.id, run.workflow and run.createdBy", async () => {
+      const def = wf({ a: { type: "agent", prompt: "{{run.id}} {{run.workflow}} {{run.createdBy}}" } }, []);
+
+      expect(await validateDagWorkflowTemplates(def)).toEqual([]);
+    });
+
+    test("warns about unknown or nested run fields", async () => {
+      const def = wf({ a: { type: "agent", prompt: "{{run.nope}} {{run.id.x}} {{run}}" } }, []);
+
+      const warnings = await validateDagWorkflowTemplates(def);
+      expect(warnings).toHaveLength(3);
+      expect(warnings.every((w) => w.message.includes("Invalid run expression"))).toBe(true);
+    });
+
+    test("validates waitFor correlation keys", async () => {
+      const def = wf(
+        {
+          a: { type: "agent", prompt: "a" },
+          wait: { type: "waitFor", event: "go", correlate: "{{run.idx}}" },
+        },
+        [{ from: "a", to: "wait" }],
+      );
+
+      const warnings = await validateDagWorkflowTemplates(def);
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0]!.stepSlug).toBe("wait");
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -70,6 +70,23 @@ The `http-request` step type supports additional options: custom `headers`, `tim
 
 `if` and `case` nodes are evaluated inline by the engine rather than dispatched as jobs. See the `workflows` agent skill for detailed control-flow examples.
 
+### Signals
+
+Each `waitFor` step that is reached creates a signal record for exactly that step of that run. How it can be resumed:
+
+- **Direct delivery** reaches one specific waiting step: by run and step (`POST /ext/workflows/runs/:runId/steps/:slug/signal`) or by signal ID (`POST /ext/workflows/signals/:signalId`). Steps can hand out their own address with `{{run.id}}`, e.g. as a callback URL in an `http-request` step.
+- **`emit`** reaches waiting steps that opt in with `scope: "broadcast"` (the default `instance` scope ignores `emit` entirely) and whose event matches, across runs. Narrow it down with:
+  - `correlate` on both steps - a `waitFor` with a correlation key (e.g. `"{{trigger.payload.orderId}}"`, resolved when the wait is reached) only accepts an `emit` with the same key; a `waitFor` without a key accepts any `emit` of the event
+  - `targetRun` on the `emit` - only waits of that run (e.g. `"{{steps.start-child.result.workflowRunId}}"`)
+
+```json5
+"await-payment": { "type": "waitFor", "event": "order.paid", "scope": "broadcast", "correlate": "{{trigger.payload.orderId}}", "timeout": 86400000 },
+// in another workflow:
+"payment-done": { "type": "emit", "event": "order.paid", "correlate": "{{trigger.payload.orderId}}", "payload": "{{trigger.payload}}" }
+```
+
+The payload is validated against the `waitFor` step's `inputSchema` on every delivery path; an `emit` skips waits whose schema rejects it and logs why. Timeouts survive restarts: pending ones are re-armed at boot, elapsed ones fire immediately.
+
 ## Definition Schema
 
 ```json5
@@ -139,9 +156,17 @@ Get run status with per-step states.
 
 Get per-step execution logs for a run.
 
+### POST /ext/workflows/runs/:runId/steps/:slug/signal
+
+Deliver a signal to the waiting `waitFor` step `:slug` of a run. The JSON body becomes the step result (validated against the step's `inputSchema` if present). Answers `404` for an unknown run, `409` if the step is not waiting (already delivered, timed out, or the run ended), and `422` for an invalid payload.
+
+### POST /ext/workflows/signals/:signalId
+
+Deliver a signal by its ID (`waitSignalId` of a waiting step in `GET /ext/workflows/runs/:runId`). Same body and status codes as above.
+
 ### POST /ext/workflows/runs/:runId/signal/:event
 
-Deliver a signal to a run waiting on a `waitFor` step. The JSON body becomes the step result (validated against the step's `inputSchema` if present).
+Deliver a signal to the step of a run waiting on `:event`. If several steps of the run wait on the same event, this answers `409` with the candidate `steps`; address one of them with the step route instead.
 
 ### DELETE /ext/workflows/runs/:runId
 
@@ -163,6 +188,7 @@ Agent step prompts support template variables:
 - `{{trigger.payload}}` - The trigger event payload (webhook body, file path, etc.)
 - `{{secret.KEY_NAME}}` - Resolve a secret from the vault
 - `{{steps.<slug>.result}}` - Result from any completed step (resolved from the run store, so any ancestor works, not just the direct predecessor)
+- `{{run.id}}`, `{{run.workflow}}`, `{{run.createdBy}}` - The current run's ID, workflow name, and creator's user ID
 
 ## Hot Reload
 
