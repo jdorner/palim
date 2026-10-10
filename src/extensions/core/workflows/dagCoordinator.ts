@@ -1036,7 +1036,9 @@ async function propagateDead(
  * Checks if the workflow run is complete.
  *
  * A run is complete when all terminal steps (no outgoing edges) are in a
- * terminal state (completed or dead), with at least one completed.
+ * terminal state (completed or dead). Every other step leads to a terminal, so
+ * nothing is left pending or running then. All terminals may be dead: a control
+ * flow node that took a branch without edges ends the run normally.
  */
 async function checkRunCompletion(runId: string, topology: DagGraphTopology, deps: DagCoordinatorDeps): Promise<void> {
   const { log, broadcast } = deps;
@@ -1044,22 +1046,12 @@ async function checkRunCompletion(runId: string, topology: DagGraphTopology, dep
   const run = dagRunStore.get(runId);
   if (!run || !dagRunStore.isActiveRunStatus(run.status)) return;
 
-  let allTerminalsDone = true;
-  let hasCompleted = false;
-
-  for (const slug of topology.terminalSteps) {
+  const allTerminalsDone = [...topology.terminalSteps].every((slug) => {
     const status = run.stepStatuses[slug];
-    if (status === "completed") {
-      hasCompleted = true;
-    } else if (status === "dead") {
-      // Dead terminal doesn't block completion
-    } else {
-      allTerminalsDone = false;
-      break;
-    }
-  }
+    return status === "completed" || status === "dead";
+  });
 
-  if (allTerminalsDone && hasCompleted) {
+  if (allTerminalsDone) {
     dagRunStore.updateStatus(runId, "completed");
     broadcast({ type: "workflow_completed", workflowRunId: runId });
     log.info(`DAG workflow run ${runId} completed`);

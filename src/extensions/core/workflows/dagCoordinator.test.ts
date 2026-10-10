@@ -249,6 +249,16 @@ describe("handleDagStepCompletion", () => {
       const { dispatched } = await runUnmatched(caseDef(undefined, "default"));
       expect(dispatched).toEqual(["fallback"]);
     });
+
+    test("a matched path without edges completes the run", async () => {
+      const def = caseDef(undefined, "default");
+      def.steps.route = { type: "case", match: "{{steps.classify.result}}", paths: ["low", "high", "unknown"] };
+      const { dispatched, run } = await runUnmatched(def);
+      expect(dispatched).toEqual([]);
+      expect(run.stepResults.route).toEqual({ matched: "unknown" });
+      expect(run.stepStatuses).toMatchObject({ handle_low: "dead", handle_high: "dead", fallback: "dead" });
+      expect(run.status).toBe("completed");
+    });
   });
 
   test("run completes when all terminal steps finish", async () => {
