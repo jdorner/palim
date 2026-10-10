@@ -9,7 +9,7 @@
  * 3. Fetches available models from the endpoint and lets the user pick one
  * 4. Generates credentials for the admin account seeded on first boot
  * 5. Generates a master key for the secret vault
- * 6. Installs frontend dependencies and builds the frontend
+ * 6. Installs dependencies of the frontend and the portal and builds both
  *
  * Run with: bun run setup
  */
@@ -24,6 +24,7 @@ const ROOT = join(import.meta.dirname, "..");
 const ENV_EXAMPLE = join(ROOT, ".env.example");
 const ENV_TARGET = join(ROOT, ".env");
 const FRONTEND_DIR = join(ROOT, "frontend");
+const PORTAL_DIR = join(ROOT, "portal");
 
 /** Reserved username of the built-in system principal (mirrors `SYSTEM_USERNAME`). */
 const SYSTEM_USERNAME = "system";
@@ -402,24 +403,30 @@ async function ensureSecretsMasterKey(): Promise<void> {
   print("  ✓ Generated SECRETS_MASTER_KEY (32 bytes, hex)");
 }
 
-async function buildFrontend(): Promise<void> {
-  print("  Installing frontend dependencies...");
-  const install = await $`bun install`.cwd(FRONTEND_DIR).quiet();
+/**
+ * Installs the dependencies of a UI package and builds it. Exits on failure.
+ *
+ * @param label - Name shown in the output (e.g. "Frontend")
+ * @param dir - Package directory
+ */
+async function buildUiPackage(label: string, dir: string): Promise<void> {
+  print(`  Installing ${label.toLowerCase()} dependencies...`);
+  const install = await $`bun install`.cwd(dir).quiet();
   if (install.exitCode !== 0) {
-    print("  ✗ Frontend install failed:");
+    print(`  ✗ ${label} install failed:`);
     print(install.stderr.toString());
     process.exit(1);
   }
-  print("  ✓ Frontend dependencies installed");
+  print(`  ✓ ${label} dependencies installed`);
 
-  print("  Building frontend...");
-  const build = await $`bun run build`.cwd(FRONTEND_DIR).quiet();
+  print(`  Building ${label.toLowerCase()}...`);
+  const build = await $`bun run build`.cwd(dir).quiet();
   if (build.exitCode !== 0) {
-    print("  ✗ Frontend build failed:");
+    print(`  ✗ ${label} build failed:`);
     print(build.stderr.toString());
     process.exit(1);
   }
-  print("  ✓ Frontend built successfully");
+  print(`  ✓ ${label} built successfully`);
 }
 
 // --- Main --------------------------------------------------------------------
@@ -466,9 +473,10 @@ async function main(): Promise<void> {
   await ensureSecretsMasterKey();
   blank();
 
-  // Step 5: Build frontend
+  // Step 5: Build frontend and portal (the portal reuses the frontend's UI kit and dependencies)
   print("⑤ Frontend build");
-  await buildFrontend();
+  await buildUiPackage("Frontend", FRONTEND_DIR);
+  await buildUiPackage("Portal", PORTAL_DIR);
   blank();
 
   // Done

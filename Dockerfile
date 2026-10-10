@@ -1,5 +1,5 @@
 # ============================================================
-# Stage 1: Install dependencies and build frontend
+# Stage 1: Install dependencies and build frontend and portal
 # ============================================================
 FROM docker.io/oven/bun:1.3-debian AS builder
 
@@ -18,6 +18,12 @@ COPY shared/ shared/
 COPY frontend/ frontend/
 
 RUN cd frontend && bun run build
+
+# Portal (end-user app): reuses the frontend's UI kit and dependencies
+COPY portal/package.json portal/bun.lock portal/
+RUN cd portal && bun install --frozen-lockfile
+COPY portal/ portal/
+RUN cd portal && bun run build
 
 # ============================================================
 # Stage 2: Production dependencies
@@ -59,6 +65,9 @@ COPY tsconfig.json biome.json ./
 
 # Copy built frontend from builder stage
 COPY --from=builder /app/frontend/dist frontend/dist
+
+# Served at /portal/
+COPY --from=builder /app/portal/dist portal/dist
 
 # Extension UI builder: compiles extension Svelte pages at runtime against the
 # UI kit and theme in frontend/src, resolving kit imports from frontend/node_modules

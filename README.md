@@ -85,6 +85,8 @@ Core extensions cannot be deactivated. Optional extensions are disabled by defau
 
 Per-extension documentation lives in [docs/extensions/](docs/extensions/). For writing your own extensions, see [docs/writing-extensions.md](docs/writing-extensions.md).
 
+Workflows can ask people for approvals or input with a `humanTask` step. They answer in the **portal**, a separate mobile-first end-user app served at `/portal/`; see [docs/portal.md](docs/portal.md).
+
 ## Configuration
 
 ### Environment Variables
@@ -102,6 +104,7 @@ Per-extension documentation lives in [docs/extensions/](docs/extensions/). For w
 | `AUTH_ADMIN_USER` | Username of the admin account seeded on first boot | `admin` |
 | `AUTH_ADMIN_PASSWORD` | Password for the seeded admin (empty = generate a one-time password and log it once) | - |
 | `AUTH_SESSION_TTL_MS` | Login token lifetime in ms | `604800000` (7 days) |
+| `PORTAL_PUBLIC_URL` | Public URL of the [portal](docs/portal.md) | - |
 | `DATA_DIR` | Directory for databases and generated content | `<AGENT_WORK_DIR>/.palim/` |
 | `EXTENSIONS_DIR` | Custom extensions directory | `src/extensions` |
 | `SECRETS_MASTER_KEY` | Derivation key for SecretVault encryption | - |

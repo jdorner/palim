@@ -1,6 +1,6 @@
 # Docker / Podman
 
-A multi-stage [Dockerfile](../Dockerfile) produces a minimal production image with the frontend pre-bundled.
+A multi-stage [Dockerfile](../Dockerfile) produces a minimal production image with the frontend and the [portal](portal.md) pre-bundled.
 
 ## Quick Start
 

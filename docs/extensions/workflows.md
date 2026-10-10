@@ -73,7 +73,7 @@ The `http-request` step type supports additional options: custom `headers`, `tim
 
 ### Human Tasks
 
-A `humanTask` step asks a person: it creates a task in the portal (see [the API security model](../api-security-model.md#portal-accounts) for portal accounts) and pauses its branch until someone assigned to it answers. The answer becomes the step result: `outcome` (the chosen button), `data` (form data), `comment`, `respondedBy`, `respondedAt`, `taskId`.
+A `humanTask` step asks a person: it creates a task in the [portal](../portal.md) (see [the API security model](../api-security-model.md#portal-accounts) for portal accounts) and pauses its branch until someone assigned to it answers. The answer becomes the step result: `outcome` (the chosen button), `data` (form data), `comment`, `respondedBy`, `respondedAt`, `taskId`.
 
 ```json5
 "review": {
