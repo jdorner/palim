@@ -4,6 +4,8 @@ import BookOpenIcon from "phosphor-svelte/lib/BookOpenIcon";
 import BrainIcon from "phosphor-svelte/lib/BrainIcon";
 import CaretDownIcon from "phosphor-svelte/lib/CaretDownIcon";
 import CaretRightIcon from "phosphor-svelte/lib/CaretRightIcon";
+import CheckIcon from "phosphor-svelte/lib/CheckIcon";
+import CopyIcon from "phosphor-svelte/lib/CopyIcon";
 import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import SpinnerGapIcon from "phosphor-svelte/lib/SpinnerGapIcon";
 import TerminalIcon from "phosphor-svelte/lib/TerminalIcon";
@@ -111,6 +113,38 @@ function toggleThinking(key: string) {
 function isThinkingExpanded(key: string): boolean {
   const toggled = expandedThinking.has(key);
   return settings.thinkingExpanded ? !toggled : toggled;
+}
+
+/** ID of the message whose content was just copied (drives the "Copied" feedback). */
+let copiedId = $state<string | null>(null);
+let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+/**
+ * Returns the markdown source of an assistant response: its text segments
+ * joined by blank lines (thinking, tools, and pushes are excluded).
+ * @param msg - Assistant message
+ * @returns Markdown text of the response
+ */
+function responseMarkdown(msg: Message): string {
+  const text = msg.segments
+    ?.flatMap((s) => (s.type === "text" ? [s.content.trim()] : []))
+    .filter(Boolean)
+    .join("\n\n");
+  return text || msg.content;
+}
+
+/** Copies an assistant response to the clipboard as markdown. */
+async function copyResponse(msg: Message) {
+  try {
+    await navigator.clipboard.writeText(responseMarkdown(msg));
+    copiedId = msg.id;
+    if (copiedTimer) clearTimeout(copiedTimer);
+    copiedTimer = setTimeout(() => {
+      copiedId = null;
+    }, 1500);
+  } catch (err) {
+    console.error("Copy failed:", err);
+  }
 }
 
 function scrollToBottom() {
@@ -447,6 +481,21 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
               Regenerate
             </button>
           {/if}
+          <button
+            type="button"
+            class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            onclick={() => copyResponse(msg)}
+            aria-label={copiedId === msg.id ? "Copied" : "Copy response as markdown"}
+            title="Copy as markdown"
+          >
+            {#if copiedId === msg.id}
+              <CheckIcon class="w-3 h-3" aria-hidden="true" />
+              Copied
+            {:else}
+              <CopyIcon class="w-3 h-3" aria-hidden="true" />
+              Copy
+            {/if}
+          </button>
           {#if onDeleteMessage && msgIndex < messages.length - 1}
             <button
               type="button"
