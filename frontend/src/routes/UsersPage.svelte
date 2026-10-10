@@ -315,12 +315,16 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
                   {system ? "-" : languageLabel(user)}
                 </TableCell>
                 <TableCell class="w-1">
-                  <div class="flex items-center justify-end gap-1 whitespace-nowrap">
+                  <!-- Two-column grid: the cell width is shared by all rows, so the second action lines up -->
+                  <div class="grid grid-cols-[auto_1fr] items-center gap-1 whitespace-nowrap">
                     {#if system}
-                      <span class="pr-2 text-xs text-muted-foreground">{t("users.readOnly")}</span>
+                      <span class="col-start-2 pl-2 text-xs text-muted-foreground">{t("users.readOnly")}</span>
                     {:else if confirmDisableId === user.id}
-                      <span class="text-xs text-muted-foreground mr-1">{t("users.confirmDisable")}</span>
-                      <Button size="sm" variant="destructive" onclick={() => setDisabled(user, true)}
+                      <Button
+                        size="sm"
+                        variant="destructive"
+                        title={t("users.confirmDisable")}
+                        onclick={() => setDisabled(user, true)}
                         >{t("users.disable")}</Button
                       >
                       <Button size="sm" variant="ghost" onclick={() => (confirmDisableId = null)}
@@ -336,30 +340,30 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
                         <Button
                           size="sm"
                           variant="ghost"
-                          class="w-28 justify-end"
+                          class="justify-start"
                           disabled={busyUserId === user.id}
                           onclick={() => setDisabled(user, false)}
                         >
-                          <CheckIcon size={14} class="mr-1.5" aria-hidden="true" />
+                          <CheckIcon size={14} class="mr-1.5 shrink-0" aria-hidden="true" />
                           {t("users.enable")}
                         </Button>
                       {:else if lock}
                         <span
-                          class="inline-flex w-28 items-center justify-end gap-1 pr-2 text-xs text-muted-foreground"
+                          class="inline-flex items-center gap-1 pl-2 text-xs text-muted-foreground"
                           title={disableLockReason(user, users, currentUserId, t)}
                         >
-                          <LockSimpleIcon size={12} aria-hidden="true" />
+                          <LockSimpleIcon size={12} class="shrink-0" aria-hidden="true" />
                           {lock}
                         </span>
                       {:else}
                         <Button
                           size="sm"
                           variant="ghost"
-                          class="w-28 justify-end text-destructive hover:text-destructive"
+                          class="justify-start text-destructive hover:text-destructive"
                           disabled={busyUserId === user.id}
                           onclick={() => (confirmDisableId = user.id)}
                         >
-                          <ProhibitIcon size={14} class="mr-1.5" aria-hidden="true" />
+                          <ProhibitIcon size={14} class="mr-1.5 shrink-0" aria-hidden="true" />
                           {t("users.disable")}
                         </Button>
                       {/if}
