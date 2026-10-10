@@ -1,9 +1,11 @@
 <script lang="ts">
 import CaretDownIcon from "phosphor-svelte/lib/CaretDownIcon";
 import CheckIcon from "phosphor-svelte/lib/CheckIcon";
+import GlobeIcon from "phosphor-svelte/lib/GlobeIcon";
 import SignOutIcon from "phosphor-svelte/lib/SignOutIcon";
 import UserIcon from "phosphor-svelte/lib/UserIcon";
 import { forceLogout } from "$lib/auth";
+import LocaleFlag from "$lib/components/LocaleFlag.svelte";
 import { Button } from "$lib/components/ui/button";
 import { i18n, t } from "$lib/i18n.svelte";
 import { identity } from "$lib/identity.svelte";
@@ -94,10 +96,15 @@ function onWindowKeydown(event: KeyboardEvent) {
             role="menuitemradio"
             aria-checked={preference === option.value}
             onclick={() => chooseLanguage(option.value)}
-            class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-left
+            class="flex w-full items-center gap-2 whitespace-nowrap rounded-sm px-2 py-1.5 text-sm text-left
               text-foreground hover:bg-accent hover:text-foreground transition-colors"
           >
             <CheckIcon size={16} aria-hidden="true" class={preference === option.value ? "" : "invisible"} />
+            {#if option.value}
+              <LocaleFlag locale={option.value} />
+            {:else}
+              <GlobeIcon size={16} aria-hidden="true" class="mx-0.5 text-muted-foreground" />
+            {/if}
             {option.label}
           </button>
         {/each}
@@ -110,7 +117,7 @@ function onWindowKeydown(event: KeyboardEvent) {
         type="button"
         role="menuitem"
         onclick={handleLogout}
-        class="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm text-left
+        class="flex w-full items-center gap-2 whitespace-nowrap rounded-sm px-2 py-1.5 text-sm text-left
           text-foreground hover:bg-accent hover:text-foreground transition-colors"
       >
         <SignOutIcon size={16} aria-hidden="true" />
