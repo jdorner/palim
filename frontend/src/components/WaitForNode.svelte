@@ -16,20 +16,14 @@ let { data }: Props = $props();
 
 let status = $derived<NodeStatus>(data.status ?? "waiting");
 let isSkipped = $derived(status === "skipped");
-let isWaitingSignal = $derived(status === "waiting-signal");
 
 let visual = $derived(visualForStepType(data.type));
 let statusInfo = $derived(statusVisual(status));
 let typeLabel = $derived(labelForStepType(data.type));
 
-// A node actively waiting for its signal gets an amber pulse ring to stand out.
-let ringClass = $derived(
-  data.selected
-    ? "ring-2 ring-primary"
-    : isWaitingSignal
-      ? "ring-2 ring-amber-400/70 animate-pulse"
-      : `ring-2 ${statusInfo.ringClass}`,
-);
+// Selection ring takes precedence; otherwise the ring reflects run status
+// (pulsing amber while waiting for the signal).
+let ringClass = $derived(data.selected ? "ring-2 ring-primary" : `ring-2 ${statusInfo.ringClass}`);
 </script>
 
 <div

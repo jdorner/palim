@@ -151,7 +151,8 @@ const STATUS_VISUALS: Record<NodeStatus, StatusVisual> = {
     icon: CircleIcon,
     colorClass: "text-amber-500",
     spin: false,
-    ringClass: "ring-amber-400/70",
+    // Pulses so a node waiting for a signal or a human answer stands out.
+    ringClass: "ring-amber-400/70 animate-pulse",
   },
   skipped: { icon: null, colorClass: "", spin: false, ringClass: "ring-transparent" },
 };
