@@ -45,6 +45,9 @@ const THEME_CSS = path.join(FRONTEND_SRC_DIR, "theme.css");
 /** The Svelte package every bundle is pinned to. */
 const SVELTE_DIR = path.resolve(PROJECT_DIR, "node_modules/svelte");
 
+/** Shared backend/frontend modules, the target of the frontend's `$shared` alias. */
+const SHARED_DIR = path.resolve(PROJECT_DIR, "shared");
+
 /** Export conditions applied when resolving pinned packages, in priority order. */
 const BROWSER_CONDITIONS = ["svelte", "browser", "import", "default"];
 
@@ -297,6 +300,14 @@ function createSveltePlugin(extensionDir: string): BunPlugin {
           );
         }
         const target = path.join(FRONTEND_SRC_DIR, "lib", args.path.slice("$lib".length));
+        return { path: Bun.resolveSync(target, path.dirname(args.importer)) };
+      });
+
+      // `$shared` is the frontend's alias for the pure shared modules (used by
+      // kit sources). Resolved explicitly rather than via frontend/tsconfig.json
+      // paths, which are not present in the production image.
+      build.onResolve({ filter: /^\$shared(\/.*)?$/ }, (args) => {
+        const target = path.join(SHARED_DIR, args.path.slice("$shared".length));
         return { path: Bun.resolveSync(target, path.dirname(args.importer)) };
       });
 
