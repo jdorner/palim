@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "@casl/ability": "^7.0.1",
-    "@dotenvx/dotenvx": "^2.34.1",
+    "@dotenvx/dotenvx": "^2.34.2",
     "@elysia/cors": "^1.4.2",
     "@elysiajs/static": "^1.4.10",
     "@mariozechner/pi-agent-core": "^0.73.1",
@@ -22,7 +22,7 @@
     "logging": "^4.2.0",
     "nanoid": "^6.0.2",
     "node-telegram-bot-api": "^2.1.0",
-    "pdf-to-img": "^7.0.0",
+    "pdf-to-img": "^7.0.1",
     "rezo": "^1.0.139",
     "subscript": "10.8.1",
     "svelte": "^5.57.2",
