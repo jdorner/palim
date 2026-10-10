@@ -105,6 +105,92 @@ export const EmitConfigSchema: Record<string, unknown> = {
 };
 
 /**
+ * Config schema for the `humanTask` step: creates a task in the portal and
+ * waits for a person to answer it. `form` is a JSON Schema object and is
+ * edited via "Edit as JSON".
+ */
+export const HumanTaskConfigSchema: Record<string, unknown> = {
+  type: "object",
+  required: ["title", "assignees"],
+  properties: {
+    title: {
+      type: "string",
+      title: "Title",
+      description: "Short task title shown in the portal. Supports {{template}} expressions.",
+      minLength: 1,
+      maxLength: 500,
+    },
+    body: {
+      type: "string",
+      title: "Description",
+      description: "Markdown text shown with the task. Supports {{template}} expressions.",
+      multiline: true,
+    },
+    assignees: {
+      type: "object",
+      title: "Assignees",
+      description: "Who may answer: usernames and/or role names. Supports {{template}} expressions.",
+      properties: {
+        users: { type: "array", title: "Users", items: { type: "string" } },
+        roles: { type: "array", title: "Roles", items: { type: "string" } },
+      },
+    },
+    outcomes: {
+      type: "array",
+      title: "Outcomes",
+      description: "Answer buttons. The chosen id becomes the step result's outcome. Default: approve / reject.",
+      items: {
+        type: "object",
+        properties: {
+          id: { type: "string", title: "Id", pattern: "^[a-z][a-z0-9_-]*$" },
+          label: { type: "string", title: "Label" },
+          style: {
+            title: "Style",
+            anyOf: [{ const: "default" }, { const: "primary" }, { const: "danger" }],
+            default: "default",
+          },
+        },
+      },
+    },
+    context: {
+      type: "object",
+      title: "Context",
+      description: "Additional key/value details shown with the task. Supports {{template}} expressions.",
+      additionalProperties: { type: "string" },
+    },
+    form: {
+      type: "object",
+      title: "Form",
+      description: "Optional JSON Schema of a form the person fills in; the data becomes the step result's data.",
+    },
+    requireComment: {
+      type: "boolean",
+      title: "Require comment",
+      description: "Whether the person must leave a comment with the answer.",
+    },
+    priority: {
+      title: "Priority",
+      anyOf: [{ const: "normal" }, { const: "high" }, { const: "low" }],
+      default: "normal",
+    },
+    timeout: {
+      type: "integer",
+      title: "Timeout (ms)",
+      description:
+        "How long the task stays open, in milliseconds (1 second to 7 days). Leave empty to wait indefinitely.",
+      minimum: 1000,
+      maximum: 604800000,
+    },
+    onTimeout: {
+      title: "On timeout",
+      description: 'fail: the run fails. expire: the run continues with outcome "expired".',
+      anyOf: [{ const: "fail" }, { const: "expire" }],
+      default: "fail",
+    },
+  },
+};
+
+/**
  * Config schema for the `case` step: multi-way branch on a match expression.
  *
  * `paths` lists the branch key names; the actual branch targets are wired
@@ -178,6 +264,7 @@ export const AggregatorConfigSchema: Record<string, unknown> = {
  */
 export const BUILTIN_STEP_CONFIG_SCHEMAS: Record<string, Record<string, unknown>> = {
   waitFor: WaitForConfigSchema,
+  humanTask: HumanTaskConfigSchema,
   emit: EmitConfigSchema,
   case: CaseConfigSchema,
   iterator: IteratorConfigSchema,

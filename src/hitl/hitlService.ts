@@ -30,6 +30,9 @@ import { Value } from "@sinclair/typebox/value";
 import { validateJsonSchema } from "@src/utils/jsonSchema";
 import createLogger from "logging";
 import { type TaskAssignees, type TaskRecord, TaskStore, type TaskVisibility } from "./taskStore";
+import type { CreateTaskInput, HitlSourceHandler } from "./types";
+
+export type { CreateTaskInput, HitlSourceHandler } from "./types";
 
 const log = createLogger("HitlService");
 
@@ -54,14 +57,6 @@ export interface HitlDirectory {
   roleExists(name: string): boolean;
   /** Describes a user for display (null if unknown). */
   describeUser(id: string): HumanTaskUserRef | null;
-}
-
-/** Callbacks of a task source, invoked after a task it created ends. */
-export interface HitlSourceHandler {
-  /** Called after a task was completed. Errors are logged, not propagated. */
-  onCompleted?(task: TaskRecord): void | Promise<void>;
-  /** Called after a task was cancelled by a manager. Errors are logged, not propagated. */
-  onCancelled?(task: TaskRecord, reason: string | null): void | Promise<void>;
 }
 
 /** A change notification for live updates (SSE, WebSocket). */
@@ -133,8 +128,15 @@ export const CreateTaskInputSchema = Type.Object(
   { additionalProperties: false },
 );
 
-/** Input of {@link HitlService.createTask}. Users are given by username. */
-export type CreateTaskInput = Static<typeof CreateTaskInputSchema>;
+// The runtime schema must accept exactly the contract type.
+type _SchemaMatchesInput =
+  Static<typeof CreateTaskInputSchema> extends CreateTaskInput
+    ? CreateTaskInput extends Static<typeof CreateTaskInputSchema>
+      ? true
+      : never
+    : never;
+const _schemaMatchesInput: _SchemaMatchesInput = true;
+void _schemaMatchesInput;
 
 /** An answer to a task. */
 export interface CompleteTaskInput {
@@ -570,6 +572,18 @@ export function createHitlService(deps: HitlServiceDeps) {
     },
 
     /**
+     * Lists the open tasks of a source (e.g. to find the task of a waiting
+     * workflow step).
+     *
+     * @param kind - Source kind
+     * @param sourceId - Source grouping ID
+     * @returns The open task records
+     */
+    listOpenBySource(kind: string, sourceId: string): TaskRecord[] {
+      return store.listOpenBySource(kind, sourceId);
+    },
+
+    /**
      * Marks an open task as expired (called by its source on timeout).
      *
      * @param id - Task ID
@@ -580,6 +594,16 @@ export function createHitlService(deps: HitlServiceDeps) {
       if (!previous || !store.finish(id, "expired", { at: now() })) return false;
       notify({ type: "updated", task: store.get(id)!, previous });
       return true;
+    },
+
+    /**
+     * Describes a user for display.
+     *
+     * @param id - User ID
+     * @returns The user reference, or null if unknown
+     */
+    describeUser(id: string): HumanTaskUserRef | null {
+      return directory.describeUser(id);
     },
 
     /**

@@ -451,6 +451,16 @@ function validateStepFields(
     errors.set(`${path}.event`, t("validation.eventRequired"));
   }
 
+  if (step.type === "humanTask") {
+    if (typeof step.title !== "string" || step.title.trim().length === 0) {
+      errors.set(`${path}.title`, t("validation.titleRequired"));
+    }
+    const assignees = (step.assignees ?? {}) as { users?: string[]; roles?: string[] };
+    const count =
+      (assignees.users ?? []).filter((u) => u.trim()).length + (assignees.roles ?? []).filter((r) => r.trim()).length;
+    if (count === 0) errors.set(`${path}.assignees`, t("validation.assigneeRequired"));
+  }
+
   if (step.type === "iterator" && (!step.items || (step.items as string).trim().length === 0)) {
     errors.set(`${path}.items`, t("validation.itemsRequired"));
   }
@@ -460,7 +470,7 @@ function validateStepFields(
   }
 
   // Custom step type config validation
-  if (!["agent", "if", "case", "waitFor", "emit"].includes(step.type) && stepTypeSchemas) {
+  if (!["agent", "if", "case", "waitFor", "humanTask", "emit"].includes(step.type) && stepTypeSchemas) {
     const schemaInfo = stepTypeSchemas.find((s) => s.type === step.type);
     if (schemaInfo?.configSchema) {
       const configErrors = validateStepConfig(step.config ?? {}, schemaInfo.configSchema);
@@ -559,6 +569,23 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
     // "instance" is the default, so only the non-default scope is written.
     if (step.scope === "broadcast") result.scope = "broadcast";
     if (typeof step.correlate === "string" && step.correlate.length > 0) result.correlate = step.correlate;
+    return result;
+  }
+
+  // Human task: flat fields, dropping empty optionals and empty assignee lists
+  if (step.type === "humanTask") {
+    const { id: _id, slug: _s, type: _t, ...fields } = step;
+    const result: Record<string, unknown> = { type: "humanTask" };
+    for (const [key, value] of Object.entries(fields)) {
+      if (value === undefined || value === null || value === "") continue;
+      if (Array.isArray(value) && value.length === 0) continue;
+      result[key] = value;
+    }
+    const assignees = (fields.assignees ?? {}) as { users?: string[]; roles?: string[] };
+    result.assignees = {
+      ...(assignees.users?.length ? { users: assignees.users } : {}),
+      ...(assignees.roles?.length ? { roles: assignees.roles } : {}),
+    };
     return result;
   }
 

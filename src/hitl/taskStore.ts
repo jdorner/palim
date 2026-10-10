@@ -15,53 +15,14 @@
  */
 
 import type { HumanTaskEventKind, HumanTaskOutcome, HumanTaskPriority, HumanTaskStatus } from "@shared/portal";
+import type { TaskAssignees, TaskRecord } from "./types";
+
+export type { TaskAssignees, TaskRecord, TaskSource } from "./types";
+
 import { and, asc, desc, eq, inArray, lt, or, type SQL, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { nanoid } from "nanoid";
 import { hitlTaskAssignees, hitlTaskEvents, hitlTasks } from "./hitlSchema";
-
-/** Who a task is assigned to: user IDs and role names. */
-export interface TaskAssignees {
-  /** Assigned user IDs. */
-  users: string[];
-  /** Assigned role names. */
-  roles: string[];
-}
-
-/** What created a task. */
-export interface TaskSource {
-  /** Source kind (e.g. `workflow`). */
-  kind: string;
-  /** Grouping ID for bulk cancellation (e.g. the workflow run ID). */
-  id: string;
-  /** Source-specific reference (e.g. `{ runId, stepSlug, signalId }`). */
-  ref: Record<string, unknown>;
-}
-
-/** A persisted human task. */
-export interface TaskRecord {
-  id: string;
-  source: TaskSource;
-  title: string;
-  body: string;
-  context: Record<string, unknown> | null;
-  outcomes: HumanTaskOutcome[];
-  formSchema: Record<string, unknown> | null;
-  requireComment: boolean;
-  priority: HumanTaskPriority;
-  status: HumanTaskStatus;
-  dueAt: number | null;
-  createdBy: string | null;
-  createdAt: number;
-  updatedAt: number;
-  completedAt: number | null;
-  completedBy: string | null;
-  outcome: string | null;
-  response: unknown;
-  comment: string | null;
-  version: number;
-  assignees: TaskAssignees;
-}
 
 /** Input for {@link TaskStore.insert}. */
 export type NewTask = Pick<

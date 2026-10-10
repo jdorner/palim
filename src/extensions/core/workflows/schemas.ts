@@ -418,6 +418,49 @@ export const DagWaitForStepSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/** Outcome of a `humanTask` step (an answer button). */
+const HumanTaskOutcomeSchema = Type.Object(
+  {
+    id: Type.String({ minLength: 1, maxLength: 64, pattern: "^[a-z][a-z0-9_-]*$" }),
+    label: Type.String({ minLength: 1, maxLength: 64 }),
+    style: Type.Optional(Type.Union([Type.Literal("primary"), Type.Literal("danger"), Type.Literal("default")])),
+  },
+  { additionalProperties: false },
+);
+
+/**
+ * A `humanTask` step definition for DAG format.
+ *
+ * Creates a human task in the portal and pauses its branch until a person
+ * answers it (or it times out). The answer becomes the step result.
+ * `title`, `body`, string values in `context`, and the assignee entries
+ * support `{{template}}` expressions.
+ */
+export const DagHumanTaskStepSchema = Type.Object(
+  {
+    type: Type.Literal("humanTask"),
+    title: Type.String({ minLength: 1, maxLength: 500 }),
+    body: Type.Optional(Type.String({ maxLength: 20_000 })),
+    context: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    assignees: Type.Object(
+      {
+        users: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 50 })),
+        roles: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 50 })),
+      },
+      { additionalProperties: false },
+    ),
+    outcomes: Type.Optional(Type.Array(HumanTaskOutcomeSchema, { minItems: 1, maxItems: 10 })),
+    form: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+    requireComment: Type.Optional(Type.Boolean()),
+    priority: Type.Optional(Type.Union([Type.Literal("low"), Type.Literal("normal"), Type.Literal("high")])),
+    /** Timeout in milliseconds (1 second to 7 days). */
+    timeout: Type.Optional(Type.Integer({ minimum: 1000, maximum: 604800000 })),
+    /** On timeout: fail the run (default) or resume with `outcome: "expired"`. */
+    onTimeout: Type.Optional(Type.Union([Type.Literal("fail"), Type.Literal("expire")])),
+  },
+  { additionalProperties: false },
+);
+
 /**
  * An `emit` step definition for DAG format (no slug field).
  */
@@ -487,6 +530,7 @@ export const DagStepDefSchema = Type.Union([
   DagIfStepSchema,
   DagCaseStepSchema,
   DagWaitForStepSchema,
+  DagHumanTaskStepSchema,
   DagEmitStepSchema,
   DagIteratorStepSchema,
   DagAggregatorStepSchema,
@@ -529,6 +573,9 @@ export interface DagWaitForStep {
   /** Correlation key template, resolved when the wait is registered. */
   correlate?: string;
 }
+
+/** TypeScript type for a DAG `humanTask` step. */
+export type DagHumanTaskStep = Static<typeof DagHumanTaskStepSchema>;
 
 /** TypeScript type for a DAG `emit` step. */
 export interface DagEmitStep {
@@ -578,6 +625,7 @@ export type DagStep =
   | DagIfStep
   | DagCaseStep
   | DagWaitForStep
+  | DagHumanTaskStep
   | DagEmitStep
   | DagIteratorStep
   | DagAggregatorStep

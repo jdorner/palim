@@ -16,6 +16,7 @@ import { buildStatusMap, type GraphStepStatus } from "$lib/workflowRunStatus";
 import { type RunStep, workflowStore } from "$lib/workflowRunStore.svelte";
 import ChatMarkdown from "../components/ChatMarkdown.svelte";
 import DetailPanelModeToggle from "../components/DetailPanelModeToggle.svelte";
+import HumanTaskCard from "../components/HumanTaskCard.svelte";
 import SignalDeliveryForm from "../components/SignalDeliveryForm.svelte";
 import WorkflowGraph from "../components/WorkflowGraph.svelte";
 import { navigate, route } from "../router";
@@ -306,7 +307,9 @@ onDestroy(() => {
             <PauseCircleIcon size={16} class="text-amber-500" aria-hidden="true" />
             <p class="text-sm text-muted-foreground">{t("runs.waitingSignal")}</p>
           </div>
-          {#if inspectedStep.waitEvent}
+          {#if inspectedStep.type === "humanTask"}
+            <HumanTaskCard runId={run.runId} stepSlug={inspectedStep.slug} />
+          {:else if inspectedStep.waitEvent}
             <SignalDeliveryForm
               runId={run.runId}
               stepSlug={inspectedStep.slug}

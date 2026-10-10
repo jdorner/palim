@@ -19,6 +19,7 @@ import PauseIcon from "phosphor-svelte/lib/PauseIcon";
 import RobotIcon from "phosphor-svelte/lib/RobotIcon";
 import StackIcon from "phosphor-svelte/lib/StackIcon";
 import TrayIcon from "phosphor-svelte/lib/TrayIcon";
+import UserCheckIcon from "phosphor-svelte/lib/UserCheckIcon";
 import type { Component } from "svelte";
 import { resolveIcon } from "./iconRegistry";
 
@@ -55,6 +56,7 @@ const BUILTIN: Record<string, { icon: Component; category: NodeCategory }> = {
   iterator: { icon: StackIcon, category: "logic" },
   aggregator: { icon: TrayIcon, category: "logic" },
   waitFor: { icon: PauseIcon, category: "logic" },
+  humanTask: { icon: UserCheckIcon, category: "logic" },
   emit: { icon: BroadcastIcon, category: "logic" },
 };
 

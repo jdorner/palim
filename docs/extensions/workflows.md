@@ -65,10 +65,30 @@ The `http-request` step type supports additional options: custom `headers`, `tim
 - `if` - conditional branching; branches are expressed as edges with `branch: "then"` / `branch: "else"`
 - `case` - multi-way branching; `paths` is an array of branch key strings (optional `default`), branches connected via `branch` edges
 - `waitFor` - pauses its own branch until an external signal arrives (blocks only its successors, not the whole run)
+- `humanTask` - asks a person in the portal and pauses its own branch until they answer (see [Human Tasks](#human-tasks))
 - `emit` - broadcasts a signal to workflows waiting on that event (fire-and-forget)
 - `fail` - aborts the run with a message (provided by `core-wf-steps`)
 
 `if` and `case` nodes are evaluated inline by the engine rather than dispatched as jobs. See the `workflows` agent skill for detailed control-flow examples.
+
+### Human Tasks
+
+A `humanTask` step asks a person: it creates a task in the portal (see [the API security model](../api-security-model.md#portal-accounts) for portal accounts) and pauses its branch until someone assigned to it answers. The answer becomes the step result: `outcome` (the chosen button), `data` (form data), `comment`, `respondedBy`, `respondedAt`, `taskId`.
+
+```json5
+"review": {
+  "type": "humanTask",
+  "title": "Approve invoice {{trigger.payload.number}}",
+  "body": "Amount: {{steps.extract.result.amount}}",
+  "assignees": { "roles": ["accounting"] },
+  "outcomes": [{ "id": "approve", "label": "Approve" }, { "id": "reject", "label": "Reject" }],
+  "form": { "type": "object", "properties": { "costCenter": { "type": "string" } } },
+  "timeout": 172800000,
+  "onTimeout": "expire"
+}
+```
+
+`title`, `body`, `context` values and assignee entries support `{{template}}` expressions. Without `outcomes`, the task offers approve / reject. On timeout the run fails, or with `onTimeout: "expire"` it continues with `outcome: "expired"`. A task cancelled by a manager fails the run, and a run that fails or is deleted cancels its open tasks. The run page shows the waiting task and, with `hitl:manage`, lets you cancel it.
 
 ### Signals
 

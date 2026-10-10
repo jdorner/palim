@@ -311,3 +311,47 @@ describe("getTriggerRefWarnings", () => {
     expect(getTriggerRefWarnings(wf({ type: "filewatcher", ref: "anything" }), refs)).toEqual([]);
   });
 });
+
+describe("getDependencyWarnings (humanTask)", () => {
+  function mockCtx(withHitl: boolean): ExtensionContext {
+    return {
+      tools: { names: () => [] },
+      skills: { names: () => [] },
+      stepTypes: { get: () => undefined },
+      internal: withHitl ? { hitl: {} } : {},
+    } as unknown as ExtensionContext;
+  }
+
+  function wf(review: Record<string, unknown>): DagWorkflowDefinition {
+    return { name: "ht", trigger: { type: "manual" }, steps: { review: review as never }, edges: [] };
+  }
+
+  test("a valid humanTask step has no warnings", () => {
+    const warnings = getDependencyWarnings(
+      wf({ type: "humanTask", title: "Approve", assignees: { roles: ["accounting"] } }),
+      mockCtx(true),
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  test("flags an invalid humanTask step instead of letting the generic schema accept it", () => {
+    const warnings = getDependencyWarnings(
+      wf({ type: "humanTask", title: "Approve", assignees: {}, onTimeout: "later" }),
+      mockCtx(true),
+    );
+    expect(warnings.some((w) => w.stepSlug === "review" && w.message.includes("humanTask"))).toBe(true);
+  });
+
+  test("reports a missing field once", () => {
+    const warnings = getDependencyWarnings(wf({ type: "humanTask", assignees: { users: ["a"] } }), mockCtx(true));
+    expect(warnings.filter((w) => w.field === "title")).toHaveLength(1);
+  });
+
+  test("warns when human tasks are not available", () => {
+    const warnings = getDependencyWarnings(
+      wf({ type: "humanTask", title: "Approve", assignees: { users: ["a"] } }),
+      mockCtx(false),
+    );
+    expect(warnings.some((w) => w.message.includes("not available"))).toBe(true);
+  });
+});

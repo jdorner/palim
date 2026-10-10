@@ -123,7 +123,7 @@ let {
  * Built-in control-flow step types. Their config lives in flat fields on the
  * step (not under `config`) and is edited against a built-in schema.
  */
-const CF_TYPES = new Set(["if", "case", "iterator", "aggregator", "waitFor", "emit"]);
+const CF_TYPES = new Set(["if", "case", "iterator", "aggregator", "waitFor", "humanTask", "emit"]);
 
 /** Type of the displayed step (draft wins in edit mode). The type is fixed once placed. */
 let currentType = $derived(editDraftStep?.type ?? selectedStep.type);
@@ -698,6 +698,7 @@ function clearConditionError(index: number) {
         (selectedStep.type === "if" ||
           selectedStep.type === "case" ||
           selectedStep.type === "waitFor" ||
+          selectedStep.type === "humanTask" ||
           selectedStep.type === "emit" ||
           selectedStep.type === "iterator" ||
           selectedStep.type === "aggregator")}

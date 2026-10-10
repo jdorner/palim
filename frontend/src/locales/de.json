@@ -42,6 +42,62 @@
         "description": "Optionale Workflow-Lauf-ID. Nur Wartevorgänge dieses Laufs werden fortgesetzt. Unterstützt {{template}}-Ausdrücke."
       }
     },
+    "humanTask": {
+      "title": {
+        "title": "Titel",
+        "description": "Kurzer Aufgabentitel im Portal. Unterstützt {{template}}-Ausdrücke."
+      },
+      "body": {
+        "title": "Beschreibung",
+        "description": "Markdown-Text, der mit der Aufgabe angezeigt wird. Unterstützt {{template}}-Ausdrücke."
+      },
+      "assignees": {
+        "title": "Zuständig",
+        "description": "Wer antworten darf: Benutzernamen und/oder Rollennamen. Unterstützt {{template}}-Ausdrücke.",
+        "users": {
+          "title": "Benutzer"
+        },
+        "roles": {
+          "title": "Rollen"
+        }
+      },
+      "outcomes": {
+        "title": "Antworten",
+        "description": "Antwort-Schaltflächen. Die gewählte ID wird zum outcome des Schritt-Ergebnisses. Standard: approve / reject.",
+        "id": {
+          "title": "ID"
+        },
+        "label": {
+          "title": "Beschriftung"
+        },
+        "style": {
+          "title": "Stil"
+        }
+      },
+      "context": {
+        "title": "Kontext",
+        "description": "Zusätzliche Schlüssel/Wert-Angaben zur Aufgabe. Unterstützt {{template}}-Ausdrücke."
+      },
+      "form": {
+        "title": "Formular",
+        "description": "Optionales JSON-Schema eines Formulars, das ausgefüllt wird; die Daten werden zu data im Schritt-Ergebnis."
+      },
+      "requireComment": {
+        "title": "Kommentar erforderlich",
+        "description": "Ob mit der Antwort ein Kommentar hinterlassen werden muss."
+      },
+      "priority": {
+        "title": "Priorität"
+      },
+      "timeout": {
+        "title": "Zeitlimit (ms)",
+        "description": "Wie lange die Aufgabe offen bleibt, in Millisekunden (1 Sekunde bis 7 Tage). Leer lassen, um unbegrenzt zu warten."
+      },
+      "onTimeout": {
+        "title": "Bei Zeitüberschreitung",
+        "description": "fail: Der Lauf schlägt fehl. expire: Der Lauf geht mit outcome \"expired\" weiter."
+      }
+    },
     "iterator": {
       "as": {
         "description": "Variablenname für das aktuelle Element in den Templates der Schleifenschritte. Standard: 'item'.",
@@ -279,6 +335,20 @@
     "insertStep": "Hier Schritt einfügen",
     "iteratorShape": "Form des Iterator-Knotens"
   },
+  "humanTask": {
+    "heading": "Wartet auf eine Person",
+    "notFound": "Die Aufgabe ist nicht mehr offen.",
+    "priorityHigh": "Hohe Priorität",
+    "priorityLow": "Niedrige Priorität",
+    "role": "Rolle {role}",
+    "created": "Erstellt {time}",
+    "due": "fällig {time}",
+    "openInPortal": "Im Portal öffnen",
+    "cancel": "Aufgabe abbrechen",
+    "confirmCancel": "Aufgabe abbrechen? Der Lauf schlägt fehl.",
+    "cancelled": "Die Aufgabe wurde abgebrochen.",
+    "cancelFailed": "Abbrechen der Aufgabe fehlgeschlagen"
+  },
   "jobs": {
     "allQueues": "Alle Warteschlangen",
     "allStatuses": "Alle Status",
@@ -403,6 +473,12 @@
     "invalidJson": "Ungültiges JSON: {error}",
     "label": "Ausgabeschema",
     "mustBeObject": "Das Ausgabeschema muss ein JSON-Objekt sein"
+  },
+  "portalAccount": {
+    "title": "Dies ist ein Portal-Konto",
+    "description": "Das Konto {username} kann nur im Portal verwendet werden, wo du die dir zugewiesenen Aufgaben findest. Frag eine Administratorin oder einen Administrator nach der Portal-Adresse.",
+    "descriptionWithLink": "Das Konto {username} kann nur im Portal verwendet werden, wo du die dir zugewiesenen Aufgaben findest.",
+    "openPortal": "Portal öffnen"
   },
   "runs": {
     "cancelling": "Wird abgebrochen...",
@@ -600,7 +676,8 @@
     "trigger": "Auslöser",
     "waitFor": "Warten auf",
     "waitForSignal": "Auf Signal warten",
-    "webhookTrigger": "Webhook-Auslöser"
+    "webhookTrigger": "Webhook-Auslöser",
+    "humanTask": "Menschliche Aufgabe"
   },
   "templateFunctions": {
     "after": "Liefert den Teil nach dem ersten Vorkommen eines Trennzeichens (leerer String, wenn nicht gefunden).",
@@ -752,7 +829,9 @@
     "stepRequired": "Mindestens ein Schritt ist erforderlich",
     "triggerNeedsRef": "Auslösertyp „{type}“ erfordert einen Ref",
     "triggerType": "Auslösertyp muss einer der folgenden sein: webhook, schedule, manual, filewatcher",
-    "unnamed": "(unbenannt)"
+    "unnamed": "(unbenannt)",
+    "titleRequired": "Ein Titel ist erforderlich",
+    "assigneeRequired": "Mindestens ein Benutzer oder eine Rolle ist erforderlich"
   },
   "variables": {
     "add": "Variable hinzufügen",
@@ -842,11 +921,5 @@
     "templateIssues_other": "{count} Template-Probleme",
     "undo": "Rückgängig",
     "undoTitle": "Rückgängig (Strg+Z)"
-  },
-  "portalAccount": {
-    "title": "Dies ist ein Portal-Konto",
-    "description": "Das Konto {username} kann nur im Portal verwendet werden, wo du die dir zugewiesenen Aufgaben findest. Frag eine Administratorin oder einen Administrator nach der Portal-Adresse.",
-    "descriptionWithLink": "Das Konto {username} kann nur im Portal verwendet werden, wo du die dir zugewiesenen Aufgaben findest.",
-    "openPortal": "Portal öffnen"
   }
 }

@@ -34,3 +34,4 @@ export {
   TaskStore,
   type TaskVisibility,
 } from "./taskStore";
+export type { HitlApi } from "./types";

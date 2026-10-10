@@ -161,6 +161,7 @@ src/
 │   ├── taskStore.ts         # TaskStore: task persistence, atomic complete/cancel/expire, visibility queries
 │   ├── hitlService.ts       # createHitlService: create/list/answer tasks, source handlers, change listeners
 │   ├── directory.ts         # createUserDirectory: user/role lookups for the service, backed by UserStore
+│   ├── types.ts             # Alias-free contract (HitlApi, CreateTaskInput, TaskRecord), re-exported via @ext/types
 │   └── index.ts             # Re-exports
 ├── skills/
 │   ├── skills.ts            # Skill directory loading and system prompt building
@@ -298,6 +299,8 @@ Job logs are persisted to SQLite (`src/queue/logStore.ts`) so they survive resta
 Workflows (`src/extensions/core/workflows/`) are directed acyclic graphs: a `steps` map (keyed by slug) plus an `edges` array (`from`, `to`, optional `branch`). The engine dispatches all root steps in parallel, then dispatches each successor once all its incoming edges are resolved (`satisfied` or `dead`, at least one `satisfied` — the join barrier). Control-flow nodes (`if`/`case`) are evaluated inline and mark their branch edges satisfied/dead; dead edges propagate to skip unreachable steps. Any step failure fails the whole run (fail-fast) and cancels in-flight jobs. Per-run edge states, step statuses, and results are persisted in SQLite.
 
 `waitFor` nodes park their branch on a signal record (`workflow_signals`), one per waiting step of a run, so a signal ID is an instance-scoped address. All delivery paths (`POST /ext/workflows/runs/:runId/steps/:slug/signal`, `/signals/:signalId`, the legacy `/runs/:runId/signal/:event`, and the `emit` step) go through `deliverSignal` (`signalDelivery.ts`): run-active check, source check, `inputSchema` validation (`src/utils/jsonSchema.ts`), atomic claim, timer cancel, resume. `emit` only reaches waits with `scope: "broadcast"` (default is `instance`) and is narrowed by `correlate` (correlation key) and `targetRun`. Timeouts are re-armed at boot from `createdAt + timeoutMs`.
+
+`humanTask` nodes (`humanTask.ts`, registered in the coordinator like `waitFor`) create a portal task through `ctx.internal.hitl` (the `src/hitl/` service) and park on an instance-scoped signal with `source: "humanTask"`, which only `deliverSignal(..., { via: "hitl" })` may deliver. `humanTaskSource.ts` registers the `workflow` task source: answers resume the run, a manager cancel fails it, and the signal timeout hook expires the task (resuming with `outcome: "expired"` when `onTimeout: "expire"`). Any `workflow_failed` broadcast and run deletion cancel the run's open tasks. The step's output schema is built in (`humanTaskOutputSchema`).
 
 The `http-request`, `fail`, `noop`, `chunk`, `set-variables`, and `start-workflow` step types are provided by the `core-wf-steps` extension.
 

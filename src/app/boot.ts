@@ -424,6 +424,7 @@ export class AppBootstrap {
       variableStore,
       authService,
       userStore,
+      hitlService,
     };
 
     return new AppBootstrap(registry, agentQueue, chatQueue, monitoring, elysiaApp, registryInitDeps, authService);

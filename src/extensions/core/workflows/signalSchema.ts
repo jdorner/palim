@@ -28,7 +28,7 @@ export const workflowSignals = sqliteTable(
     stepSlug: text("step_slug").notNull(),
     /** Signal event name (e.g. "approval.granted"). */
     event: text("event").notNull(),
-    /** Signal status: waiting, received, timed_out. */
+    /** Signal status: waiting, received, timed_out, cancelled. */
     status: text("status").notNull().default("waiting"),
     /** JSON-encoded input schema for payload validation (nullable). */
     inputSchema: text("input_schema"),

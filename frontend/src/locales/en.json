@@ -42,6 +42,62 @@
         "description": "Optional workflow run ID. Only waits of that run are resumed. Supports {{template}} expressions."
       }
     },
+    "humanTask": {
+      "title": {
+        "title": "Title",
+        "description": "Short task title shown in the portal. Supports {{template}} expressions."
+      },
+      "body": {
+        "title": "Description",
+        "description": "Markdown text shown with the task. Supports {{template}} expressions."
+      },
+      "assignees": {
+        "title": "Assignees",
+        "description": "Who may answer: usernames and/or role names. Supports {{template}} expressions.",
+        "users": {
+          "title": "Users"
+        },
+        "roles": {
+          "title": "Roles"
+        }
+      },
+      "outcomes": {
+        "title": "Outcomes",
+        "description": "Answer buttons. The chosen id becomes the step result's outcome. Default: approve / reject.",
+        "id": {
+          "title": "Id"
+        },
+        "label": {
+          "title": "Label"
+        },
+        "style": {
+          "title": "Style"
+        }
+      },
+      "context": {
+        "title": "Context",
+        "description": "Additional key/value details shown with the task. Supports {{template}} expressions."
+      },
+      "form": {
+        "title": "Form",
+        "description": "Optional JSON Schema of a form the person fills in; the data becomes the step result's data."
+      },
+      "requireComment": {
+        "title": "Require comment",
+        "description": "Whether the person must leave a comment with the answer."
+      },
+      "priority": {
+        "title": "Priority"
+      },
+      "timeout": {
+        "title": "Timeout (ms)",
+        "description": "How long the task stays open, in milliseconds (1 second to 7 days). Leave empty to wait indefinitely."
+      },
+      "onTimeout": {
+        "title": "On timeout",
+        "description": "fail: the run fails. expire: the run continues with outcome \"expired\"."
+      }
+    },
     "iterator": {
       "as": {
         "description": "Variable name for the current element in body step templates. Default: 'item'.",
@@ -279,6 +335,20 @@
     "insertStep": "Insert step here",
     "iteratorShape": "Iterator node shape"
   },
+  "humanTask": {
+    "heading": "Waiting for a person",
+    "notFound": "The task is no longer open.",
+    "priorityHigh": "High priority",
+    "priorityLow": "Low priority",
+    "role": "Role {role}",
+    "created": "Created {time}",
+    "due": "due {time}",
+    "openInPortal": "Open in portal",
+    "cancel": "Cancel task",
+    "confirmCancel": "Cancel the task? The run fails.",
+    "cancelled": "The task was cancelled.",
+    "cancelFailed": "Cancelling the task failed"
+  },
   "jobs": {
     "allQueues": "All Queues",
     "allStatuses": "All Statuses",
@@ -403,6 +473,12 @@
     "invalidJson": "Invalid JSON: {error}",
     "label": "Output schema",
     "mustBeObject": "The output schema must be a JSON object"
+  },
+  "portalAccount": {
+    "title": "This is a portal account",
+    "description": "The account {username} can only be used in the portal, where you find the tasks assigned to you. Ask an administrator for the portal address.",
+    "descriptionWithLink": "The account {username} can only be used in the portal, where you find the tasks assigned to you.",
+    "openPortal": "Open the portal"
   },
   "runs": {
     "cancelling": "Cancelling...",
@@ -600,7 +676,8 @@
     "trigger": "Trigger",
     "waitFor": "Wait For",
     "waitForSignal": "Wait For Signal",
-    "webhookTrigger": "Webhook Trigger"
+    "webhookTrigger": "Webhook Trigger",
+    "humanTask": "Human Task"
   },
   "templateFunctions": {
     "after": "Return the substring after the first occurrence of a delimiter (empty string when not found).",
@@ -752,7 +829,9 @@
     "stepRequired": "At least one step is required",
     "triggerNeedsRef": "Trigger type \"{type}\" requires a ref",
     "triggerType": "Trigger type must be one of: webhook, schedule, manual, filewatcher",
-    "unnamed": "(unnamed)"
+    "unnamed": "(unnamed)",
+    "titleRequired": "A title is required",
+    "assigneeRequired": "At least one user or role is required"
   },
   "variables": {
     "add": "Add Variable",
@@ -842,11 +921,5 @@
     "templateIssues_other": "{count} template issues",
     "undo": "Undo",
     "undoTitle": "Undo (Ctrl+Z)"
-  },
-  "portalAccount": {
-    "title": "This is a portal account",
-    "description": "The account {username} can only be used in the portal, where you find the tasks assigned to you. Ask an administrator for the portal address.",
-    "descriptionWithLink": "The account {username} can only be used in the portal, where you find the tasks assigned to you.",
-    "openPortal": "Open the portal"
   }
 }

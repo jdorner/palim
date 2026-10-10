@@ -31,10 +31,11 @@ const builtinTypes = $derived([
   { type: "if", label: t("stepType.ifCondition"), category: "control-flow" },
   { type: "case", label: t("stepType.caseSwitch"), category: "control-flow" },
   { type: "waitFor", label: t("stepType.waitForSignal"), category: "control-flow" },
+  { type: "humanTask", label: t("stepType.humanTask"), category: "control-flow" },
   { type: "emit", label: t("stepType.emitSignal"), category: "control-flow" },
 ] as const);
 
-const builtinTypeSlugs = new Set<string>(["agent", "iterator", "if", "case", "waitFor", "emit"]);
+const builtinTypeSlugs = new Set<string>(["agent", "iterator", "if", "case", "waitFor", "humanTask", "emit"]);
 
 let controlFlowTypes = $derived(
   builtinTypes.filter((t) => t.category === "control-flow").sort((a, b) => a.label.localeCompare(b.label)),

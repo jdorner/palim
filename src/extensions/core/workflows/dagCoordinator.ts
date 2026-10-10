@@ -12,7 +12,7 @@
  * @module
  */
 
-import type { Logger } from "@ext/types";
+import type { HitlApi, Logger } from "@ext/types";
 import type { WorkflowWebSocketEvent } from "@shared/workflows";
 import type { FlowProducer } from "bunqueue/client";
 import { evaluateCondition } from "./condition";
@@ -20,10 +20,17 @@ import { buildDagStepJob, buildIncomingEdgeMap, buildOutgoingEdgeMap, type Sessi
 import * as dagRunStore from "./dagRunStore";
 import { type DagWorkflowRun, edgeId } from "./dagRunStore";
 import { computeTerminalSteps } from "./dagValidation";
+import {
+  HUMAN_TASK_SIGNAL_EVENT,
+  type ResolvedHumanTaskFields,
+  resolveHumanTaskFields,
+  WORKFLOW_TASK_SOURCE,
+} from "./humanTask";
 import type {
   ConditionDef,
   DagAggregatorStep,
   DagCaseStep,
+  DagHumanTaskStep,
   DagIfStep,
   DagIteratorStep,
   DagStep,
@@ -59,6 +66,8 @@ export interface DagCoordinatorDeps {
   getWorkflowDefinition: (name: string) => DagWorkflowDefinition | undefined;
   /** Cancels a running job by ID (best-effort). */
   cancelJob?: (jobId: string) => Promise<void>;
+  /** Human task service for `humanTask` nodes (absent when HITL is not configured). */
+  hitl?: HitlApi;
 }
 
 /**
@@ -839,6 +848,9 @@ async function activateReadyStep(
   } else if (stepDef.type === "waitFor") {
     // WaitFor node: register a signal and pause this branch (no queue job)
     await registerWaitForNode(runId, slug, stepDef as DagWaitForStep, definition, deps);
+  } else if (stepDef.type === "humanTask") {
+    // Human task node: create a portal task and pause this branch (no queue job)
+    await registerHumanTaskNode(runId, slug, stepDef as DagHumanTaskStep, definition, deps);
   } else if (stepDef.type === "aggregator") {
     // Aggregator node: evaluate inline (collect results, advance iteration or complete)
     dagRunStore.updateStepStatus(runId, slug, "running");
@@ -1071,6 +1083,8 @@ export async function evaluateInlineRoot(runId: string, slug: string, deps: DagC
     await evaluateCfNode(runId, slug, dagRunStore.get(runId)!, definition, topology, deps);
   } else if (stepDef.type === "waitFor") {
     await registerWaitForNode(runId, slug, stepDef as DagWaitForStep, definition, deps);
+  } else if (stepDef.type === "humanTask") {
+    await registerHumanTaskNode(runId, slug, stepDef as DagHumanTaskStep, definition, deps);
   } else {
     log.warn(`DAG coordinator: evaluateInlineRoot called for non-inline step "${slug}" (type: ${stepDef.type})`);
   }
@@ -1178,6 +1192,117 @@ async function registerWaitForNode(
   );
 
   // Arm timeout timer if configured
+  if (stepDef.timeout != null && stepDef.timeout > 0) {
+    signalTimers.arm(signalRecord, stepDef.timeout, { log, broadcast });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Human Task Registration
+// ---------------------------------------------------------------------------
+
+/**
+ * Registers a `humanTask` node: resolves its templated fields, creates an
+ * instance-scoped signal that only the HITL service may deliver, creates the
+ * portal task pointing at that signal, and pauses the branch like `waitFor`.
+ *
+ * The task's answer arrives through the workflow source handler (see the
+ * workflows extension), which delivers it to the signal and resumes the run.
+ *
+ * @param runId - The workflow run ID
+ * @param slug - The humanTask node slug
+ * @param stepDef - The humanTask step definition
+ * @param definition - The workflow definition (for template step configs)
+ * @param deps - Injected dependencies
+ */
+async function registerHumanTaskNode(
+  runId: string,
+  slug: string,
+  stepDef: DagHumanTaskStep,
+  definition: DagWorkflowDefinition,
+  deps: DagCoordinatorDeps,
+): Promise<void> {
+  const { log, broadcast, hitl } = deps;
+  if (!hitl) {
+    failRun(runId, slug, "Human tasks are not available (HITL service not configured)", deps);
+    return;
+  }
+
+  const run = dagRunStore.get(runId);
+  if (!run) return;
+
+  let fields: ResolvedHumanTaskFields;
+  try {
+    fields = await resolveHumanTaskFields(stepDef, {
+      triggerPayload: run.triggerPayload ?? undefined,
+      stepResults: run.stepResults,
+      stepConfigs: buildStepConfigs(definition),
+      run: dagRunStore.toRunTemplateInfo(run),
+    });
+  } catch (err) {
+    failRun(runId, slug, `Human task could not be prepared: ${err instanceof Error ? err.message : String(err)}`, deps);
+    return;
+  }
+
+  let signalRecord: signalStore.SignalRecord;
+  try {
+    signalRecord = signalStore.create({
+      runId,
+      stepSlug: slug,
+      event: HUMAN_TASK_SIGNAL_EVENT,
+      timeoutMs: stepDef.timeout ?? null,
+      inputSchema: null,
+      scope: "instance",
+      source: "humanTask",
+    });
+  } catch (err) {
+    log.error(`DAG coordinator: signal store error for humanTask "${slug}" in run ${runId}:`, err);
+    failRun(runId, slug, `Signal Store unavailable: ${err instanceof Error ? err.message : String(err)}`, deps);
+    return;
+  }
+
+  let taskId: string;
+  try {
+    const task = hitl.createTask({
+      source: {
+        kind: WORKFLOW_TASK_SOURCE,
+        id: runId,
+        ref: { runId, stepSlug: slug, signalId: signalRecord.id, workflow: run.workflowName },
+      },
+      title: fields.title,
+      body: fields.body,
+      context: fields.context,
+      ...(stepDef.outcomes ? { outcomes: stepDef.outcomes } : {}),
+      form: stepDef.form ?? null,
+      requireComment: stepDef.requireComment ?? false,
+      priority: stepDef.priority ?? "normal",
+      dueAt: stepDef.timeout ? signalRecord.createdAt + stepDef.timeout : null,
+      assignees: fields.assignees,
+      createdBy: run.createdByUserId,
+    });
+    taskId = task.id;
+  } catch (err) {
+    // The signal must not linger as deliverable without a task behind it.
+    signalStore.markCancelled(signalRecord.id);
+    failRun(runId, slug, `Human task could not be created: ${err instanceof Error ? err.message : String(err)}`, deps);
+    return;
+  }
+
+  dagRunStore.updateStepStatus(runId, slug, "waiting-signal");
+  dagRunStore.updateStatus(runId, "waiting-signal");
+
+  broadcast({
+    type: "workflow_step_waiting",
+    workflowRunId: runId,
+    stepSlug: slug,
+    event: HUMAN_TASK_SIGNAL_EVENT,
+    inputSchema: null,
+  });
+
+  log.info(
+    `DAG humanTask node "${slug}" in run ${runId}: waiting for task ${taskId}${stepDef.timeout ? ` (timeout: ${stepDef.timeout}ms)` : ""}`,
+  );
+
   if (stepDef.timeout != null && stepDef.timeout > 0) {
     signalTimers.arm(signalRecord, stepDef.timeout, { log, broadcast });
   }

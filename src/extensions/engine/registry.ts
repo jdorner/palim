@@ -13,6 +13,7 @@ import type { ExtensionInfo, WebSocketMessage } from "@shared/types";
 import type { AuthResolver, UserStore } from "@src/auth";
 import { PROJECT_DIR, serverOrigin } from "@src/config";
 import { getDb, schema } from "@src/db";
+import type { HitlService } from "@src/hitl";
 import type { PushMessageFn } from "@src/push";
 import type { ManagedQueuePort, QueueJob } from "@src/queue";
 import type { SecretVault } from "@src/secrets/vault";
@@ -77,6 +78,8 @@ export interface RegistryInitDeps {
   secretVault?: SecretVault;
   /** The SQLite-backed plaintext variable store (optional - always available in practice, no master key needed). */
   variableStore?: TemplateVariableResolver;
+  /** The human task service (optional in tests). */
+  hitlService?: HitlService;
   /** The authentication service resolving tokens to principals (optional in tests). */
   authService?: AuthResolver;
   /** The user store for account/role lookups (optional in tests). */
@@ -852,6 +855,7 @@ export class ExtensionRegistry {
         isExtensionEnabledFn: (n) => this.isExtensionEnabled(n),
         secretVault: deps.secretVault,
         variableStore: deps.variableStore,
+        hitlService: deps.hitlService,
         routeRegistry: deps.routeRegistry,
         rescanSkillsFn: () => this.discoverAndLoadSkills(),
         getSkillNamesFn: () => this.getSkillNames(),
