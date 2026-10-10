@@ -3,11 +3,12 @@
  * WebSocket, and composes route modules from `./routes/`.
  */
 
+import path from "node:path";
 import { cors } from "@elysia/cors";
 import { staticPlugin } from "@elysiajs/static";
 import { isPortalPath } from "@shared/auth";
 import { type AuthService, hashToken, type UserStore } from "@src/auth";
-import { EXT_UI_DIR } from "@src/config";
+import { EXT_UI_DIR, PROJECT_DIR } from "@src/config";
 import type { ExtensionRegistry } from "@src/extensions";
 import type { HitlService } from "@src/hitl";
 import type { AgentJob, ChatJob } from "@src/jobs";
@@ -116,6 +117,8 @@ export async function createWebServer(deps: WebServerDeps) {
   const app = new Elysia()
     .get("/health", () => "OK")
     .use(compression())
+    // The portal (end-user app), when built, at /portal/ (before the operator UI's catch-all).
+    .use(await portalStatic())
     .use(
       await staticPlugin({
         assets: "./frontend/dist",
@@ -221,6 +224,27 @@ export async function createWebServer(deps: WebServerDeps) {
 export function startWebServer(app: AnyElysia, opts: WebServerListenOptions) {
   app.listen(opts);
   log.info(`Web UI available at ${app.server?.url}`);
+}
+
+/**
+ * Serves the built portal (`portal/dist`) at `/portal/`, when it exists.
+ * Its assets use relative URLs, so `/portal` redirects to `/portal/`.
+ *
+ * @returns An Elysia plugin (empty when the portal is not built)
+ */
+async function portalStatic(): Promise<Elysia> {
+  const dir = path.join(PROJECT_DIR, "portal", "dist");
+  const plugin = new Elysia({ name: "portal-static" });
+  if (!(await Bun.file(path.join(dir, "index.html")).exists())) return plugin;
+  log.info(`Serving the portal from ${dir} at /portal/`);
+  // Typed as a plain Elysia instance so the server's route chain keeps its inference.
+  return plugin
+    .onRequest(({ request }) => {
+      // Before routing: the static plugin would otherwise answer /portal itself.
+      const url = new URL(request.url);
+      if (url.pathname === "/portal") return Response.redirect(new URL(`/portal/${url.search}`, url).toString(), 302);
+    })
+    .use(await staticPlugin({ assets: dir, prefix: "/portal" })) as unknown as Elysia;
 }
 
 /**

@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>Palim</title>
+
+  <!-- Top loop -->
+  <circle cx="64" cy="32" r="5" fill="#f59e0b" />
+
+  <!-- Bell body -->
+  <path d="M42 58 C42 42 54 36 64 36 C74 36 86 42 86 58 L86 70 L98 86 L30 86 L42 70 Z" fill="#f59e0b" />
+
+  <!-- Bottom rim -->
+  <rect x="28" y="86" width="72" height="5" rx="2.5" fill="#f59e0b" />
+
+  <!-- Clapper -->
+  <rect x="58" y="91" width="12" height="10" rx="3" fill="#f59e0b" />
+
+  <!-- Sound waves right -->
+  <path d="M108 60 A10 10 0 0 1 108 74" fill="none" stroke="#f59e0b" stroke-width="5" stroke-linecap="round" />
+  <path d="M118 52 A18 18 0 0 1 118 82" fill="none" stroke="#f59e0b" stroke-width="5" stroke-linecap="round" />
+
+  <!-- Sound waves left -->
+  <path d="M20 60 A10 10 0 0 0 20 74" fill="none" stroke="#f59e0b" stroke-width="5" stroke-linecap="round" />
+  <path d="M10 52 A18 18 0 0 0 10 82" fill="none" stroke="#f59e0b" stroke-width="5" stroke-linecap="round" />
+</svg>

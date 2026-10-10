@@ -111,6 +111,24 @@ describe("portal API", () => {
       expect((await app.handle(req("GET", "/api/portal/events", token))).status).toBe(403);
     });
 
+    test("pages with limit and cursor query parameters", async () => {
+      task({ title: "first" });
+      task({ title: "second" });
+      const token = await login("pat");
+
+      const first = (await (
+        await app.handle(req("GET", "/api/portal/tasks?scope=mine&status=open&limit=1", token))
+      ).json()) as { tasks: HumanTask[]; nextCursor: string | null };
+      expect(first.tasks).toHaveLength(1);
+      expect(first.nextCursor).not.toBeNull();
+
+      const second = (await (
+        await app.handle(req("GET", `/api/portal/tasks?limit=1&cursor=${encodeURIComponent(first.nextCursor!)}`, token))
+      ).json()) as { tasks: HumanTask[] };
+      expect(second.tasks).toHaveLength(1);
+      expect(second.tasks[0]!.id).not.toBe(first.tasks[0]!.id);
+    });
+
     test("rejects an invalid status filter", async () => {
       const token = await login("pat");
       expect((await app.handle(req("GET", "/api/portal/tasks?status=done", token))).status).toBe(400);

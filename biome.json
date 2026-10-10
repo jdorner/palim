@@ -52,12 +52,13 @@
       "!frontend/node_modules",
       "!frontend/dist",
       "!frontend/.svelte-check",
+      "!portal/dist",
       "!.work"
     ]
   },
   "overrides": [
     {
-      "includes": ["frontend/src/**/*.svelte"],
+      "includes": ["frontend/src/**/*.svelte", "portal/src/**/*.svelte"],
       "linter": {
         "rules": {
           "a11y": {

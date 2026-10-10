@@ -1,0 +1,4 @@
+[test]
+# Portal tests are co-located under src/; pin the root so Bun does not pick up
+# the repo-root bunfig when running from this directory.
+root = "src"

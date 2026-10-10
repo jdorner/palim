@@ -1,0 +1,97 @@
+{
+  "app": {
+    "title": "Palim Portal",
+    "loading": "Loading…",
+    "offline": "Live updates paused, reconnecting…"
+  },
+  "nav": {
+    "tasks": "Tasks",
+    "settings": "Settings"
+  },
+  "login": {
+    "title": "Sign in",
+    "subtitle": "Sign in to see the tasks assigned to you.",
+    "username": "Username",
+    "password": "Password",
+    "submit": "Sign in",
+    "submitting": "Signing in…",
+    "invalid": "Invalid username or password.",
+    "locked": "Too many attempts. Try again in a moment.",
+    "failed": "Sign-in failed: {message}"
+  },
+  "noAccess": {
+    "title": "Nothing to do here",
+    "description": "Your account {username} has no access to the portal. Ask an administrator for the portal-user role."
+  },
+  "notFound": {
+    "title": "Page not found",
+    "back": "Back to the start"
+  },
+  "settings": {
+    "title": "Settings",
+    "account": "Signed in as {username}",
+    "language": "Language",
+    "browserDefault": "Browser default",
+    "theme": "Appearance",
+    "themeSystem": "System",
+    "themeLight": "Light",
+    "themeDark": "Dark",
+    "logout": "Sign out",
+    "saveFailed": "Could not save: {message}"
+  },
+  "tasks": {
+    "title": "Tasks",
+    "tabOpen": "Open",
+    "tabDone": "Done by me",
+    "emptyOpen": "No open tasks. New tasks appear here automatically.",
+    "emptyDone": "You have not answered any tasks yet.",
+    "loadMore": "Load more",
+    "loadFailed": "Could not load tasks: {message}",
+    "retry": "Retry",
+    "due": "Due {time}",
+    "overdue": "Overdue since {time}",
+    "created": "{time}",
+    "priorityHigh": "High priority",
+    "priorityLow": "Low priority",
+    "status": {
+      "open": "Open",
+      "completed": "Done",
+      "expired": "Expired",
+      "cancelled": "Cancelled"
+    },
+    "assignedTo": "Assigned to",
+    "role": "Role {role}",
+    "back": "All tasks",
+    "details": "Details",
+    "form": "Your input",
+    "comment": "Comment",
+    "commentRequired": "Comment (required)",
+    "commentPlaceholder": "Optional note for the record",
+    "required": "Required",
+    "missingFields": "Please fill in: {fields}",
+    "commentMissing": "Please add a comment.",
+    "submitting": "Sending…",
+    "answered": "Answer sent.",
+    "alreadyHandled": "This task was already handled.",
+    "changed": "This task changed in the meantime. Please check it again.",
+    "notAvailable": "This task does not exist or is not available to you.",
+    "submitFailed": "Could not send the answer: {message}",
+    "answer": "Answer",
+    "answeredBy": "{outcome} by {user}, {time}",
+    "unknownUser": "unknown user",
+    "noLongerOpen": "This task is {status} and can no longer be answered.",
+    "history": "History",
+    "unsupportedField": "This field cannot be edited here.",
+    "yes": "Yes",
+    "no": "No",
+    "choose": "Choose…",
+    "event": {
+      "created": "Created",
+      "viewed": "Viewed by {user}",
+      "completed": "Answered by {user}",
+      "cancelled": "Cancelled",
+      "expired": "Expired",
+      "reassigned": "Reassigned"
+    }
+  }
+}

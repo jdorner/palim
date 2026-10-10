@@ -247,6 +247,16 @@ frontend/                    # Svelte 5 web UI (page-based routing)
         ├── utils.ts
         └── components/      # Reusable UI (shadcn-style primitives)
 
+portal/                      # End-user portal (Svelte 5 + Vite + Tailwind 4), separate package
+└── src/
+    ├── App.svelte           # Shell: session gate, module navigation, shared SSE stream, routing
+    ├── lib/                 # `$app/*`: config (runtime config.json), api, auth, sse, router, i18n, form
+    ├── modules/             # Portal modules (registry in index.ts); tasks/ = human task inbox + task page
+    ├── pages/               # Login, settings, no-access, not-found
+    └── locales/             # Portal catalogs (en, de) + parity test
+                             # `$lib` = frontend/src/lib (reused `@palim/ui` kit), `$shared` = shared/
+                             # Built to portal/dist; Palim serves it at /portal/ when present
+
 WORK_DIR/                       # AGENT_WORK_DIR - the agent's workspace (real directory mounted into sandbox)
 ├── inbox/                   # Drop files here for auto-processing (OCR)
 ├── outbox/                  # Processed file output
@@ -493,4 +503,5 @@ bun run cli              # Launch sandbox CLI (interactive shell)
 bun run test             # Run tests
 bun run reset-admin [username]   # Break-glass: re-enable user, grant admin, print new password
 cd frontend && bun run build  # Build frontend
+cd portal && bun install && bun run build  # Build the portal (served at /portal/; dev: bun run dev on :5174)
 ```

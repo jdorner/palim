@@ -57,7 +57,7 @@ export function portalTaskRoutes(getService: () => HitlService | undefined) {
             service.listTasks(hitlViewerFor(principal), {
               scope: query.scope,
               status: query.status as HumanTaskStatus | undefined,
-              limit: query.limit,
+              limit: query.limit ? Number(query.limit) : undefined,
               cursor: query.cursor,
             }),
           );
@@ -69,7 +69,8 @@ export function portalTaskRoutes(getService: () => HitlService | undefined) {
         query: Type.Object({
           scope: Type.Optional(Type.Union([Type.Literal("mine"), Type.Literal("completed"), Type.Literal("all")])),
           status: Type.Optional(Type.String()),
-          limit: Type.Optional(Type.Integer({ minimum: 1, maximum: 200 })),
+          // Query values are strings; the service clamps the parsed number to 1..200.
+          limit: Type.Optional(Type.String({ pattern: "^[0-9]{1,3}$" })),
           cursor: Type.Optional(Type.String({ maxLength: 128 })),
         }),
       },
