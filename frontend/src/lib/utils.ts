@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { activeFormat, translateCore } from "./i18nCore";
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
@@ -22,17 +23,15 @@ export function uuid(): string {
   );
 }
 
-const formatter = new Intl.DateTimeFormat("de-DE", { dateStyle: "medium", timeStyle: "medium" });
-
 /**
- * Formats a Unix timestamp to a localized date/time string.
+ * Formats a Unix timestamp to a date/time string in the active UI locale.
  * @param ts - Timestamp in milliseconds
- * @param fallback - Text returned when the timestamp is missing or zero
- * @returns Formatted date/time string (de-DE locale)
+ * @param fallback - Text returned when the timestamp is missing or zero (default: localized "Never")
+ * @returns Formatted date/time string
  */
-export function formatTimestamp(ts: number | null | undefined, fallback = "Never"): string {
-  if (!ts) return fallback;
-  return formatter.format(ts);
+export function formatTimestamp(ts: number | null | undefined, fallback?: string): string {
+  if (!ts) return fallback ?? translateCore("common.never");
+  return activeFormat().date(ts);
 }
 
 /**

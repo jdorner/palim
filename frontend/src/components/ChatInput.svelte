@@ -3,6 +3,7 @@ import PaperPlaneRightIcon from "phosphor-svelte/lib/PaperPlaneRightIcon";
 import StopIcon from "phosphor-svelte/lib/StopIcon";
 import { tick } from "svelte";
 import { Button } from "$lib/components/ui/button";
+import { t } from "$lib/i18n.svelte";
 
 interface Props {
   /** Whether the input is disabled (e.g. during streaming). */
@@ -83,21 +84,21 @@ function handleFormSubmit(e: SubmitEvent) {
     onkeydown={handleKeydown}
     disabled={disabled && !streaming}
     rows="1"
-    placeholder="Send a message..."
+    placeholder={t("chat.inputPlaceholder")}
     class="flex-1 resize-none rounded-md border border-input bg-background px-3 py-2 text-sm leading-5
       placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring
       disabled:cursor-not-allowed disabled:opacity-50 overflow-hidden"
-    aria-label="Chat message input"
+    aria-label={t("chat.inputLabel")}
   ></textarea>
   {#if streaming}
     <Button type="button" size="icon" variant="destructive" onclick={() => oncancel?.()}>
       <StopIcon class="w-4 h-4" aria-hidden="true" />
-      <span class="sr-only">Stop generation</span>
+      <span class="sr-only">{t("chat.stop")}</span>
     </Button>
   {:else}
     <Button type="submit" size="icon" {disabled}>
       <PaperPlaneRightIcon class="w-4 h-4" aria-hidden="true" />
-      <span class="sr-only">Send</span>
+      <span class="sr-only">{t("chat.send")}</span>
     </Button>
   {/if}
 </form>

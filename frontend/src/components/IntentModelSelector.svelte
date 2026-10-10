@@ -1,4 +1,5 @@
 <script lang="ts">
+import { t } from "$lib/i18n.svelte";
 import type { AvailableModel, ModelIntent } from "../../../shared/models";
 
 interface Props {
@@ -56,9 +57,11 @@ function handleChange(event: Event) {
     value={selectedModelId ?? ""}
     onchange={handleChange}
     {disabled}
-    aria-label="Select model for {label} intent"
+    aria-label={t("models.selectForIntent", { label })}
   >
-    <option value="">Default{defaultModelId ? ` (${defaultModelId})` : ""}</option>
+    <option value="">
+      {defaultModelId ? t("models.defaultWith", { model: defaultModelId }) : t("models.default")}
+    </option>
     {#each models as model (model.id)}
       <option value={model.id}>{model.id}</option>
     {/each}

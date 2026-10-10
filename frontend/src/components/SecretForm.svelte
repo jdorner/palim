@@ -7,6 +7,7 @@ import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Flash } from "$lib/flash.svelte";
 import { ensureOk, responseError } from "$lib/http";
+import { t, tx } from "$lib/i18n.svelte";
 import type { SecretSchemaEntry } from "../../../shared/types";
 import FlashMessage from "./FlashMessage.svelte";
 import SecretDeleteDialog from "./SecretDeleteDialog.svelte";
@@ -129,7 +130,7 @@ async function fetchStatus() {
     }
     statusMap = map;
   } catch (err) {
-    fetchError = err instanceof Error ? err.message : "Failed to load secrets";
+    fetchError = err instanceof Error ? err.message : t("secrets.loadFailed");
   } finally {
     loading = false;
   }
@@ -179,7 +180,7 @@ async function handleSubmit() {
   const newErrors: Record<string, string> = {};
   for (const [key, value] of Object.entries(editedValues)) {
     if (value.trim().length === 0) {
-      newErrors[key] = "Value cannot be empty";
+      newErrors[key] = t("secrets.valueEmpty");
     }
   }
   if (Object.keys(newErrors).length > 0) {
@@ -220,11 +221,11 @@ async function handleSubmit() {
     editing = new Set();
     editedValues = {};
 
-    flash.show("Secrets saved");
+    flash.show(t("secrets.saved"));
   } catch (err) {
     const firstKey = Object.keys(editedValues)[0];
     if (firstKey) {
-      rowErrors = { [firstKey]: err instanceof Error ? err.message : "Failed to save" };
+      rowErrors = { [firstKey]: err instanceof Error ? err.message : t("common.saveFailedShort") };
     }
   } finally {
     submitting = false;
@@ -250,9 +251,9 @@ async function executeDelete() {
     statusMap = { ...statusMap, [key]: "unset" };
     // Remove from edit state if present
     cancelEdit(key);
-    flash.show(`Secret "${key}" deleted`);
+    flash.show(t("secrets.deleted", { key }));
   } catch (err) {
-    rowErrors = { [key]: err instanceof Error ? err.message : "Failed to delete" };
+    rowErrors = { [key]: err instanceof Error ? err.message : t("common.deleteFailedShort") };
   } finally {
     deleting = false;
     deleteTargetKey = null;
@@ -261,7 +262,7 @@ async function executeDelete() {
 </script>
 
 {#if loading}
-  <LoadingIndicator message="Loading secrets..." />
+  <LoadingIndicator message={t("secrets.loading")} />
 {:else if fetchError}
   <p class="text-sm text-destructive">{fetchError}</p>
 {:else}
@@ -275,11 +276,13 @@ async function executeDelete() {
     {#each groups as group (group.label ?? "__ungrouped")}
       {#if group.label}
         <div class="flex items-center gap-2 pt-2">
-          <h4 class="text-sm font-semibold text-foreground">{group.label}</h4>
+          <h4 class="text-sm font-semibold text-foreground">
+            {tx(extensionName, `secretGroups.${group.label}`, group.label)}
+          </h4>
           {#if isGroupIncomplete(group.entries)}
             <Badge variant="warning" class="text-xs gap-1">
               <WarningIcon class="w-3 h-3" aria-hidden="true" />
-              Incomplete
+              {t("secrets.incomplete")}
             </Badge>
           {/if}
         </div>
@@ -299,18 +302,20 @@ async function executeDelete() {
           >
             {#snippet badges()}
               {#if entry.required}
-                <Badge variant="outline" class="text-xs font-normal">Required</Badge>
+                <Badge variant="outline" class="text-xs font-normal">{t("secrets.required")}</Badge>
               {:else}
-                <Badge variant="secondary" class="text-xs font-normal">Optional</Badge>
+                <Badge variant="secondary" class="text-xs font-normal">{t("secrets.optional")}</Badge>
               {/if}
               {#if isMissingRequired}
-                <WarningIcon class="w-4 h-4 text-amber-500 shrink-0" aria-label="Required secret is missing" />
+                <WarningIcon class="w-4 h-4 text-amber-500 shrink-0" aria-label={t("secrets.missingRequired")} />
               {/if}
             {/snippet}
 
             <!-- Description -->
             {#if entry.description}
-              <p class="text-xs text-muted-foreground">{entry.description}</p>
+              <p class="text-xs text-muted-foreground">
+                {tx(extensionName, `secrets.${entry.key}.description`, entry.description)}
+              </p>
             {/if}
 
             <!-- Value display / edit -->
@@ -320,7 +325,7 @@ async function executeDelete() {
                   type="password"
                   maxlength={4096}
                   class="block w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-                  placeholder="Enter secret value"
+                  placeholder={t("secrets.enterValue")}
                   value={editedValues[entry.key] ?? ""}
                   oninput={(e) => updateValue(entry.key, e.currentTarget.value)}
                 >
@@ -331,7 +336,7 @@ async function executeDelete() {
                   class="shrink-0 text-xs"
                   onclick={() => cancelEdit(entry.key)}
                 >
-                  Cancel
+                  {t("common.cancel")}
                 </Button>
               </div>
             {:else if isSet}
@@ -360,7 +365,7 @@ async function executeDelete() {
       <div class="flex items-center gap-2 pt-2">
         <Button type="submit" disabled={submitting} size="sm" class="gap-1.5">
           <FloppyDiskIcon class="w-4 h-4" aria-hidden="true" />
-          {submitting ? "Saving..." : "Save Secrets"}
+          {submitting ? t("common.saving") : t("secrets.saveSecrets")}
         </Button>
       </div>
     {/if}

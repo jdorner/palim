@@ -1,12 +1,13 @@
 <script lang="ts">
+import MagicWandIcon from "phosphor-svelte/lib/MagicWandIcon";
+import { Button } from "$lib/components/ui/button";
 /**
  * Edits a trigger's or step's `outputSchema` shorthand: a JSON textarea plus an
  * "Infer from last run" action that fills it from the newest run's data. The
  * schema drives template autocomplete and path validation for references to
  * this node. Empty means the built-in (trigger type / step handler) schema.
  */
-import MagicWandIcon from "phosphor-svelte/lib/MagicWandIcon";
-import { Button } from "$lib/components/ui/button";
+import { i18n, t } from "$lib/i18n.svelte";
 import { formatShorthand, type InferSource, parseShorthand } from "$lib/outputSchemaShorthand";
 import { fetchInferredSchema } from "$lib/workflowEditorMeta";
 import type { OutputSchemaShorthand } from "$shared/workflows";
@@ -63,7 +64,10 @@ async function infer() {
     apply(formatShorthand(inferred.shorthand));
     inferStatus = {
       kind: "info",
-      message: `Inferred from run ${inferred.runId.slice(0, 8)} (${new Date(inferred.runCreatedAt).toLocaleString()})`,
+      message: t("outputSchema.inferredFrom", {
+        id: inferred.runId.slice(0, 8),
+        time: i18n.format.date(inferred.runCreatedAt),
+      }),
     };
   } catch (err) {
     inferStatus = { kind: "error", message: err instanceof Error ? err.message : String(err) };
@@ -76,7 +80,7 @@ async function infer() {
 {#if readonly}
   {#if value}
     <div class="flex flex-col gap-1">
-      <span class="text-xs font-medium text-muted-foreground">Output schema</span>
+      <span class="text-xs font-medium text-muted-foreground">{t("outputSchema.label")}</span>
       <pre
         class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-64 overflow-y-auto"
       >{formatShorthand(value)}</pre>
@@ -85,21 +89,23 @@ async function infer() {
 {:else}
   <div class="flex flex-col gap-1">
     <div class="flex items-center justify-between gap-2">
-      <label for="output-schema-editor" class="text-xs font-medium text-muted-foreground">Output schema</label>
+      <label for="output-schema-editor" class="text-xs font-medium text-muted-foreground"
+        >{t("outputSchema.label")}</label
+      >
       <div class="flex items-center gap-1">
         {#if text}
-          <Button variant="ghost" size="xs" class="text-xs" onclick={() => apply("")}>Clear</Button>
+          <Button variant="ghost" size="xs" class="text-xs" onclick={() => apply("")}>{t("outputSchema.clear")}</Button>
         {/if}
         <Button
           variant="outline"
           size="xs"
           class="text-xs gap-1"
           disabled={!workflowName || inferring}
-          title={workflowName ? "Fill from the newest run's data" : "Save the workflow and run it first"}
+          title={workflowName ? t("outputSchema.inferTitle") : t("outputSchema.inferDisabled")}
           onclick={infer}
         >
           <MagicWandIcon size={12} aria-hidden="true" />
-          {inferring ? "Inferring..." : "Infer from last run"}
+          {inferring ? t("outputSchema.inferring") : t("outputSchema.infer")}
         </Button>
       </div>
     </div>
@@ -118,10 +124,7 @@ async function infer() {
         >{inferStatus.message}</span
       >
     {:else}
-      <span class="text-xs text-muted-foreground"
-        >Describes the data for autocomplete and validation. Types: "string", "number", "boolean", "object", "any",
-        nested objects, [item] arrays. Empty uses the built-in schema.</span
-      >
+      <span class="text-xs text-muted-foreground">{t("outputSchema.hint")}</span>
     {/if}
   </div>
 {/if}

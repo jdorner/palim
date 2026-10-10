@@ -1,0 +1,41 @@
+{
+  "description": "Telegram bot integration with message queuing and persistent conversation history",
+  "secrets": {
+    "TELEGRAM_BOT_TOKEN": {
+      "description": "Telegram bot token from @BotFather"
+    }
+  },
+  "settings": {
+    "chatId": {
+      "description": "Default Telegram chat ID for outgoing messages",
+      "title": "Default Telegram chat ID"
+    },
+    "format": {
+      "description": "How outgoing messages are rendered. 'markdown' sends rich messages (GitHub Flavored Markdown) and falls back to plain text if Telegram rejects them.",
+      "title": "Message format"
+    },
+    "maxImageSizeMb": {
+      "description": "Incoming images larger than this are rejected. Telegram's Bot API caps downloads at 20 MB.",
+      "title": "Max image size (MB)"
+    }
+  },
+  "steps": {
+    "notify-telegram": {
+      "config": {
+        "chatId": {
+          "description": "Target Telegram chat ID. Supports {{template}} expressions. Uses the extension's default chat if omitted.",
+          "title": "Chat ID"
+        },
+        "format": {
+          "description": "Render the message as Markdown or send it as plain text. Use 'plain' when templated values may contain Markdown characters. Uses the extension's format setting if omitted.",
+          "title": "Format"
+        },
+        "message": {
+          "description": "The message text to send. Supports {{template}} expressions.",
+          "title": "Message"
+        }
+      },
+      "label": "Notify (Telegram)"
+    }
+  }
+}

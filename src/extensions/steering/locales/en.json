@@ -1,0 +1,9 @@
+{
+  "description": "Injects additional system prompt text before each agent run to steer behavior or enforce constraints.",
+  "settings": {
+    "prompt": {
+      "description": "Text that is injected to the end of the system prompt",
+      "title": "Additional Prompt"
+    }
+  }
+}

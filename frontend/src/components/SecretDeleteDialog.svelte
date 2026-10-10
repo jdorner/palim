@@ -1,5 +1,6 @@
 <script lang="ts">
 import AlertDialog from "$lib/components/ui/alert-dialog/AlertDialog.svelte";
+import { t } from "$lib/i18n.svelte";
 
 /** Confirmation dialog for deleting a secret; open while `secretKey` is set. */
 interface Props {
@@ -18,10 +19,10 @@ let { secretKey, deleting, onConfirm, onCancel }: Props = $props();
 
 <AlertDialog
   open={secretKey !== null}
-  title="Delete Secret"
-  description={`Are you sure you want to delete "${secretKey}"? This action is irreversible.`}
-  confirmLabel={deleting ? "Deleting..." : "Delete"}
-  cancelLabel="Cancel"
+  title={t("secrets.deleteTitle")}
+  description={t("secrets.deleteConfirm", { key: secretKey })}
+  confirmLabel={deleting ? t("common.deleting") : t("common.delete")}
+  cancelLabel={t("common.cancel")}
   confirmVariant="destructive"
   {onConfirm}
   {onCancel}

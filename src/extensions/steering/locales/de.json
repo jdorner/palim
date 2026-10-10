@@ -1,0 +1,9 @@
+{
+  "description": "Fügt vor jedem Agent-Lauf zusätzlichen System-Prompt-Text ein, um das Verhalten zu steuern oder Vorgaben durchzusetzen.",
+  "settings": {
+    "prompt": {
+      "description": "Text, der am Ende des System-Prompts eingefügt wird",
+      "title": "Zusätzlicher Prompt"
+    }
+  }
+}

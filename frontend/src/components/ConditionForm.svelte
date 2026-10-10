@@ -11,6 +11,7 @@
 import { Tooltip } from "bits-ui";
 import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
+import { t } from "$lib/i18n.svelte";
 import type { OutputSchemas, SlugEdge } from "$lib/templateScope";
 import TemplateAutocomplete from "./TemplateAutocomplete.svelte";
 
@@ -18,20 +19,8 @@ import TemplateAutocomplete from "./TemplateAutocomplete.svelte";
 type OperatorKey = "eq" | "neq" | "gt" | "gte" | "lt" | "lte" | "in" | "contains" | "exists" | "matches";
 
 /** Ordered operator options with human-readable labels. */
-const OPERATORS: Array<{ key: OperatorKey; label: string }> = [
-  { key: "eq", label: "equals" },
-  { key: "neq", label: "not equals" },
-  { key: "gt", label: "greater than" },
-  { key: "gte", label: "greater than or equal" },
-  { key: "lt", label: "less than" },
-  { key: "lte", label: "less than or equal" },
-  { key: "in", label: "in list" },
-  { key: "contains", label: "contains" },
-  { key: "exists", label: "exists (truthy)" },
-  { key: "matches", label: "matches regex" },
-];
-
-const OPERATOR_KEYS = OPERATORS.map((o) => o.key);
+const OPERATOR_KEYS: OperatorKey[] = ["eq", "neq", "gt", "gte", "lt", "lte", "in", "contains", "exists", "matches"];
+const OPERATORS = $derived(OPERATOR_KEYS.map((key) => ({ key, label: t(`condition.op.${key}`) })));
 
 interface Props {
   /** The current condition object (`{ ref, <operator> }`). */
@@ -154,8 +143,8 @@ function inAsText(): string {
   <!-- Ref -->
   <div class="space-y-1">
     <span class="inline-flex items-center gap-1">
-      <label class="text-xs font-medium text-muted-foreground" for="condition-ref">Ref</label>
-      {@render infoTip("Template expression resolving to the value to test.")}
+      <label class="text-xs font-medium text-muted-foreground" for="condition-ref">{t("condition.ref")}</label>
+      {@render infoTip(t("condition.refHint"))}
     </span>
     <input
       id="condition-ref"
@@ -187,7 +176,7 @@ function inAsText(): string {
 
   <!-- Operator -->
   <div class="space-y-1">
-    <label class="text-xs font-medium text-muted-foreground" for="condition-operator">Operator</label>
+    <label class="text-xs font-medium text-muted-foreground" for="condition-operator">{t("condition.operator")}</label>
     <select
       id="condition-operator"
       disabled={isReadonly}
@@ -210,13 +199,13 @@ function inAsText(): string {
           checked={condition.exists === true}
           onChange={(v) => updateValue(v)}
           disabled={isReadonly}
-          aria-label="Expected truthiness"
+          aria-label={t("condition.truthiness")}
         />
-        <label class="text-xs font-medium" for="condition-value">Value must be truthy</label>
+        <label class="text-xs font-medium" for="condition-value">{t("condition.mustBeTruthy")}</label>
       </div>
     {:else if activeOperator === "in"}
       <span class="inline-flex items-center gap-1">
-        <label class="text-xs font-medium text-muted-foreground" for="condition-value">Values</label>
+        <label class="text-xs font-medium text-muted-foreground" for="condition-value">{t("condition.values")}</label>
         {@render infoTip("Comma-separated list; matches if the resolved value is one of these.")}
       </span>
       <input
@@ -225,7 +214,7 @@ function inAsText(): string {
         disabled={isReadonly}
         class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-70"
         value={inAsText()}
-        placeholder="value1, value2, ..."
+        placeholder={t("condition.valuesPlaceholder")}
         oninput={(e) => {
           const items = e.currentTarget.value
             .split(",")
@@ -235,14 +224,14 @@ function inAsText(): string {
         }}
       >
     {:else}
-      <label class="text-xs font-medium text-muted-foreground" for="condition-value">Value</label>
+      <label class="text-xs font-medium text-muted-foreground" for="condition-value">{t("condition.value")}</label>
       <input
         id="condition-value"
         type="text"
         disabled={isReadonly}
         class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-70"
         value={String(currentOperatorValue() ?? "")}
-        placeholder={activeOperator === "matches" ? "regular expression" : "comparison value"}
+        placeholder={activeOperator === "matches" ? t("condition.regexPlaceholder") : t("condition.valuePlaceholder")}
         oninput={(e) => updateValue(e.currentTarget.value)}
       >
     {/if}

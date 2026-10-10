@@ -1,6 +1,7 @@
 <script lang="ts">
 import { Handle, Position } from "@xyflow/svelte";
 import WarningCircleIcon from "phosphor-svelte/lib/WarningCircleIcon";
+import { t } from "$lib/i18n.svelte";
 import { type NodeStatus, statusVisual, visualForStepType } from "$lib/nodeVisuals";
 
 interface Props {
@@ -32,7 +33,7 @@ let strokeClass = $derived(data.selected ? "stroke-primary" : "stroke-sky-400/70
     style="filter: drop-shadow(0 1px 2px var(--tw-shadow-color, rgb(0 0 0 / 0.2)));"
     viewBox="0 0 140 60"
     role="img"
-    aria-label="Aggregator node shape"
+    aria-label={t("graph.aggregatorShape")}
   >
     <polygon
       points="22,1 139,1 139,59 22,59 1,30"
@@ -65,11 +66,8 @@ let strokeClass = $derived(data.selected ? "stroke-primary" : "stroke-sky-400/70
 
   <!-- Error badge -->
   {#if data.hasError}
-    <div
-      class="absolute -right-2 -top-2 z-30 rounded-full bg-white leading-none"
-      title="This step has a configuration error"
-    >
-      <WarningCircleIcon size={18} weight="fill" class="text-red-500" aria-label="Configuration error" />
+    <div class="absolute -right-2 -top-2 z-30 rounded-full bg-white leading-none" title={t("graph.configErrorTitle")}>
+      <WarningCircleIcon size={18} weight="fill" class="text-red-500" aria-label={t("graph.configError")} />
     </div>
   {/if}
 

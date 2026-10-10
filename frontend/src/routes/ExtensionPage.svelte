@@ -1,4 +1,8 @@
 <script lang="ts">
+import { onMount } from "svelte";
+import { get } from "svelte/store";
+import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
+import { extensions, fetchExtensions } from "$lib/extensionStore";
 /**
  * Generic extension page.
  *
@@ -8,10 +12,7 @@
  * Mounts the compiled Svelte page an extension declares in `ui.pages`
  * (without a page id, the first page is shown).
  */
-import { onMount } from "svelte";
-import { get } from "svelte/store";
-import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
-import { extensions, fetchExtensions } from "$lib/extensionStore";
+import { t, tx } from "$lib/i18n.svelte";
 import ExtensionPageMount from "../components/extensions/ExtensionPageMount.svelte";
 import { route } from "../router";
 
@@ -40,23 +41,25 @@ let page = $derived(pageId ? pages.find((p) => p.id === pageId) : pages[0]);
 
 {#if !ready}
   <div class="flex items-center justify-center h-full">
-    <LoadingIndicator message="Loading extension page..." />
+    <LoadingIndicator message={t("extPage.loading")} />
   </div>
 {:else if !ext}
-  {@render message(`Extension "${extensionName}" is not installed.`)}
+  {@render message(t("extPage.notInstalled", { name: extensionName }))}
 {:else if !ext.enabled}
-  {@render message(`Extension "${ext.name}" is disabled.`)}
+  {@render message(t("extPage.disabled", { name: ext.name }))}
 {:else if pages.length === 0}
-  {@render message(`Extension "${ext.name}" has no pages.`)}
+  {@render message(t("extPage.noPages", { name: ext.name }))}
 {:else if !page}
-  {@render message(`Extension "${ext.name}" has no page "${pageId}".`)}
+  {@render message(t("extPage.noPage", { name: ext.name, page: pageId }))}
 {:else if page.error}
   <div class="rounded-md border border-destructive/40 p-4 text-sm">
-    <p class="font-medium text-destructive">The page "{page.title}" could not be built.</p>
+    <p class="font-medium text-destructive">
+      {t("extPage.buildFailed", { title: tx(ext.name, `pages.${page.id}.title`, page.title) })}
+    </p>
     <pre class="mt-2 whitespace-pre-wrap break-words text-xs text-muted-foreground">{page.error}</pre>
   </div>
 {:else if !page.module}
-  {@render message(`The page "${page.title}" is not available yet.`)}
+  {@render message(t("extPage.notAvailable", { title: tx(ext.name, `pages.${page.id}.title`, page.title) }))}
 {:else}
   {#key page.module}
     <ExtensionPageMount

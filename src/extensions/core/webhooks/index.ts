@@ -36,7 +36,7 @@ const IS_DEV = !process.env.NODE_ENV || process.env.NODE_ENV === "development";
 
 const manifest = {
   name: "webhooks",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "Authenticated HTTP endpoints for receiving external service events",
   dependencies: [],
   core: true,

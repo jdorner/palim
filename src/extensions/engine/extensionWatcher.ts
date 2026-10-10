@@ -8,6 +8,8 @@
  * - Removed directories trigger unloadOne().
  * - Changes below an extension's `ui/` directory rebuild only its UI pages
  *   (registry.rebuildUi()), without reloading the extension.
+ * - Changes below an extension's `locales/` directory reload only its
+ *   translation catalogs (registry.reloadLocales()).
  * - All events are debounced to batch rapid filesystem changes.
  */
 
@@ -51,6 +53,8 @@ export class ExtensionWatcher {
   private pendingReloads = new Set<string>();
   /** Pending extension directories whose UI sources changed. */
   private pendingUiRebuilds = new Set<string>();
+  /** Extensions whose `locales/` catalogs changed. */
+  private pendingLocaleReloads = new Set<string>();
   /** Debounce timer handle. */
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -88,7 +92,7 @@ export class ExtensionWatcher {
     this.watcher = chokidar.watch(this.directory, {
       persistent: true,
       ignoreInitial: true,
-      depth: 8, // <name>/index.ts for reloads, plus nested <name>/ui/** sources for UI rebuilds
+      depth: 8, // <name>/index.ts for reloads, nested <name>/ui/** for UI rebuilds, <name>/locales/* for catalogs
       usePolling: false,
       // Ignore node_modules and hidden files within extension directories
       ignored: ["**/node_modules/**", "**/.git/**", "**/tsconfig.json", "**/tsconfig.json.tmp"],
@@ -160,20 +164,25 @@ export class ExtensionWatcher {
   }
 
   /**
-   * Handles a change below a known extension's `ui/` directory by scheduling a
-   * UI rebuild.
+   * Handles a change below a known extension's `ui/` directory (scheduling a UI
+   * rebuild) or `locales/` directory (scheduling a catalog reload).
    *
    * @param changedPath - Absolute path of the added, changed, or removed entry
-   * @returns `true` when the path belongs to a `ui/` tree (and was handled)
+   * @returns `true` when the path belongs to a `ui/` or `locales/` tree (and was handled)
    */
   private handleUiChange(changedPath: string): boolean {
     const parts = path.relative(this.directory, changedPath).split(path.sep);
-    if (parts.length < 3 || parts[1] !== "ui") return false;
+    if (parts.length < 3 || (parts[1] !== "ui" && parts[1] !== "locales")) return false;
     const extName = parts[0]!;
     if (!this.knownExtensions.has(extName)) return true;
 
-    logger.debug(`Detected UI source change in ${extName}: ${parts.slice(1).join("/")}`);
-    this.pendingUiRebuilds.add(extName);
+    if (parts[1] === "ui") {
+      logger.debug(`Detected UI source change in ${extName}: ${parts.slice(1).join("/")}`);
+      this.pendingUiRebuilds.add(extName);
+    } else {
+      logger.debug(`Detected catalog change in ${extName}: ${parts.slice(1).join("/")}`);
+      this.pendingLocaleReloads.add(extName);
+    }
     this.scheduleDebouncedProcess();
     return true;
   }
@@ -318,13 +327,15 @@ export class ExtensionWatcher {
     const toReload = [...this.pendingReloads];
     const toLoad = [...this.pendingLoads];
     // A reload, load, or unload supersedes a UI-only rebuild.
-    const toRebuildUi = [...this.pendingUiRebuilds].filter(
-      (n) => !this.pendingUnloads.has(n) && !this.pendingReloads.has(n) && !this.pendingLoads.has(n),
-    );
+    const superseded = (n: string) =>
+      this.pendingUnloads.has(n) || this.pendingReloads.has(n) || this.pendingLoads.has(n);
+    const toRebuildUi = [...this.pendingUiRebuilds].filter((n) => !superseded(n));
+    const toReloadLocales = [...this.pendingLocaleReloads].filter((n) => !superseded(n));
     this.pendingUnloads.clear();
     this.pendingReloads.clear();
     this.pendingLoads.clear();
     this.pendingUiRebuilds.clear();
+    this.pendingLocaleReloads.clear();
 
     // Process unloads first
     for (const extName of toUnload) {
@@ -350,6 +361,18 @@ export class ExtensionWatcher {
         }
       } catch (err) {
         logger.error(`Error rebuilding UI of extension "${manifestName}":`, err);
+      }
+    }
+
+    // Reload translation catalogs that changed
+    for (const extName of toReloadLocales) {
+      const manifestName = this.dirToManifestName.get(extName) ?? extName;
+      try {
+        if (await this.registry.reloadLocales(manifestName)) {
+          logger.info(`Reloaded translations of extension "${manifestName}"`);
+        }
+      } catch (err) {
+        logger.error(`Error reloading translations of extension "${manifestName}":`, err);
       }
     }
   }

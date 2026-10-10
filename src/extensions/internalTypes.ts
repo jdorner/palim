@@ -5,6 +5,7 @@
 
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ExtensionUiPage } from "@shared/extensions";
+import type { Locale, Messages } from "@shared/i18n";
 import type { ManagedQueuePort } from "@src/queue";
 import type { Extension, HttpMethod, RouteHandler, RouteOptions, StepTypeHandler } from "./types";
 
@@ -47,4 +48,6 @@ export interface LoadedExtension {
   error?: string | null;
   /** Compiled UI pages (module URLs or build errors), set on activation when the manifest declares pages. */
   uiPages?: ExtensionUiPage[];
+  /** UI translation catalogs from the extension's `locales/` directory, loaded on activation. */
+  locales?: Partial<Record<Locale, Messages>>;
 }

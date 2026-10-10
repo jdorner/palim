@@ -4,6 +4,7 @@
  * Displays a 16×16 SVG ring that fills clockwise with color-coded pressure
  * and a percentage label. Color thresholds are configurable.
  */
+import { i18n, t } from "$lib/i18n.svelte";
 
 /** A color threshold: applies the given Tailwind stroke class when percentage is below `below`. */
 export interface ColorStop {
@@ -44,7 +45,7 @@ let color = $derived(colors.find((s) => pct < s.below)?.class ?? colors[colors.l
 
 <span
   class="inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] text-muted-foreground/70 tabular-nums"
-  title="Context usage: {usedTokens.toLocaleString()} of {maxTokens.toLocaleString()}"
+  title={t("chat.contextUsage", { used: i18n.format.number(usedTokens), max: i18n.format.number(maxTokens) })}
 >
   <svg width="16" height="16" viewBox="0 0 18 18" class="shrink-0" aria-hidden="true">
     <circle cx="9" cy="9" r={radius} fill="none" class="stroke-muted-foreground/20" stroke-width="2.5" />

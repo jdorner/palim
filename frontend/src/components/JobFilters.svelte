@@ -1,4 +1,6 @@
 <script lang="ts">
+import { t } from "$lib/i18n.svelte";
+import { statusLabel } from "$lib/i18nCore";
 import type { JobEntry } from "../../../shared/types";
 
 let {
@@ -72,7 +74,7 @@ function onQueueSelect(e: Event) {
 
 <div class="filters-section">
   <div class="filter-row">
-    <label class="filter-label" for="queue-filter">Queue:</label>
+    <label class="filter-label" for="queue-filter">{t("jobs.queueFilter")}</label>
     <select
       id="queue-filter"
       class="filter-select"
@@ -80,7 +82,7 @@ function onQueueSelect(e: Event) {
       disabled={allQueues.length === 0}
       onchange={onQueueSelect}
     >
-      <option value="__all__">All Queues</option>
+      <option value="__all__">{t("jobs.allQueues")}</option>
       {#each allQueues as queue}
         <option value={queue}>{queueLabel(queue)}</option>
       {/each}
@@ -88,11 +90,11 @@ function onQueueSelect(e: Event) {
   </div>
 
   <div class="filter-row">
-    <label class="filter-label" for="status-filter">Status:</label>
+    <label class="filter-label" for="status-filter">{t("jobs.statusFilter")}</label>
     <select id="status-filter" class="filter-select" value={statusValue} onchange={onStatusSelect}>
-      <option value="__all__">All Statuses</option>
+      <option value="__all__">{t("jobs.allStatuses")}</option>
       {#each statuses as status}
-        <option value={status}>{status}</option>
+        <option value={status}>{statusLabel(status)}</option>
       {/each}
     </select>
   </div>

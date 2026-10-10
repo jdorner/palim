@@ -1,0 +1,52 @@
+{
+  "description": "Push-Benachrichtigungen über ntfy.sh senden, verfügbar als Workflow-Schritttyp",
+  "secrets": {
+    "NTFY_ACCESS_TOKEN": {
+      "description": "Optionales ntfy-Zugriffstoken (Bearer) zum Veröffentlichen in geschützten Topics"
+    },
+    "NTFY_DEFAULT_TOPIC": {
+      "description": "Standard-Topic für Schritte, die keines angeben. Wird als Secret behandelt, weil der Topic-Name auf Servern ohne Authentifizierung Lese- und Schreibzugriff gewährt."
+    }
+  },
+  "settings": {
+    "server": {
+      "description": "Basis-URL des ntfy-Servers. Standard ist https://ntfy.sh, wenn leer.",
+      "title": "ntfy-Server-URL"
+    }
+  },
+  "steps": {
+    "notify-ntfy": {
+      "config": {
+        "click": {
+          "description": "URL, die beim Antippen der Benachrichtigung geöffnet wird (ntfy-Klickaktion). Unterstützt {{template}}-Ausdrücke. http(s):// für Webseiten oder ein Schema wie mailto:, geo:, ntfy:// für Deep Links.",
+          "title": "Klick-URL"
+        },
+        "markdown": {
+          "description": "Nachrichtentext als Markdown darstellen (fett, Links, Listen usw.). Derzeit nur in der ntfy-Web-App; andere Clients zeigen den Rohtext. Standardmäßig aktiv.",
+          "title": "Markdown"
+        },
+        "message": {
+          "description": "Der Text der Benachrichtigung. Unterstützt {{template}}-Ausdrücke.",
+          "title": "Nachricht"
+        },
+        "priority": {
+          "description": "Priorität von 1 (minimal) bis 5 (maximal). Standard: 3.",
+          "title": "Priorität"
+        },
+        "tags": {
+          "description": "Optionale Tags, die mit der Benachrichtigung angezeigt werden. Bekannte Emoji-Kürzel (z. B. „warning“, „skull“) erscheinen als Emoji; andere Werte als Text-Tag.",
+          "title": "Tags"
+        },
+        "title": {
+          "description": "Optionaler Titel der Benachrichtigung. Unterstützt {{template}}-Ausdrücke.",
+          "title": "Titel"
+        },
+        "topic": {
+          "description": "Ziel-Topic. Unterstützt {{template}}-Ausdrücke. Ohne Angabe wird das Standard-Topic der Erweiterung verwendet.",
+          "title": "Topic"
+        }
+      },
+      "label": "Benachrichtigen (ntfy)"
+    }
+  }
+}

@@ -28,6 +28,16 @@ export type {
   PalimNotifyKind,
   PalimPageRoute,
 } from "./extensionUi";
+export type { Formatters, I18n, Locale, Messages, Translate, TranslateParams } from "./i18n";
+export {
+  createFormatters,
+  createTranslator,
+  FALLBACK_LOCALE,
+  isLocale,
+  LOCALE_NAMES,
+  resolveLocale,
+  SUPPORTED_LOCALES,
+} from "./i18n";
 export type { JobEntry, LogEntry } from "./jobs";
 export type { AvailableModel, ModelIntent, SelectedModelResponse } from "./models";
 export { MODEL_INTENTS } from "./models";

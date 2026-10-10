@@ -1,10 +1,12 @@
 <script lang="ts">
+import { t } from "$lib/i18n.svelte";
+
 let { connected }: { connected: boolean } = $props();
 </script>
 
 <div class="connection-status">
   <div class="status-indicator {connected ? "connected" : "disconnected"}"></div>
-  <span class="status-text"> {connected ? "Connected" : "Disconnected"} </span>
+  <span class="status-text"> {connected ? t("connection.connected") : t("connection.disconnected")} </span>
 </div>
 
 <style>

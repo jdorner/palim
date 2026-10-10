@@ -30,7 +30,7 @@ const TELEGRAM_BOT_TOKEN = "TELEGRAM_BOT_TOKEN" as const;
 
 const manifest = {
   name: "telegram",
-  version: "1.2.0",
+  version: "1.3.0",
   description: "Telegram bot integration with message queuing and persistent conversation history",
   dependencies: ["workflows"],
   settingsSchema: Type.Object({

@@ -15,6 +15,7 @@ import PlusIcon from "phosphor-svelte/lib/PlusIcon";
  */
 import { onDestroy } from "svelte";
 import { type EdgeRoute, routedEdgePath } from "$lib/edgeRoute";
+import { t } from "$lib/i18n.svelte";
 
 interface Props {
   id: string;
@@ -162,7 +163,7 @@ function handleClick(e: MouseEvent) {
     onpointerenter={onEnter}
     onpointerleave={onLeave}
   >
-    <button type="button" class="insert-edge-btn" onclick={handleClick} title="Insert step here">
+    <button type="button" class="insert-edge-btn" onclick={handleClick} title={t("graph.insertStep")}>
       <PlusIcon size={11} weight="bold" />
     </button>
   </div>

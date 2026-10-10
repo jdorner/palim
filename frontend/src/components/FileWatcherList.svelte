@@ -10,6 +10,7 @@ import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Card, CardContent, CardHeader } from "$lib/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+import { t } from "$lib/i18n.svelte";
 import MultiSelect from "./MultiSelect.svelte";
 
 const ALL_EVENT_TYPES = ["new", "change", "delete"];
@@ -59,11 +60,11 @@ async function fetchWatchers() {
     fileWatcherCount.set(watchers.length);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";
-    errorDetail = msg || "Unknown error";
+    errorDetail = msg || t("common.unknownError");
     if (msg.includes("Failed to fetch") || msg.includes("502") || msg.includes("503") || msg.includes("NetworkError")) {
-      error = "Unable to reach the server. Please check that the backend is running.";
+      error = t("common.serverUnreachable");
     } else {
-      error = "Failed to load file watchers. Please try again later.";
+      error = t("fileWatchers.loadFailed");
     }
   } finally {
     loading = false;
@@ -116,18 +117,18 @@ async function submitForm() {
 
   if (formMode === "create") {
     if (!formSlug || !formName || !formPath || patterns.length === 0) {
-      formError = "Slug, Name, Path, and at least one Pattern are required.";
+      formError = t("fileWatchers.requiredCreate");
       return;
     }
   } else {
     if (!formName || !formPath || patterns.length === 0) {
-      formError = "Name, Path, and at least one Pattern are required.";
+      formError = t("fileWatchers.requiredEdit");
       return;
     }
   }
 
   if (formEvents.length === 0) {
-    formError = "At least one event type must be selected.";
+    formError = t("fileWatchers.eventRequired");
     return;
   }
 
@@ -176,7 +177,7 @@ async function submitForm() {
     await fetchWatchers();
     resetForm();
   } catch (err) {
-    formError = err instanceof Error ? err.message : "Request failed";
+    formError = err instanceof Error ? err.message : t("chat.requestFailed");
   } finally {
     submitting = false;
   }
@@ -228,13 +229,13 @@ $effect(() => {
   <Card class="bg-accent">
     <CardHeader class="pb-2">
       <span class="text-sm font-medium">
-        {formMode === "create" ? "Create File Watcher" : `Edit: ${editingSlug}`}
+        {formMode === "create" ? t("fileWatchers.createTitle") : t("globalSecrets.editTitle", { key: editingSlug })}
       </span>
     </CardHeader>
     <CardContent class="space-y-3">
       {#if formMode === "create"}
         <div class="space-y-1">
-          <label for="fw-slug" class="text-xs font-medium text-muted-foreground">Slug</label>
+          <label for="fw-slug" class="text-xs font-medium text-muted-foreground">{t("webhooks.slug")}</label>
           <input
             id="fw-slug"
             type="text"
@@ -248,17 +249,17 @@ $effect(() => {
 
       <div class="grid grid-cols-2 gap-3">
         <div class="space-y-1">
-          <label for="fw-name" class="text-xs font-medium text-muted-foreground">Name</label>
+          <label for="fw-name" class="text-xs font-medium text-muted-foreground">{t("common.name")}</label>
           <input
             id="fw-name"
             type="text"
             bind:value={formName}
-            placeholder="OCR Inbox Watcher"
+            placeholder={t("fileWatchers.namePlaceholder")}
             class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           >
         </div>
         <div class="space-y-1">
-          <label for="fw-path" class="text-xs font-medium text-muted-foreground">Path (relative to work dir)</label>
+          <label for="fw-path" class="text-xs font-medium text-muted-foreground">{t("fileWatchers.path")}</label>
           <input
             id="fw-path"
             type="text"
@@ -271,7 +272,7 @@ $effect(() => {
 
       <div class="space-y-1">
         <label for="fw-patterns" class="text-xs font-medium text-muted-foreground">
-          File Patterns (comma-separated globs)
+          {t("fileWatchers.patterns")}
         </label>
         <input
           id="fw-patterns"
@@ -283,47 +284,54 @@ $effect(() => {
       </div>
 
       <div class="space-y-1">
-        <label for="fw-event-types" class="text-xs font-medium text-muted-foreground">Event Types</label>
+        <label for="fw-event-types" class="text-xs font-medium text-muted-foreground"
+          >{t("fileWatchers.eventTypes")}</label
+        >
         <MultiSelect
           id="fw-event-types"
           items={ALL_EVENT_TYPES}
           bind:selected={formEvents}
-          placeholder="Select events..."
+          placeholder={t("fileWatchers.selectEvents")}
+          labelFor={(event) => t(`fileWatchers.event.${event}` as "fileWatchers.event.new", { default: event })}
         />
       </div>
 
       <div class="grid grid-cols-3 gap-3">
         <div class="space-y-1">
-          <label for="fw-recursive" class="text-xs font-medium text-muted-foreground">Recursive</label>
+          <label for="fw-recursive" class="text-xs font-medium text-muted-foreground"
+            >{t("fileWatchers.recursive")}</label
+          >
           <select
             id="fw-recursive"
             bind:value={formRecursive}
             class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           >
-            <option value={false}>No</option>
-            <option value={true}>Yes</option>
+            <option value={false}>{t("common.no")}</option>
+            <option value={true}>{t("common.yes")}</option>
           </select>
         </div>
         <div class="space-y-1">
-          <label for="fw-existing" class="text-xs font-medium text-muted-foreground">Process Existing</label>
+          <label for="fw-existing" class="text-xs font-medium text-muted-foreground"
+            >{t("fileWatchers.processExisting")}</label
+          >
           <select
             id="fw-existing"
             bind:value={formProcessExisting}
             class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           >
-            <option value={false}>No</option>
-            <option value={true}>Yes</option>
+            <option value={false}>{t("common.no")}</option>
+            <option value={true}>{t("common.yes")}</option>
           </select>
         </div>
         <div class="space-y-1">
-          <label for="fw-enabled" class="text-xs font-medium text-muted-foreground">Enabled</label>
+          <label for="fw-enabled" class="text-xs font-medium text-muted-foreground">{t("webhooks.enabled")}</label>
           <select
             id="fw-enabled"
             bind:value={formEnabled}
             class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           >
-            <option value={true}>Yes</option>
-            <option value={false}>No</option>
+            <option value={true}>{t("common.yes")}</option>
+            <option value={false}>{t("common.no")}</option>
           </select>
         </div>
       </div>
@@ -334,9 +342,9 @@ $effect(() => {
       <hr>
       <div class="flex gap-2">
         <Button size="sm" disabled={submitting} onclick={submitForm}>
-          {submitting ? "Saving..." : formMode === "create" ? "Create" : "Save"}
+          {submitting ? t("common.saving") : formMode === "create" ? t("common.create") : t("common.save")}
         </Button>
-        <Button size="sm" variant="outline" onclick={resetForm}>Cancel</Button>
+        <Button size="sm" variant="outline" onclick={resetForm}>{t("common.cancel")}</Button>
       </div>
     </CardContent>
   </Card>
@@ -350,7 +358,7 @@ $effect(() => {
       {#if !formMode}
         <PlusIcon size={14} class="mr-1.5" aria-hidden="true" />
       {/if}
-      {formMode ? "Cancel" : "New File Watcher"}
+      {formMode ? t("common.cancel") : t("fileWatchers.new")}
     </Button>
   </div>
 
@@ -368,7 +376,7 @@ $effect(() => {
       {/if}
     </div>
   {:else if watchers.length === 0 && !formMode}
-    <p class="text-sm text-muted-foreground">No file watchers configured. Create one to get started.</p>
+    <p class="text-sm text-muted-foreground">{t("fileWatchers.empty")}</p>
   {:else}
     {#if editingSlug}
       {@render watcherForm()}
@@ -386,7 +394,7 @@ $effect(() => {
             <ToggleSwitch
               checked={watcher.enabled}
               onChange={() => toggleEnabled(watcher)}
-              aria-label={watcher.enabled ? "Disable watcher" : "Enable watcher"}
+              aria-label={watcher.enabled ? t("fileWatchers.disable") : t("fileWatchers.enable")}
             />
           </div>
 
@@ -394,7 +402,7 @@ $effect(() => {
             <div class="flex items-center gap-2">
               Path:<span class="font-mono text-xs text-muted-foreground">{watcher.path}</span>
               {#if watcher.recursive}
-                <Badge variant="outline">recursive</Badge>
+                <Badge variant="outline">{t("fileWatchers.recursiveBadge")}</Badge>
               {/if}
             </div>
             <span class=""> Patterns: </span>
@@ -404,7 +412,9 @@ $effect(() => {
             <div class="flex items-center gap-1 mt-1">
               <span>Events:</span>
               {#each watcher.events ?? ["new"] as event}
-                <Badge variant="outline" class="ml-1">{event}</Badge>
+                <Badge variant="outline" class="ml-1"
+                  >{t(`fileWatchers.event.${event}` as "fileWatchers.event.new", { default: event })}</Badge
+                >
               {/each}
             </div>
           </div>
@@ -413,21 +423,23 @@ $effect(() => {
 
           {#if confirmingDelete === watcher.slug}
             <div class="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="destructive" onclick={() => deleteWatcher(watcher.slug)}>Confirm</Button>
+              <Button size="sm" variant="destructive" onclick={() => deleteWatcher(watcher.slug)}
+                >{t("common.confirm")}</Button
+              >
               <Button
                 size="sm"
                 variant="outline"
                 onclick={() => {
                   confirmingDelete = null;
                 }}
-                >Cancel</Button
+                >{t("common.cancel")}</Button
               >
             </div>
           {:else}
             <div class="flex flex-wrap items-center gap-2">
               <Button size="sm" variant="outline" onclick={() => openEditForm(watcher)}>
                 <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-                Edit
+                {t("common.edit")}
               </Button>
               <Button
                 size="sm"
@@ -437,7 +449,7 @@ $effect(() => {
                 }}
               >
                 <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                Delete
+                {t("common.delete")}
               </Button>
             </div>
           {/if}
@@ -450,12 +462,12 @@ $effect(() => {
       <Table>
         <TableHeader class="bg-muted/30">
           <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Path</TableHead>
-            <TableHead>Patterns</TableHead>
-            <TableHead>Events</TableHead>
-            <TableHead class="text-center">Enabled</TableHead>
-            <TableHead class="text-center">Actions</TableHead>
+            <TableHead>{t("common.name")}</TableHead>
+            <TableHead>{t("fileWatchers.colPath")}</TableHead>
+            <TableHead>{t("fileWatchers.colPatterns")}</TableHead>
+            <TableHead>{t("fileWatchers.colEvents")}</TableHead>
+            <TableHead class="text-center">{t("webhooks.enabled")}</TableHead>
+            <TableHead class="text-center">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -468,7 +480,7 @@ $effect(() => {
               <TableCell class="font-mono text-sm">
                 {watcher.path}
                 {#if watcher.recursive}
-                  <Badge variant="outline" class="ml-2">recursive</Badge>
+                  <Badge variant="outline" class="ml-2">{t("fileWatchers.recursiveBadge")}</Badge>
                 {/if}
               </TableCell>
               <TableCell>
@@ -481,7 +493,9 @@ $effect(() => {
               <TableCell>
                 <div class="flex flex-wrap gap-1">
                   {#each watcher.events ?? ["new"] as event}
-                    <Badge variant="outline" class="text-xs">{event}</Badge>
+                    <Badge variant="outline" class="text-xs"
+                      >{t(`fileWatchers.event.${event}` as "fileWatchers.event.new", { default: event })}</Badge
+                    >
                   {/each}
                 </div>
               </TableCell>
@@ -489,14 +503,14 @@ $effect(() => {
                 <ToggleSwitch
                   checked={watcher.enabled}
                   onChange={() => toggleEnabled(watcher)}
-                  aria-label={watcher.enabled ? "Disable watcher" : "Enable watcher"}
+                  aria-label={watcher.enabled ? t("fileWatchers.disable") : t("fileWatchers.enable")}
                 />
               </TableCell>
               <TableCell class="text-right w-1">
                 {#if confirmingDelete === watcher.slug}
                   <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
                     <Button size="sm" variant="destructive" onclick={() => deleteWatcher(watcher.slug)}>
-                      Confirm
+                      {t("common.confirm")}
                     </Button>
                     <Button
                       size="sm"
@@ -505,14 +519,14 @@ $effect(() => {
                         confirmingDelete = null;
                       }}
                     >
-                      Cancel
+                      {t("common.cancel")}
                     </Button>
                   </div>
                 {:else}
                   <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
                     <Button size="sm" variant="outline" onclick={() => openEditForm(watcher)}>
                       <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      Edit
+                      {t("common.edit")}
                     </Button>
                     <Button
                       size="sm"
@@ -522,7 +536,7 @@ $effect(() => {
                       }}
                     >
                       <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      Delete
+                      {t("common.delete")}
                     </Button>
                   </div>
                 {/if}

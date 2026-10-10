@@ -23,6 +23,7 @@ import {
 import ColumnEditor from "./ColumnEditor.svelte";
 
 let { palim, name }: { palim: PalimHost; name?: string } = $props();
+const i18n = palim.i18n;
 
 const editing = $derived(Boolean(name));
 
@@ -73,9 +74,9 @@ async function save(force = false) {
     if (
       dropped.length > 0 &&
       !(await palim.confirm({
-        title: "Remove columns?",
-        message: `The values of ${dropped.join(", ")} will be deleted from every row.`,
-        confirmLabel: "Remove",
+        title: i18n.current.t("form.removeColumnsTitle"),
+        message: i18n.current.t("form.removeColumnsMessage", { columns: dropped.join(", ") }),
+        confirmLabel: i18n.current.t("form.remove"),
         destructive: true,
       }))
     ) {
@@ -95,15 +96,19 @@ async function save(force = false) {
           body: { label, description, columns: defs, renames, keyColumn: keyColumn || null, force },
         },
       );
-      const cleared = result.valuesCleared > 0 ? `, ${result.valuesCleared} values cleared` : "";
-      palim.notify(`Table saved (${result.rowsRewritten} rows updated${cleared})`, "success");
+      palim.notify(
+        result.valuesCleared > 0
+          ? i18n.current.t("form.savedCleared", { rows: result.rowsRewritten, cleared: result.valuesCleared })
+          : i18n.current.t("form.saved", { rows: result.rowsRewritten }),
+        "success",
+      );
       back();
     } else {
       await request(palim, "/tables", {
         method: "POST",
         body: { name: tableName, label, description, columns: defs, keyColumn: keyColumn || undefined },
       });
-      palim.notify(`Table "${label || tableName}" created`, "success");
+      palim.notify(i18n.current.t("form.created", { label: label || tableName }), "success");
       palim.navigate(`${PAGE_ROUTE}/t/${encodeURIComponent(tableName)}`);
     }
   } catch (err) {
@@ -119,25 +124,27 @@ async function save(force = false) {
 </script>
 
 <div class="flex items-center gap-3">
-  <Button size="sm" variant="outline" onclick={back}>&laquo;&nbsp;Back</Button>
-  <h2 class="truncate text-lg font-semibold">{editing ? `Edit table: ${original?.label ?? name}` : "New table"}</h2>
+  <Button size="sm" variant="outline" onclick={back}>&laquo;&nbsp;{$i18n.t("back")}</Button>
+  <h2 class="truncate text-lg font-semibold">
+    {editing ? $i18n.t("form.editTitle", { label: original?.label ?? name }) : $i18n.t("form.newTitle")}
+  </h2>
 </div>
 
 {#if loading}
-  <LoadingIndicator message="Loading table..." />
+  <LoadingIndicator message={$i18n.t("form.loading")} />
 {:else}
   <Card>
     <CardHeader class="pb-2">
-      <span class="text-sm font-medium">General</span>
+      <span class="text-sm font-medium">{$i18n.t("form.general")}</span>
     </CardHeader>
     <CardContent class="grid gap-3 sm:grid-cols-2">
       <div class="space-y-1">
-        <label for="dt-label" class="text-xs font-medium text-muted-foreground">Label</label>
+        <label for="dt-label" class="text-xs font-medium text-muted-foreground">{$i18n.t("form.label")}</label>
         <input id="dt-label" class={INPUT_CLASS} value={label} oninput={(e) => onLabelInput(e.currentTarget.value)}>
       </div>
       <div class="space-y-1">
         <label for="dt-name" class="text-xs font-medium text-muted-foreground">
-          Name <span class="font-normal">(used in workflows and the agent command)</span>
+          {$i18n.t("form.name")} <span class="font-normal">{$i18n.t("form.nameHint")}</span>
         </label>
         <input
           id="dt-name"
@@ -152,7 +159,7 @@ async function save(force = false) {
         >
       </div>
       <div class="space-y-1 sm:col-span-2">
-        <label for="dt-desc" class="text-xs font-medium text-muted-foreground">Description</label>
+        <label for="dt-desc" class="text-xs font-medium text-muted-foreground">{$i18n.t("form.description")}</label>
         <textarea id="dt-desc" class={INPUT_CLASS} rows="2" bind:value={description}></textarea>
       </div>
     </CardContent>
@@ -160,10 +167,10 @@ async function save(force = false) {
 
   <Card>
     <CardHeader class="pb-2">
-      <span class="text-sm font-medium">Columns</span>
+      <span class="text-sm font-medium">{$i18n.t("form.columns")}</span>
       <span class="text-xs text-muted-foreground">
-        Keys are used in workflow templates (<code>{"{{ steps.x.result.first.key }}"}</code>). Renaming a key keeps its
-        values; changing a type converts existing values.
+        {$i18n.t("form.columnsHintBefore")}<code>{"{{ steps.x.result.first.key }}"}</code>
+        {$i18n.t("form.columnsHintAfter")}
       </span>
     </CardHeader>
     <CardContent class="space-y-2">
@@ -176,14 +183,14 @@ async function save(force = false) {
       <p class="font-medium text-destructive">{conflicts.message}</p>
       <ul class="max-h-48 list-inside list-disc overflow-auto text-xs text-muted-foreground">
         {#each conflicts.rows as row (row.index)}
-          <li>Row #{row.index}: {row.errors.join("; ")}</li>
+          <li>{$i18n.t("form.conflictRow", { index: row.index, errors: row.errors.join("; ") })}</li>
         {/each}
         {#if conflicts.count > conflicts.rows.length}
-          <li>… and {conflicts.count - conflicts.rows.length} more</li>
+          <li>{$i18n.t("form.andMore", { count: conflicts.count - conflicts.rows.length })}</li>
         {/if}
       </ul>
       <Button size="sm" variant="destructive" disabled={saving} onclick={() => save(true)}>
-        Save anyway and clear failing values
+        {$i18n.t("form.saveAnyway")}
       </Button>
     </div>
   {/if}
@@ -193,8 +200,8 @@ async function save(force = false) {
 
   <div class="flex flex-wrap items-center gap-2">
     <Button size="sm" disabled={saving || (!editing && !tableName)} onclick={() => save()}>
-      {saving ? "Saving..." : editing ? "Save" : "Create table"}
+      {saving ? $i18n.t("common.saving") : editing ? $i18n.t("common.save") : $i18n.t("form.createTable")}
     </Button>
-    <Button size="sm" variant="outline" onclick={back}>Cancel</Button>
+    <Button size="sm" variant="outline" onclick={back}>{$i18n.t("common.cancel")}</Button>
   </div>
 {/if}

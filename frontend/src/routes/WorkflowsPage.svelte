@@ -11,6 +11,8 @@ import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+import { t } from "$lib/i18n.svelte";
+import { type CoreKey, translateCore } from "$lib/i18nCore";
 import { automationStyle } from "$lib/utils";
 import { warningLocation } from "$lib/workflowDetail";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
@@ -45,11 +47,11 @@ async function fetchWorkflows(showLoading = true) {
     workflows = (await res.json()).sort((a: WorkflowSummary, b: WorkflowSummary) => a.name.localeCompare(b.name));
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";
-    errorDetail = msg || "Unknown error";
+    errorDetail = msg || t("common.unknownError");
     if (msg.includes("Failed to fetch") || msg.includes("502") || msg.includes("503") || msg.includes("NetworkError")) {
-      error = "Unable to reach the server. Please check that the backend is running.";
+      error = t("common.serverUnreachable");
     } else {
-      error = "Failed to load workflows. Please try again later.";
+      error = t("workflows.loadFailed");
     }
   } finally {
     loading = false;
@@ -126,8 +128,8 @@ $effect(() => {
     </div>
   {:else if workflows.length === 0}
     <p class="text-sm text-muted-foreground">
-      No workflows defined. Add JSON5 files to <code>&lt;AGENT_WORK_DIR&gt;/workflows/</code> or ask Palim to create one
-      for you.
+      {t("workflows.emptyBefore")} <code>&lt;AGENT_WORK_DIR&gt;/workflows/</code>
+      {t("workflows.emptyAfter")}
     </p>
   {:else}
     <!-- Mobile & Tablet: Card layout -->
@@ -150,8 +152,7 @@ $effect(() => {
                   title={wf.warnings.map((w) => `[${warningLocation(w)}] ${w.message}`).join("\n")}
                 >
                   <WarningIcon size={12} aria-hidden="true" />
-                  {wf.warnings.length}
-                  template {wf.warnings.length === 1 ? "issue" : "issues"}
+                  {t("workflows.templateIssues", { count: wf.warnings.length })}
                 </span>
               {/if}
             </div>
@@ -166,7 +167,9 @@ $effect(() => {
                 {:else if style.icon === "cursor"}
                   <CursorClickIcon size={14} class={style.color} aria-hidden="true" />
                 {/if}
-                <span class="text-sm {style.color} font-medium">{wf.trigger.type}</span>
+                <span class="text-sm {style.color} font-medium"
+                  >{translateCore(`triggerTypes.${wf.trigger.type}` as CoreKey, { default: wf.trigger.type })}</span
+                >
               </span>
               {#if wf.trigger.ref && triggerRoute(wf.trigger.type)}
                 <a href="#/{triggerRoute(wf.trigger.type)}" class="block">
@@ -185,7 +188,7 @@ $effect(() => {
           <!-- Stats row -->
           <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
             <span class="text-muted-foreground"
-              >Active:
+              >{t("workflows.activeLabel")}
               {#if wf.activeRuns > 0}
                 <span class="font-medium text-blue-500">{wf.activeRuns}</span>
               {:else}
@@ -193,14 +196,14 @@ $effect(() => {
               {/if}
             </span>
             <span class="text-muted-foreground"
-              >Failed:
+              >{t("workflows.failedLabel")}
               {#if wf.failedRuns > 0}
                 <span class="font-medium text-red-500">{wf.failedRuns}</span>
               {:else}
                 <span>0</span>
               {/if}
             </span>
-            <span class="text-muted-foreground">Completed: {wf.completedRuns}</span>
+            <span class="text-muted-foreground">{t("workflows.completedLabel", { count: wf.completedRuns })}</span>
           </div>
 
           <hr>
@@ -208,21 +211,23 @@ $effect(() => {
           <!-- Actions -->
           {#if confirmingDelete === wf.name}
             <div class="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="destructive" onclick={() => deleteWorkflow(wf.name)}>Confirm</Button>
+              <Button size="sm" variant="destructive" onclick={() => deleteWorkflow(wf.name)}
+                >{t("common.confirm")}</Button
+              >
               <Button
                 size="sm"
                 variant="outline"
                 onclick={() => {
                   confirmingDelete = null;
                 }}
-                >Cancel</Button
+                >{t("common.cancel")}</Button
               >
             </div>
           {:else}
             <div class="flex flex-wrap items-center gap-2">
               <Button size="sm" variant="default" onclick={() => triggerRun(wf.name)}>
                 <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-                Run
+                {t("workflows.run")}
               </Button>
               <Button
                 size="sm"
@@ -232,7 +237,7 @@ $effect(() => {
                 }}
               >
                 <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                Delete
+                {t("common.delete")}
               </Button>
             </div>
           {/if}
@@ -245,12 +250,12 @@ $effect(() => {
       <Table>
         <TableHeader class="bg-muted/30">
           <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Trigger</TableHead>
-            <TableHead class="text-center">Active</TableHead>
-            <TableHead class="text-center">Failed</TableHead>
-            <TableHead class="text-center">Completed</TableHead>
-            <TableHead class="text-center">Actions</TableHead>
+            <TableHead>{t("common.name")}</TableHead>
+            <TableHead>{t("workflows.colTrigger")}</TableHead>
+            <TableHead class="text-center">{t("workflows.colActive")}</TableHead>
+            <TableHead class="text-center">{t("workflows.colFailed")}</TableHead>
+            <TableHead class="text-center">{t("workflows.colCompleted")}</TableHead>
+            <TableHead class="text-center">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -269,8 +274,7 @@ $effect(() => {
                     title={wf.warnings.map((w) => `[${warningLocation(w)}] ${w.message}`).join("\n")}
                   >
                     <WarningIcon size={12} aria-hidden="true" />
-                    {wf.warnings.length}
-                    template {wf.warnings.length === 1 ? "issue" : "issues"}
+                    {t("workflows.templateIssues", { count: wf.warnings.length })}
                   </span>
                 {/if}
               </TableCell>
@@ -287,7 +291,9 @@ $effect(() => {
                   {:else if style.icon === "cursor"}
                     <CursorClickIcon size={14} class={style.color} aria-hidden="true" />
                   {/if}
-                  <span class="text-sm {style.color} font-medium">{wf.trigger.type}</span>
+                  <span class="text-sm {style.color} font-medium"
+                    >{translateCore(`triggerTypes.${wf.trigger.type}` as CoreKey, { default: wf.trigger.type })}</span
+                  >
                 </span>
                 {#if wf.trigger.ref && triggerRoute(wf.trigger.type)}
                   <a href="#/{triggerRoute(wf.trigger.type)}" class="text-left">
@@ -317,7 +323,9 @@ $effect(() => {
               <TableCell class="text-right">
                 {#if confirmingDelete === wf.name}
                   <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                    <Button size="sm" variant="destructive" onclick={() => deleteWorkflow(wf.name)}> Confirm </Button>
+                    <Button size="sm" variant="destructive" onclick={() => deleteWorkflow(wf.name)}
+                      >{t("common.confirm")}</Button
+                    >
                     <Button
                       size="sm"
                       variant="outline"
@@ -325,14 +333,14 @@ $effect(() => {
                         confirmingDelete = null;
                       }}
                     >
-                      Cancel
+                      {t("common.cancel")}
                     </Button>
                   </div>
                 {:else}
                   <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
                     <Button size="sm" variant="default" onclick={() => triggerRun(wf.name)}>
                       <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      Run
+                      {t("workflows.run")}
                     </Button>
                     <Button
                       size="sm"
@@ -342,7 +350,7 @@ $effect(() => {
                       }}
                     >
                       <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      Delete
+                      {t("common.delete")}
                     </Button>
                   </div>
                 {/if}

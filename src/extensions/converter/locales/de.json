@@ -1,0 +1,13 @@
+{
+  "description": "Konvertiert Dateien (PDFs, Bilder) per Vision-LLM in Markdown",
+  "settings": {
+    "conversionTimeoutMs": {
+      "description": "Zeitlimit für den Abschluss der Konvertierung in Millisekunden",
+      "title": "Zeitlimit"
+    },
+    "resizeImagePx": {
+      "description": "Maximale Kantenlänge, auf die Bilder vor dem Senden an das Vision-Modell verkleinert werden",
+      "title": "Bildgröße"
+    }
+  }
+}

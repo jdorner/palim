@@ -10,6 +10,7 @@
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
+import { t } from "$lib/i18n.svelte";
 import type { SchemaProperty } from "$lib/schemaForm";
 import type { OutputSchemas, SlugEdge } from "$lib/templateScope";
 import TemplateAutocomplete from "./TemplateAutocomplete.svelte";
@@ -118,21 +119,21 @@ function setValue(index: number, val: unknown) {
       <input
         type="text"
         autocomplete="off"
-        placeholder="Key"
-        aria-label="Key"
+        placeholder={t("kv.key")}
+        aria-label={t("kv.key")}
         class="block w-2/5 min-w-0 rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
         value={row.key}
         oninput={(e) => setKey(i, e.currentTarget.value)}
       >
       {#if isBoolean}
         <div class="flex-1">
-          <ToggleSwitch checked={!!row.value} onChange={(v) => setValue(i, v)} aria-label="Value" />
+          <ToggleSwitch checked={!!row.value} onChange={(v) => setValue(i, v)} aria-label={t("kv.value")} />
         </div>
       {:else if isNumber}
         <input
           type="number"
-          placeholder="Value"
-          aria-label="Value"
+          placeholder={t("kv.value")}
+          aria-label={t("kv.value")}
           class="block flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
           value={row.value as number}
           step="any"
@@ -142,8 +143,8 @@ function setValue(index: number, val: unknown) {
         <input
           type="text"
           autocomplete="off"
-          placeholder="Value"
-          aria-label="Value"
+          placeholder={t("kv.value")}
+          aria-label={t("kv.value")}
           bind:this={valueRefs[i]}
           class="block flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
           value={String(row.value ?? "")}
@@ -165,7 +166,7 @@ function setValue(index: number, val: unknown) {
       <button
         type="button"
         class="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive hover:bg-muted"
-        aria-label="Remove entry"
+        aria-label={t("kv.removeEntry")}
         onclick={() => removeRow(i)}
       >
         <TrashIcon class="w-3.5 h-3.5" aria-hidden="true" />
@@ -179,6 +180,6 @@ function setValue(index: number, val: unknown) {
     onclick={addRow}
   >
     <PlusIcon class="w-3.5 h-3.5" aria-hidden="true" />
-    Add entry
+    {t("kv.addEntry")}
   </button>
 </div>

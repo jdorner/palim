@@ -1,0 +1,6 @@
+{
+  "description": "Cron and interval-based job scheduling with persistent schedules",
+  "nav": {
+    "/schedules": "Schedules"
+  }
+}

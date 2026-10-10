@@ -1,6 +1,7 @@
 <script lang="ts">
 import WifiSlashIcon from "phosphor-svelte/lib/WifiSlashIcon";
 import { onDestroy, onMount } from "svelte";
+import { t } from "$lib/i18n.svelte";
 
 let retrying = $state(false);
 let countdown = $state(0);
@@ -53,14 +54,14 @@ onDestroy(() => {
       <WifiSlashIcon class="w-16 h-16 text-muted-foreground" />
     </div>
     <div class="space-y-2">
-      <h1 class="text-2xl font-bold">Connection Error</h1>
-      <p class="text-muted-foreground">Unable to reach the server. It may be down or restarting.</p>
+      <h1 class="text-2xl font-bold">{t("connection.title")}</h1>
+      <p class="text-muted-foreground">{t("connection.message")}</p>
     </div>
     <div class="space-y-3">
       {#if retrying}
-        <p class="text-sm text-muted-foreground">Attempting to reconnect...</p>
+        <p class="text-sm text-muted-foreground">{t("connection.reconnecting")}</p>
       {:else}
-        <p class="text-sm text-muted-foreground">Retrying in {countdown}s...</p>
+        <p class="text-sm text-muted-foreground">{t("connection.retryIn", { seconds: countdown })}</p>
       {/if}
       <button
         type="button"
@@ -69,7 +70,7 @@ onDestroy(() => {
         class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground
           hover:bg-primary/90 disabled:opacity-50 disabled:pointer-events-none"
       >
-        {retrying ? "Connecting..." : "Retry Now"}
+        {retrying ? t("connection.connecting") : t("connection.retryNow")}
       </button>
     </div>
   </div>

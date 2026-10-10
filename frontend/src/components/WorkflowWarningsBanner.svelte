@@ -1,11 +1,12 @@
 <script lang="ts">
+import CaretRightIcon from "phosphor-svelte/lib/CaretRightIcon";
+import WarningIcon from "phosphor-svelte/lib/WarningIcon";
+import { slide } from "svelte/transition";
 /**
  * Collapsible banner listing a workflow's template/config warnings. Collapsed
  * by default so it stays compact; the header count still signals the issues.
  */
-import CaretRightIcon from "phosphor-svelte/lib/CaretRightIcon";
-import WarningIcon from "phosphor-svelte/lib/WarningIcon";
-import { slide } from "svelte/transition";
+import { t } from "$lib/i18n.svelte";
 import { type WorkflowWarning, warningLocation } from "$lib/workflowDetail";
 
 interface Props {
@@ -30,7 +31,7 @@ let expanded = $state(false);
     >
       <CaretRightIcon size={12} aria-hidden="true" class="transition-transform {expanded ? "rotate-90" : ""}" />
       <WarningIcon size={14} aria-hidden="true" />
-      Template {warnings.length === 1 ? "Issue" : "Issues"} ({warnings.length})
+      {t("workflows.templateIssuesHeader", { count: warnings.length })}
     </button>
     {#if expanded}
       <ul class="list-disc list-inside text-xs text-amber-500/80 space-y-0.5 mt-1" transition:slide={{ duration: 100 }}>

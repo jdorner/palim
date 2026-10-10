@@ -16,6 +16,8 @@ import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
+import { t, tx } from "$lib/i18n.svelte";
+import { type CoreKey, translateCore } from "$lib/i18nCore";
 import {
   buildInitialValues,
   getAvailableItems,
@@ -59,6 +61,14 @@ interface Props {
   fieldErrors?: Map<string, string>;
   /** Prefix for element ids (nested forms use a distinct prefix to keep ids unique). */
   idPrefix?: string;
+  /**
+   * Translates field titles and descriptions through a catalog:
+   * `<prefix>.<field>.title` / `<prefix>.<field>.description`, falling back to
+   * the schema text. With `extension` the extension's catalog is used,
+   * otherwise the core catalog (built-in step types). Nested forms extend the
+   * prefix with the field name.
+   */
+  i18nScope?: { extension?: string; prefix: string };
 }
 
 let {
@@ -75,7 +85,54 @@ let {
   itemOptions,
   fieldErrors,
   idPrefix = "step-config-",
+  i18nScope,
 }: Props = $props();
+
+/**
+ * Field label, translated through the extension catalog when scoped.
+ *
+ * @param key - Property name
+ * @param prop - Property schema
+ * @returns The label
+ */
+function fieldTitle(key: string, prop: SchemaProperty): string {
+  const fallback = getLabel(key, prop);
+  return i18nScope ? scoped(`${i18nScope.prefix}.${key}.title`, fallback) : fallback;
+}
+
+/**
+ * Looks up a key in the scope's catalog.
+ *
+ * @param key - Full catalog key
+ * @param fallback - Schema text
+ * @returns The translation, or the fallback
+ */
+function scoped(key: string, fallback: string): string {
+  if (i18nScope?.extension) return tx(i18nScope.extension, key, fallback);
+  return translateCore(key as CoreKey, { default: fallback });
+}
+
+/**
+ * Field description, translated through the extension catalog when scoped.
+ *
+ * @param key - Property name
+ * @param prop - Property schema
+ * @returns The description, or null when the schema has none
+ */
+function fieldDescription(key: string, prop: SchemaProperty): string | null {
+  if (typeof prop.description !== "string") return null;
+  return i18nScope ? scoped(`${i18nScope.prefix}.${key}.description`, prop.description) : prop.description;
+}
+
+/**
+ * Scope for a nested form below a field.
+ *
+ * @param key - Property name
+ * @returns The nested scope, or undefined when unscoped
+ */
+function nestedScope(key: string): Props["i18nScope"] {
+  return i18nScope ? { ...i18nScope, prefix: `${i18nScope.prefix}.${key}` } : undefined;
+}
 
 /** Whether template autocomplete is available (all required context provided). */
 let autocompleteEnabled = $derived(steps !== undefined && currentStepIndex !== undefined && secretKeys !== undefined);
@@ -205,8 +262,8 @@ function parseNumberList(raw: string): number[] {
   {#each propertyKeys as key (key)}
     {@const prop = properties[key]!}
     {@const inputType = getInputType(prop)}
-    {@const label = getLabel(key, prop)}
-    {@const description = typeof prop.description === "string" ? prop.description : null}
+    {@const label = fieldTitle(key, prop)}
+    {@const description = fieldDescription(key, prop)}
 
     <div class="space-y-1">
       {#if inputType === "boolean" && !requiredKeys.has(key) && prop.default === undefined}
@@ -223,9 +280,9 @@ function parseNumberList(raw: string): number[] {
             else updateValue(key, v === "true");
           }}
         >
-          <option value="">Any (not set)</option>
-          <option value="true">Yes</option>
-          <option value="false">No</option>
+          <option value="">{t("schemaForm.anyNotSet")}</option>
+          <option value="true">{t("schemaForm.yes")}</option>
+          <option value="false">{t("schemaForm.no")}</option>
         </select>
       {:else if inputType === "boolean"}
         <div class="flex items-center gap-2">
@@ -262,7 +319,7 @@ function parseNumberList(raw: string): number[] {
           id="{idPrefix}{key}"
           items={prop.availableItems as string[]}
           selected={Array.isArray(formValues[key]) ? (formValues[key] as string[]) : []}
-          placeholder="Select items..."
+          placeholder={t("schemaForm.selectItems")}
           allowCustom={prop.allowCustomItems === true}
           labelFor={itemLabels ? (item) => itemLabels[item] : undefined}
           onchange={(val) => updateValue(key, val)}
@@ -274,7 +331,7 @@ function parseNumberList(raw: string): number[] {
           id="{idPrefix}{key}"
           items={itemOptions[key]!}
           selected={Array.isArray(formValues[key]) ? (formValues[key] as string[]) : []}
-          placeholder="Select items..."
+          placeholder={t("schemaForm.selectItems")}
           onchange={(val) => updateValue(key, val)}
         />
       {:else if inputType === "tags"}
@@ -284,7 +341,7 @@ function parseNumberList(raw: string): number[] {
           type="text"
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
           value={Array.isArray(formValues[key]) ? (formValues[key] as string[]).join(", ") : ""}
-          placeholder="value1, value2, ..."
+          placeholder={t("condition.valuesPlaceholder")}
           oninput={(e) => {
             const raw = e.currentTarget.value;
             const items = raw
@@ -447,6 +504,7 @@ function parseNumberList(raw: string): number[] {
             {edges}
             fieldErrors={nestedErrors(`${key}.`)}
             idPrefix="{idPrefix}{key}-"
+            i18nScope={nestedScope(key)}
           />
         </div>
       {:else if inputType === "objectlist"}
@@ -458,7 +516,7 @@ function parseNumberList(raw: string): number[] {
               <button
                 type="button"
                 class="absolute top-1.5 right-1.5 rounded p-1 text-muted-foreground hover:text-destructive hover:bg-muted"
-                aria-label="Remove item {i + 1}"
+                aria-label={t("schemaForm.removeItem", { index: i + 1 })}
                 onclick={() =>
                   updateValue(
                     key,
@@ -484,6 +542,7 @@ function parseNumberList(raw: string): number[] {
                 {edges}
                 fieldErrors={nestedErrors(`${key}[${i}].`)}
                 idPrefix="{idPrefix}{key}-{i}-"
+                i18nScope={nestedScope(key)}
               />
             </div>
           {/each}
@@ -494,18 +553,18 @@ function parseNumberList(raw: string): number[] {
             onclick={() => updateValue(key, [...listValue(key), buildInitialValues(itemSchema)])}
           >
             <PlusIcon class="w-3.5 h-3.5" aria-hidden="true" />
-            Add item
+            {t("schemaForm.addItem")}
           </button>
         </div>
       {:else}
         {@render fieldLabel(key, label, description)}
-        <p class="text-xs text-muted-foreground italic">Complex field - use "JSON view" to configure.</p>
+        <p class="text-xs text-muted-foreground italic">{t("schemaForm.complexField")}</p>
       {/if}
       {@render fieldError(key)}
     </div>
   {/each}
 
   {#if propertyKeys.length === 0}
-    <p class="text-xs text-muted-foreground italic">No configuration fields defined for this step type.</p>
+    <p class="text-xs text-muted-foreground italic">{t("schemaForm.noFields")}</p>
   {/if}
 </fieldset>

@@ -1,0 +1,12 @@
+{
+  "description": "Bridges MCP servers into the skill system",
+  "nav": {
+    "/mcp": "MCP Servers"
+  },
+  "settings": {
+    "autoSync": {
+      "description": "Automatically connect to all enabled MCP servers and regenerate skills on startup",
+      "title": "Auto-sync on boot"
+    }
+  }
+}

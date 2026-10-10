@@ -31,7 +31,7 @@ import { createStartWorkflowHandler, WORKFLOW_NAMES_PROVIDER } from "./start-wor
 
 const manifest = {
   name: "core-wf-steps",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "Built-in workflow step types (HTTP Request, etc.)",
   dependencies: ["workflows"],
   core: true,

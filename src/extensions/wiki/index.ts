@@ -87,7 +87,7 @@ const WIKI_PROMPT = `
 
 const manifest = {
   name: "wiki",
-  version: "1.1.0",
+  version: "1.2.0",
   description: "Agent skill for reading and writing wiki pages",
   settingsSchema: Type.Object({
     injectPrompt: Type.Boolean({

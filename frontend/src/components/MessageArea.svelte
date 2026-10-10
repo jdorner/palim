@@ -16,6 +16,7 @@ import { authFetch } from "$lib/auth";
 import type { Message } from "$lib/chatStore";
 import { updateMessageContent } from "$lib/chatStore";
 import type { StreamSegment } from "$lib/chatStreamStore.svelte";
+import { t } from "$lib/i18n.svelte";
 import { settings } from "$lib/settingsStore.svelte";
 import ChatMarkdown from "./ChatMarkdown.svelte";
 import ContextGauge from "./ContextGauge.svelte";
@@ -269,7 +270,9 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
 
     const res = await authFetch(endpoint, fetchInit);
     const body = await res.json();
-    const resultText = res.ok ? `✓ ${body.message || "Done"}` : `✗ ${body.error || `Failed (${res.status})`}`;
+    const resultText = res.ok
+      ? t("chat.actionDone", { message: body.message || t("chat.done") })
+      : t("chat.actionFailed", { error: body.error || t("chat.failedStatus", { status: res.status }) });
 
     executedActions = new Set([...executedActions, key]);
 
@@ -294,7 +297,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
   class="flex-1 overflow-y-auto p-4 space-y-4 relative"
   role="log"
   aria-live="polite"
-  aria-label="Chat messages"
+  aria-label={t("chat.messagesLabel")}
 >
   {#if disconnected}
     <div class="sticky top-0 z-10 flex justify-center pointer-events-none">
@@ -302,13 +305,13 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
         class="inline-flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-2 text-sm text-foreground shadow-md pointer-events-auto"
       >
         <span class="w-2 h-2 rounded-full bg-destructive animate-pulse"></span>
-        Connection lost. Waiting for server&hellip;
+        {t("chat.connectionLost")}
       </div>
     </div>
   {/if}
   {#if messages.length === 0 && !streaming}
     <div class="flex items-center justify-center h-full text-muted-foreground text-sm">
-      <p>No messages yet. Start a conversation below.</p>
+      <p>{t("chat.noMessages")}</p>
     </div>
   {/if}
 
@@ -328,7 +331,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
               onkeydown={(e) => handleEditKeydown(e, msg)}
               oninput={(e) => autoResizeTextarea(e.currentTarget)}
               class="w-full resize-none rounded border-0 border-primary-foreground/30 bg-primary/80 text-primary-foreground px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-primary-foreground/50 overflow-hidden"
-              aria-label="Edit message"
+              aria-label={t("chat.editMessage")}
             ></textarea>
             <div class="flex justify-end gap-1 mt-1">
               <button
@@ -336,7 +339,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
                 class="px-2 py-0.5 text-xs rounded bg-primary-foreground/20 text-primary-foreground hover:bg-primary-foreground/30 transition-colors"
                 onclick={() => cancelEdit()}
               >
-                Cancel
+                {t("common.cancel")}
               </button>
               <button
                 type="button"
@@ -344,7 +347,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
                 onclick={() => commitEdit(msg)}
                 {disabled}
               >
-                Send
+                {t("chat.sendShort")}
               </button>
             </div>
           {:else}
@@ -359,10 +362,10 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
             class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50 disabled:pointer-events-none"
             onclick={() => startEdit(msg)}
             {disabled}
-            aria-label="Edit message"
+            aria-label={t("chat.editMessage")}
           >
             <PencilSimpleIcon class="w-3 h-3" aria-hidden="true" />
-            Edit
+            {t("common.edit")}
           </button>
           {#if onDeleteMessage}
             <button
@@ -370,10 +373,10 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
               class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
               onclick={() => onDeleteMessage?.(msg)}
               {disabled}
-              aria-label="Delete response"
+              aria-label={t("chat.deleteResponse")}
             >
               <TrashIcon class="w-3 h-3" aria-hidden="true" />
-              Delete
+              {t("common.delete")}
             </button>
           {/if}
         </div>
@@ -398,7 +401,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
                   class="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
                   onclick={() => toggleThinking(`${msg.id}-${si}`)}
                   aria-expanded="{isThinkingExpanded(`${msg.id}-${si}`)}"
-                  aria-label="Toggle thinking"
+                  aria-label={t("chat.toggleThinking")}
                 >
                   {#if isThinkingExpanded(`${msg.id}-${si}`)}
                     <CaretDownIcon class="w-3 h-3 shrink-0" aria-hidden="true" />
@@ -406,7 +409,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
                     <CaretRightIcon class="w-3 h-3 shrink-0" aria-hidden="true" />
                   {/if}
                   <BrainIcon class="w-3 h-3 shrink-0" aria-hidden="true" />
-                  <span>Thinking</span>
+                  <span>{t("chat.thinking")}</span>
                 </button>
                 {#if isThinkingExpanded(`${msg.id}-${si}`)}
                   <div
@@ -475,25 +478,25 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
               class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50 disabled:pointer-events-none"
               onclick={() => onRegenerate?.(msg)}
               {disabled}
-              aria-label="Regenerate response"
+              aria-label={t("chat.regenerateResponse")}
             >
               <ArrowCounterClockwiseIcon class="w-3 h-3" aria-hidden="true" />
-              Regenerate
+              {t("chat.regenerate")}
             </button>
           {/if}
           <button
             type="button"
             class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
             onclick={() => copyResponse(msg)}
-            aria-label={copiedId === msg.id ? "Copied" : "Copy response as markdown"}
-            title="Copy as markdown"
+            aria-label={copiedId === msg.id ? t("common.copied") : t("chat.copyResponse")}
+            title={t("chat.copyAsMarkdown")}
           >
             {#if copiedId === msg.id}
               <CheckIcon class="w-3 h-3" aria-hidden="true" />
-              Copied
+              {t("common.copied")}
             {:else}
               <CopyIcon class="w-3 h-3" aria-hidden="true" />
-              Copy
+              {t("common.copy")}
             {/if}
           </button>
           {#if onDeleteMessage && msgIndex < messages.length - 1}
@@ -502,10 +505,10 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
               class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
               onclick={() => onDeleteMessage?.(msg)}
               {disabled}
-              aria-label="Delete response"
+              aria-label={t("chat.deleteResponse")}
             >
               <TrashIcon class="w-3 h-3" aria-hidden="true" />
-              Delete
+              {t("common.delete")}
             </button>
           {/if}
           {#if msg.usage && contextWindow && contextWindow > 0}
@@ -536,7 +539,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
               class="inline-flex items-center gap-1.5 rounded px-2 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted/80 transition-colors"
               onclick={() => toggleThinking(`stream-${i}`)}
               aria-expanded="{isThinkingExpanded(`stream-${i}`)}"
-              aria-label="Toggle thinking"
+              aria-label={t("chat.toggleThinking")}
             >
               {#if isThinkingExpanded(`stream-${i}`)}
                 <CaretDownIcon class="w-3 h-3 shrink-0" aria-hidden="true" />
@@ -544,7 +547,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
                 <CaretRightIcon class="w-3 h-3 shrink-0" aria-hidden="true" />
               {/if}
               <BrainIcon class="w-3 h-3 shrink-0 {isActiveThinking ? "animate-pulse" : ""}" aria-hidden="true" />
-              <span>{isActiveThinking ? "Thinking..." : "Thinking"}</span>
+              <span>{isActiveThinking ? t("chat.thinkingActive") : t("chat.thinking")}</span>
             </button>
             {#if isThinkingExpanded(`stream-${i}`)}
               <div
@@ -627,7 +630,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
             {disabled}
           >
             <ArrowCounterClockwiseIcon class="w-3 h-3" aria-hidden="true" />
-            Retry
+            {t("common.retry")}
           </button>
         {/if}
       </div>

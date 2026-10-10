@@ -4,6 +4,7 @@ import { onDestroy, onMount } from "svelte";
 // biome-ignore lint/correctness/noUnusedImports: used as `$connected` store subscription in the template (Biome does not track Svelte template usage)
 import { connected } from "$lib/appStore";
 import { chatStream } from "$lib/chatStreamStore.svelte";
+import { t } from "$lib/i18n.svelte";
 import { modelStore } from "$lib/modelStore.svelte";
 import { navigate } from "../router";
 import ChatInput from "./ChatInput.svelte";
@@ -117,8 +118,10 @@ async function onSubmit(content: string) {
       <div class="flex-1 flex items-center justify-center">
         <div class="text-center text-muted-foreground space-y-3">
           <ChatTextIcon class="w-12 h-12 mx-auto opacity-50" aria-hidden="true" />
-          <p class="text-sm">Start a new conversation to chat with the agent.</p>
-          <button type="button" class="text-sm text-primary hover:underline" onclick={onCreate}>New Chat</button>
+          <p class="text-sm">{t("chat.emptyHint")}</p>
+          <button type="button" class="text-sm text-primary hover:underline" onclick={onCreate}>
+            {t("chat.newChat")}
+          </button>
         </div>
       </div>
     {/if}

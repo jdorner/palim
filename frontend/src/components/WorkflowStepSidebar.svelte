@@ -6,6 +6,7 @@ import { builtinConfigSchema } from "$lib/builtinStepSchemas";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Dialog } from "$lib/components/ui/dialog";
+import { t } from "$lib/i18n.svelte";
 import type { OutputSchemas } from "$lib/templateScope";
 import type { StepDraft, WorkflowDraft } from "$lib/workflowValidation";
 import { edgesToSlugEdges, validateStepConfig } from "$lib/workflowValidation";
@@ -22,6 +23,8 @@ interface StepTypeInfo {
   type: string;
   label: string;
   icon?: string;
+  /** Owning extension (scopes translations of the config form). */
+  extensionName?: string;
   configSchema?: Record<string, unknown>;
 }
 
@@ -284,7 +287,7 @@ function clearConditionError(index: number) {
       {/if}
       <div class="flex flex-col gap-1">
         <label for="step-slug" class="text-xs font-medium text-muted-foreground"
-          >Slug <span class="text-destructive">*</span></label
+          >{t("stepSidebar.slug")} <span class="text-destructive">*</span></label
         >
         <input
           id="step-slug"
@@ -314,12 +317,12 @@ function clearConditionError(index: number) {
            takes the remaining space and never shrinks below its minimum. -->
         <div class="flex flex-col gap-4 flex-1">
           <div class="flex flex-col gap-1.5 shrink-0">
-            <span class="text-xs font-medium text-muted-foreground">Tools</span>
+            <span class="text-xs font-medium text-muted-foreground">{t("stepSidebar.tools")}</span>
             <MultiSelect
               size="xs"
               items={availableTools}
               selected={editDraftStep.tools ?? []}
-              placeholder="Search tools..."
+              placeholder={t("stepSidebar.searchTools")}
               disabled={metaLoading || availableTools.length === 0}
               onchange={(newSelected) =>
                 onUpdateDraftStep(selectedStepIndex, (s) => {
@@ -329,12 +332,12 @@ function clearConditionError(index: number) {
           </div>
 
           <div class="flex flex-col gap-1.5 shrink-0">
-            <span class="text-xs font-medium text-muted-foreground">Skills</span>
+            <span class="text-xs font-medium text-muted-foreground">{t("stepSidebar.skills")}</span>
             <MultiSelect
               size="xs"
               items={availableSkills}
               selected={editDraftStep.skills ?? []}
-              placeholder="Search skills..."
+              placeholder={t("stepSidebar.searchSkills")}
               disabled={metaLoading || availableSkills.length === 0}
               onchange={(newSelected) =>
                 onUpdateDraftStep(selectedStepIndex, (s) => {
@@ -345,15 +348,17 @@ function clearConditionError(index: number) {
 
           <div class="flex flex-col gap-1.5 flex-1">
             <div class="flex items-center justify-between shrink-0">
-              <label for="step-prompt" class="text-xs font-medium text-muted-foreground">Prompt</label>
+              <label for="step-prompt" class="text-xs font-medium text-muted-foreground"
+                >{t("stepSidebar.prompt")}</label
+              >
               <div class="flex items-center gap-1.5">
                 <span class="text-xs text-muted-foreground">{(editDraftStep.prompt ?? "").length}/ 10000</span>
                 <button
                   type="button"
                   class="p-1 rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                   onclick={() => (promptExpanded = true)}
-                  aria-label="Expand prompt editor"
-                  title="Expand"
+                  aria-label={t("stepSidebar.expandPrompt")}
+                  title={t("stepSidebar.expand")}
                 >
                   <ArrowsOutSimpleIcon size={14} aria-hidden="true" />
                 </button>
@@ -366,7 +371,7 @@ function clearConditionError(index: number) {
               maxlength={10000}
               value={editDraftStep.prompt ?? ""}
               oninput={(e) => setPrompt((e.target as HTMLTextAreaElement).value)}
-              placeholder="Enter step prompt..."
+              placeholder={t("stepSidebar.promptPlaceholder")}
             ></textarea>
             {#if validationErrors.get(`steps[${selectedStepIndex}].prompt`)}
               <span class="text-xs text-destructive shrink-0"
@@ -399,7 +404,7 @@ function clearConditionError(index: number) {
           >
             <Dialog
               open
-              title="Prompt"
+              title={t("stepSidebar.prompt")}
               description={editDraftStep.slug}
               class="max-w-4xl"
               onClose={() => (promptExpanded = false)}
@@ -409,12 +414,12 @@ function clearConditionError(index: number) {
               <div>
                 <textarea
                   bind:this={expandedPromptEl}
-                  aria-label="Prompt"
+                  aria-label={t("stepSidebar.prompt")}
                   class="block w-full h-[60vh] px-3 py-2 text-sm font-mono border border-border rounded-md bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
                   maxlength={10000}
                   value={editDraftStep.prompt ?? ""}
                   oninput={(e) => setPrompt((e.target as HTMLTextAreaElement).value)}
-                  placeholder="Enter step prompt..."
+                  placeholder={t("stepSidebar.promptPlaceholder")}
                 ></textarea>
                 <TemplateAutocomplete
                   targetElement={expandedPromptEl}
@@ -431,7 +436,7 @@ function clearConditionError(index: number) {
                 <span class="mr-auto self-center text-xs text-muted-foreground"
                   >{(editDraftStep.prompt ?? "").length}/ 10000</span
                 >
-                <Button size="sm" onclick={() => (promptExpanded = false)}>Done</Button>
+                <Button size="sm" onclick={() => (promptExpanded = false)}>{t("stepSidebar.done")}</Button>
               {/snippet}
             </Dialog>
           </div>
@@ -439,7 +444,7 @@ function clearConditionError(index: number) {
       {:else if !editMode && selectedStep?.type === "agent" && selectedStep.prompt}
         <div class="space-y-3">
           <div class="flex items-center gap-1.5 flex-wrap">
-            <span class="text-xs font-medium text-muted-foreground">Tools:</span>
+            <span class="text-xs font-medium text-muted-foreground">{t("stepSidebar.toolsLabel")}</span>
             {#if selectedStep.tools?.length}
               {#each selectedStep.tools as tool}
                 <Badge variant="outline" class="text-xs">{tool}</Badge>
@@ -450,7 +455,7 @@ function clearConditionError(index: number) {
           </div>
 
           <div class="flex items-center gap-1.5 flex-wrap">
-            <span class="text-xs font-medium text-muted-foreground">Skills:</span>
+            <span class="text-xs font-medium text-muted-foreground">{t("stepSidebar.skillsLabel")}</span>
             {#if selectedStep.skills?.length}
               {#each selectedStep.skills as skill}
                 <Badge variant="outline" class="text-xs">{skill}</Badge>
@@ -461,7 +466,7 @@ function clearConditionError(index: number) {
           </div>
 
           <div>
-            <span class="text-xs font-medium text-muted-foreground">Prompt:</span>
+            <span class="text-xs font-medium text-muted-foreground">{t("stepSidebar.promptLabel")}</span>
             <div class="text-xs whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded mt-1">
               <ChatMarkdown content={selectedStep.prompt} />
             </div>
@@ -498,9 +503,11 @@ function clearConditionError(index: number) {
                  routing keys stay "then"/"else"; these just relabel the edges. -->
               {@const bl = (editDraftStep.branchLabels as { then?: string; else?: string } | undefined) ?? {}}
               <div class="flex flex-col gap-3">
-                <span class="text-xs font-medium text-muted-foreground">Branch edge labels (optional)</span>
+                <span class="text-xs font-medium text-muted-foreground">{t("stepSidebar.branchLabelsOptional")}</span>
                 <div class="flex flex-col gap-1">
-                  <label for="if-then-label" class="text-[11px] text-muted-foreground">Then edge label</label>
+                  <label for="if-then-label" class="text-[11px] text-muted-foreground"
+                    >{t("stepSidebar.thenLabel")}</label
+                  >
                   <input
                     id="if-then-label"
                     type="text"
@@ -520,7 +527,9 @@ function clearConditionError(index: number) {
                   >
                 </div>
                 <div class="flex flex-col gap-1">
-                  <label for="if-else-label" class="text-[11px] text-muted-foreground">Else edge label</label>
+                  <label for="if-else-label" class="text-[11px] text-muted-foreground"
+                    >{t("stepSidebar.elseLabel")}</label
+                  >
                   <input
                     id="if-else-label"
                     type="text"
@@ -543,6 +552,7 @@ function clearConditionError(index: number) {
               <!-- `waitFor` / `emit` / `case`: schema-driven form on flat fields -->
               <StepConfigForm
                 schema={cfSchema}
+                i18nScope={{ prefix: `builtinSteps.${stepType}` }}
                 values={cfStepConfig(editDraftStep)}
                 onchange={(vals) => {
                   applyCfValues(selectedStepIndex, vals);
@@ -571,7 +581,7 @@ function clearConditionError(index: number) {
               <div class="flex flex-col gap-1.5 flex-1 min-h-0">
                 <div class="flex items-center justify-between">
                   <label for="step-cf-config" class="text-xs font-medium text-muted-foreground"
-                    >Configuration (JSON)</label
+                    >{t("stepSidebar.configJson")}</label
                   >
                 </div>
                 <textarea
@@ -598,6 +608,9 @@ function clearConditionError(index: number) {
             {#if stepTypeInfo?.configSchema && !editAsJson}
               <StepConfigForm
                 schema={stepTypeInfo.configSchema}
+                i18nScope={stepTypeInfo.extensionName
+                  ? { extension: stepTypeInfo.extensionName, prefix: `steps.${stepTypeInfo.type}.config` }
+                  : undefined}
                 values={editDraftStep.config ?? {}}
                 onchange={(vals) => {
                   onUpdateDraftStep(selectedStepIndex, (s) => {
@@ -637,7 +650,7 @@ function clearConditionError(index: number) {
               <div class="flex flex-col gap-1.5 flex-1 min-h-0">
                 <div class="flex items-center justify-between">
                   <label for="step-config" class="text-xs font-medium text-muted-foreground"
-                    >Configuration (JSON)</label
+                    >{t("stepSidebar.configJson")}</label
                   >
                 </div>
                 <textarea
@@ -694,7 +707,7 @@ function clearConditionError(index: number) {
         {#if viewAsJson}
           <div class="flex flex-col gap-1.5 flex-1 min-h-0">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-medium text-muted-foreground">Configuration (JSON)</span>
+              <span class="text-xs font-medium text-muted-foreground">{t("stepSidebar.configJson")}</span>
             </div>
             <pre
               class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded flex-1 overflow-y-auto"
@@ -710,7 +723,7 @@ function clearConditionError(index: number) {
             | undefined}
           {#if roBl && (roBl.then || roBl.else)}
             <div class="flex flex-col gap-1.5 mt-3">
-              <span class="text-xs font-medium text-muted-foreground">Branch edge labels</span>
+              <span class="text-xs font-medium text-muted-foreground">{t("stepSidebar.branchLabels")}</span>
               <div class="flex items-center gap-2">
                 <span class="text-[11px] text-muted-foreground w-10">then:</span>
                 <Badge variant="outline" class="text-xs">{roBl.then || "then"}</Badge>
@@ -724,6 +737,7 @@ function clearConditionError(index: number) {
         {:else if roCfSchema}
           <StepConfigForm
             schema={roCfSchema}
+            i18nScope={{ prefix: `builtinSteps.${roCfType}` }}
             values={cfStepConfig(selectedStep as unknown as StepDraft)}
             readonly={true}
           />
@@ -735,7 +749,7 @@ function clearConditionError(index: number) {
         {#if viewAsJson}
           <div class="flex flex-col gap-1.5 flex-1 min-h-0">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-medium text-muted-foreground">Configuration (JSON)</span>
+              <span class="text-xs font-medium text-muted-foreground">{t("stepSidebar.configJson")}</span>
             </div>
             <pre
               class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded flex-1 overflow-y-auto"
@@ -748,6 +762,9 @@ function clearConditionError(index: number) {
           })()}
           <StepConfigForm
             schema={roStepTypeInfo.configSchema}
+            i18nScope={roStepTypeInfo.extensionName
+              ? { extension: roStepTypeInfo.extensionName, prefix: `steps.${roStepTypeInfo.type}.config` }
+              : undefined}
             values={roConfig}
             readonly={true}
             itemOptions={{ skills: availableSkills }}
@@ -755,7 +772,7 @@ function clearConditionError(index: number) {
         {:else}
           <div class="space-y-3">
             <div>
-              <span class="text-xs font-medium text-muted-foreground">Configuration</span>
+              <span class="text-xs font-medium text-muted-foreground">{t("stepSidebar.configuration")}</span>
               <pre
                 class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-64 overflow-y-auto mt-0.5"
               >{JSON.stringify(
@@ -770,7 +787,7 @@ function clearConditionError(index: number) {
           </div>
         {/if}
       {:else}
-        <p class="text-sm text-muted-foreground">No details available for this step type.</p>
+        <p class="text-sm text-muted-foreground">{t("stepSidebar.noDetails")}</p>
       {/if}
     </div>
 
@@ -809,11 +826,11 @@ function clearConditionError(index: number) {
           onclose();
         }}
         title={!editDraft || editDraft.steps.length <= 1
-          ? "At least one step is required"
-          : `Remove step ${editDraftStep?.slug || "(unnamed)"}`}
+          ? t("validation.stepRequired")
+          : t("stepSidebar.removeStepNamed", { slug: editDraftStep?.slug || t("validation.unnamed") })}
       >
         <TrashIcon size={14} aria-hidden="true" />
-        Remove step
+        {t("stepSidebar.removeStep")}
       </button>
     </div>
   {/if}

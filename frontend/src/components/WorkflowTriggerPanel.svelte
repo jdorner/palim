@@ -1,10 +1,12 @@
 <script lang="ts">
+import { Badge } from "$lib/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/components/ui/select";
+import { t } from "$lib/i18n.svelte";
 /**
  * Detail panel for the workflow trigger node: shows the trigger type/ref in
  * view mode, and type/ref pickers when editing.
  */
-import { Badge } from "$lib/components/ui/badge";
-import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/components/ui/select";
+import { type CoreKey, translateCore } from "$lib/i18nCore";
 import { visualForStepType } from "$lib/nodeVisuals";
 import type { WorkflowTrigger } from "$lib/workflowDetail";
 import type { TriggerRefs } from "$lib/workflowEditorMeta";
@@ -61,7 +63,7 @@ const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
   <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-white {v.tileClass}">
     <v.icon size={11} weight="bold" aria-hidden="true" />
   </span>
-  {triggerType}
+  {translateCore(`triggerTypes.${triggerType}` as CoreKey, { default: triggerType })}
 {/snippet}
 
 <div class="w-95 h-full flex flex-col">
@@ -71,7 +73,9 @@ const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
     {#if draftTrigger}
       <!-- Unlike steps, the trigger type stays changeable while editing. -->
       <div class="flex flex-col gap-1">
-        <label for="sidebar-trigger-type" class="text-xs font-medium text-muted-foreground">Type</label>
+        <label for="sidebar-trigger-type" class="text-xs font-medium text-muted-foreground"
+          >{t("triggerPanel.type")}</label
+        >
         <Select
           type="single"
           value={draftTrigger.type}
@@ -85,12 +89,16 @@ const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
             });
           }}
         >
-          <SelectTrigger id="sidebar-trigger-type" aria-label="Trigger type" class="text-xs">
+          <SelectTrigger id="sidebar-trigger-type" aria-label={t("triggerPanel.typeLabel")} class="text-xs">
             {@render triggerChip(draftTrigger.type)}
           </SelectTrigger>
           <SelectContent>
             {#each TRIGGER_TYPES as triggerType (triggerType)}
-              <SelectItem value={triggerType} label={triggerType} class="text-xs">
+              <SelectItem
+                value={triggerType}
+                label={translateCore(`triggerTypes.${triggerType}` as CoreKey, { default: triggerType })}
+                class="text-xs"
+              >
                 {@render triggerChip(triggerType)}
               </SelectItem>
             {/each}
@@ -103,7 +111,9 @@ const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
       {#if draftTrigger.type !== "manual"}
         {@const refOptions = availableTriggerRefs[draftTrigger.type] ?? []}
         <div class="flex flex-col gap-1">
-          <label for="sidebar-trigger-ref" class="text-xs font-medium text-muted-foreground">Ref</label>
+          <label for="sidebar-trigger-ref" class="text-xs font-medium text-muted-foreground"
+            >{t("triggerPanel.ref")}</label
+          >
           <select
             id="sidebar-trigger-ref"
             class="px-2 py-1.5 text-xs border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
@@ -120,18 +130,18 @@ const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
               onValidationErrorsChange(newErrors);
             }}
           >
-            <option value="">-- Select a ref --</option>
+            <option value="">{t("triggerPanel.selectRef")}</option>
             {#each refOptions as ref}
               <option value={ref}>{ref}</option>
             {/each}
             {#if draftTrigger.ref && !refOptions.includes(draftTrigger.ref)}
-              <option value={draftTrigger.ref}>{draftTrigger.ref} (not found)</option>
+              <option value={draftTrigger.ref}>{t("triggerPanel.notFound", { ref: draftTrigger.ref })}</option>
             {/if}
           </select>
           {#if metaLoading}
-            <span class="text-xs text-muted-foreground">Loading available refs...</span>
+            <span class="text-xs text-muted-foreground">{t("triggerPanel.loadingRefs")}</span>
           {:else if refOptions.length === 0}
-            <span class="text-xs text-muted-foreground">No refs available for this trigger type</span>
+            <span class="text-xs text-muted-foreground">{t("triggerPanel.noRefs")}</span>
           {/if}
           {#if validationErrors.get("trigger.ref")}
             <span class="text-xs text-destructive">{validationErrors.get("trigger.ref")}</span>
@@ -151,7 +161,7 @@ const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
     {:else}
       {#if trigger.ref}
         <div class="flex items-center gap-2">
-          <span class="text-xs font-medium text-muted-foreground">Ref:</span>
+          <span class="text-xs font-medium text-muted-foreground">{t("triggerPanel.refLabel")}</span>
           <Badge variant="outline">{trigger.ref}</Badge>
         </div>
       {/if}

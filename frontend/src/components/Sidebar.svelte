@@ -8,6 +8,7 @@ import UsersIcon from "phosphor-svelte/lib/UsersIcon";
 import { derived } from "svelte/store";
 import { resolveBadge } from "$lib/badgeRegistry";
 import { extensionNavItems } from "$lib/extensionStore";
+import { t, tx } from "$lib/i18n.svelte";
 import { resolveIcon } from "$lib/iconRegistry";
 import { identity } from "$lib/identity.svelte";
 import { settings } from "$lib/settingsStore.svelte";
@@ -76,6 +77,7 @@ const badgeCounts = derived(
   {@const IconComponent = resolveIcon(item.icon)}
   {@const isActive = $pathname === item.route || $pathname.startsWith(`${item.route}/`)}
   {@const badgeCount = $badgeCounts.get(item.route) ?? 0}
+  {@const label = tx(item.extensionName, `nav.${item.route}`, item.label)}
   <button
     type="button"
     class="relative flex items-center rounded-md text-sm font-medium transition-colors w-full
@@ -84,7 +86,7 @@ const badgeCounts = derived(
       ? "bg-accent text-accent-foreground"
       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"}"
     onclick={() => navigate(item.route as any)}
-    title={collapsed ? item.label : undefined}
+    title={collapsed ? label : undefined}
   >
     {#if badgeCount > 0 && collapsed}
       <span
@@ -96,9 +98,9 @@ const badgeCounts = derived(
       <IconComponent class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0 {item.iconColor ?? ""}" aria-hidden="true" />
     {/if}
     {#if !collapsed}
-      <span class="text-nowrap">{item.label}</span>
+      <span class="min-w-0 truncate" title={label}>{label}</span>
       {#if badgeCount > 0}
-        <span class="ml-auto text-xs font-semibold rounded-full bg-primary/15 text-primary px-2 py-0.5"
+        <span class="ml-auto shrink-0 text-xs font-semibold rounded-full bg-primary/15 text-primary px-2 py-0.5"
           >{badgeCount}</span
         >
       {/if}
@@ -133,14 +135,14 @@ const badgeCounts = derived(
       ? "bg-accent text-accent-foreground"
       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"}"
     onclick={() => navigate("/chat")}
-    title={collapsed ? "Chat" : undefined}
+    title={collapsed ? t("nav.chat") : undefined}
   >
     {#if hasUnreadChats && collapsed}
       <span
         class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full {automationStyle("chat")
           .bg} animate-pulse ring-2 ring-background"
         role="status"
-        aria-label="Unread messages"
+        aria-label={t("nav.unreadMessages")}
       ></span>
     {/if}
     <ChatTextIcon
@@ -148,12 +150,12 @@ const badgeCounts = derived(
       aria-hidden="true"
     />
     {#if !collapsed}
-      Chat
+      {t("nav.chat")}
       {#if hasUnreadChats}
         <span
           class="ml-auto mr-2 mt-1 w-2 h-2 rounded-full {automationStyle("chat").bg} animate-pulse"
           role="status"
-          aria-label="Unread messages"
+          aria-label={t("nav.unreadMessages")}
         ></span>
       {/if}
     {/if}
@@ -173,7 +175,7 @@ const badgeCounts = derived(
       ? "bg-accent text-accent-foreground"
       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"}"
     onclick={() => navigate("/jobs")}
-    title={collapsed ? "Job Queues" : undefined}
+    title={collapsed ? t("nav.jobQueues") : undefined}
   >
     {#if jobCount > 0 && collapsed}
       <span
@@ -183,9 +185,9 @@ const badgeCounts = derived(
     {/if}
     <TrayIcon class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0" aria-hidden="true" />
     {#if !collapsed}
-      <span class="text-nowrap">Job Queues</span>
+      <span class="min-w-0 truncate" title={t("nav.jobQueues")}>{t("nav.jobQueues")}</span>
       {#if jobCount > 0}
-        <span class="ml-auto text-xs font-semibold rounded-full bg-primary/15 text-primary px-2 py-0.5"
+        <span class="ml-auto shrink-0 text-xs font-semibold rounded-full bg-primary/15 text-primary px-2 py-0.5"
           >{jobCount}</span
         >
       {/if}
@@ -204,14 +206,14 @@ const badgeCounts = derived(
       class="flex items-center rounded-md text-sm font-medium transition-colors w-full text-muted-foreground hover:bg-accent/50 hover:text-foreground
         {collapsed ? "justify-center p-2" : "gap-2 px-3 py-2 text-left"}"
       onclick={() => settings.toggleSidebarCollapsed()}
-      title={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-      aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+      title={collapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
+      aria-label={collapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
     >
       {#if collapsed}
         <ArrowLineRightIcon class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0" aria-hidden="true" />
       {:else}
         <ArrowLineLeftIcon class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0" aria-hidden="true" />
-        Collapse
+        {t("nav.collapse")}
       {/if}
     </button>
 
@@ -224,11 +226,11 @@ const badgeCounts = derived(
           ? "bg-accent text-accent-foreground"
           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"}"
         onclick={() => navigate("/users")}
-        title={collapsed ? "Users" : undefined}
+        title={collapsed ? t("nav.users") : undefined}
       >
         <UsersIcon class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0" aria-hidden="true" />
         {#if !collapsed}
-          Users
+          {t("nav.users")}
         {/if}
       </button>
     {/if}
@@ -241,11 +243,11 @@ const badgeCounts = derived(
         ? "bg-accent text-accent-foreground"
         : "text-muted-foreground hover:bg-accent/50 hover:text-foreground"}"
       onclick={() => navigate("/settings")}
-      title={collapsed ? "Settings" : undefined}
+      title={collapsed ? t("nav.settings") : undefined}
     >
       <GearIcon class="{collapsed ? "w-6 h-6" : "w-4 h-4"} shrink-0" aria-hidden="true" />
       {#if !collapsed}
-        Settings
+        {t("nav.settings")}
       {/if}
     </button>
   </div>

@@ -8,6 +8,7 @@ import { watch as fsWatch } from "node:fs";
 import { dirname } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ExtensionUiPage, StepTypeInfo } from "@shared/extensions";
+import { FALLBACK_LOCALE, type Locale } from "@shared/i18n";
 import type { ExtensionInfo, WebSocketMessage } from "@shared/types";
 import type { AuthResolver, UserStore } from "@src/auth";
 import { PROJECT_DIR, serverOrigin } from "@src/config";
@@ -46,6 +47,7 @@ import {
   type LifecycleState,
   type LoadedEntry,
 } from "./lifecycle";
+import { type ExtensionLocales, loadExtensionLocales } from "./localeLoader";
 import { serializeStepTypes } from "./stepTypeSerialization";
 import { buildExtensionUi, removeExtensionUi } from "./uiBuilder";
 
@@ -860,6 +862,7 @@ export class ExtensionRegistry {
       broadcastFn: deps.broadcastFn,
       onQueueCreated: deps.onQueueCreated,
       buildUiFn: (entry) => this.buildUi(entry),
+      loadLocalesFn: (entry) => this.loadLocales(entry),
     };
   }
 
@@ -885,6 +888,59 @@ export class ExtensionRegistry {
       logger.info(`Built UI for extension "${entry.name}" (${result.pages.length} page(s))`);
     }
     return result.pages;
+  }
+
+  /**
+   * Loads an extension's translation catalogs. Never throws.
+   *
+   * @param entry - The loaded extension entry
+   * @returns The catalogs keyed by locale (empty when the extension has none or its directory is unknown)
+   */
+  private async loadLocales(entry: LoadedEntry): Promise<ExtensionLocales> {
+    if (!entry.modulePath) return {};
+    return loadExtensionLocales(entry.name, dirname(entry.modulePath));
+  }
+
+  /**
+   * Reloads an extension's translation catalogs (e.g. after its `locales/`
+   * files changed) and broadcasts a `locales_updated` lifecycle event so
+   * clients refetch them.
+   *
+   * @param name - Extension name
+   * @returns `true` when the catalogs were reloaded, `false` if the extension is unknown or suspended
+   */
+  async reloadLocales(name: string): Promise<boolean> {
+    const entry = this.loaded.find((l) => l.name === name);
+    if (entry?.state !== "active") return false;
+    entry.locales = await this.loadLocales(entry);
+    this.initDeps?.broadcastFn({
+      type: "extension_lifecycle",
+      action: "locales_updated",
+      name,
+      version: entry.extension.manifest.version,
+    });
+    return true;
+  }
+
+  /**
+   * Returns the translation catalogs of all loaded extensions for a locale,
+   * together with their English fallback catalogs.
+   *
+   * @param locale - Requested locale
+   * @returns Catalogs per extension name, keyed by locale (only locales the extension ships)
+   */
+  getLocaleCatalogs(locale: Locale): Record<string, ExtensionLocales> {
+    const result: Record<string, ExtensionLocales> = {};
+    for (const l of this.loaded) {
+      if (!l.locales) continue;
+      const catalogs: ExtensionLocales = {};
+      for (const loc of new Set<Locale>([locale, FALLBACK_LOCALE])) {
+        const messages = l.locales[loc];
+        if (messages) catalogs[loc] = messages;
+      }
+      if (Object.keys(catalogs).length > 0) result[l.name] = catalogs;
+    }
+    return result;
   }
 
   /**

@@ -4,6 +4,7 @@ import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Button } from "$lib/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "$lib/components/ui/card";
+import { t } from "$lib/i18n.svelte";
 import { formatTimestamp } from "$lib/utils";
 import type { JobEntry, LogEntry } from "../../../shared/types";
 import ChatMarkdown from "./ChatMarkdown.svelte";
@@ -53,7 +54,7 @@ onMount(() => {
   <div
     role="dialog"
     aria-modal="true"
-    aria-label="Job logs"
+    aria-label={t("jobs.logsLabel")}
     class="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
     onclick={onClose}
     onkeydown={(e) => {
@@ -70,7 +71,7 @@ onMount(() => {
       <Card>
         <CardHeader>
           <div class="flex items-center justify-between">
-            <CardTitle>Logs for Job {job.id}</CardTitle>
+            <CardTitle>{t("jobs.logsFor", { id: job.id })}</CardTitle>
             <Button variant="ghost" size="icon" onclick={onClose}>✕</Button>
           </div>
         </CardHeader>
@@ -78,7 +79,7 @@ onMount(() => {
         <CardContent>
           <div class="max-h-[60vh] overflow-y-auto text-sm">
             {#if loading}
-              <div class="flex justify-center py-8"><LoadingIndicator message="Loading logs..." /></div>
+              <div class="flex justify-center py-8"><LoadingIndicator message={t("jobs.loadingLogs")} /></div>
             {:else if mergedLogs.length > 0}
               {#each mergedLogs as log}
                 <div class="flex gap-4 py-1 border-b last:border-b-0">
@@ -101,7 +102,7 @@ onMount(() => {
                 </div>
               {/each}
             {:else}
-              <p class="text-center text-muted-foreground py-8">No logs available for this job.</p>
+              <p class="text-center text-muted-foreground py-8">{t("jobs.noLogs")}</p>
             {/if}
           </div>
         </CardContent>

@@ -1,0 +1,105 @@
+{
+  "description": "Integrierte Workflow-Schritttypen (HTTP-Anfrage usw.)",
+  "steps": {
+    "chunk": {
+      "config": {
+        "input": {
+          "description": "Der in Stapel aufzuteilende Wert. Unterstützt {{template}}-Ausdrücke. Ein String wird in Zeilen (oder am `separator`) geteilt; ein Template, das ein JSON-Array ergibt, wird direkt gruppiert.",
+          "title": "Eingabe"
+        },
+        "separator": {
+          "description": "String, an dem die Eingabe geteilt wird. Unterstützt {{template}}-Ausdrücke. Ohne Angabe wird an Zeilenumbrüchen geteilt.",
+          "title": "Trennzeichen"
+        },
+        "size": {
+          "description": "Maximale Anzahl Elemente pro Stapel.",
+          "title": "Stapelgröße"
+        },
+        "trim": {
+          "description": "Leerzeichen an jedem Element entfernen und leere Elemente verwerfen. Standard: an.",
+          "title": "Elemente trimmen"
+        }
+      },
+      "label": "Aufteilen"
+    },
+    "fail": {
+      "config": {
+        "message": {
+          "description": "Meldung für den Fehlschlag. Unterstützt {{template}}-Ausdrücke.",
+          "title": "Fehlermeldung"
+        }
+      },
+      "label": "Workflow fehlschlagen lassen"
+    },
+    "http-request": {
+      "config": {
+        "body": {
+          "description": "Request-Body. Unterstützt {{template}}-Ausdrücke.",
+          "title": "Body"
+        },
+        "expectedStatus": {
+          "description": "Akzeptierte HTTP-Statuscodes. Wenn leer, wird jeder 2xx-Code akzeptiert.",
+          "title": "Erwartete Statuscodes"
+        },
+        "headers": {
+          "description": "Eigene Request-Header (Schlüssel/Wert). Werte unterstützen {{template}}-Ausdrücke.",
+          "title": "Header"
+        },
+        "method": {
+          "description": "Zu verwendende HTTP-Methode.",
+          "title": "Methode"
+        },
+        "responseFormat": {
+          "description": "Wie die Antwort geparst wird. 'json' ermöglicht Punkt-Pfad-Zugriff in nachfolgenden Schritten.",
+          "title": "Antwortformat"
+        },
+        "timeout": {
+          "description": "Zeitlimit der Anfrage in Millisekunden. Standard: 30000.",
+          "title": "Zeitlimit (ms)"
+        },
+        "url": {
+          "description": "Request-URL. Unterstützt {{template}}-Ausdrücke.",
+          "title": "URL"
+        }
+      },
+      "label": "HTTP-Anfrage"
+    },
+    "noop": {
+      "label": "Zweig beenden"
+    },
+    "set-variables": {
+      "config": {
+        "variables": {
+          "description": "Zu setzende Variablen, in Reihenfolge ausgewertet.",
+          "name": {
+            "description": "Variablenname (Buchstaben, Ziffern, Unterstrich; nicht mit einer Ziffer beginnend). Referenz: {{steps.<slug>.result.<name>}}.",
+            "title": "Name"
+          },
+          "title": "Variablen",
+          "type": {
+            "description": "Typ, in den der aufgelöste Wert umgewandelt wird. Standard: string.",
+            "title": "Typ"
+          },
+          "value": {
+            "description": "Literaler Wert oder {{template}}-Ausdruck. Innerhalb dieses Schritts verweist {{steps.<slug>.result.<name>}} auf den aktuellen Wert der Variable.",
+            "title": "Wert"
+          }
+        }
+      },
+      "label": "Variablen setzen"
+    },
+    "start-workflow": {
+      "config": {
+        "payload": {
+          "description": "An den gestarteten Workflow übergebene Nutzdaten. Unterstützt {{template}}-Ausdrücke. Wird nach Möglichkeit als JSON geparst, sonst als Rohstring weitergegeben.",
+          "title": "Nutzdaten"
+        },
+        "workflowName": {
+          "description": "Name des zu startenden Workflows. Unterstützt {{template}}-Ausdrücke.",
+          "title": "Workflow-Name"
+        }
+      },
+      "label": "Workflow starten"
+    }
+  }
+}

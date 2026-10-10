@@ -1,0 +1,13 @@
+{
+  "description": "Converts files (PDFs, images) to markdown via vision LLM",
+  "settings": {
+    "conversionTimeoutMs": {
+      "description": "Timeout for the conversion to complete in milliseconds",
+      "title": "Timeout"
+    },
+    "resizeImagePx": {
+      "description": "Maximum dimension to resize images to before sending to vision model",
+      "title": "Image Size"
+    }
+  }
+}

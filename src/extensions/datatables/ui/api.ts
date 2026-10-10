@@ -5,7 +5,7 @@
  * the schema editor and import dialog display.
  */
 
-import type { PalimHost } from "@ext/ui";
+import type { Formatters, PalimHost } from "@ext/ui";
 import type { ColumnDef, Filter, RowError } from "../types";
 
 /** Base app route of the Data Tables page. */
@@ -90,16 +90,20 @@ export function errorText(err: unknown): string {
  *
  * @param column - Column definition
  * @param value - Stored value
+ * @param format - Locale-aware formatters (`$i18n.format`); browser defaults when omitted
  * @returns Display text (`""` for empty)
  */
-export function displayValue(column: ColumnDef, value: unknown): string {
+export function displayValue(column: ColumnDef, value: unknown, format?: Formatters): string {
   if (value === null || value === undefined) return "";
   if (column.type === "boolean") return value ? "✓" : "✗";
   if (column.type === "datetime" && typeof value === "string") {
     const d = new Date(value);
-    return Number.isNaN(d.getTime()) ? value : d.toLocaleString();
+    if (Number.isNaN(d.getTime())) return value;
+    return format ? format.date(d) : d.toLocaleString();
   }
-  if (column.type === "number" && typeof value === "number") return value.toLocaleString();
+  if (column.type === "number" && typeof value === "number") {
+    return format ? format.number(value) : value.toLocaleString();
+  }
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
 }

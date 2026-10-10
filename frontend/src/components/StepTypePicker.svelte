@@ -4,6 +4,7 @@
  * Renders the list of available step types grouped by category (Steps + Control Flow).
  * Used by both AddStepNode (the dashed circle menu) and the edge insert popup.
  */
+import { t } from "$lib/i18n.svelte";
 import { visualForStepType } from "$lib/nodeVisuals";
 
 interface StepTypeEntry {
@@ -24,16 +25,16 @@ interface Props {
 
 let { customStepTypes, onselect, includeControlFlow = true }: Props = $props();
 
-const builtinTypes = [
-  { type: "agent", label: "Agent", category: "execution" },
-  { type: "iterator", label: "Iterator", category: "control-flow" },
-  { type: "if", label: "If / Condition", category: "control-flow" },
-  { type: "case", label: "Case / Switch", category: "control-flow" },
-  { type: "waitFor", label: "Wait For Signal", category: "control-flow" },
-  { type: "emit", label: "Emit Signal", category: "control-flow" },
-] as const;
+const builtinTypes = $derived([
+  { type: "agent", label: t("stepType.agent"), category: "execution" },
+  { type: "iterator", label: t("stepType.iterator"), category: "control-flow" },
+  { type: "if", label: t("stepType.ifCondition"), category: "control-flow" },
+  { type: "case", label: t("stepType.caseSwitch"), category: "control-flow" },
+  { type: "waitFor", label: t("stepType.waitForSignal"), category: "control-flow" },
+  { type: "emit", label: t("stepType.emitSignal"), category: "control-flow" },
+] as const);
 
-const builtinTypeSlugs = new Set<string>(builtinTypes.map((t) => t.type));
+const builtinTypeSlugs = new Set<string>(["agent", "iterator", "if", "case", "waitFor", "emit"]);
 
 let controlFlowTypes = $derived(
   builtinTypes.filter((t) => t.category === "control-flow").sort((a, b) => a.label.localeCompare(b.label)),
@@ -49,7 +50,9 @@ let agentVisual = $derived(visualForStepType("agent"));
 </script>
 
 <!-- Steps section -->
-<div class="px-2 pt-1 pb-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">Steps</div>
+<div class="px-2 pt-1 pb-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
+  {t("stepType.sectionSteps")}
+</div>
 <button
   type="button"
   class="w-full text-left px-2 py-1.5 rounded-lg hover:bg-muted/60 transition-colors flex items-center gap-2.5"
@@ -58,7 +61,7 @@ let agentVisual = $derived(visualForStepType("agent"));
   <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-white {agentVisual.tileClass}">
     <agentVisual.icon size={15} weight="bold" aria-hidden="true" />
   </span>
-  <span class="font-medium text-foreground">Agent</span>
+  <span class="font-medium text-foreground">{t("stepType.agent")}</span>
 </button>
 {#each customActionTypes as ct}
   {@const ctVisual = visualForStepType(ct.type, { iconId: ct.icon, category: ct.category })}
@@ -78,7 +81,7 @@ let agentVisual = $derived(visualForStepType("agent"));
 {#if includeControlFlow}
   <div class="border-t border-border my-1"></div>
   <div class="px-2 pt-1 pb-1.5 text-[10px] font-semibold text-muted-foreground uppercase tracking-wide">
-    Control Flow
+    {t("stepType.sectionControlFlow")}
   </div>
   {#each controlFlowTypes as cf}
     {@const cfVisual = visualForStepType(cf.type)}

@@ -1,8 +1,4 @@
 <script lang="ts">
-/**
- * Paginated run history for a workflow: cards on small screens, a table on
- * desktop, with Retry (failed runs) and Cancel (in-flight runs) actions.
- */
 import ArrowCounterClockwiseIcon from "phosphor-svelte/lib/ArrowCounterClockwiseIcon";
 import CaretLeftIcon from "phosphor-svelte/lib/CaretLeftIcon";
 import CaretRightIcon from "phosphor-svelte/lib/CaretRightIcon";
@@ -10,6 +6,12 @@ import { authFetch } from "$lib/auth";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+import { t } from "$lib/i18n.svelte";
+/**
+ * Paginated run history for a workflow: cards on small screens, a table on
+ * desktop, with Retry (failed runs) and Cancel (in-flight runs) actions.
+ */
+import { statusLabel } from "$lib/i18nCore";
 import { aggregateStepStatus, formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import type { WorkflowRunSummary } from "$lib/workflowDetail";
 import StatusDot from "./StatusDot.svelte";
@@ -72,7 +74,7 @@ async function cancelRun(runId: string) {
 {/snippet}
 
 {#if runs.length === 0}
-  <p class="text-sm text-muted-foreground text-center mt-3">No runs yet. Click "Run Workflow" to start one.</p>
+  <p class="text-sm text-muted-foreground text-center mt-3">{t("runs.empty")}</p>
 {:else}
   <!-- Mobile & Tablet: Card layout -->
   <div class="responsive-cards">
@@ -81,14 +83,14 @@ async function cancelRun(runId: string) {
       <div class="rounded-md border border-border p-4 space-y-3">
         <div class="flex items-center justify-between gap-2">
           {@render runLink(run.runId)}
-          <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
+          <Badge variant={statusVariant(run.status)}>{statusLabel(run.status)}</Badge>
         </div>
 
-        <StatusDot status={aggregated} title={aggregated} />
+        <StatusDot status={aggregated} title={statusLabel(aggregated)} />
 
         <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
-          <span>Started: {formatTimestamp(run.startedAt)}</span>
-          <span>Completed: {formatTimestamp(run.completedAt, "—")}</span>
+          <span>{t("runs.started", { time: formatTimestamp(run.startedAt) })}</span>
+          <span>{t("runs.completed", { time: formatTimestamp(run.completedAt, "—") })}</span>
         </div>
 
         {#if run.status === "failed" || isRunCancellable(run.status)}
@@ -96,7 +98,7 @@ async function cancelRun(runId: string) {
             {#if run.status === "failed"}
               <Button size="xs" variant="default" onclick={() => retryRun(run.runId)}>
                 <ArrowCounterClockwiseIcon size={12} class="mr-1" aria-hidden="true" />
-                Retry
+                {t("common.retry")}
               </Button>
             {/if}
             {#if isRunCancellable(run.status)}
@@ -107,7 +109,7 @@ async function cancelRun(runId: string) {
                 onclick={() => cancelRun(run.runId)}
               >
                 <span class="text-xs font-bold mr-1" aria-hidden="true">&#x2715;</span>
-                {cancellingRunId === run.runId ? "..." : "Cancel"}
+                {cancellingRunId === run.runId ? "..." : t("common.cancel")}
               </Button>
             {/if}
           </div>
@@ -121,12 +123,12 @@ async function cancelRun(runId: string) {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead class="w-md">Run ID</TableHead>
-          <TableHead>Started</TableHead>
-          <TableHead>Completed</TableHead>
-          <TableHead class="min-w-[2em] text-center">Status</TableHead>
+          <TableHead class="w-md">{t("runs.colRunId")}</TableHead>
+          <TableHead>{t("runs.colStarted")}</TableHead>
+          <TableHead>{t("jobs.colCompleted")}</TableHead>
+          <TableHead class="min-w-[2em] text-center">{t("jobs.colStatus")}</TableHead>
           <TableHead class="min-w-[10em]"></TableHead>
-          <TableHead class="text-center min-w-[10em]">Actions</TableHead>
+          <TableHead class="text-center min-w-[10em]">{t("common.actions")}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -141,17 +143,17 @@ async function cancelRun(runId: string) {
               {formatTimestamp(run.completedAt, "—")}
             </TableCell>
             <TableCell class="text-center">
-              <StatusDot status={aggregated} title={aggregated} />
+              <StatusDot status={aggregated} title={statusLabel(aggregated)} />
             </TableCell>
             <TableCell>
-              <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
+              <Badge variant={statusVariant(run.status)}>{statusLabel(run.status)}</Badge>
             </TableCell>
             <TableCell class="text-right">
               <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
                 {#if run.status === "failed"}
                   <Button size="sm" variant="default" onclick={() => retryRun(run.runId)}>
                     <ArrowCounterClockwiseIcon size={14} class="mr-1" aria-hidden="true" />
-                    Retry
+                    {t("common.retry")}
                   </Button>
                 {/if}
                 {#if isRunCancellable(run.status)}
@@ -174,13 +176,13 @@ async function cancelRun(runId: string) {
   </div>
 
   {#if runsTotalPages > 1}
-    <nav class="flex items-center justify-center gap-2 mt-6" aria-label="Pagination">
+    <nav class="flex items-center justify-center gap-2 mt-6" aria-label={t("common.pagination")}>
       <Button
         size="xs"
         variant="outline"
         disabled={runsPage <= 1}
         onclick={() => (runsPage = 1)}
-        aria-label="First page"
+        aria-label={t("common.firstPage")}
       >
         <CaretLeftIcon size={14} aria-hidden="true" />
         <CaretLeftIcon size={14} class="-ml-1.5" aria-hidden="true" />
@@ -190,17 +192,17 @@ async function cancelRun(runId: string) {
         variant="outline"
         disabled={runsPage <= 1}
         onclick={() => (runsPage = Math.max(1, runsPage - 1))}
-        aria-label="Previous page"
+        aria-label={t("common.previousPage")}
       >
         <CaretLeftIcon size={14} aria-hidden="true" />
       </Button>
-      <span class="text-sm text-muted-foreground"> Page {runsPage} of {runsTotalPages} </span>
+      <span class="text-sm text-muted-foreground">{t("common.pageOf", { page: runsPage, total: runsTotalPages })}</span>
       <Button
         size="xs"
         variant="outline"
         disabled={runsPage >= runsTotalPages}
         onclick={() => (runsPage = Math.min(runsTotalPages, runsPage + 1))}
-        aria-label="Next page"
+        aria-label={t("common.nextPage")}
       >
         <CaretRightIcon size={14} aria-hidden="true" />
       </Button>
@@ -209,7 +211,7 @@ async function cancelRun(runId: string) {
         variant="outline"
         disabled={runsPage >= runsTotalPages}
         onclick={() => (runsPage = runsTotalPages)}
-        aria-label="Last page"
+        aria-label={t("common.lastPage")}
       >
         <CaretRightIcon size={14} aria-hidden="true" />
         <CaretRightIcon size={14} class="-ml-1.5" aria-hidden="true" />

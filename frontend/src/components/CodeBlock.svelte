@@ -9,6 +9,7 @@ theme colors and the `--shiki-dark*` dark-mode hooks are preserved.
 import CheckIcon from "phosphor-svelte/lib/CheckIcon";
 import CopyIcon from "phosphor-svelte/lib/CopyIcon";
 import { onMount, type Snippet } from "svelte";
+import { t } from "$lib/i18n.svelte";
 
 interface Props {
   /** Fence language (e.g. "javascript"); "plain"/empty when none was given. */
@@ -102,8 +103,8 @@ async function copy() {
       type="button"
       class="code-block__copy"
       onclick={copy}
-      aria-label={copied ? "Copied" : "Copy code"}
-      title={copied ? "Copied" : "Copy code"}
+      aria-label={copied ? t("common.copied") : t("common.copyCode")}
+      title={copied ? t("common.copied") : t("common.copyCode")}
     >
       {#if copied}
         <CheckIcon class="w-3.5 h-3.5" aria-hidden="true" />

@@ -194,7 +194,7 @@ export class AuthService implements AuthResolver {
     const expiresAt = Date.now() + this.sessionTtlMs;
     this.store.insertSession({ userId: user.id, tokenHash: hashToken(token), expiresAt });
 
-    const principal = this.buildPrincipal(user.id, user.username, user.displayName);
+    const principal = this.buildPrincipal(user.id, user.username, user.displayName, user.locale);
     if (!principal) return null;
     return { token, expiresAt, principal };
   }
@@ -224,7 +224,7 @@ export class AuthService implements AuthResolver {
     if (!user || user.disabled) return null;
 
     this.store.touchSession(session.id, now);
-    return this.buildPrincipal(user.id, user.username, user.displayName);
+    return this.buildPrincipal(user.id, user.username, user.displayName, user.locale);
   }
 
   /**
@@ -337,14 +337,15 @@ export class AuthService implements AuthResolver {
    * @param userId - The user id.
    * @param username - The user's username.
    * @param displayName - The user's optional display name.
+   * @param locale - The user's optional preferred UI locale.
    * @returns The resolved principal, or null when role loading fails unexpectedly.
    */
-  private buildPrincipal(userId: string, username: string, displayName?: string): ResolvedPrincipal {
+  private buildPrincipal(userId: string, username: string, displayName?: string, locale?: string): ResolvedPrincipal {
     const roleNames = this.store.getUserRoleNames(userId);
     const isAdmin = roleNames.includes(ROLE_ADMIN);
     const permissions = isAdmin ? [] : this.store.getEffectivePermissions(userId);
     const ability = buildAbility({ userId, isAdmin, permissions });
-    const user: AuthenticatedUser = { id: userId, username, displayName, roles: roleNames };
+    const user: AuthenticatedUser = { id: userId, username, displayName, locale, roles: roleNames };
     return { user, isAdmin, permissions, ability };
   }
 }

@@ -5,6 +5,7 @@
  */
 import { BUILTIN_STEP_TYPES } from "$shared/workflowBuilder";
 import type { OutputSchemaShorthand } from "$shared/workflows";
+import { translateCore as t } from "./i18nCore";
 import { buildInitialValues } from "./schemaForm";
 import {
   computeOrphanedStepIndices,
@@ -273,6 +274,18 @@ export function graphEdgesToDraftEdges(
 }
 
 /**
+ * Whether a message is a "step is not connected" error for any slug, in the
+ * active locale (the slug may have changed since the message was set).
+ *
+ * @param message - Validation message
+ * @returns True for a connectivity error
+ */
+function isDisconnectedMessage(message: string): boolean {
+  const [prefix = "", suffix = ""] = t("validation.disconnected", { slug: "\u0000" }).split("\u0000");
+  return message.length > prefix.length + suffix.length && message.startsWith(prefix) && message.endsWith(suffix);
+}
+
+/**
  * Re-evaluates the "step is not connected" validation errors against the
  * draft's current edges.
  *
@@ -293,7 +306,7 @@ export function reconcileConnectivityErrors(draft: WorkflowDraft, errors: Map<st
     const current = next.get(key);
     // A connectivity error for this key, regardless of the slug embedded in the
     // message (the slug may have changed since it was set).
-    const isConnectivityError = current?.endsWith("is not connected to any other step");
+    const isConnectivityError = current !== undefined && isDisconnectedMessage(current);
 
     if (orphaned.has(i)) {
       // Add/refresh the connectivity error, but never clobber a genuine
@@ -334,8 +347,8 @@ export function errorsAfterStepRemoval(
   if (removedSlug) {
     const referencingSteps = remainingSteps.filter((s) => s.prompt?.includes(`steps.${removedSlug}.`));
     if (referencingSteps.length > 0) {
-      const slugs = referencingSteps.map((s) => s.slug || "(unnamed)").join(", ");
-      next.set("steps.removeWarning", `Step "${removedSlug}" is referenced in: ${slugs}`);
+      const slugs = referencingSteps.map((s) => s.slug || t("validation.unnamed")).join(", ");
+      next.set("steps.removeWarning", t("validation.referencedIn", { slug: removedSlug, steps: slugs }));
     } else {
       next.delete("steps.removeWarning");
     }

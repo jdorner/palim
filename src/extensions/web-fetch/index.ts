@@ -11,7 +11,7 @@ import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ex
 
 const manifest = {
   name: "web-fetch",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "Fetch and read webpages",
 } satisfies ExtensionManifest;
 

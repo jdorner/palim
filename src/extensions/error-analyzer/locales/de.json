@@ -1,0 +1,17 @@
+{
+  "description": "Automatische Fehleranalyse und Fehlerberichte für Jobs und Workflows",
+  "settings": {
+    "monitoredQueues": {
+      "description": "Quellen, die auf fehlgeschlagene Jobs überwacht werden",
+      "title": "Überwachte Warteschlangen"
+    },
+    "overridePrompt": {
+      "description": "Ersetzt den System-Prompt des Fehleranalyse-Agenten",
+      "title": "System-Prompt überschreiben"
+    },
+    "reportsPath": {
+      "description": "Relativer Pfad im Arbeitsverzeichnis, unter dem Fehlerberichte gespeichert werden",
+      "title": "Berichtspfad"
+    }
+  }
+}

@@ -10,6 +10,7 @@ import { Value } from "typebox/value";
 import { authFetch } from "$lib/auth";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import { Button } from "$lib/components/ui/button";
+import { t, tx } from "$lib/i18n.svelte";
 import { getAvailableItems, getEmptyValue, getEnumOptions, getInputType, getLabel } from "$lib/schemaForm";
 import MultiSelect from "./MultiSelect.svelte";
 
@@ -139,12 +140,12 @@ async function handleSubmit() {
       return;
     }
 
-    success = "Settings saved";
+    success = t("settings.saved");
     savedValues = { ...formValues };
     if (successTimer) clearTimeout(successTimer);
     successTimer = setTimeout(() => (success = null), 3000);
   } catch (err) {
-    formError = err instanceof Error ? err.message : "Failed to save settings";
+    formError = err instanceof Error ? err.message : t("settings.saveFailed");
   } finally {
     submitting = false;
   }
@@ -237,8 +238,9 @@ function handleKeydown(event: KeyboardEvent) {
   {#each propertyKeys as key (key)}
     {@const prop = properties[key]!}
     {@const inputType = getInputType(prop)}
-    {@const label = getLabel(key, prop)}
-    {@const description = typeof prop.description === "string" ? prop.description : null}
+    {@const label = tx(extensionName, `settings.${key}.title`, getLabel(key, prop))}
+    {@const description =
+      typeof prop.description === "string" ? tx(extensionName, `settings.${key}.description`, prop.description) : null}
     {@const error = fieldErrors[key]}
 
     <div class="space-y-1">
@@ -283,7 +285,7 @@ function handleKeydown(event: KeyboardEvent) {
           id="settings-{key}"
           items={prop.availableItems as string[]}
           selected={Array.isArray(formValues[key]) ? (formValues[key] as string[]) : []}
-          placeholder="Select items..."
+          placeholder={t("schemaForm.selectItems")}
           onchange={(val) => updateValue(key, val)}
         />
       {:else if inputType === "tags"}
@@ -299,7 +301,7 @@ function handleKeydown(event: KeyboardEvent) {
           class="block w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring
             {error ? "border-destructive" : ""}"
           value={Array.isArray(formValues[key]) ? (formValues[key] as string[]).join(", ") : ""}
-          placeholder="value1, value2, ..."
+          placeholder={t("condition.valuesPlaceholder")}
           oninput={(e) => {
             const raw = e.currentTarget.value;
             const items = raw
@@ -403,7 +405,7 @@ function handleKeydown(event: KeyboardEvent) {
         >
       {:else}
         <span class="text-sm font-medium text-muted-foreground">{label}</span>
-        <p class="text-xs text-muted-foreground italic">This setting type is not configurable via the UI.</p>
+        <p class="text-xs text-muted-foreground italic">{t("settings.notConfigurable")}</p>
       {/if}
 
       {#if error}
@@ -429,15 +431,15 @@ function handleKeydown(event: KeyboardEvent) {
   <div class="flex items-center gap-2 pt-2">
     <Button type="submit" disabled={submitting} size="sm" class="gap-1.5">
       <FloppyDiskIcon class="w-4 h-4" aria-hidden="true" />
-      {submitting ? "Saving..." : "Save Settings"}
+      {submitting ? t("common.saving") : t("settings.saveSettings")}
     </Button>
     <Button type="button" variant="outline" size="sm" class="gap-1.5" disabled={!dirty} onclick={undoChanges}>
       <ArrowUUpLeftIcon class="w-4 h-4" aria-hidden="true" />
-      Undo
+      {t("settings.undo")}
     </Button>
     <Button type="button" variant="outline" size="sm" class="gap-1.5" disabled={isDefaults} onclick={resetToDefaults}>
       <ArrowCounterClockwiseIcon class="w-4 h-4" aria-hidden="true" />
-      Reset to Default
+      {t("settings.resetDefaults")}
     </Button>
   </div>
 </form>

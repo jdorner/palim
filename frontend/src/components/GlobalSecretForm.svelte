@@ -8,6 +8,7 @@ import { Button } from "$lib/components/ui/button";
 import { Card, CardContent, CardHeader } from "$lib/components/ui/card";
 import { Flash } from "$lib/flash.svelte";
 import { ensureOk } from "$lib/http";
+import { i18n, t } from "$lib/i18n.svelte";
 import FlashMessage from "./FlashMessage.svelte";
 import SecretDeleteDialog from "./SecretDeleteDialog.svelte";
 import SecretRow from "./SecretRow.svelte";
@@ -67,7 +68,7 @@ async function fetchSecrets() {
     const data: { secrets: GlobalSecretEntry[] } = await res.json();
     secrets = data.secrets;
   } catch (err) {
-    fetchError = err instanceof Error ? err.message : "Failed to load secrets";
+    fetchError = err instanceof Error ? err.message : t("secrets.loadFailed");
   } finally {
     loading = false;
   }
@@ -113,21 +114,21 @@ async function submitForm() {
   // Validate key
   const trimmedKey = formKey.trim();
   if (!trimmedKey) {
-    formError = "Key is required";
+    formError = t("globalSecrets.keyRequired");
     return;
   }
   if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(trimmedKey)) {
-    formError = "Key must be UPPER_SNAKE_CASE (e.g. MY_API_TOKEN)";
+    formError = t("globalSecrets.keyFormat");
     return;
   }
   if (trimmedKey !== editingKey && secrets.some((s) => s.key === trimmedKey)) {
-    formError = `Secret "${trimmedKey}" already exists`;
+    formError = t("globalSecrets.exists", { key: trimmedKey });
     return;
   }
 
   // Validate value (required for create, optional for edit = only update if provided)
   if (formMode === "create" && formValue.trim().length === 0) {
-    formError = "Value cannot be empty";
+    formError = t("secrets.valueEmpty");
     return;
   }
 
@@ -137,7 +138,7 @@ async function submitForm() {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
   if (consumers.length === 0) {
-    formError = "At least one consumer pattern is required";
+    formError = t("globalSecrets.consumerRequired");
     return;
   }
 
@@ -152,7 +153,7 @@ async function submitForm() {
       if (keyChanged) {
         // Must provide a value when creating under a new key
         if (formValue.trim().length === 0) {
-          formError = "Value is required when changing the key";
+          formError = t("globalSecrets.valueRequiredOnRename");
           return;
         }
         // Create new key first (refused if it exists), then delete old
@@ -167,12 +168,11 @@ async function submitForm() {
       }
     }
 
-    const action = formMode === "create" ? "added" : "updated";
     resetForm();
     await fetchSecrets();
-    flash.show(`Secret "${trimmedKey}" ${action}`);
+    flash.show(t(formMode === "create" ? "globalSecrets.added" : "globalSecrets.updated", { key: trimmedKey }));
   } catch (err) {
-    formError = err instanceof Error ? err.message : "Failed to save";
+    formError = err instanceof Error ? err.message : t("common.saveFailedShort");
     // The key may collide with a secret added elsewhere; refresh the list.
     fetchSecrets();
   } finally {
@@ -230,9 +230,9 @@ async function executeDelete() {
 
     if (editingKey === key) resetForm();
     await fetchSecrets();
-    flash.show(`Secret "${key}" deleted`);
+    flash.show(t("secrets.deleted", { key }));
   } catch (err) {
-    formError = err instanceof Error ? err.message : "Failed to delete";
+    formError = err instanceof Error ? err.message : t("common.deleteFailedShort");
   } finally {
     deleting = false;
     deleteTargetKey = null;
@@ -244,7 +244,7 @@ async function executeDelete() {
 // ---------------------------------------------------------------------------
 
 function formatDate(epoch: number): string {
-  return new Date(epoch).toLocaleDateString(undefined, {
+  return i18n.format.date(epoch, {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -266,26 +266,26 @@ function handleKeydown(event: KeyboardEvent) {
   <Card class="bg-accent">
     <CardHeader class="pb-2">
       <span class="text-sm font-medium">
-        {formMode === "create" ? "Add Global Secret" : `Edit: ${editingKey}`}
+        {formMode === "create" ? t("globalSecrets.addTitle") : t("globalSecrets.editTitle", { key: editingKey })}
       </span>
     </CardHeader>
     <CardContent class="space-y-3">
       <div class="space-y-1">
-        <label for="secret-key" class="text-xs font-medium text-muted-foreground">Key (UPPER_SNAKE_CASE)</label>
+        <label for="secret-key" class="text-xs font-medium text-muted-foreground">{t("globalSecrets.keyLabel")}</label>
         <input
           id="secret-key"
           type="text"
           class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm font-mono"
-          placeholder="e.g. GITEA_API_TOKEN"
+          placeholder={t("globalSecrets.keyPlaceholder")}
           bind:value={formKey}
         >
       </div>
 
       <div class="space-y-1">
         <label for="secret-value" class="text-xs font-medium text-muted-foreground">
-          Value
+          {t("globalSecrets.value")}
           {#if formMode === "edit"}
-            <span class="font-normal">(leave blank to keep unchanged)</span>
+            <span class="font-normal">{t("globalSecrets.keepUnchanged")}</span>
           {/if}
         </label>
         <input
@@ -293,26 +293,30 @@ function handleKeydown(event: KeyboardEvent) {
           type="password"
           maxlength={4096}
           class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-          placeholder={formMode === "edit" ? "Enter new value or leave blank" : "Secret value"}
+          placeholder={formMode === "edit"
+            ? t("globalSecrets.newValuePlaceholder")
+            : t("globalSecrets.valuePlaceholder")}
           bind:value={formValue}
         >
       </div>
 
       <div class="space-y-1">
-        <label for="secret-desc" class="text-xs font-medium text-muted-foreground">Description (optional)</label>
+        <label for="secret-desc" class="text-xs font-medium text-muted-foreground"
+          >{t("globalSecrets.descriptionLabel")}</label
+        >
         <input
           id="secret-desc"
           type="text"
           maxlength={200}
           class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-          placeholder="e.g. Gitea API token for commit-check workflow"
+          placeholder={t("globalSecrets.descriptionPlaceholder")}
           bind:value={formDescription}
         >
       </div>
 
       <div class="space-y-1">
         <label for="secret-consumers" class="text-xs font-medium text-muted-foreground">
-          Consumer patterns (comma-separated)
+          {t("globalSecrets.consumersLabel")}
         </label>
         <input
           id="secret-consumers"
@@ -322,11 +326,12 @@ function handleKeydown(event: KeyboardEvent) {
           bind:value={formConsumers}
         >
         <p class="text-xs text-muted-foreground">
-          Examples: <code class="bg-muted px-1 rounded">workflow:*</code> (all workflows),
+          {t("globalSecrets.examples")} <code class="bg-muted px-1 rounded">workflow:*</code>
+          {t("globalSecrets.allWorkflows")}
           <code class="bg-muted px-1 rounded">workflow:my-wf</code>
-          (specific workflow),
+          {t("globalSecrets.specificWorkflow")}
           <code class="bg-muted px-1 rounded">ext:telegram</code>
-          (specific extension)
+          {t("globalSecrets.specificExtension")}
         </p>
       </div>
 
@@ -339,9 +344,9 @@ function handleKeydown(event: KeyboardEvent) {
       <div class="flex gap-2">
         <Button size="sm" disabled={submitting} onclick={submitForm}>
           <FloppyDiskIcon class="w-4 h-4 mr-1.5" aria-hidden="true" />
-          {submitting ? "Saving..." : formMode === "create" ? "Create" : "Save"}
+          {submitting ? t("common.saving") : formMode === "create" ? t("common.create") : t("common.save")}
         </Button>
-        <Button size="sm" variant="outline" onclick={resetForm}>Cancel</Button>
+        <Button size="sm" variant="outline" onclick={resetForm}>{t("common.cancel")}</Button>
       </div>
     </CardContent>
   </Card>
@@ -350,7 +355,7 @@ function handleKeydown(event: KeyboardEvent) {
 <svelte:window onkeydown={handleKeydown} />
 
 {#if loading}
-  <LoadingIndicator message="Loading global secrets..." />
+  <LoadingIndicator message={t("globalSecrets.loading")} />
 {:else if fetchError}
   <p class="text-sm text-destructive">{fetchError}</p>
 {:else}
@@ -361,7 +366,7 @@ function handleKeydown(event: KeyboardEvent) {
         {#if !formMode}
           <PlusIcon size={14} class="mr-1.5" aria-hidden="true" />
         {/if}
-        {formMode ? "Cancel" : "Add Secret"}
+        {formMode ? t("common.cancel") : t("globalSecrets.add")}
       </Button>
     </div>
 
@@ -372,7 +377,7 @@ function handleKeydown(event: KeyboardEvent) {
 
     <!-- Empty state -->
     {#if secrets.length === 0 && !formMode}
-      <p class="text-sm text-muted-foreground">No global secrets configured, yet.</p>
+      <p class="text-sm text-muted-foreground">{t("globalSecrets.empty")}</p>
     {/if}
 
     <!-- Edit form (shown above the list when editing) -->
@@ -405,7 +410,7 @@ function handleKeydown(event: KeyboardEvent) {
                 <p class="text-xs text-muted-foreground">{entry.description}</p>
               {/if}
               <span class="text-xs text-muted-foreground/60 ml-auto shrink-0">
-                Updated {formatDate(entry.updatedAt)}
+                {t("common.updatedAt", { date: formatDate(entry.updatedAt) })}
               </span>
             </div>
           </SecretRow>

@@ -15,6 +15,7 @@ import {
   resolveIteratorItemSchema,
   walkSchemaPath,
 } from "../../../shared/workflows";
+import { type CoreKey, translateCore } from "./i18nCore";
 import { getEnumOptions, isEnum } from "./schemaForm";
 
 export type { OutputSchema, OutputSchemas };
@@ -128,7 +129,7 @@ export function getFunctionSuggestions(prefix: string): Suggestion[] {
     terminal: false,
     kind: "function",
     signature: meta.signature,
-    description: meta.description,
+    description: translateCore(`templateFunctions.${meta.name}` as CoreKey, { default: meta.description }),
   }));
 }
 

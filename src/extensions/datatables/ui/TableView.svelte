@@ -45,6 +45,7 @@ import { displayValue, errorText, INPUT_CLASS, type NavigateDirection, PAGE_ROUT
 import CellInput from "./CellInput.svelte";
 
 let { palim, name, canWrite }: { palim: PalimHost; name: string; canWrite: boolean } = $props();
+const i18n = palim.i18n;
 
 const PAGE_SIZE = 50;
 /** Fixed row height, so checking a row or editing a cell never changes it. */
@@ -109,7 +110,7 @@ onMount(() => {
     if (change.table !== name) return;
     if (change.deleted) {
       if (dropping) return;
-      palim.notify(`Table "${name}" was deleted`, "info");
+      palim.notify(i18n.current.t("view.deletedElsewhere", { name }), "info");
       palim.navigate(PAGE_ROUTE);
       return;
     }
@@ -146,8 +147,18 @@ const isNumeric = (col: ColumnDef) => col.type === "number" || col.type === "int
 
 const columnLabel = (key: string) =>
   table?.columns.find((c) => c.key === key)?.label ??
-  { _id: "ID", _createdAt: "Created", _updatedAt: "Updated" }[key] ??
+  {
+    _id: $i18n.t("sysColumns.id"),
+    _createdAt: $i18n.t("sysColumns.created"),
+    _updatedAt: $i18n.t("sysColumns.updated"),
+  }[key] ??
   key;
+
+/** Header tooltip: key, localized type, and constraints. */
+const columnTitle = (col: ColumnDef) =>
+  $i18n.t("view.columnTitle", { key: col.key, type: $i18n.t(`columnTypes.${col.type}`, { default: col.type }) }) +
+  (col.required ? $i18n.t("view.requiredSuffix") : "") +
+  (col.unique ? $i18n.t("view.uniqueSuffix") : "");
 
 async function saveCell(row: RowRecord, column: ColumnDef, value: unknown) {
   editing = null;
@@ -203,7 +214,7 @@ async function saveNewRow() {
   try {
     await request(palim, `${base}/rows`, { method: "POST", body: { rows: [newRow] } });
     newRow = null;
-    palim.notify("Row added", "success");
+    palim.notify(i18n.current.t("view.rowAdded"), "success");
     await reload(true);
   } catch (err) {
     palim.notify(errorText(err), "error");
@@ -224,9 +235,9 @@ function toggleRow(id: number) {
 async function deleteSelected() {
   const ids = [...selected];
   const ok = await palim.confirm({
-    title: "Delete rows?",
-    message: `${ids.length} row(s) will be deleted.`,
-    confirmLabel: "Delete",
+    title: i18n.current.t("view.deleteRowsTitle"),
+    message: i18n.current.t("view.deleteRowsMessage", { count: ids.length }),
+    confirmLabel: i18n.current.t("common.delete"),
     destructive: true,
   });
   if (!ok) return;
@@ -236,7 +247,7 @@ async function deleteSelected() {
       body: { ids },
     });
     selected = new Set();
-    palim.notify(`${deleted} row(s) deleted`, "success");
+    palim.notify(i18n.current.t("view.rowsDeleted", { count: deleted }), "success");
     await reload(true);
   } catch (err) {
     palim.notify(errorText(err), "error");
@@ -245,15 +256,15 @@ async function deleteSelected() {
 
 async function truncate() {
   const ok = await palim.confirm({
-    title: "Delete all rows?",
-    message: `All ${table?.rowCount ?? ""} rows of "${table?.label}" will be deleted. The columns are kept.`,
-    confirmLabel: "Delete all",
+    title: i18n.current.t("view.truncateTitle"),
+    message: i18n.current.t("view.truncateMessage", { count: table?.rowCount ?? 0, label: table?.label }),
+    confirmLabel: i18n.current.t("view.deleteAll"),
     destructive: true,
   });
   if (!ok) return;
   try {
     const { deleted } = await request<{ deleted: number }>(palim, `${base}/truncate`, { method: "POST" });
-    palim.notify(`${deleted} row(s) deleted`, "success");
+    palim.notify(i18n.current.t("view.rowsDeleted", { count: deleted }), "success");
     offset = 0;
     await reload(true);
   } catch (err) {
@@ -263,16 +274,16 @@ async function truncate() {
 
 async function dropTable() {
   const ok = await palim.confirm({
-    title: "Delete table?",
-    message: `"${table?.label}" and all ${table?.rowCount ?? ""} rows will be deleted permanently. Workflows using it will fail.`,
-    confirmLabel: "Delete table",
+    title: i18n.current.t("view.dropTitle"),
+    message: i18n.current.t("view.dropMessage", { count: table?.rowCount ?? 0, label: table?.label }),
+    confirmLabel: i18n.current.t("view.deleteTable"),
     destructive: true,
   });
   if (!ok) return;
   dropping = true;
   try {
     await request(palim, base, { method: "DELETE" });
-    palim.notify(`Table "${table?.label ?? name}" deleted`, "success");
+    palim.notify(i18n.current.t("view.tableDeleted", { label: table?.label ?? name }), "success");
     palim.navigate(PAGE_ROUTE);
   } catch (err) {
     dropping = false;
@@ -296,7 +307,7 @@ async function exportFile(format: "csv" | "xlsx") {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   } catch (err) {
-    palim.notify(`Export failed: ${errorText(err)}`, "error");
+    palim.notify(i18n.current.t("view.exportFailed", { error: errorText(err) }), "error");
   }
 }
 
@@ -316,28 +327,31 @@ function goToPage(n: number) {
   {#if row[col.key] === null || row[col.key] === undefined}
     <span class="text-muted-foreground/50">-</span>
   {:else}
-    <span class="block max-w-72 truncate" title={displayValue(col, row[col.key])}
-      >{displayValue(col, row[col.key])}</span
-    >
+    {@const text = displayValue(col, row[col.key], $i18n.format)}
+    <span class="block max-w-72 truncate" title={text}>{text}</span>
   {/if}
 {/snippet}
 
 <div class="flex min-h-0 flex-1 flex-col gap-3">
   <div class="flex shrink-0 flex-wrap items-center justify-between gap-2">
     <div class="flex min-w-0 items-center gap-3">
-      <Button size="sm" variant="outline" onclick={() => palim.navigate(PAGE_ROUTE)}>&laquo;&nbsp;Back</Button>
+      <Button size="sm" variant="outline" onclick={() => palim.navigate(PAGE_ROUTE)}
+        >&laquo;&nbsp;{$i18n.t("back")}</Button
+      >
       {#if table}
         <h2 class="truncate text-lg font-semibold">{table.label}</h2>
         <code class="hidden text-xs text-muted-foreground sm:inline">{table.name}</code>
-        <Badge variant="secondary">{table.rowCount.toLocaleString()} rows</Badge>
+        <Badge variant="secondary">{$i18n.t("rows", { count: table.rowCount })}</Badge>
         {#if table.keyColumn}
-          <Badge variant="outline" title="Key column (used by upserts)">key: {table.keyColumn}</Badge>
+          <Badge variant="outline" title={$i18n.t("view.keyColumnTitle")}
+            >{$i18n.t("view.keyBadge", { column: table.keyColumn })}</Badge
+          >
         {/if}
       {/if}
     </div>
     {#if canWrite}
       <Button size="sm" disabled={!table || newRow !== null} onclick={startNewRow}>
-        <PlusIcon size={14} class="mr-1.5" aria-hidden="true" />Add row
+        <PlusIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("view.addRow")}
       </Button>
     {/if}
   </div>
@@ -347,11 +361,12 @@ function goToPage(n: number) {
 
   <div class="flex shrink-0 flex-wrap items-center gap-2">
     <Button size="sm" variant={filters.length > 0 ? "secondary" : "outline"} onclick={() => (showFilter = !showFilter)}>
-      <FunnelIcon size={14} class="mr-1.5" aria-hidden="true" />Filter{filters.length > 0 ? ` (${filters.length})` : ""}
+      <FunnelIcon size={14} class="mr-1.5" aria-hidden="true" />
+      {filters.length > 0 ? $i18n.t("view.filterCount", { count: filters.length }) : $i18n.t("view.filter")}
     </Button>
     <div class="relative">
       <Button size="sm" variant="outline" onclick={() => (exportOpen = !exportOpen)}>
-        <DownloadSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />Export
+        <DownloadSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("view.export")}
       </Button>
       {#if exportOpen}
         <div class="absolute left-0 top-10 z-20 min-w-44 rounded-md border border-border bg-background p-1 shadow-md">
@@ -360,14 +375,14 @@ function goToPage(n: number) {
             class="block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
             onclick={() => exportFile("csv")}
           >
-            CSV{filters.length > 0 ? " (filtered)" : ""}
+            CSV{filters.length > 0 ? $i18n.t("view.filtered") : ""}
           </button>
           <button
             type="button"
             class="block w-full rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent"
             onclick={() => exportFile("xlsx")}
           >
-            Excel (.xlsx){filters.length > 0 ? " (filtered)" : ""}
+            Excel (.xlsx){filters.length > 0 ? $i18n.t("view.filtered") : ""}
           </button>
         </div>
       {/if}
@@ -378,19 +393,20 @@ function goToPage(n: number) {
         variant="outline"
         onclick={() => palim.navigate(`${PAGE_ROUTE}/import?table=${encodeURIComponent(name)}`)}
       >
-        <FileArrowUpIcon size={14} class="mr-1.5" aria-hidden="true" />Import
+        <FileArrowUpIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("view.import")}
       </Button>
       <Button
         size="sm"
         variant="outline"
         onclick={() => palim.navigate(`${PAGE_ROUTE}/t/${encodeURIComponent(name)}/schema`)}
       >
-        <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />Edit table
+        <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("view.editTable")}
       </Button>
       <div class="ml-auto flex flex-wrap gap-1">
         {#if selected.size > 0}
           <Button size="sm" variant="destructive" onclick={deleteSelected}>
-            <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />Delete {selected.size}
+            <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
+            {$i18n.t("view.deleteSelected", { count: selected.size })}
           </Button>
         {/if}
         <Button
@@ -400,7 +416,7 @@ function goToPage(n: number) {
           disabled={!table?.rowCount}
           onclick={truncate}
         >
-          <EraserIcon size={14} class="mr-1.5" aria-hidden="true" />Delete all rows
+          <EraserIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("view.deleteAllRows")}
         </Button>
         <Button
           size="sm"
@@ -409,7 +425,7 @@ function goToPage(n: number) {
           disabled={!table}
           onclick={dropTable}
         >
-          <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />Delete table
+          <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("view.deleteTable")}
         </Button>
       </div>
     {/if}
@@ -417,30 +433,30 @@ function goToPage(n: number) {
 
   {#if showFilter && table}
     <div class="flex shrink-0 flex-wrap items-center gap-2 rounded-md border border-border bg-muted/30 p-2">
-      <select class="{INPUT_CLASS} w-auto" aria-label="Filter column" bind:value={filterDraft.column}>
-        <option value="" disabled>Column…</option>
+      <select class="{INPUT_CLASS} w-auto" aria-label={$i18n.t("view.filterColumn")} bind:value={filterDraft.column}>
+        <option value="" disabled>{$i18n.t("view.columnPlaceholder")}</option>
         {#each table.columns as col (col.key)}
           <option value={col.key}>{col.label}</option>
         {/each}
-        <option value="_id">ID</option>
-        <option value="_createdAt">Created</option>
-        <option value="_updatedAt">Updated</option>
+        <option value="_id">{$i18n.t("sysColumns.id")}</option>
+        <option value="_createdAt">{$i18n.t("sysColumns.created")}</option>
+        <option value="_updatedAt">{$i18n.t("sysColumns.updated")}</option>
       </select>
-      <select class="{INPUT_CLASS} w-auto" aria-label="Filter operator" bind:value={filterDraft.op}>
+      <select class="{INPUT_CLASS} w-auto" aria-label={$i18n.t("view.filterOperator")} bind:value={filterDraft.op}>
         {#each FILTER_OPS as op (op)}
-          <option value={op}>{FILTER_OP_LABELS[op]}</option>
+          <option value={op}>{$i18n.t(`filterOps.${op}`, { default: FILTER_OP_LABELS[op] })}</option>
         {/each}
       </select>
       {#if !VALUELESS_OPS.includes(filterDraft.op)}
         <input
           class="{INPUT_CLASS} w-56"
-          aria-label="Filter value"
-          placeholder={filterDraft.op === "in" ? "a, b, c" : "Value"}
+          aria-label={$i18n.t("view.filterValue")}
+          placeholder={filterDraft.op === "in" ? "a, b, c" : $i18n.t("view.value")}
           bind:value={filterDraft.value}
           onkeydown={(e) => e.key === "Enter" && addFilter()}
         >
       {/if}
-      <Button size="sm" disabled={!filterDraft.column} onclick={addFilter}>Add filter</Button>
+      <Button size="sm" disabled={!filterDraft.column} onclick={addFilter}>{$i18n.t("view.addFilter")}</Button>
     </div>
   {/if}
 
@@ -451,14 +467,14 @@ function goToPage(n: number) {
           class="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted/50 px-2.5 py-0.5 text-xs"
         >
           <span class="font-medium">{columnLabel(f.column)}</span>
-          <span class="text-muted-foreground">{FILTER_OP_LABELS[f.op]}</span>
+          <span class="text-muted-foreground">{$i18n.t(`filterOps.${f.op}`, { default: FILTER_OP_LABELS[f.op] })}</span>
           {#if f.value !== undefined}
             <span>{String(f.value)}</span>
           {/if}
           <button
             type="button"
             class="text-muted-foreground hover:text-foreground"
-            aria-label="Remove filter"
+            aria-label={$i18n.t("view.removeFilter")}
             onclick={() => removeFilter(i)}
           >
             <XIcon size={12} />
@@ -469,7 +485,7 @@ function goToPage(n: number) {
   {/if}
 
   {#if loading}
-    <LoadingIndicator message="Loading rows..." />
+    <LoadingIndicator message={$i18n.t("view.loadingRows")} />
   {:else if loadError}
     <p class="shrink-0 rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive">{loadError}</p>
   {:else if table}
@@ -481,7 +497,7 @@ function goToPage(n: number) {
             {#if canWrite}
               <TableHead class="w-10">
                 <div class="flex items-center">
-                  <Checkbox aria-label="Select all" checked={allSelected} onCheckedChange={toggleAll} />
+                  <Checkbox aria-label={$i18n.t("view.selectAll")} checked={allSelected} onCheckedChange={toggleAll} />
                 </div>
               </TableHead>
             {/if}
@@ -506,7 +522,7 @@ function goToPage(n: number) {
                 <button
                   type="button"
                   class="inline-flex items-center gap-1 hover:text-foreground"
-                  title="{col.key} ({col.type}){col.required ? ", required" : ""}{col.unique ? ", unique" : ""}"
+                  title={columnTitle(col)}
                   onclick={() => toggleSort(col.key)}
                 >
                   {col.label}
@@ -527,8 +543,8 @@ function goToPage(n: number) {
             <TableRow class="{ROW_CLASS} bg-primary/5 hover:bg-primary/5">
               <TableCell class={CELL_CLASS} colspan={canWrite ? 2 : 1}>
                 <div class="flex gap-1">
-                  <Button size="xs" onclick={saveNewRow}>Save</Button>
-                  <Button size="xs" variant="ghost" onclick={() => (newRow = null)}>Cancel</Button>
+                  <Button size="xs" onclick={saveNewRow}>{$i18n.t("common.save")}</Button>
+                  <Button size="xs" variant="ghost" onclick={() => (newRow = null)}>{$i18n.t("common.cancel")}</Button>
                 </div>
               </TableCell>
               {#each table.columns as col, i (col.key)}
@@ -553,7 +569,7 @@ function goToPage(n: number) {
                 <TableCell class={CELL_CLASS}>
                   <div class="flex items-center">
                     <Checkbox
-                      aria-label="Select row"
+                      aria-label={$i18n.t("view.selectRow")}
                       checked={selected.has(row._id)}
                       onCheckedChange={() => toggleRow(row._id)}
                     />
@@ -598,7 +614,7 @@ function goToPage(n: number) {
                   class="py-8 text-center text-muted-foreground"
                   colspan={table.columns.length + (canWrite ? 2 : 1)}
                 >
-                  {filters.length > 0 ? "No rows match the filters." : "No rows yet."}
+                  {filters.length > 0 ? $i18n.t("view.noMatch") : $i18n.t("view.noRows")}
                 </TableCell>
               </TableRow>
             {/if}
@@ -610,21 +626,24 @@ function goToPage(n: number) {
     <div class="flex shrink-0 flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
       <span>
         {#if total > 0}
-          {offset + 1}–{Math.min(offset + PAGE_SIZE, total)}
-          of {total.toLocaleString()}{filters.length > 0 ? " matching" : ""}
+          {$i18n.t(filters.length > 0 ? "view.rangeMatching" : "view.range", {
+            from: $i18n.format.number(offset + 1),
+            to: $i18n.format.number(Math.min(offset + PAGE_SIZE, total)),
+            total: $i18n.format.number(total),
+          })}
         {/if}
         {#if canWrite}
-          <span class="ml-2 text-xs">Double-click a cell to edit.</span>
+          <span class="ml-2 text-xs">{$i18n.t("view.dblClickHint")}</span>
         {/if}
       </span>
       {#if totalPages > 1}
-        <nav class="flex items-center gap-2" aria-label="Pagination">
+        <nav class="flex items-center gap-2" aria-label={$i18n.t("view.pagination")}>
           <Button
             size="xs"
             variant="outline"
             disabled={currentPage <= 1}
             onclick={() => goToPage(1)}
-            aria-label="First page"
+            aria-label={$i18n.t("view.firstPage")}
           >
             <CaretLeftIcon size={14} aria-hidden="true" /><CaretLeftIcon size={14} class="-ml-1.5" aria-hidden="true" />
           </Button>
@@ -633,17 +652,19 @@ function goToPage(n: number) {
             variant="outline"
             disabled={currentPage <= 1}
             onclick={() => goToPage(currentPage - 1)}
-            aria-label="Previous page"
+            aria-label={$i18n.t("view.prevPage")}
           >
             <CaretLeftIcon size={14} aria-hidden="true" />
           </Button>
-          <span class="text-sm text-muted-foreground">Page {currentPage} of {totalPages}</span>
+          <span class="text-sm text-muted-foreground"
+            >{$i18n.t("view.pageOf", { page: currentPage, total: totalPages })}</span
+          >
           <Button
             size="xs"
             variant="outline"
             disabled={currentPage >= totalPages}
             onclick={() => goToPage(currentPage + 1)}
-            aria-label="Next page"
+            aria-label={$i18n.t("view.nextPage")}
           >
             <CaretRightIcon size={14} aria-hidden="true" />
           </Button>
@@ -652,7 +673,7 @@ function goToPage(n: number) {
             variant="outline"
             disabled={currentPage >= totalPages}
             onclick={() => goToPage(totalPages)}
-            aria-label="Last page"
+            aria-label={$i18n.t("view.lastPage")}
           >
             <CaretRightIcon size={14} aria-hidden="true" />
             <CaretRightIcon size={14} class="-ml-1.5" aria-hidden="true" />

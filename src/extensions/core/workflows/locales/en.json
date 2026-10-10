@@ -1,0 +1,21 @@
+{
+  "description": "DAG job pipelines defined in JSON5",
+  "nav": {
+    "/workflows": "Workflows"
+  },
+  "steps": {
+    "emit": {
+      "config": {
+        "event": {
+          "description": "Signal event name to emit. Supports {{template}} expressions.",
+          "title": "Event"
+        },
+        "payload": {
+          "description": "Optional payload template expression delivered to waiting runs.",
+          "title": "Payload"
+        }
+      },
+      "label": "Emit Signal"
+    }
+  }
+}

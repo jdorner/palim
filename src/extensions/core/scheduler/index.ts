@@ -68,7 +68,7 @@ const CreateSchedulePayload = Type.Object({
 
 const manifest = {
   name: "scheduler",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "Cron and interval-based job scheduling with persistent schedules",
   dependencies: [],
   core: true,

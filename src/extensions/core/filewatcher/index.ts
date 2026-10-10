@@ -68,7 +68,7 @@ function matchesPatterns(filename: string, patterns: string[]): boolean {
 
 const manifest = {
   name: "filewatcher",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "Configurable directory watchers that emit events on file changes",
   dependencies: [],
   core: true,

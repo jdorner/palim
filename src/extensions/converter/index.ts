@@ -169,7 +169,7 @@ async function resolveDataInput(data: string, displayName?: string): Promise<Res
 
 const manifest = {
   name: "converter",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "Converts files (PDFs, images) to markdown via vision LLM",
   settingsSchema: Type.Object({
     resizeImagePx: Type.Number({

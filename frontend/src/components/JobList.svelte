@@ -13,6 +13,8 @@ import { authFetch } from "$lib/auth";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+import { t } from "$lib/i18n.svelte";
+import { statusLabel } from "$lib/i18nCore";
 import { aggregateStepStatus, automationStyle, formatTimestamp, isJobCancellable, isRunCancellable } from "$lib/utils";
 import type { JobEntry } from "../../../shared/types";
 import JobLogs from "./JobLogs.svelte";
@@ -109,7 +111,7 @@ let displayItems = $derived.by<DisplayItem[]>(() => {
   for (const [workflowRunId, workflowJobs] of workflowMap) {
     // Sort steps by stepIndex
     workflowJobs.sort((a, b) => (a.stepIndex ?? 0) - (b.stepIndex ?? 0));
-    const workflowName = workflowJobs[0].workflowName ?? "Workflow";
+    const workflowName = workflowJobs[0].workflowName ?? t("jobs.workflow");
     items.push({
       type: "workflow",
       workflowRunId,
@@ -412,12 +414,12 @@ function trackColumnWidths(container: HTMLElement) {
   {#if isCancellable(job.status)}
     <Button size="sm" variant="destructive" disabled={cancellingJobId === job.id} onclick={() => handleCancel(job.id)}>
       <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
-      {cancellingJobId === job.id ? (compact ? "..." : "Cancelling") : "Cancel"}
+      {cancellingJobId === job.id ? (compact ? "..." : t("jobs.cancelling")) : t("common.cancel")}
     </Button>
   {/if}
   <Button size="sm" variant="outline" onclick={() => (selectedJobId = job.id)}>
     <FileTextIcon size={14} class={iconMargin} aria-hidden="true" />
-    Logs
+    {t("jobs.logs")}
   </Button>
 {/snippet}
 
@@ -434,7 +436,7 @@ function trackColumnWidths(container: HTMLElement) {
     }}
   >
     <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
-    Cancel
+    {t("common.cancel")}
   </Button>
 {/snippet}
 
@@ -444,12 +446,12 @@ function trackColumnWidths(container: HTMLElement) {
   <button
     type="button"
     class="inline-flex shrink-0 items-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted border-none bg-transparent cursor-pointer"
-    title="Copy workflow ID: {workflowRunId}"
+    title={t("jobs.copyWorkflowId", { id: workflowRunId })}
     onclick={(e) => {
       e.stopPropagation();
       copyWorkflowId(workflowRunId, workflowRunId);
     }}
-    aria-label="Copy workflow ID {workflowRunId}"
+    aria-label={t("jobs.copyWorkflowIdLabel", { id: workflowRunId })}
   >
     {#if copiedJobId === workflowRunId}
       <CheckIcon size={12} aria-hidden="true" />
@@ -469,7 +471,7 @@ function trackColumnWidths(container: HTMLElement) {
           <div class="min-w-0 flex-1">
             <div class="flex items-center gap-2">
               {@render queueBadge(queueLabel(job.queue))}
-              <StatusDot status={job.status} title={job.status} size="md" />
+              <StatusDot status={job.status} title={statusLabel(job.status)} size="md" />
             </div>
             <p class="text-sm mt-1.5 truncate" title={job.description}>{job.description}</p>
             {@render jobError(job)}
@@ -536,7 +538,7 @@ function trackColumnWidths(container: HTMLElement) {
                   </div>
                   <div class="min-w-0 flex-1 space-y-2">
                     <div class="flex items-center gap-2 flex-wrap">
-                      <StatusDot status={job.status} title={job.status} />
+                      <StatusDot status={job.status} title={statusLabel(job.status)} />
                       <span class="text-sm truncate" title={job.description}>{job.description}</span>
                     </div>
                     {@render jobError(job, "")}
@@ -562,12 +564,12 @@ function trackColumnWidths(container: HTMLElement) {
     <TableHeader class="bg-muted/30">
       <TableRow>
         <TableHead class="w-8"></TableHead>
-        <TableHead class="min-w-20">Queue</TableHead>
-        <TableHead class="w-8">Status</TableHead>
-        <TableHead>Description</TableHead>
-        <TableHead class="hidden xl:table-cell">Created</TableHead>
-        <TableHead class="hidden xl:table-cell">Completed</TableHead>
-        <TableHead class="text-center min-w-48">Actions</TableHead>
+        <TableHead class="min-w-20">{t("jobs.colQueue")}</TableHead>
+        <TableHead class="w-8">{t("jobs.colStatus")}</TableHead>
+        <TableHead>{t("jobs.colDescription")}</TableHead>
+        <TableHead class="hidden xl:table-cell">{t("jobs.colCreated")}</TableHead>
+        <TableHead class="hidden xl:table-cell">{t("jobs.colCompleted")}</TableHead>
+        <TableHead class="text-center min-w-48">{t("common.actions")}</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
@@ -578,7 +580,7 @@ function trackColumnWidths(container: HTMLElement) {
             <TableCell></TableCell>
             <TableCell> {@render queueBadge(queueLabel(job.queue))} </TableCell>
             <TableCell>
-              <StatusDot status={job.status} title={job.status} />
+              <StatusDot status={job.status} title={statusLabel(job.status)} />
             </TableCell>
             <TableCell class="max-w-48">
               <span class="truncate block" title={job.description}>{job.description}</span>
@@ -653,7 +655,7 @@ function trackColumnWidths(container: HTMLElement) {
                         {/if}
                       </div>
                       <div class="p-3 shrink-0" style="width: var(--col-2)">
-                        <StatusDot status={job.status} title={job.status} />
+                        <StatusDot status={job.status} title={statusLabel(job.status)} />
                       </div>
                       <div class="p-3 min-w-0 flex-1">
                         <span class="truncate block text-sm" title={job.description}>{job.description}</span>
@@ -689,13 +691,13 @@ function trackColumnWidths(container: HTMLElement) {
 </div>
 
 {#if totalPages > 1}
-  <nav class="flex items-center justify-center gap-2 mt-6" aria-label="Pagination">
+  <nav class="flex items-center justify-center gap-2 mt-6" aria-label={t("common.pagination")}>
     <Button
       size="xs"
       variant="outline"
       disabled={currentPage <= 1}
       onclick={() => (currentPage = 1)}
-      aria-label="First page"
+      aria-label={t("common.firstPage")}
     >
       <CaretLeftIcon size={14} aria-hidden="true" /><CaretLeftIcon size={14} class="-ml-1.5" aria-hidden="true" />
     </Button>
@@ -704,17 +706,17 @@ function trackColumnWidths(container: HTMLElement) {
       variant="outline"
       disabled={currentPage <= 1}
       onclick={() => (currentPage = Math.max(1, currentPage - 1))}
-      aria-label="Previous page"
+      aria-label={t("common.previousPage")}
     >
       <CaretLeftIcon size={14} aria-hidden="true" />
     </Button>
-    <span class="text-sm text-muted-foreground">Page {currentPage} of {totalPages}</span>
+    <span class="text-sm text-muted-foreground">{t("common.pageOf", { page: currentPage, total: totalPages })}</span>
     <Button
       size="xs"
       variant="outline"
       disabled={currentPage >= totalPages}
       onclick={() => (currentPage = Math.min(totalPages, currentPage + 1))}
-      aria-label="Next page"
+      aria-label={t("common.nextPage")}
     >
       <CaretRightIcon size={14} aria-hidden="true" />
     </Button>
@@ -723,7 +725,7 @@ function trackColumnWidths(container: HTMLElement) {
       variant="outline"
       disabled={currentPage >= totalPages}
       onclick={() => (currentPage = totalPages)}
-      aria-label="Last page"
+      aria-label={t("common.lastPage")}
     >
       <CaretRightIcon size={14} aria-hidden="true" /><CaretRightIcon size={14} class="-ml-1.5" aria-hidden="true" />
     </Button>
@@ -750,9 +752,9 @@ function trackColumnWidths(container: HTMLElement) {
     }}
   >
     <div class="bg-background border border-border rounded-lg shadow-lg p-6 max-w-md w-full mx-4 space-y-4">
-      <h2 id="chain-dialog-title" class="text-lg font-semibold">Cancel Workflow Chain</h2>
+      <h2 id="chain-dialog-title" class="text-lg font-semibold">{t("jobs.cancelChainTitle")}</h2>
       <p class="text-sm text-muted-foreground">
-        This job is part of a workflow chain. All {chainDialog.siblings.length} jobs in the chain will be cancelled:
+        {t("jobs.cancelChainMessage", { count: chainDialog.siblings.length })}
       </p>
       <ul class="list-none p-0 m-0 max-h-48 overflow-y-auto border border-border rounded-md">
         {#each chainDialog.siblings as sibling (sibling.id)}
@@ -769,10 +771,10 @@ function trackColumnWidths(container: HTMLElement) {
           class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
           onclick={dismissChainDialog}
         >
-          Cancel
+          {t("common.cancel")}
         </button>
         <Button size="sm" variant="destructive" onclick={confirmCancelChain}>
-          Remove all {chainDialog.siblings.length} jobs
+          {t("jobs.removeAll", { count: chainDialog.siblings.length })}
         </Button>
       </div>
     </div>

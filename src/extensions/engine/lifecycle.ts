@@ -55,6 +55,8 @@ export interface ActivationDeps {
    * failures are reported on the returned pages.
    */
   buildUiFn?: (entry: LoadedEntry) => Promise<ExtensionUiPage[] | undefined>;
+  /** Loads the extension's UI translation catalogs. Must not throw. */
+  loadLocalesFn?: (entry: LoadedEntry) => Promise<LoadedEntry["locales"]>;
 }
 
 // ---------------------------------------------------------------------------
@@ -144,6 +146,9 @@ export async function activateExtension(
   // the extension list on the broadcast get the page module URLs.
   if (deps.buildUiFn) {
     entry.uiPages = await deps.buildUiFn(entry);
+  }
+  if (deps.loadLocalesFn) {
+    entry.locales = await deps.loadLocalesFn(entry);
   }
 
   // Notify monitor about any queues created

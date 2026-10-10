@@ -1,0 +1,329 @@
+{
+  "back": "Zurück",
+  "cell": {
+    "false": "✗ falsch",
+    "true": "✓ wahr"
+  },
+  "columnTypes": {
+    "boolean": "Wahrheitswert",
+    "date": "Datum",
+    "datetime": "Datum & Uhrzeit",
+    "integer": "Ganzzahl",
+    "json": "JSON",
+    "number": "Zahl",
+    "text": "Text"
+  },
+  "columns": {
+    "actions": "Aktionen",
+    "addColumn": "Spalte hinzufügen",
+    "columnKey": "Spaltenschlüssel",
+    "columnLabel": "Spaltenbezeichnung",
+    "columnType": "Spaltentyp",
+    "default": "Standard",
+    "defaultValue": "Standardwert",
+    "duplicateKeys": "Doppelte Schlüssel: {keys}",
+    "empty": "(leer)",
+    "key": "Schlüssel",
+    "keyColumn": "Schlüsselspalte",
+    "keyTitle": "Identifiziert eine Zeile für Upserts",
+    "label": "Bezeichnung",
+    "moveDown": "Nach unten",
+    "moveUp": "Nach oben",
+    "removeColumn": "Spalte entfernen",
+    "renamedFrom": "Umbenannt von {key}",
+    "required": "Pfl.",
+    "requiredAria": "Erforderlich",
+    "requiredTitle": "Wert erforderlich",
+    "source": "Quelle",
+    "sourceColumn": "Quellspalte",
+    "type": "Typ",
+    "unique": "Eind.",
+    "uniqueAria": "Eindeutig",
+    "uniqueTitle": "Werte müssen eindeutig sein"
+  },
+  "description": "Typisierte Datentabellen mit CSV-/Excel-Import und -Export, Workflow-Schritten und einem Agent-Befehl",
+  "filterOps": {
+    "contains": "enthält",
+    "in": "in",
+    "isNull": "ist leer",
+    "notNull": "ist nicht leer",
+    "startsWith": "beginnt mit"
+  },
+  "form": {
+    "andMore": "… und {count} weitere",
+    "columns": "Spalten",
+    "columnsHintAfter": "). Beim Umbenennen eines Schlüssels bleiben die Werte erhalten; beim Ändern eines Typs werden vorhandene Werte umgewandelt.",
+    "columnsHintBefore": "Schlüssel werden in Workflow-Templates verwendet (",
+    "conflictRow": "Zeile #{index}: {errors}",
+    "createTable": "Tabelle anlegen",
+    "created": "Tabelle „{label}“ angelegt",
+    "description": "Beschreibung",
+    "editTitle": "Tabelle bearbeiten: {label}",
+    "general": "Allgemein",
+    "label": "Bezeichnung",
+    "loading": "Tabelle wird geladen...",
+    "name": "Name",
+    "nameHint": "(wird in Workflows und im Agent-Befehl verwendet)",
+    "newTitle": "Neue Tabelle",
+    "remove": "Entfernen",
+    "removeColumnsMessage": "Die Werte von {columns} werden aus jeder Zeile gelöscht.",
+    "removeColumnsTitle": "Spalten entfernen?",
+    "saveAnyway": "Trotzdem speichern und fehlerhafte Werte leeren",
+    "saved": "Tabelle gespeichert ({rows} Zeilen aktualisiert)",
+    "savedCleared": "Tabelle gespeichert ({rows} Zeilen aktualisiert, {cleared} Werte geleert)"
+  },
+  "import": {
+    "another": "Weitere Datei importieren",
+    "append": "Zeilen anhängen",
+    "dataRow": "Datenzeile {index}: {errors}",
+    "derivedHint": "Die Spaltentypen wurden aus der Datei abgeleitet. Passe Bezeichnungen, Schlüssel und Typen an, bevor du die Tabelle anlegst.",
+    "fileColumn": "Dateispalte",
+    "fileColumnFor": "Dateispalte für {label}",
+    "headerRow": "Erste Zeile enthält Überschriften",
+    "importRows_one": "{count} Zeile importieren",
+    "importRows_other": "{count} Zeilen importieren",
+    "imported_one": "{count} Zeile importiert",
+    "imported_other": "{count} Zeilen importiert",
+    "importing": "Wird importiert...",
+    "into": "Importieren in",
+    "mapAtLeastOne": "Ordne mindestens eine Dateispalte einer Tabellenspalte zu",
+    "mode": "Modus",
+    "newTable": "Neue Tabelle (Spalten aus dieser Datei)",
+    "openTable": "Tabelle öffnen",
+    "preview": "Vorschau",
+    "previewShowing": "{rows} Datenzeilen, {columns} Spalten (erste {shown} angezeigt)",
+    "previewStats": "{rows} Datenzeilen, {columns} Spalten",
+    "reading": "Datei wird gelesen...",
+    "replace": "Ersetzen",
+    "replaceAll": "Alle Zeilen ersetzen",
+    "replaceMessage": "Alle {count} vorhandenen Zeilen von „{label}“ werden zuerst gelöscht.",
+    "replaceTitle": "Alle Zeilen ersetzen?",
+    "required": ", erforderlich",
+    "resultImported_one": "{count} Zeile importiert in",
+    "resultImported_other": "{count} Zeilen importiert in",
+    "sheet": "Blatt",
+    "skip": "(überspringen / Standard)",
+    "skipped_one": "{count} Zeile übersprungen.",
+    "skipped_other": "{count} Zeilen übersprungen.",
+    "stepFile": "1. Datei",
+    "stepTarget": "2. Ziel",
+    "tableColumn": "Tabellenspalte",
+    "title": "CSV / Excel importieren"
+  },
+  "list": {
+    "columns_one": "{count} Spalte: {names}",
+    "columns_other": "{count} Spalten: {names}",
+    "empty": "Noch keine Datentabellen.",
+    "emptyHint": "Lege eine von Hand an oder importiere eine CSV- oder Excel-Datei, um die Spalten abzuleiten.",
+    "importFile": "Datei importieren",
+    "loading": "Tabellen werden geladen...",
+    "newTable": "Neue Tabelle",
+    "updatedAt": "Aktualisiert {date}"
+  },
+  "nav": {
+    "/ext-page/datatables/tables": "Datentabellen"
+  },
+  "pages": {
+    "tables": {
+      "title": "Datentabellen"
+    }
+  },
+  "rows_one": "{count} Zeile",
+  "rows_other": "{count} Zeilen",
+  "steps": {
+    "datatable-delete": {
+      "config": {
+        "all": {
+          "description": "Erforderlich, um ohne Bedingungen zu löschen.",
+          "title": "Alle Zeilen löschen"
+        },
+        "table": {
+          "description": "Name der Datentabelle. Unterstützt {{template}}-Ausdrücke.",
+          "title": "Tabelle"
+        },
+        "where": {
+          "column": {
+            "title": "Spalte"
+          },
+          "description": "Bedingungen (alle müssen zutreffen). Spalten können auch _id, _createdAt, _updatedAt sein.",
+          "op": {
+            "title": "Operator"
+          },
+          "title": "Bedingungen",
+          "value": {
+            "description": "Vergleichswert; für „in“ kommagetrennt. Unterstützt {{template}}-Ausdrücke.",
+            "title": "Wert"
+          }
+        }
+      },
+      "label": "Zeilen löschen"
+    },
+    "datatable-insert": {
+      "config": {
+        "rows": {
+          "description": "Template, das ein JSON-Objekt oder ein Array von Objekten ergibt, z. B. {{ steps.fetch.result.items }}. Wird für mehrere Zeilen statt „Werte“ verwendet.",
+          "title": "Zeilen (JSON)"
+        },
+        "table": {
+          "description": "Name der Datentabelle. Unterstützt {{template}}-Ausdrücke.",
+          "title": "Tabelle"
+        },
+        "values": {
+          "description": "Spalte → Wert. Werte unterstützen {{template}}-Ausdrücke und werden in den Spaltentyp umgewandelt.",
+          "title": "Werte"
+        }
+      },
+      "label": "Zeilen einfügen"
+    },
+    "datatable-query": {
+      "config": {
+        "desc": {
+          "title": "Absteigend"
+        },
+        "limit": {
+          "description": "Maximale Anzahl Zeilen (1–1000).",
+          "title": "Limit"
+        },
+        "orderBy": {
+          "description": "Sortierspalte (Standard: Zeilen-ID).",
+          "title": "Sortieren nach"
+        },
+        "table": {
+          "description": "Name der Datentabelle. Unterstützt {{template}}-Ausdrücke.",
+          "title": "Tabelle"
+        },
+        "where": {
+          "column": {
+            "title": "Spalte"
+          },
+          "description": "Bedingungen (alle müssen zutreffen). Spalten können auch _id, _createdAt, _updatedAt sein.",
+          "op": {
+            "title": "Operator"
+          },
+          "title": "Bedingungen",
+          "value": {
+            "description": "Vergleichswert; für „in“ kommagetrennt. Unterstützt {{template}}-Ausdrücke.",
+            "title": "Wert"
+          }
+        }
+      },
+      "label": "Tabelle abfragen"
+    },
+    "datatable-truncate": {
+      "config": {
+        "table": {
+          "description": "Name der Datentabelle. Unterstützt {{template}}-Ausdrücke.",
+          "title": "Tabelle"
+        }
+      },
+      "label": "Tabelle leeren"
+    },
+    "datatable-update": {
+      "config": {
+        "set": {
+          "description": "Spalte → neuer Wert. Unterstützt {{template}}-Ausdrücke.",
+          "title": "Setzen"
+        },
+        "table": {
+          "description": "Name der Datentabelle. Unterstützt {{template}}-Ausdrücke.",
+          "title": "Tabelle"
+        },
+        "where": {
+          "column": {
+            "title": "Spalte"
+          },
+          "description": "Bedingungen (alle müssen zutreffen). Spalten können auch _id, _createdAt, _updatedAt sein.",
+          "op": {
+            "title": "Operator"
+          },
+          "title": "Bedingungen",
+          "value": {
+            "description": "Vergleichswert; für „in“ kommagetrennt. Unterstützt {{template}}-Ausdrücke.",
+            "title": "Wert"
+          }
+        }
+      },
+      "label": "Zeilen aktualisieren"
+    },
+    "datatable-upsert": {
+      "config": {
+        "keyColumn": {
+          "description": "Spalte, die eine Zeile identifiziert. Standard ist die Schlüsselspalte der Tabelle.",
+          "title": "Schlüsselspalte"
+        },
+        "rows": {
+          "description": "Template, das ein JSON-Objekt oder ein Array von Objekten ergibt, z. B. {{ steps.fetch.result.items }}. Wird für mehrere Zeilen statt „Werte“ verwendet.",
+          "title": "Zeilen (JSON)"
+        },
+        "table": {
+          "description": "Name der Datentabelle. Unterstützt {{template}}-Ausdrücke.",
+          "title": "Tabelle"
+        },
+        "values": {
+          "description": "Spalte → Wert. Werte unterstützen {{template}}-Ausdrücke und werden in den Spaltentyp umgewandelt.",
+          "title": "Werte"
+        }
+      },
+      "label": "Zeilen einfügen/aktualisieren"
+    }
+  },
+  "sysColumns": {
+    "created": "Erstellt",
+    "id": "ID",
+    "updated": "Aktualisiert"
+  },
+  "view": {
+    "addFilter": "Filter hinzufügen",
+    "addRow": "Zeile hinzufügen",
+    "cancel": "Abbrechen",
+    "columnPlaceholder": "Spalte…",
+    "columnTitle": "{key} ({type})",
+    "dblClickHint": "Doppelklick auf eine Zelle zum Bearbeiten.",
+    "deleteAll": "Alle löschen",
+    "deleteAllRows": "Alle Zeilen löschen",
+    "deleteRowsMessage_one": "{count} Zeile wird gelöscht.",
+    "deleteRowsMessage_other": "{count} Zeilen werden gelöscht.",
+    "deleteRowsTitle": "Zeilen löschen?",
+    "deleteSelected": "{count} löschen",
+    "deleteTable": "Tabelle löschen",
+    "deletedElsewhere": "Tabelle „{name}“ wurde gelöscht",
+    "dropMessage": "„{label}“ und alle {count} Zeilen werden endgültig gelöscht. Workflows, die sie verwenden, schlagen fehl.",
+    "dropTitle": "Tabelle löschen?",
+    "editTable": "Tabelle bearbeiten",
+    "export": "Export",
+    "exportFailed": "Export fehlgeschlagen: {error}",
+    "filter": "Filter",
+    "filterColumn": "Filterspalte",
+    "filterCount": "Filter ({count})",
+    "filterOperator": "Filteroperator",
+    "filterValue": "Filterwert",
+    "filtered": " (gefiltert)",
+    "firstPage": "Erste Seite",
+    "import": "Import",
+    "keyBadge": "Schlüssel: {column}",
+    "keyColumnTitle": "Schlüsselspalte (für Upserts)",
+    "lastPage": "Letzte Seite",
+    "loadingRows": "Zeilen werden geladen...",
+    "nextPage": "Nächste Seite",
+    "noMatch": "Keine Zeilen entsprechen den Filtern.",
+    "noRows": "Noch keine Zeilen.",
+    "pageOf": "Seite {page} von {total}",
+    "pagination": "Seitennavigation",
+    "prevPage": "Vorherige Seite",
+    "range": "{from}–{to} von {total}",
+    "rangeMatching": "{from}–{to} von {total} Treffern",
+    "removeFilter": "Filter entfernen",
+    "requiredSuffix": ", erforderlich",
+    "rowAdded": "Zeile hinzugefügt",
+    "rowsDeleted_one": "{count} Zeile gelöscht",
+    "rowsDeleted_other": "{count} Zeilen gelöscht",
+    "save": "Speichern",
+    "selectAll": "Alle auswählen",
+    "selectRow": "Zeile auswählen",
+    "tableDeleted": "Tabelle „{label}“ gelöscht",
+    "truncateMessage": "Alle {count} Zeilen von „{label}“ werden gelöscht. Die Spalten bleiben erhalten.",
+    "truncateTitle": "Alle Zeilen löschen?",
+    "uniqueSuffix": ", eindeutig",
+    "value": "Wert"
+  }
+}

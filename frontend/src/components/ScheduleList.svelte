@@ -8,6 +8,7 @@ import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+import { t } from "$lib/i18n.svelte";
 import { formatTimestamp } from "$lib/utils";
 import type { ScheduleEntry } from "../../../shared/types";
 
@@ -28,11 +29,11 @@ async function fetchSchedules() {
     schedules.set(items);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";
-    errorDetail = msg || "Unknown error";
+    errorDetail = msg || t("common.unknownError");
     if (msg.includes("Failed to fetch") || msg.includes("502") || msg.includes("503") || msg.includes("NetworkError")) {
-      error = "Unable to reach the server. Please check that the backend is running.";
+      error = t("common.serverUnreachable");
     } else {
-      error = "Failed to load schedules. Please try again later.";
+      error = t("schedules.loadFailed");
     }
   } finally {
     loading = false;
@@ -81,16 +82,16 @@ async function triggerSchedule(id: string) {
 }
 
 function formatRepeat(schedule: ScheduleEntry): string {
-  if (schedule.pattern) return `cron: ${schedule.pattern}`;
+  if (schedule.pattern) return t("schedules.cron", { pattern: schedule.pattern });
   if (schedule.every) {
     const seconds = schedule.every / 1000;
-    if (seconds < 60) return `every ${seconds}s`;
+    if (seconds < 60) return t("schedules.everySeconds", { n: seconds });
     const minutes = seconds / 60;
-    if (minutes < 60) return `every ${minutes}m`;
+    if (minutes < 60) return t("schedules.everyMinutes", { n: minutes });
     const hours = minutes / 60;
-    return `every ${hours}h`;
+    return t("schedules.everyHours", { n: hours });
   }
-  return "unknown";
+  return t("schedules.unknown");
 }
 
 $effect(() => {
@@ -109,7 +110,7 @@ $effect(() => {
       {/if}
     </div>
   {:else if items.length === 0}
-    <p class="text-sm text-muted-foreground">No schedules configured.</p>
+    <p class="text-sm text-muted-foreground">{t("schedules.empty")}</p>
   {:else}
     <!-- Mobile & Tablet: Card layout -->
     <div class="responsive-cards">
@@ -126,7 +127,7 @@ $effect(() => {
           </div>
 
           <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
-            <span>Next: {formatTimestamp(schedule.next, "-")}</span>
+            <span>{t("schedules.next", { time: formatTimestamp(schedule.next, "-") })}</span>
             <code class="text-xs font-mono">{schedule.id}</code>
           </div>
 
@@ -134,14 +135,16 @@ $effect(() => {
 
           {#if confirmingDelete === schedule.id}
             <div class="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="destructive" onclick={() => deleteSchedule(schedule.id)}>Confirm</Button>
+              <Button size="sm" variant="destructive" onclick={() => deleteSchedule(schedule.id)}
+                >{t("common.confirm")}</Button
+              >
               <Button
                 size="sm"
                 variant="outline"
                 onclick={() => {
                   confirmingDelete = null;
                 }}
-                >Cancel</Button
+                >{t("common.cancel")}</Button
               >
             </div>
           {:else}
@@ -153,7 +156,7 @@ $effect(() => {
                 onclick={() => triggerSchedule(schedule.id)}
               >
                 <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-                {triggeringId === schedule.id ? "Triggering..." : "Trigger"}
+                {triggeringId === schedule.id ? t("schedules.triggering") : t("schedules.trigger")}
               </Button>
               <Button
                 size="sm"
@@ -163,7 +166,7 @@ $effect(() => {
                 }}
               >
                 <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                Delete
+                {t("common.delete")}
               </Button>
             </div>
           {/if}
@@ -176,12 +179,12 @@ $effect(() => {
       <Table>
         <TableHeader class="bg-muted/30">
           <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Id</TableHead>
-            <TableHead>Repeat</TableHead>
-            <TableHead>Runs</TableHead>
-            <TableHead>Next Run</TableHead>
-            <TableHead class="text-center">Actions</TableHead>
+            <TableHead>{t("common.name")}</TableHead>
+            <TableHead>{t("schedules.colId")}</TableHead>
+            <TableHead>{t("schedules.colRepeat")}</TableHead>
+            <TableHead>{t("schedules.colRuns")}</TableHead>
+            <TableHead>{t("schedules.colNextRun")}</TableHead>
+            <TableHead class="text-center">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -209,7 +212,7 @@ $effect(() => {
                 {#if confirmingDelete === schedule.id}
                   <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
                     <Button size="sm" variant="destructive" onclick={() => deleteSchedule(schedule.id)}>
-                      Confirm
+                      {t("common.confirm")}
                     </Button>
                     <Button
                       size="sm"
@@ -218,7 +221,7 @@ $effect(() => {
                         confirmingDelete = null;
                       }}
                     >
-                      Cancel
+                      {t("common.cancel")}
                     </Button>
                   </div>
                 {:else}
@@ -230,7 +233,7 @@ $effect(() => {
                       onclick={() => triggerSchedule(schedule.id)}
                     >
                       <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      {triggeringId === schedule.id ? "Triggering..." : "Trigger"}
+                      {triggeringId === schedule.id ? t("schedules.triggering") : t("schedules.trigger")}
                     </Button>
                     <Button
                       size="sm"
@@ -240,7 +243,7 @@ $effect(() => {
                       }}
                     >
                       <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      Delete
+                      {t("common.delete")}
                     </Button>
                   </div>
                 {/if}

@@ -1,0 +1,25 @@
+{
+  "description": "Agent-Skill zum Lesen und Schreiben von Wiki-Seiten",
+  "settings": {
+    "enableSemanticSearch": {
+      "description": "Embeddings für Wiki-Abschnitte erzeugen, um hybride Suche (Stichwort + semantisch) zu ermöglichen",
+      "title": "Semantische Suche aktivieren"
+    },
+    "injectPrompt": {
+      "description": "Anweisung hinzufügen, zu Beginn einer Unterhaltung das Wiki zu lesen",
+      "title": "Anweisungen in den System-Prompt einfügen"
+    },
+    "maxEmbeddingChars": {
+      "description": "Maximale Zeichenzahl pro Abschnitt, die an das Embedding-Modell gesendet wird",
+      "title": "Maximale Zeichen pro Embedding"
+    },
+    "similarityThreshold": {
+      "description": "Minimale Kosinus-Ähnlichkeit für Ergebnisse der Vektorsuche (0–1)",
+      "title": "Ähnlichkeitsschwelle"
+    },
+    "wikiPath": {
+      "description": "Unterverzeichnis von WORK_DIR, in dem das Wiki liegt",
+      "title": "Wiki-Verzeichnis"
+    }
+  }
+}

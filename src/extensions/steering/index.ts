@@ -5,7 +5,7 @@ const DEFAULT_STEERING_PROMPT = `Your name is Palim, a helpful AI agent.`;
 
 const manifest = {
   name: "steering",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "Injects additional system prompt text before each agent run to steer behavior or enforce constraints.",
   settingsSchema: Type.Object({
     prompt: Type.String({

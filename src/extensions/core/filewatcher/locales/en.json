@@ -1,0 +1,6 @@
+{
+  "description": "Configurable directory watchers that emit events on file changes",
+  "nav": {
+    "/filewatchers": "File Watchers"
+  }
+}

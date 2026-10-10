@@ -6,6 +6,7 @@
  * to the cell above / below (not in date and boolean inputs, which use the
  * arrow keys themselves).
  */
+import { useI18n } from "@ext/ui";
 import { onMount } from "svelte";
 import type { ColumnDef } from "../types";
 import type { NavigateDirection } from "./api";
@@ -28,6 +29,8 @@ let {
   /** Called after a navigation commit with the cell to move to. */
   onNavigate?: (direction: NavigateDirection) => void;
 } = $props();
+
+const i18n = useI18n();
 
 /** Fits inside the grid's fixed row height (h-9), so editing never grows the row. */
 const CLASS =
@@ -112,8 +115,8 @@ const onblur = () => {
     {onblur}
   >
     <option value=""></option>
-    <option value="true">✓ true</option>
-    <option value="false">✗ false</option>
+    <option value="true">{$i18n.t("cell.true")}</option>
+    <option value="false">{$i18n.t("cell.false")}</option>
   </select>
 {:else}
   <input

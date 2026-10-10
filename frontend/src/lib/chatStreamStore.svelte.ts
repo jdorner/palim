@@ -25,6 +25,7 @@ import {
   updateConversationTitle,
   updateMessageContent,
 } from "./chatStore";
+import { translateCore as t } from "./i18nCore";
 import { readState } from "./readState.svelte";
 import { uuid } from "./utils";
 
@@ -282,7 +283,7 @@ class ChatStreamStore {
    * @returns The new conversation's ID.
    */
   async handleCreate(): Promise<string> {
-    const conv = await createConversation("New Chat");
+    const conv = await createConversation(t("chat.newChat"));
     await this.loadConversations();
     await this.selectConversation(conv.id);
     return conv.id;
@@ -341,7 +342,7 @@ class ChatStreamStore {
       // This handles cases where the job fails before the stream is registered or
       // after the stream was already cleaned up (e.g. race with HTTP response).
       if (event.event === "error") {
-        this.error = event.error ?? "An unknown error occurred";
+        this.error = event.error ?? t("chat.unknownError");
       }
       return;
     }
@@ -415,7 +416,7 @@ class ChatStreamStore {
         this.persistAssistantMessage(event.chatId, event.content ?? stream.content);
         break;
       case "error":
-        this.error = event.error ?? "An unknown error occurred";
+        this.error = event.error ?? t("chat.unknownError");
         this.preservePartialAndFinalize(event.chatId);
         break;
     }
@@ -424,7 +425,7 @@ class ChatStreamStore {
   /** Handles WebSocket close while streaming. Preserves partial content for all active streams. */
   handleWsClose(): void {
     if (this.streams.size > 0) {
-      this.error = "Connection lost. Your partial response has been preserved.";
+      this.error = t("chat.connectionLostPartial");
       // Preserve all active streams
       for (const chatId of [...this.streams.keys()]) {
         this.preservePartialAndFinalize(chatId);
@@ -439,18 +440,18 @@ class ChatStreamStore {
    */
   async handleApprovalRequest(event: ApprovalRequestEvent): Promise<void> {
     try {
-      const title = `Install: ${event.name} v${event.version}`;
+      const title = t("chat.installTitle", { name: event.name, version: event.version });
       const conv = await createConversation(title);
 
       const packageList = event.packages.map((p) => `- \`${p}\``).join("\n");
-      let content = `**Extension "${event.name}" v${event.version}** wants to install npm packages:\n\n${packageList}`;
+      let content = `${t("chat.installRequest", { name: event.name, version: event.version })}\n\n${packageList}`;
 
       if (event.description) {
         content = `${event.description}\n\n${content}`;
       }
 
       if (event.binRequirements.length > 0) {
-        content += `\n\nRequired system binaries: ${event.binRequirements.join(", ")}`;
+        content += `\n\n${t("chat.installBinaries", { binaries: event.binRequirements.join(", ") })}`;
       }
 
       const contentSegments: MessageSegment[] = [
@@ -459,14 +460,14 @@ class ChatStreamStore {
           type: "actions",
           actions: [
             {
-              label: "Approve",
+              label: t("chat.approve"),
               endpoint: `/ext/ext-installer/approve/${event.name}`,
               method: "POST",
               variant: "default",
               body: { token: event.approvalToken },
             },
             {
-              label: "Reject",
+              label: t("chat.reject"),
               endpoint: `/ext/ext-installer/reject/${event.name}`,
               method: "POST",
               variant: "destructive",
@@ -755,12 +756,12 @@ class ChatStreamStore {
           }
         }
       } else {
-        const body = await res.json().catch(() => ({ error: "Request failed" }));
+        const body = await res.json().catch(() => ({ error: t("chat.requestFailed") }));
         this.error = body.error || `HTTP ${res.status}`;
         this.removeStream(chatId);
       }
     } catch {
-      this.error = "Failed to send message. Check your connection.";
+      this.error = t("chat.sendFailed");
       this.removeStream(chatId);
     }
   }
