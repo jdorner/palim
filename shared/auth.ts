@@ -188,6 +188,8 @@ export interface AuthenticatedUser {
   username: string;
   /** Optional human-readable display name. */
   displayName?: string;
+  /** Preferred UI locale (e.g. "de"); undefined follows the browser language. */
+  locale?: string;
   /** The names of roles assigned to the user. */
   roles: string[];
 }

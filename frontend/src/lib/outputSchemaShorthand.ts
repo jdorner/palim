@@ -4,6 +4,7 @@
  * dependencies) so it can be unit-tested.
  */
 import type { OutputSchemaShorthand, OutputSchemaShorthandValue } from "$shared/workflows";
+import { translateCore as t } from "./i18nCore";
 
 /** Result of parsing the shorthand textarea. */
 export type ShorthandParseResult =
@@ -20,7 +21,7 @@ export type ShorthandParseResult =
 function checkValue(value: unknown, path: string): string | null {
   if (typeof value === "string") return null;
   if (Array.isArray(value)) {
-    if (value.length !== 1) return `"${path}": an array must have exactly one entry describing its items`;
+    if (value.length !== 1) return t("outputSchema.arrayOneEntry", { path });
     return checkValue(value[0], `${path}[]`);
   }
   if (value !== null && typeof value === "object") {
@@ -30,7 +31,7 @@ function checkValue(value: unknown, path: string): string | null {
     }
     return null;
   }
-  return `"${path}": expected a type name ("string", "number", "boolean", "object", "any"), an object, or [item]`;
+  return t("outputSchema.expectedType", { path });
 }
 
 /**
@@ -45,10 +46,13 @@ export function parseShorthand(text: string): ShorthandParseResult {
   try {
     parsed = JSON.parse(text);
   } catch (err) {
-    return { ok: false, error: `Invalid JSON: ${err instanceof Error ? err.message : String(err)}` };
+    return {
+      ok: false,
+      error: t("outputSchema.invalidJson", { error: err instanceof Error ? err.message : String(err) }),
+    };
   }
   if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-    return { ok: false, error: "The output schema must be a JSON object" };
+    return { ok: false, error: t("outputSchema.mustBeObject") };
   }
   const error = checkValue(parsed as OutputSchemaShorthandValue, "");
   return error ? { ok: false, error } : { ok: true, value: parsed as OutputSchemaShorthand };

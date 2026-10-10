@@ -1,0 +1,41 @@
+{
+  "description": "Telegram-Bot-Integration mit Nachrichten-Warteschlange und dauerhaftem Gesprächsverlauf",
+  "secrets": {
+    "TELEGRAM_BOT_TOKEN": {
+      "description": "Telegram-Bot-Token von @BotFather"
+    }
+  },
+  "settings": {
+    "chatId": {
+      "description": "Standard-Chat-ID für ausgehende Nachrichten",
+      "title": "Standard-Telegram-Chat-ID"
+    },
+    "format": {
+      "description": "Wie ausgehende Nachrichten dargestellt werden. 'markdown' sendet formatierte Nachrichten (GitHub Flavored Markdown) und fällt auf Klartext zurück, wenn Telegram sie ablehnt.",
+      "title": "Nachrichtenformat"
+    },
+    "maxImageSizeMb": {
+      "description": "Größere eingehende Bilder werden abgelehnt. Die Telegram-Bot-API begrenzt Downloads auf 20 MB.",
+      "title": "Maximale Bildgröße (MB)"
+    }
+  },
+  "steps": {
+    "notify-telegram": {
+      "config": {
+        "chatId": {
+          "description": "Ziel-Chat-ID. Unterstützt {{template}}-Ausdrücke. Ohne Angabe wird der Standard-Chat der Erweiterung verwendet.",
+          "title": "Chat-ID"
+        },
+        "format": {
+          "description": "Nachricht als Markdown darstellen oder als Klartext senden. 'plain' verwenden, wenn Template-Werte Markdown-Zeichen enthalten können. Ohne Angabe gilt die Formateinstellung der Erweiterung.",
+          "title": "Format"
+        },
+        "message": {
+          "description": "Der zu sendende Nachrichtentext. Unterstützt {{template}}-Ausdrücke.",
+          "title": "Nachricht"
+        }
+      },
+      "label": "Benachrichtigen (Telegram)"
+    }
+  }
+}

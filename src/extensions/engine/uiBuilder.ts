@@ -493,7 +493,9 @@ export async function buildExtensionUi(options: UiBuildOptions): Promise<UiBuild
           `import Page from ${JSON.stringify(entry)};`,
           `import { mount, unmount } from "svelte";`,
           `export default function mountPage(target, palim) {`,
-          `  const instance = mount(Page, { target, props: { palim } });`,
+          // Kit components read translations from this context (see frontend/src/lib/kitI18n.ts).
+          `  const context = new Map([[Symbol.for("palim.i18n"), palim.i18n]]);`,
+          `  const instance = mount(Page, { target, props: { palim }, context });`,
           `  return () => unmount(instance);`,
           `}`,
         ].join("\n"),

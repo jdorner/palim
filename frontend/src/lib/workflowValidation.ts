@@ -4,6 +4,7 @@
  */
 
 import type { OutputSchemaShorthand } from "$shared/workflows";
+import { translateCore as t } from "./i18nCore";
 import type { SlugEdge } from "./templateScope";
 
 /** Result of a single validation check. */
@@ -116,15 +117,15 @@ const VALID_TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"];
  */
 export function validateSlug(value: string): ValidationResult {
   if (!value || value.length === 0) {
-    return { valid: false, error: "Slug is required" };
+    return { valid: false, error: t("validation.slugRequired") };
   }
   if (value.length > MAX_SLUG_LENGTH) {
-    return { valid: false, error: `Slug must not exceed ${MAX_SLUG_LENGTH} characters` };
+    return { valid: false, error: t("validation.slugTooLong", { max: MAX_SLUG_LENGTH }) };
   }
   if (!SLUG_PATTERN.test(value)) {
     return {
       valid: false,
-      error: "Slug must start with a lowercase letter and contain only lowercase letters, digits, and hyphens",
+      error: t("validation.slugPattern"),
     };
   }
   return { valid: true };
@@ -137,15 +138,15 @@ export function validateSlug(value: string): ValidationResult {
  */
 export function validateWorkflowName(value: string): ValidationResult {
   if (!value || value.length === 0) {
-    return { valid: false, error: "Workflow name is required" };
+    return { valid: false, error: t("validation.nameRequired") };
   }
   if (value.length > MAX_SLUG_LENGTH) {
-    return { valid: false, error: `Workflow name must not exceed ${MAX_SLUG_LENGTH} characters` };
+    return { valid: false, error: t("validation.nameTooLong", { max: MAX_SLUG_LENGTH }) };
   }
   if (!SLUG_PATTERN.test(value)) {
     return {
       valid: false,
-      error: "Workflow name must start with a lowercase letter and contain only lowercase letters, digits, and hyphens",
+      error: t("validation.namePattern"),
     };
   }
   return { valid: true };
@@ -160,7 +161,7 @@ export function validateStepSlugsUnique(slugs: string[]): ValidationResult {
   const seen = new Set<string>();
   for (const slug of slugs) {
     if (seen.has(slug)) {
-      return { valid: false, error: `Duplicate step slug: ${slug}` };
+      return { valid: false, error: t("validation.duplicateSlug", { slug }) };
     }
     seen.add(slug);
   }
@@ -198,7 +199,7 @@ export function validateStepConfig(
   for (const key of required) {
     const value = config[key];
     if (value === undefined || value === null || (!nested && value === "")) {
-      errors.push([`${prefix}${key}`, `${labelOf(key)} is required`]);
+      errors.push([`${prefix}${key}`, t("validation.fieldRequired", { label: labelOf(key) })]);
     }
   }
 
@@ -213,18 +214,21 @@ export function validateStepConfig(
     if (prop.type === "string" && typeof value === "string") {
       const message = stringConstraintError(value, prop, label);
       if (message) {
-        errors.push([field, value === "" && required.includes(key) ? `${label} is required` : message]);
+        errors.push([
+          field,
+          value === "" && required.includes(key) ? t("validation.fieldRequired", { label }) : message,
+        ]);
       }
     }
 
     if ((prop.type === "number" || prop.type === "integer") && typeof value === "number") {
       const minimum = prop.minimum as number | undefined;
       if (minimum !== undefined && value < minimum) {
-        errors.push([field, `${label} must be at least ${minimum}`]);
+        errors.push([field, t("validation.minValue", { label, min: minimum })]);
       }
       const maximum = prop.maximum as number | undefined;
       if (maximum !== undefined && value > maximum) {
-        errors.push([field, `${label} must not exceed ${maximum}`]);
+        errors.push([field, t("validation.maxValue", { label, max: maximum })]);
       }
     }
 
@@ -255,9 +259,9 @@ export function validateStepConfig(
  */
 function stringConstraintError(value: string, prop: Record<string, unknown>, label: string): string | undefined {
   const minLength = prop.minLength as number | undefined;
-  if (minLength && value.length < minLength) return `${label} must be at least ${minLength} characters`;
+  if (minLength && value.length < minLength) return t("validation.minLength", { label, min: minLength });
   const maxLength = prop.maxLength as number | undefined;
-  if (maxLength && value.length > maxLength) return `${label} must not exceed ${maxLength} characters`;
+  if (maxLength && value.length > maxLength) return t("validation.maxLength", { label, max: maxLength });
   const pattern = prop.pattern as string | undefined;
   if (pattern && !value.includes("{{")) {
     let regex: RegExp | undefined;
@@ -266,7 +270,7 @@ function stringConstraintError(value: string, prop: Record<string, unknown>, lab
     } catch {
       // An invalid pattern cannot be checked client-side; the backend reports it.
     }
-    if (regex && !regex.test(value)) return `${label} must match the pattern ${pattern}`;
+    if (regex && !regex.test(value)) return t("validation.pattern", { label, pattern });
   }
   return undefined;
 }
@@ -302,27 +306,27 @@ export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: St
 
   // Validate description (optional, max 256 chars)
   if (draft.description && draft.description.length > MAX_DESCRIPTION_LENGTH) {
-    errors.set("description", `Description must not exceed ${MAX_DESCRIPTION_LENGTH} characters`);
+    errors.set("description", t("validation.descriptionTooLong", { max: MAX_DESCRIPTION_LENGTH }));
   }
 
   // Validate trigger type
   if (!draft.trigger.type || !VALID_TRIGGER_TYPES.includes(draft.trigger.type)) {
-    errors.set("trigger.type", "Trigger type must be one of: webhook, schedule, manual, filewatcher");
+    errors.set("trigger.type", t("validation.triggerType"));
   }
 
   // Manual triggers must not have a ref
   if (draft.trigger.type === "manual" && draft.trigger.ref && draft.trigger.ref.trim().length > 0) {
-    errors.set("trigger.ref", "Manual triggers do not support a ref value");
+    errors.set("trigger.ref", t("validation.manualNoRef"));
   }
 
   // Non-manual triggers require a ref
   if (draft.trigger.type !== "manual" && (!draft.trigger.ref || draft.trigger.ref.trim().length === 0)) {
-    errors.set("trigger.ref", `Trigger type "${draft.trigger.type}" requires a ref`);
+    errors.set("trigger.ref", t("validation.triggerNeedsRef", { type: draft.trigger.type }));
   }
 
   // Validate steps - at least one required
   if (!draft.steps || draft.steps.length === 0) {
-    errors.set("steps", "At least one step is required");
+    errors.set("steps", t("validation.stepRequired"));
     return errors;
   }
 
@@ -347,10 +351,13 @@ export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: St
   for (let i = 0; i < edges.length; i++) {
     const edge = edges[i]!;
     if (!identitySet.has(edge.from)) {
-      errors.set(`edges[${i}].from`, `Edge references unknown step "${identityToSlug.get(edge.from) ?? edge.from}"`);
+      errors.set(
+        `edges[${i}].from`,
+        t("validation.edgeUnknownStep", { step: identityToSlug.get(edge.from) ?? edge.from }),
+      );
     }
     if (!identitySet.has(edge.to)) {
-      errors.set(`edges[${i}].to`, `Edge references unknown step "${identityToSlug.get(edge.to) ?? edge.to}"`);
+      errors.set(`edges[${i}].to`, t("validation.edgeUnknownStep", { step: identityToSlug.get(edge.to) ?? edge.to }));
     }
   }
 
@@ -372,7 +379,7 @@ export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: St
  * @returns The disconnected-step error message.
  */
 export function disconnectedStepError(slug: string): string {
-  return `Step "${slug}" is not connected to any other step`;
+  return t("validation.disconnected", { slug });
 }
 
 /**
@@ -421,35 +428,35 @@ function validateStepFields(
   slugs.push(step.slug);
 
   if (step.type === "agent" && (!step.prompt || step.prompt.trim().length === 0)) {
-    errors.set(`${path}.prompt`, "Prompt is required for agent steps");
+    errors.set(`${path}.prompt`, t("validation.promptRequired"));
   }
 
   if (step.type === "if") {
     if (!step.condition || !(step.condition as Record<string, unknown>).ref) {
-      errors.set(`${path}.condition`, "Condition ref is required");
+      errors.set(`${path}.condition`, t("validation.conditionRequired"));
     }
   }
 
   if (step.type === "case") {
     if (!step.match || (step.match as string).trim().length === 0) {
-      errors.set(`${path}.match`, "Match expression is required");
+      errors.set(`${path}.match`, t("validation.matchRequired"));
     }
   }
 
   if (step.type === "waitFor" && (!step.event || (step.event as string).trim().length === 0)) {
-    errors.set(`${path}.event`, "Event name is required");
+    errors.set(`${path}.event`, t("validation.eventRequired"));
   }
 
   if (step.type === "emit" && (!step.event || (step.event as string).trim().length === 0)) {
-    errors.set(`${path}.event`, "Event name is required");
+    errors.set(`${path}.event`, t("validation.eventRequired"));
   }
 
   if (step.type === "iterator" && (!step.items || (step.items as string).trim().length === 0)) {
-    errors.set(`${path}.items`, "Items expression is required");
+    errors.set(`${path}.items`, t("validation.itemsRequired"));
   }
 
   if (step.type === "aggregator" && (!step.iterator || (step.iterator as string).trim().length === 0)) {
-    errors.set(`${path}.iterator`, "Iterator reference is required");
+    errors.set(`${path}.iterator`, t("validation.iteratorRequired"));
   }
 
   // Custom step type config validation

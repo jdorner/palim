@@ -1,4 +1,5 @@
 <script lang="ts">
+import { useI18n } from "$lib/kitI18n";
 import { filterMultiSelectItems } from "./multiSelectFilter";
 
 interface Props {
@@ -36,7 +37,7 @@ let {
   id,
   items,
   selected = $bindable(),
-  placeholder = "Search...",
+  placeholder,
   disabled = false,
   maxDisplay = 50,
   allowCustom = false,
@@ -44,6 +45,8 @@ let {
   onchange,
   size = "sm",
 }: Props = $props();
+
+const i18n = useI18n();
 
 const textSize = $derived(size === "xs" ? "text-xs" : "text-sm");
 
@@ -234,7 +237,7 @@ function handleBlur(event: FocusEvent) {
     <div
       class="{textSize} flex h-9 w-full items-center rounded-md border border-border bg-muted px-3 text-muted-foreground cursor-not-allowed"
     >
-      No items available
+      {$i18n.t("common.noItemsAvailable")}
     </div>
   {:else}
     <div
@@ -251,7 +254,7 @@ function handleBlur(event: FocusEvent) {
             tabindex="-1"
             class="ml-0.5 inline-flex h-3.5 w-3.5 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
             onclick={() => remove(item)}
-            aria-label="Remove {item}"
+            aria-label={$i18n.t("common.removeItem", { item })}
           >
             <svg
               class="h-2.5 w-2.5"
@@ -261,7 +264,7 @@ function handleBlur(event: FocusEvent) {
               stroke-width="2"
               aria-hidden="true"
             >
-              <title>Remove</title>
+              <title>{$i18n.t("common.remove")}</title>
               <path d="M2 2l6 6M8 2l-6 6" />
             </svg>
           </button>
@@ -272,12 +275,12 @@ function handleBlur(event: FocusEvent) {
         {id}
         type="text"
         class="{textSize} flex-1 min-w-20 bg-transparent outline-none py-0.5"
-        {placeholder}
+        placeholder={placeholder ?? $i18n.t("common.searchPlaceholder")}
         bind:value={search}
         onfocus={handleFocus}
         onblur={handleBlur}
         onkeydown={handleKeydown}
-        aria-label="Search items"
+        aria-label={$i18n.t("common.searchItems")}
         role="combobox"
         aria-expanded={open}
         aria-autocomplete="list"
@@ -301,7 +304,7 @@ function handleBlur(event: FocusEvent) {
       >
         <div class="overflow-y-auto p-1" style:max-height="{dropdownPos.maxHeight}px">
           {#if hasNoResults && !canAddCustom}
-            <div class="{textSize} px-3 py-2 text-muted-foreground">No results found</div>
+            <div class="{textSize} px-3 py-2 text-muted-foreground">{$i18n.t("common.noResults")}</div>
           {:else}
             {#each filtered as item, i (item)}
               <button
@@ -339,7 +342,7 @@ function handleBlur(event: FocusEvent) {
                   addCustom();
                 }}
               >
-                Add "{trimmedSearch}"
+                {$i18n.t("common.addCustom", { value: trimmedSearch })}
               </button>
             {/if}
           {/if}

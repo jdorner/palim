@@ -1,0 +1,17 @@
+{
+  "description": "Automatic failure analysis and error reporting for jobs and workflows",
+  "settings": {
+    "monitoredQueues": {
+      "description": "Sources to monitor for job failures",
+      "title": "Monitored Queues"
+    },
+    "overridePrompt": {
+      "description": "System prompt override for the error analysis agent",
+      "title": "System Prompt Override"
+    },
+    "reportsPath": {
+      "description": "Relative path within the work directory where error reports are stored",
+      "title": "Reports Path"
+    }
+  }
+}

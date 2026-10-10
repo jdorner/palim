@@ -8,6 +8,7 @@
  */
 
 import { authFetch } from "$lib/auth";
+import type { Locale } from "$shared/i18n";
 import type { RoleRow, UserRow } from "./userAdmin";
 
 /**
@@ -48,6 +49,7 @@ export interface CreateUserInput {
   username: string;
   password: string;
   displayName?: string;
+  locale?: Locale;
   roleIds: string[];
 }
 
@@ -70,7 +72,7 @@ export async function createUser(input: CreateUserInput): Promise<void> {
  */
 export async function updateUser(
   id: string,
-  patch: { displayName?: string; disabled?: boolean; roleIds?: string[]; password?: string },
+  patch: { displayName?: string; locale?: Locale | null; disabled?: boolean; roleIds?: string[]; password?: string },
 ): Promise<void> {
   await request(`/api/users/${encodeURIComponent(id)}`, "PATCH", patch);
 }

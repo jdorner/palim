@@ -7,6 +7,7 @@
  * @module
  */
 
+import { type CoreTranslate, englishT } from "$lib/i18nCore";
 import { ROLE_ADMIN, ROLE_SYSTEM } from "$shared/auth";
 
 /** A user row returned by GET /api/users. */
@@ -14,6 +15,8 @@ export interface UserRow {
   id: string;
   username: string;
   displayName?: string;
+  /** Preferred UI locale; undefined follows the browser language. */
+  locale?: string;
   disabled: boolean;
   roles: string[];
 }
@@ -69,11 +72,17 @@ export function isLastAdmin(user: UserRow, users: readonly UserRow[]): boolean {
  * @param user - The user row.
  * @param users - All user rows.
  * @param currentUserId - The signed-in user's id.
+ * @param t - Translates the reason (default English)
  * @returns A short human-readable reason, or null when disabling is allowed.
  */
-export function disableLockReason(user: UserRow, users: readonly UserRow[], currentUserId?: string): string | null {
-  if (user.id === currentUserId) return "You cannot disable your own account";
-  if (isLastAdmin(user, users)) return "At least one enabled admin must remain";
+export function disableLockReason(
+  user: UserRow,
+  users: readonly UserRow[],
+  currentUserId?: string,
+  t: CoreTranslate = englishT,
+): string | null {
+  if (user.id === currentUserId) return t("users.reasonDisableSelf");
+  if (isLastAdmin(user, users)) return t("users.reasonLastAdmin");
   return null;
 }
 
@@ -83,12 +92,18 @@ export function disableLockReason(user: UserRow, users: readonly UserRow[], curr
  * @param user - The user row.
  * @param users - All user rows.
  * @param currentUserId - The signed-in user's id.
+ * @param t - Translates the reason (default English)
  * @returns A short human-readable reason, or null when deleting is allowed.
  */
-export function deleteLockReason(user: UserRow, users: readonly UserRow[], currentUserId?: string): string | null {
-  if (isSystemUser(user)) return "The built-in system account cannot be deleted";
-  if (user.id === currentUserId) return "You cannot delete your own account";
-  if (isLastAdmin(user, users)) return "At least one enabled admin must remain";
+export function deleteLockReason(
+  user: UserRow,
+  users: readonly UserRow[],
+  currentUserId?: string,
+  t: CoreTranslate = englishT,
+): string | null {
+  if (isSystemUser(user)) return t("users.reasonDeleteSystem");
+  if (user.id === currentUserId) return t("users.reasonDeleteSelf");
+  if (isLastAdmin(user, users)) return t("users.reasonLastAdmin");
   return null;
 }
 
@@ -99,6 +114,7 @@ export function deleteLockReason(user: UserRow, users: readonly UserRow[], curre
  * @param role - The role being toggled.
  * @param users - All user rows.
  * @param currentUserId - The signed-in user's id.
+ * @param t - Translates the reason (default English)
  * @returns A short human-readable reason, or null when toggling is allowed.
  */
 export function roleLockReason(
@@ -106,11 +122,12 @@ export function roleLockReason(
   role: RoleRow,
   users: readonly UserRow[],
   currentUserId?: string,
+  t: CoreTranslate = englishT,
 ): string | null {
-  if (role.name === ROLE_SYSTEM) return "Reserved for the built-in system account";
+  if (role.name === ROLE_SYSTEM) return t("users.reasonSystemRole");
   if (role.name === ROLE_ADMIN && user.roles.includes(ROLE_ADMIN)) {
-    if (user.id === currentUserId) return "You cannot remove your own admin role";
-    if (isLastAdmin(user, users)) return "At least one enabled admin must remain";
+    if (user.id === currentUserId) return t("users.reasonRemoveOwnAdmin");
+    if (isLastAdmin(user, users)) return t("users.reasonLastAdmin");
   }
   return null;
 }
@@ -119,13 +136,12 @@ export function roleLockReason(
  * Why a role cannot be deleted.
  *
  * @param role - The role row.
+ * @param t - Translates the reason (default English)
  * @returns A short human-readable reason, or null when deletion is allowed.
  */
-export function roleDeleteLockReason(role: RoleRow): string | null {
-  if (role.builtIn) return "Built-in roles cannot be deleted";
-  if (role.userCount > 0) {
-    return `Assigned to ${role.userCount} user${role.userCount === 1 ? "" : "s"} — unassign first`;
-  }
+export function roleDeleteLockReason(role: RoleRow, t: CoreTranslate = englishT): string | null {
+  if (role.builtIn) return t("users.reasonBuiltInRole");
+  if (role.userCount > 0) return t("users.reasonRoleAssigned", { count: role.userCount });
   return null;
 }
 
@@ -191,11 +207,12 @@ export function groupPermissions(permissions: readonly string[]): PermissionGrou
  *
  * @param password - The entered password.
  * @param confirm - The confirmation entry.
+ * @param t - Translates the message (default English)
  * @returns An error message, or null when valid.
  */
-export function validatePassword(password: string, confirm: string): string | null {
-  if (password.length < MIN_PASSWORD_LENGTH) return `Password must be at least ${MIN_PASSWORD_LENGTH} characters`;
-  if (password !== confirm) return "Passwords do not match";
+export function validatePassword(password: string, confirm: string, t: CoreTranslate = englishT): string | null {
+  if (password.length < MIN_PASSWORD_LENGTH) return t("users.passwordTooShort", { min: MIN_PASSWORD_LENGTH });
+  if (password !== confirm) return t("users.passwordMismatch");
   return null;
 }
 

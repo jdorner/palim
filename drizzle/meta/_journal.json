@@ -92,6 +92,13 @@
       "when": 1790760000000,
       "tag": "0013_add-datatables",
       "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "6",
+      "when": 1790760100000,
+      "tag": "0014_add-user-locale",
+      "breakpoints": true
     }
   ]
 }

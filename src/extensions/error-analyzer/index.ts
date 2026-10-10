@@ -156,7 +156,7 @@ function buildAnalysisPrompt(data: AnalysisJobData, reportPath: string): string 
 
 const manifest = {
   name: "error-analyzer",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "Automatic failure analysis and error reporting for jobs and workflows",
   dependencies: ["workflows"],
   settingsSchema: Type.Object({

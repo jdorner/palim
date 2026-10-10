@@ -1,9 +1,4 @@
 <script lang="ts">
-/**
- * Header bar of the workflow detail page: back button, title, and the
- * mode-dependent actions (Undo/Redo/Save/Cancel in edit mode; Edit/Run/Delete otherwise,
- * collapsing into a dropdown on narrow screens). Owns the delete confirmation.
- */
 import { DropdownMenu } from "bits-ui";
 import ArrowUUpLeftIcon from "phosphor-svelte/lib/ArrowUUpLeftIcon";
 import ArrowUUpRightIcon from "phosphor-svelte/lib/ArrowUUpRightIcon";
@@ -13,6 +8,12 @@ import PlayIcon from "phosphor-svelte/lib/PlayIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import { Button } from "$lib/components/ui/button";
 import { buttonVariants } from "$lib/components/ui/button/button.svelte";
+/**
+ * Header bar of the workflow detail page: back button, title, and the
+ * mode-dependent actions (Undo/Redo/Save/Cancel in edit mode; Edit/Run/Delete otherwise,
+ * collapsing into a dropdown on narrow screens). Owns the delete confirmation.
+ */
+import { t } from "$lib/i18n.svelte";
 import { navigate } from "../router";
 
 interface Props {
@@ -75,7 +76,7 @@ let confirmingDelete = $state(false);
         navigate("/workflows");
       }}
     >
-      &laquo;&nbsp;Back
+      &laquo;&nbsp;{t("common.back")}
     </Button>
     <h2 class="text-lg font-semibold truncate">{name}</h2>
     {#if !editMode && description}
@@ -90,8 +91,8 @@ let confirmingDelete = $state(false);
         class="min-w-0! w-9! p-0!"
         onclick={onUndo}
         disabled={!canUndo}
-        title="Undo (Ctrl+Z)"
-        aria-label="Undo"
+        title={t("workflows.undoTitle")}
+        aria-label={t("workflows.undo")}
       >
         <ArrowUUpLeftIcon size={16} aria-hidden="true" />
       </Button>
@@ -101,40 +102,40 @@ let confirmingDelete = $state(false);
         class="min-w-0! w-9! p-0!"
         onclick={onRedo}
         disabled={!canRedo}
-        title="Redo (Ctrl+Shift+Z)"
-        aria-label="Redo"
+        title={t("workflows.redoTitle")}
+        aria-label={t("workflows.redo")}
       >
         <ArrowUUpRightIcon size={16} aria-hidden="true" />
       </Button>
       <Button size="sm" variant="default" onclick={onSave} disabled={saveDisabled}>
         {#if saving}
-          Saving...
+          {t("common.saving")}
         {:else}
-          Save
+          {t("common.save")}
         {/if}
       </Button>
-      <Button size="sm" variant="outline" onclick={onCancelEdit}>Cancel</Button>
+      <Button size="sm" variant="outline" onclick={onCancelEdit}>{t("common.cancel")}</Button>
     {:else if confirmingDelete}
-      <span class="text-sm font-bold text-destructive">Delete this workflow?</span>
-      <Button size="sm" variant="destructive" onclick={() => onDelete()}>Confirm</Button>
+      <span class="text-sm font-bold text-destructive">{t("workflows.confirmDelete")}</span>
+      <Button size="sm" variant="destructive" onclick={() => onDelete()}>{t("common.confirm")}</Button>
       <Button
         size="sm"
         variant="outline"
         onclick={() => {
           confirmingDelete = false;
         }}
-        >Cancel</Button
+        >{t("common.cancel")}</Button
       >
     {:else}
       <!-- Wide: full inline buttons -->
       <div class="hidden xl:flex items-center gap-2">
         <Button size="sm" variant="outline" onclick={onEdit}>
           <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-          Edit
+          {t("common.edit")}
         </Button>
         <Button size="sm" variant="default" class="text-nowrap" onclick={onRun}>
           <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-          Run Workflow
+          {t("workflows.runWorkflow")}
         </Button>
         <Button
           size="sm"
@@ -144,7 +145,7 @@ let confirmingDelete = $state(false);
           }}
         >
           <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-          Delete
+          {t("common.delete")}
         </Button>
       </div>
 
@@ -152,12 +153,12 @@ let confirmingDelete = $state(false);
       <div class="flex xl:hidden items-center gap-2">
         <Button size="sm" variant="default" class="text-nowrap" onclick={onRun}>
           <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-          Run Workflow
+          {t("workflows.runWorkflow")}
         </Button>
         <DropdownMenu.Root>
           <DropdownMenu.Trigger
             class={`${buttonVariants({ variant: "outline", size: "sm" })} min-w-0! w-10! p-0! shrink-0`}
-            aria-label="More actions"
+            aria-label={t("workflows.moreActions")}
           >
             <DotsThreeVerticalIcon size={16} aria-hidden="true" />
           </DropdownMenu.Trigger>
@@ -172,7 +173,7 @@ let confirmingDelete = $state(false);
                 onSelect={onEdit}
               >
                 <PencilSimpleIcon size={14} aria-hidden="true" />
-                Edit
+                {t("common.edit")}
               </DropdownMenu.Item>
               <DropdownMenu.Separator class="my-1 h-px bg-border" />
               <DropdownMenu.Item
@@ -182,7 +183,7 @@ let confirmingDelete = $state(false);
                 }}
               >
                 <TrashIcon size={14} aria-hidden="true" />
-                Delete
+                {t("common.delete")}
               </DropdownMenu.Item>
             </DropdownMenu.Content>
           </DropdownMenu.Portal>

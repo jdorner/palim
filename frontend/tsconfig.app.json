@@ -24,6 +24,6 @@
       "$shared/*": ["../shared/*"]
     }
   },
-  "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte", "../shared/**/*.ts"],
+  "include": ["src/**/*.ts", "src/**/*.js", "src/**/*.svelte", "src/locales/*.json", "../shared/**/*.ts"],
   "exclude": ["src/**/*.test.ts", "../shared/**/*.test.ts"]
 }

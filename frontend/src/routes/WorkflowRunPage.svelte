@@ -8,6 +8,9 @@ import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { detailPanelMode } from "$lib/detailPanelMode.svelte";
 import { extensions } from "$lib/extensionStore";
+import { t } from "$lib/i18n.svelte";
+import { statusLabel } from "$lib/i18nCore";
+import { localizeStepType } from "$lib/stepTypes";
 import { formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import { buildStatusMap, type GraphStepStatus } from "$lib/workflowRunStatus";
 import { type RunStep, workflowStore } from "$lib/workflowRunStore.svelte";
@@ -47,7 +50,9 @@ const run = $derived(workflowStore.run);
  * generic gear fallback.
  */
 const customStepTypes = $derived(
-  $extensions.filter((ext) => ext.enabled && ext.ui?.stepTypes?.length).flatMap((ext) => ext.ui!.stepTypes!),
+  $extensions
+    .filter((ext) => ext.enabled && ext.ui?.stepTypes?.length)
+    .flatMap((ext) => ext.ui!.stepTypes!.map(localizeStepType)),
 );
 
 /**
@@ -90,7 +95,7 @@ async function fetchRun() {
       definitionEdges = def.edges ?? [];
     }
   } catch (err) {
-    error = err instanceof Error ? err.message : "Failed to load run";
+    error = err instanceof Error ? err.message : t("runs.loadFailed");
   } finally {
     loading = false;
   }
@@ -209,25 +214,25 @@ onDestroy(() => {
             });
           }}
         >
-          &laquo;&nbsp;Back
+          &laquo;&nbsp;{t("common.back")}
         </Button>
-        <span class="text-xs text-muted-foreground font-mono">Run: {run.runId.slice(0, 8)}</span>
+        <span class="text-xs text-muted-foreground font-mono">{t("runs.runId", { id: run.runId.slice(0, 8) })}</span>
       </div>
       <div class="flex items-center gap-2">
         <DetailPanelModeToggle />
         {#if run.status === "failed"}
           <Button size="sm" variant="default" onclick={retryRun} disabled={retrying}>
             <ArrowCounterClockwiseIcon size={14} class="mr-1.5" aria-hidden="true" />
-            {retrying ? "Retrying..." : "Retry"}
+            {retrying ? t("runs.retrying") : t("common.retry")}
           </Button>
         {/if}
         {#if isRunCancellable(run.status)}
           <Button size="sm" variant="destructive" onclick={cancelRun} disabled={cancelling}>
             <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
-            {cancelling ? "Cancelling..." : "Cancel"}
+            {cancelling ? t("runs.cancelling") : t("common.cancel")}
           </Button>
         {/if}
-        <Badge variant={statusVariant(run.status)}>{run.status}</Badge>
+        <Badge variant={statusVariant(run.status)}>{statusLabel(run.status)}</Badge>
       </div>
     </div>
 
@@ -284,22 +289,22 @@ onDestroy(() => {
           type="button"
           class="shrink-0 p-0 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
           onclick={closeSidebar}
-          aria-label="Close log sidebar"
+          aria-label={t("runs.closeLogs")}
         >
           ✕
         </button>
         <span class="text-sm font-medium truncate">{inspectedStep.slug}</span>
-        <Badge variant={statusVariant(inspectedStep.status)}>{inspectedStep.status}</Badge>
+        <Badge variant={statusVariant(inspectedStep.status)}>{statusLabel(inspectedStep.status)}</Badge>
       </div>
 
       <!-- Sidebar content -->
       <div class="flex-1 overflow-y-auto min-h-0 p-4">
         {#if inspectedStep.status === "waiting"}
-          <p class="text-sm text-muted-foreground">Waiting for previous step to complete</p>
+          <p class="text-sm text-muted-foreground">{t("runs.waitingPrevious")}</p>
         {:else if inspectedStep.status === "waiting-signal"}
           <div class="flex items-center gap-2 mb-3">
             <PauseCircleIcon size={16} class="text-amber-500" aria-hidden="true" />
-            <p class="text-sm text-muted-foreground">Waiting for external signal</p>
+            <p class="text-sm text-muted-foreground">{t("runs.waitingSignal")}</p>
           </div>
           {#if inspectedStep.waitEvent}
             <SignalDeliveryForm
@@ -309,9 +314,9 @@ onDestroy(() => {
             />
           {/if}
         {:else if loadingLogs}
-          <p class="text-sm text-muted-foreground">Loading logs...</p>
+          <p class="text-sm text-muted-foreground">{t("jobs.loadingLogs")}</p>
         {:else if stepLogs.length === 0}
-          <p class="text-sm text-muted-foreground">No logs available</p>
+          <p class="text-sm text-muted-foreground">{t("runs.noLogs")}</p>
         {:else}
           <div class="space-y-1">
             {#each stepLogs as log}

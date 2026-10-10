@@ -5,6 +5,9 @@ import WarningIcon from "phosphor-svelte/lib/WarningIcon";
 import { untrack } from "svelte";
 import { Button } from "$lib/components/ui/button";
 import { Dialog } from "$lib/components/ui/dialog";
+import { t } from "$lib/i18n.svelte";
+import { identity } from "$lib/identity.svelte";
+import { isLocale, LOCALE_NAMES, type Locale, SUPPORTED_LOCALES } from "$shared/i18n";
 import { createUser, deleteUser, updateUser } from "./api";
 import PasswordFields from "./PasswordFields.svelte";
 import {
@@ -40,6 +43,9 @@ const initialRoleIds = untrack(() => (initial ? roleIdsForNames(roles, initial.r
 
 let username = $state("");
 let displayName = $state(initial?.displayName ?? "");
+/** Selected language; "" means "browser default" (stored as null). */
+const initialLocale: Locale | "" = untrack(() => (isLocale(initial?.locale) ? initial.locale : ""));
+let locale = $state<Locale | "">(initialLocale);
 let password = $state("");
 let confirm = $state("");
 let roleIds = $state<string[]>([...initialRoleIds]);
@@ -47,7 +53,16 @@ let error = $state<string | null>(null);
 let saving = $state(false);
 let confirmingDelete = $state(false);
 let formEl = $state<HTMLFormElement | undefined>(undefined);
-const deleteLock = untrack(() => (initial ? deleteLockReason(initial, users, currentUserId) : null));
+const deleteLock = $derived(
+  initial
+    ? deleteLockReason(
+        initial,
+        untrack(() => users),
+        currentUserId,
+        t,
+      )
+    : null,
+);
 
 async function remove() {
   if (!initial) return;
@@ -56,10 +71,12 @@ async function remove() {
   try {
     const sessions = await deleteUser(initial.id);
     onSaved(
-      `Deleted ${initial.username}${sessions > 0 ? ` and ${sessions} chat session${sessions === 1 ? "" : "s"}` : ""}`,
+      sessions > 0
+        ? t("users.deletedUserWithSessions", { username: initial.username, count: sessions })
+        : t("users.deletedUser", { username: initial.username }),
     );
   } catch (err) {
-    error = err instanceof Error ? err.message : "Delete failed";
+    error = err instanceof Error ? err.message : t("common.deleteFailed");
     confirmingDelete = false;
   } finally {
     saving = false;
@@ -71,24 +88,25 @@ function toggleRole(id: string) {
 }
 
 function lockReason(role: RoleRow): string | null {
-  return user ? roleLockReason(user, role, users, currentUserId) : null;
+  return user ? roleLockReason(user, role, users, currentUserId, t) : null;
 }
 
 const rolesChanged = $derived(
   roleIds.length !== initialRoleIds.length || roleIds.some((id) => !initialRoleIds.includes(id)),
 );
 const displayNameChanged = $derived(displayName.trim() !== (user?.displayName ?? ""));
-const dirty = $derived(isCreate || rolesChanged || displayNameChanged);
+const localeChanged = $derived(locale !== initialLocale);
+const dirty = $derived(isCreate || rolesChanged || displayNameChanged || localeChanged);
 
 async function save(e: SubmitEvent) {
   e.preventDefault();
   error = null;
   if (isCreate) {
     if (!username.trim()) {
-      error = "Username is required";
+      error = t("users.usernameRequired");
       return;
     }
-    const pwError = validatePassword(password, confirm);
+    const pwError = validatePassword(password, confirm, t);
     if (pwError) {
       error = pwError;
       return;
@@ -100,19 +118,25 @@ async function save(e: SubmitEvent) {
       await updateUser(user.id, {
         ...(displayNameChanged ? { displayName: displayName.trim() } : {}),
         ...(rolesChanged ? { roleIds } : {}),
+        ...(localeChanged ? { locale: locale || null } : {}),
       });
-      onSaved(`Updated ${user.username}`);
+      // Editing your own language applies it right away.
+      if (localeChanged && user.id === identity.user?.id) {
+        identity.user = { ...identity.user, locale: locale || undefined };
+      }
+      onSaved(t("users.updatedUser", { username: user.username }));
     } else {
       await createUser({
         username: username.trim(),
         password,
         ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
+        ...(locale ? { locale } : {}),
         roleIds,
       });
-      onSaved(`Created ${username.trim()}`);
+      onSaved(t("users.createdUser", { username: username.trim() }));
     }
   } catch (err) {
-    error = err instanceof Error ? err.message : "Save failed";
+    error = err instanceof Error ? err.message : t("common.saveFailed");
   } finally {
     saving = false;
   }
@@ -125,11 +149,17 @@ function saveShortcut() {
 const inputClass = "w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm";
 </script>
 
-<Dialog open title={user ? `Edit ${user.username}` : "Add user"} class="max-w-lg" {onClose} onSave={saveShortcut}>
+<Dialog
+  open
+  title={user ? t("users.editUser", { username: user.username }) : t("users.addUser")}
+  class="max-w-lg"
+  {onClose}
+  onSave={saveShortcut}
+>
   <form id="user-dialog-form" class="space-y-4" onsubmit={save} bind:this={formEl}>
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <div class="space-y-1">
-        <label for="user-username" class="text-xs font-medium text-muted-foreground">Username</label>
+        <label for="user-username" class="text-xs font-medium text-muted-foreground">{t("users.username")}</label>
         {#if isCreate}
           <input id="user-username" type="text" autocomplete="off" bind:value={username} class={inputClass}>
         {:else}
@@ -138,10 +168,21 @@ const inputClass = "w-full rounded-md border border-input bg-background px-3 py-
       </div>
       <div class="space-y-1">
         <label for="user-display" class="text-xs font-medium text-muted-foreground">
-          Display name <span class="font-normal">(optional)</span>
+          {t("users.displayName")} <span class="font-normal">{t("common.optional")}</span>
         </label>
         <input id="user-display" type="text" bind:value={displayName} class={inputClass}>
       </div>
+    </div>
+
+    <div class="space-y-1">
+      <label for="user-locale" class="text-xs font-medium text-muted-foreground">{t("users.language")}</label>
+      <select id="user-locale" bind:value={locale} class="{inputClass} sm:w-1/2" aria-describedby="user-locale-hint">
+        <option value="">{t("language.browserDefault")}</option>
+        {#each SUPPORTED_LOCALES as option (option)}
+          <option value={option}>{LOCALE_NAMES[option]}</option>
+        {/each}
+      </select>
+      <p id="user-locale-hint" class="text-xs text-muted-foreground">{t("users.languageHint")}</p>
     </div>
 
     {#if isCreate}
@@ -149,7 +190,7 @@ const inputClass = "w-full rounded-md border border-input bg-background px-3 py-
     {/if}
 
     <fieldset class="space-y-1">
-      <legend class="text-xs font-medium text-muted-foreground mb-1">Roles</legend>
+      <legend class="text-xs font-medium text-muted-foreground mb-1">{t("users.roles")}</legend>
       <div class="rounded-md border border-border divide-y divide-border">
         {#each roles as role (role.id)}
           {@const lock = lockReason(role)}
@@ -179,7 +220,7 @@ const inputClass = "w-full rounded-md border border-input bg-background px-3 py-
       {#if roleIds.length === 0}
         <p class="flex items-center gap-1 text-xs text-yellow-600 dark:text-yellow-400">
           <WarningIcon size={12} class="shrink-0" aria-hidden="true" />
-          Without a role this user can sign in but do nothing.
+          {t("users.noRoleWarning")}
         </p>
       {/if}
     </fieldset>
@@ -193,9 +234,9 @@ const inputClass = "w-full rounded-md border border-input bg-background px-3 py-
     {#if initial}
       <div class="mr-auto flex items-center gap-2">
         {#if confirmingDelete}
-          <span class="text-xs text-muted-foreground">Delete account and all chat sessions?</span>
-          <Button size="sm" variant="destructive" disabled={saving} onclick={remove}>Delete</Button>
-          <Button size="sm" variant="ghost" onclick={() => (confirmingDelete = false)}>Keep</Button>
+          <span class="text-xs text-muted-foreground">{t("users.confirmDeleteUser")}</span>
+          <Button size="sm" variant="destructive" disabled={saving} onclick={remove}>{t("common.delete")}</Button>
+          <Button size="sm" variant="ghost" onclick={() => (confirmingDelete = false)}>{t("common.keep")}</Button>
         {:else}
           <Button
             size="sm"
@@ -206,15 +247,15 @@ const inputClass = "w-full rounded-md border border-input bg-background px-3 py-
             onclick={() => (confirmingDelete = true)}
           >
             <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-            Delete
+            {t("common.delete")}
           </Button>
         {/if}
       </div>
     {/if}
     {#if !confirmingDelete}
-      <Button size="sm" variant="outline" onclick={onClose}>Cancel</Button>
+      <Button size="sm" variant="outline" onclick={onClose}>{t("common.cancel")}</Button>
       <Button size="sm" type="submit" form="user-dialog-form" disabled={saving || !dirty}>
-        {saving ? "Saving..." : isCreate ? "Create user" : "Save"}
+        {saving ? t("common.saving") : isCreate ? t("users.createUser") : t("common.save")}
       </Button>
     {/if}
   {/snippet}

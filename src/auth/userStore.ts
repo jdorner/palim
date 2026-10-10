@@ -27,6 +27,8 @@ export interface UserRecord {
   username: string;
   /** Optional display name. */
   displayName?: string;
+  /** Preferred UI locale; undefined follows the browser language. */
+  locale?: string;
   /** Identity provider ("local" for password accounts). */
   provider: string;
   /** Whether the account is disabled. */
@@ -83,6 +85,8 @@ export interface CreateUserOptions {
   passwordHash: string;
   /** Optional display name. */
   displayName?: string;
+  /** Optional preferred UI locale. */
+  locale?: string;
   /** Identity provider; defaults to "local". */
   provider?: string;
   /** Optional explicit id (defaults to a generated nanoid). */
@@ -129,6 +133,7 @@ export class UserStore {
         username: opts.username,
         passwordHash: opts.passwordHash,
         displayName: opts.displayName ?? null,
+        locale: opts.locale ?? null,
         provider: opts.provider ?? "local",
         disabled: false,
         createdAt: now,
@@ -139,6 +144,7 @@ export class UserStore {
       id,
       username: opts.username,
       displayName: opts.displayName,
+      locale: opts.locale,
       provider: opts.provider ?? "local",
       disabled: false,
       createdAt: now,
@@ -245,6 +251,17 @@ export class UserStore {
    */
   setDisplayName(id: string, displayName: string | null): void {
     this.db.update(users).set({ displayName, updatedAt: Date.now() }).where(eq(users.id, id)).run();
+  }
+
+  /**
+   * Set or clear a user's preferred UI locale.
+   *
+   * @param id - The user id.
+   * @param locale - The locale (validated by the caller), or null to follow the browser language.
+   * @throws When the write fails.
+   */
+  setLocale(id: string, locale: string | null): void {
+    this.db.update(users).set({ locale, updatedAt: Date.now() }).where(eq(users.id, id)).run();
   }
 
   // -------------------------------------------------------------------------
@@ -586,6 +603,7 @@ export class UserStore {
       id: row.id,
       username: row.username,
       displayName: row.displayName ?? undefined,
+      locale: row.locale ?? undefined,
       provider: row.provider,
       disabled: row.disabled,
       createdAt: row.createdAt,

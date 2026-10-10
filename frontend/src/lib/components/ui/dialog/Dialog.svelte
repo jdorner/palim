@@ -2,6 +2,7 @@
 import XIcon from "phosphor-svelte/lib/XIcon";
 import type { Snippet } from "svelte";
 import { tick } from "svelte";
+import { useI18n } from "$lib/kitI18n";
 import { cn } from "$lib/utils";
 
 interface Props {
@@ -24,6 +25,8 @@ interface Props {
 }
 
 let { open = false, title, description, class: className, onClose, onSave, children, footer }: Props = $props();
+
+const i18n = useI18n();
 
 let panelEl = $state<HTMLDivElement | undefined>(undefined);
 const titleId = `dialog-title-${Math.random().toString(36).slice(2, 9)}`;
@@ -85,7 +88,7 @@ function handleKeydown(e: KeyboardEvent) {
         {#if onClose}
           <button
             type="button"
-            aria-label="Close"
+            aria-label={$i18n.t("common.close")}
             data-dialog-close
             onclick={onClose}
             class="relative -mr-1 shrink-0 rounded-md p-1.5 text-white/85 hover:bg-white/20 hover:text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/70"

@@ -33,7 +33,7 @@ const NTFY_DEFAULT_TOPIC = "NTFY_DEFAULT_TOPIC" as const;
 
 const manifest = {
   name: "ntfy",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "Send push notifications via ntfy.sh, exposed as a workflow step type",
   dependencies: ["workflows"],
   settingsSchema: Type.Object({

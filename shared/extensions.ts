@@ -198,8 +198,11 @@ export interface ExtensionInfo {
 /** WebSocket event broadcast when an extension is loaded, unloaded, activated, or deactivated at runtime. */
 export interface ExtensionLifecycleEvent {
   type: "extension_lifecycle";
-  /** The lifecycle action that occurred (`ui_updated`: the extension's UI pages were rebuilt). */
-  action: "loaded" | "unloaded" | "activated" | "deactivated" | "ui_updated";
+  /**
+   * The lifecycle action that occurred (`ui_updated`: the extension's UI pages
+   * were rebuilt; `locales_updated`: its translation catalogs were reloaded).
+   */
+  action: "loaded" | "unloaded" | "activated" | "deactivated" | "ui_updated" | "locales_updated";
   /** Extension manifest name. */
   name: string;
   /** Extension version string. */

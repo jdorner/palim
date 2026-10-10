@@ -27,7 +27,7 @@ const EMIT_THROTTLE_MS = 500;
 
 const manifest = {
   name: "datatables",
-  version: "1.2.1",
+  version: "1.3.0",
   description: "Typed data tables with CSV/Excel import and export, workflow steps, and an agent command",
   dependencies: ["workflows"],
   ui: {

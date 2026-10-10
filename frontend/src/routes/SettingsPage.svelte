@@ -13,6 +13,7 @@ import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+import { t, tx } from "$lib/i18n.svelte";
 import { modelStore } from "$lib/modelStore.svelte";
 import { settings } from "$lib/settingsStore.svelte";
 import type { AvailableModel, ExtensionInfo, ModelIntent } from "../../../shared/types";
@@ -44,9 +45,7 @@ let modelStatusMessage = $state<string | null>(null);
 let modelStatusVariant = $state<"success" | "error" | "info" | "accent">("info");
 
 /** Merged banner message for the Models tab (priority: modelSelector > thinking > intent > default info). */
-let bannerMessage = $derived(
-  modelStatusMessage ?? thinkingSuccess ?? intentMessage ?? "Changes take effect on the next agent job.",
-);
+let bannerMessage = $derived(modelStatusMessage ?? thinkingSuccess ?? intentMessage ?? t("settings.changesNextJob"));
 /** Merged banner variant for the Models tab. */
 let bannerVariant = $derived<"success" | "error" | "info" | "accent">(
   modelStatusMessage ? modelStatusVariant : thinkingSuccess ? "success" : intentMessage ? "success" : "info",
@@ -80,7 +79,7 @@ $effect(() => {
 
 function toggleThinking() {
   settings.toggleThinkingExpanded();
-  thinkingSuccess = `Thinking ${settings.thinkingExpanded ? "expanded" : "collapsed"} by default`;
+  thinkingSuccess = settings.thinkingExpanded ? t("settings.thinkingExpanded") : t("settings.thinkingCollapsed");
   if (thinkingTimer) clearTimeout(thinkingTimer);
   thinkingTimer = setTimeout(() => (thinkingSuccess = null), 3000);
 }
@@ -94,9 +93,11 @@ async function handleIntentChange(intent: ModelIntent, modelId: string | null) {
     success = await modelStore.clearIntentModel(intent);
   }
   if (success) {
-    intentMessage = modelId ? `${intent} model set to "${modelId}"` : `${intent} model reset to default`;
+    intentMessage = modelId
+      ? t("settings.intentSet", { intent, model: modelId })
+      : t("settings.intentReset", { intent });
   } else {
-    intentMessage = `Failed to update ${intent} model`;
+    intentMessage = t("settings.intentUpdateFailed", { intent });
   }
   if (intentMessageTimer) clearTimeout(intentMessageTimer);
   intentMessageTimer = setTimeout(() => (intentMessage = null), 3000);
@@ -115,7 +116,7 @@ async function fetchExtensions() {
       checkVaultAvailability(extWithSecrets.name);
     }
   } catch (err) {
-    error = err instanceof Error ? err.message : "Failed to load extensions";
+    error = err instanceof Error ? err.message : t("settings.loadExtensionsFailed");
   } finally {
     loading = false;
   }
@@ -147,12 +148,12 @@ async function toggleExtension(ext: ExtensionInfo) {
       const body = await res.json().catch(() => null);
       throw new Error(body?.error ?? `HTTP ${res.status}`);
     }
-    toggleSuccess = `${ext.name} ${!previous ? "enabled" : "disabled"}`;
+    toggleSuccess = t(!previous ? "settings.extensionEnabled" : "settings.extensionDisabled", { name: ext.name });
     if (toggleTimer) clearTimeout(toggleTimer);
     toggleTimer = setTimeout(() => (toggleSuccess = null), 3000);
   } catch (err) {
     extensions = extensions.map((e) => (e.name === ext.name ? { ...e, enabled: previous } : e));
-    toggleError = err instanceof Error ? err.message : "Failed to toggle extension";
+    toggleError = err instanceof Error ? err.message : t("settings.toggleFailed");
     if (toggleTimer) clearTimeout(toggleTimer);
     toggleTimer = setTimeout(() => (toggleError = null), 5000);
   }
@@ -160,10 +161,10 @@ async function toggleExtension(ext: ExtensionInfo) {
 
 function formatStats(ext: ExtensionInfo): string {
   const parts: string[] = [];
-  if (ext.toolCount > 0) parts.push(`${ext.toolCount}&nbsp;tool${ext.toolCount !== 1 ? "s" : ""}`);
-  if (ext.routeCount > 0) parts.push(`${ext.routeCount}&nbsp;route${ext.routeCount !== 1 ? "s" : ""}`);
-  if (ext.queueCount > 0) parts.push(`${ext.queueCount}&nbsp;queue${ext.queueCount !== 1 ? "s" : ""}`);
-  if (ext.skillCount > 0) parts.push(`${ext.skillCount}&nbsp;skill${ext.skillCount !== 1 ? "s" : ""}`);
+  if (ext.toolCount > 0) parts.push(t("settings.tools", { count: ext.toolCount }));
+  if (ext.routeCount > 0) parts.push(t("settings.routes", { count: ext.routeCount }));
+  if (ext.queueCount > 0) parts.push(t("settings.queues", { count: ext.queueCount }));
+  if (ext.skillCount > 0) parts.push(t("settings.skills", { count: ext.skillCount }));
   return parts.length > 0 ? parts.join(", ") : "-";
 }
 
@@ -210,31 +211,31 @@ $effect(() => {
       value="model"
       class="px-3 py-1.5 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px"
     >
-      Models
+      {t("settings.tabModels")}
     </Tabs.Trigger>
     <Tabs.Trigger
       value="extensions"
       class="px-3 py-1.5 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px"
     >
-      Extensions
+      {t("settings.tabExtensions")}
     </Tabs.Trigger>
     <Tabs.Trigger
       value="variables"
       class="px-3 py-1.5 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px"
     >
-      Variables
+      {t("settings.tabVariables")}
     </Tabs.Trigger>
     <Tabs.Trigger
       value="secrets"
       class="px-3 py-1.5 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px"
     >
-      Secrets
+      {t("settings.tabSecrets")}
     </Tabs.Trigger>
   </Tabs.List>
 
   <Tabs.Content value="model" class="space-y-4">
     <NotificationBanner message={bannerMessage} variant={bannerVariant} timeout={0} />
-    <h3 class="text-sm font-semibold text-foreground">Default Model</h3>
+    <h3 class="text-sm font-semibold text-foreground">{t("settings.defaultModel")}</h3>
     <ModelSelector
       bind:statusMessage={modelStatusMessage}
       bind:statusVariant={modelStatusVariant}
@@ -242,24 +243,24 @@ $effect(() => {
     />
     <div class="flex items-center justify-between rounded-md border border-border px-3 py-2">
       <div>
-        <p class="text-sm font-medium">Expand thinking by default</p>
-        <p class="text-xs text-muted-foreground">Show the model's reasoning process expanded in chat messages</p>
+        <p class="text-sm font-medium">{t("settings.expandThinking")}</p>
+        <p class="text-xs text-muted-foreground">{t("settings.expandThinkingHint")}</p>
       </div>
       <ToggleSwitch
         checked={settings.thinkingExpanded}
         onChange={() => toggleThinking()}
-        aria-label="Toggle thinking expanded by default"
+        aria-label={t("settings.toggleThinking")}
       />
     </div>
     <div class="space-y-2">
-      <h3 class="text-sm font-semibold text-foreground">Intent Models</h3>
+      <h3 class="text-sm font-semibold text-foreground">{t("settings.intentModels")}</h3>
       <p class="text-xs text-muted-foreground">
-        Assign specific models to different task types. Unset intents use the default model above.
+        {t("settings.intentModelsHint")}
       </p>
       <IntentModelSelector
         intent="vision"
-        label="Vision"
-        description="Used for OCR and document conversion"
+        label={t("settings.intentVision")}
+        description={t("settings.intentVisionHint")}
         models={availableModels}
         selectedModelId={modelStore.intents.vision}
         defaultModelId={modelStore.selectedModelId}
@@ -267,8 +268,8 @@ $effect(() => {
       />
       <IntentModelSelector
         intent="embedding"
-        label="Embedding"
-        description="Used for text embeddings and semantic search"
+        label={t("settings.intentEmbedding")}
+        description={t("settings.intentEmbeddingHint")}
         models={availableModels}
         selectedModelId={modelStore.intents.embedding}
         defaultModelId={modelStore.selectedModelId}
@@ -297,7 +298,7 @@ $effect(() => {
         class="flex items-center gap-2 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
       >
         <InfoIcon class="w-4 h-4 shrink-0" aria-hidden="true" />
-        <span>Disabling an extension takes effect immediately and may affect jobs currently running.</span>
+        <span>{t("settings.disableWarning")}</span>
       </div>
     {/if}
 
@@ -306,19 +307,19 @@ $effect(() => {
     {:else if error}
       <p class="text-sm text-destructive">{error}</p>
     {:else if extensions.length === 0}
-      <p class="text-sm text-muted-foreground">No extensions loaded.</p>
+      <p class="text-sm text-muted-foreground">{t("settings.noExtensions")}</p>
     {:else}
       <div class="rounded-md border border-border">
         <Table>
           <TableHeader class="bg-muted/30">
             <TableRow>
               <TableHead class="w-4 text-center"></TableHead>
-              <TableHead>Name</TableHead>
-              <TableHead class="w-20">Version</TableHead>
-              <TableHead class="w-20">Source</TableHead>
-              <TableHead class="hidden xl:table-cell lg:table-cell">Description</TableHead>
-              <TableHead class="hidden xl:table-cell">Stats</TableHead>
-              <TableHead class="w-16 text-right">Enabled</TableHead>
+              <TableHead>{t("common.name")}</TableHead>
+              <TableHead class="w-20">{t("settings.colVersion")}</TableHead>
+              <TableHead class="w-20">{t("settings.colSource")}</TableHead>
+              <TableHead class="hidden xl:table-cell lg:table-cell">{t("common.description")}</TableHead>
+              <TableHead class="hidden xl:table-cell">{t("settings.colStats")}</TableHead>
+              <TableHead class="w-16 text-right">{t("settings.colEnabled")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -330,7 +331,7 @@ $effect(() => {
                       variant="ghost"
                       size="icon"
                       class="h-7 w-7 p-0"
-                      aria-label="Settings for {ext.name}"
+                      aria-label={t("settings.settingsFor", { name: ext.name })}
                       onclick={() => openSettings(ext)}
                     >
                       <GearIcon class="w-4 h-4" aria-hidden="true" />
@@ -355,7 +356,7 @@ $effect(() => {
                     {/if}
                     {#if ext.error}
                       <span title={ext.error} class="text-destructive dark:text-red-400 cursor-help">
-                        <WarningIcon class="w-4 h-4" aria-label="Initialization error: {ext.error}" />
+                        <WarningIcon class="w-4 h-4" aria-label={t("settings.initError", { error: ext.error })} />
                       </span>
                     {/if}
                   </span>
@@ -365,19 +366,21 @@ $effect(() => {
                 </TableCell>
                 <TableCell>
                   <Badge variant={ext.source === "external" ? "default" : "secondary"} class="text-xs font-normal"
-                    >{ext.source}</Badge
+                    >{t(`settings.source.${ext.source}`)}</Badge
                   >
                 </TableCell>
                 <TableCell class="hidden lg:table-cell text-xs text-muted-foreground">
-                  {ext.description || "-"}
+                  {ext.description ? tx(ext.name, "description", ext.description) : "-"}
                 </TableCell>
-                <TableCell class="text-muted-foreground hidden xl:table-cell"> {@html formatStats(ext)} </TableCell>
+                <TableCell class="text-muted-foreground hidden xl:table-cell"> {formatStats(ext)} </TableCell>
                 <TableCell class="text-right">
                   {#if ext.core !== true}
                     <ToggleSwitch
                       checked={ext.enabled}
                       onChange={() => toggleExtension(ext)}
-                      aria-label={ext.enabled ? `Disable ${ext.name}` : `Enable ${ext.name}`}
+                      aria-label={ext.enabled
+                        ? t("settings.disableExt", { name: ext.name })
+                        : t("settings.enableExt", { name: ext.name })}
                     />
                   {/if}
                 </TableCell>
@@ -396,14 +399,14 @@ $effect(() => {
                             initialValues={settingsData.values}
                           />
                         {:else if ext.settingsSchema}
-                          <p class="text-sm text-muted-foreground">Failed to load settings.</p>
+                          <p class="text-sm text-muted-foreground">{t("settings.loadSettingsFailed")}</p>
                         {/if}
 
                         {#if ext.secretsSchema && vaultAvailable}
                           {#if settingsData || !ext.settingsSchema}
                             {#if ext.settingsSchema}
                               <hr class="border-border">
-                              <h4 class="text-sm font-semibold text-foreground">Secrets</h4>
+                              <h4 class="text-sm font-semibold text-foreground">{t("settings.secrets")}</h4>
                             {/if}
                             <SecretForm extensionName={ext.name} schema={ext.secretsSchema} />
                           {/if}

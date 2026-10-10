@@ -5,6 +5,7 @@
  */
 import type { OutputSchemaShorthand, OutputSchemas } from "$shared/workflows";
 import { authFetch } from "./auth";
+import { translateCore as t } from "./i18nCore";
 import type { InferSource } from "./outputSchemaShorthand";
 import type { WorkflowWarning } from "./workflowDetail";
 
@@ -128,6 +129,6 @@ export async function fetchInferredSchema(workflowName: string, source: InferSou
   if (source.kind === "step") params.set("slug", source.slug);
   const res = await authFetch(`/ext/workflows/meta/infer-schema/${encodeURIComponent(workflowName)}?${params}`);
   const body = (await res.json().catch(() => ({}))) as Partial<InferredSchema> & { error?: string };
-  if (!res.ok || !body.shorthand) throw new Error(body.error ?? `Request failed (${res.status})`);
+  if (!res.ok || !body.shorthand) throw new Error(body.error ?? t("common.requestFailed", { status: res.status }));
   return body as InferredSchema;
 }

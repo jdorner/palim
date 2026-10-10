@@ -34,6 +34,8 @@ export const users = sqliteTable(
     passwordHash: text("password_hash").notNull().default(""),
     /** Optional human-readable display name. */
     displayName: text("display_name"),
+    /** Preferred UI locale (e.g. "de"); null follows the browser language. */
+    locale: text("locale"),
     /** Identity provider: "local" for password accounts (reserved for SSO). */
     provider: text("provider").notNull().default("local"),
     /** Provider-specific subject id for SSO accounts (null for local). */

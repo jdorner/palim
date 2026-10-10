@@ -14,8 +14,10 @@ import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+import { t } from "$lib/i18n.svelte";
 import { identity } from "$lib/identity.svelte";
 import { ROLE_ADMIN, ROLE_SYSTEM } from "$shared/auth";
+import { isLocale, LOCALE_NAMES } from "$shared/i18n";
 import { loadUsersAndRoles, updateUser } from "../components/users/api";
 import PasswordDialog from "../components/users/PasswordDialog.svelte";
 import RoleDialog from "../components/users/RoleDialog.svelte";
@@ -101,7 +103,7 @@ async function refresh() {
     permissions = data.permissions;
     loadError = null;
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Failed to load";
+    const message = err instanceof Error ? err.message : t("common.loadFailed");
     if (loading) loadError = message;
     else showNotice("error", message);
   } finally {
@@ -140,9 +142,9 @@ async function setDisabled(user: UserRow, disabled: boolean) {
   busyUserId = user.id;
   try {
     await updateUser(user.id, { disabled });
-    await handleSaved(`${disabled ? "Disabled" : "Enabled"} ${user.username}`);
+    await handleSaved(t(disabled ? "users.disabledUser" : "users.enabledUser", { username: user.username }));
   } catch (err) {
-    showNotice("error", err instanceof Error ? err.message : "Update failed");
+    showNotice("error", err instanceof Error ? err.message : t("common.updateFailed"));
   } finally {
     busyUserId = null;
   }
@@ -151,8 +153,13 @@ async function setDisabled(user: UserRow, disabled: boolean) {
 /** Short inline label for why a user cannot be disabled. */
 function shortDisableLock(user: UserRow): string | null {
   if (!disableLockReason(user, users, currentUserId)) return null;
-  if (user.id === currentUserId) return "Your account";
-  return isLastAdmin(user, users) ? "Last admin" : "Locked";
+  if (user.id === currentUserId) return t("users.lockYourAccount");
+  return isLastAdmin(user, users) ? t("users.lockLastAdmin") : t("users.lockLocked");
+}
+
+/** Native name of the user's language, or "Browser default". */
+function languageLabel(user: UserRow): string {
+  return isLocale(user.locale) ? LOCALE_NAMES[user.locale] : t("language.browserDefault");
 }
 
 /** Compact per-resource summary of a role's permissions. */
@@ -179,20 +186,25 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
       <WarningIcon size={16} class="mt-0.5 shrink-0" aria-hidden="true" />
     {/if}
     <span class="flex-1">{notice.text}</span>
-    <button type="button" aria-label="Dismiss" class="opacity-60 hover:opacity-100" onclick={() => (notice = null)}>
+    <button
+      type="button"
+      aria-label={t("common.dismiss")}
+      class="opacity-60 hover:opacity-100"
+      onclick={() => (notice = null)}
+    >
       <XIcon size={14} aria-hidden="true" />
     </button>
   </div>
 {/if}
 
 {#if loading}
-  <LoadingIndicator message="Loading users and roles..." />
+  <LoadingIndicator message={t("users.loading")} />
 {:else if loadError}
   <div class="flex items-center gap-3">
     <p class="text-sm text-destructive">{loadError}</p>
     <Button size="sm" variant="outline" onclick={retryLoad}>
       <ArrowClockwiseIcon size={14} class="mr-1.5" aria-hidden="true" />
-      Retry
+      {t("common.retry")}
     </Button>
   </div>
 {:else}
@@ -200,21 +212,21 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
     <div class="flex items-end gap-3 border-b border-border">
       <Tabs.List class="flex gap-1">
         <Tabs.Trigger value="users" class={TAB_TRIGGER_CLASS}>
-          Users <span class="ml-1 text-xs text-muted-foreground">{users.length}</span>
+          {t("users.tabUsers")} <span class="ml-1 text-xs text-muted-foreground">{users.length}</span>
         </Tabs.Trigger>
         <Tabs.Trigger value="roles" class={TAB_TRIGGER_CLASS}>
-          Roles <span class="ml-1 text-xs text-muted-foreground">{roles.length}</span>
+          {t("users.tabRoles")} <span class="ml-1 text-xs text-muted-foreground">{roles.length}</span>
         </Tabs.Trigger>
       </Tabs.List>
       {#if activeTab === "roles"}
         <Button size="sm" class="mb-1 ml-auto" onclick={() => (roleDialog = { role: null })}>
           <PlusIcon size={14} class="mr-1.5" aria-hidden="true" />
-          Add role
+          {t("users.addRole")}
         </Button>
       {:else}
         <Button size="sm" class="mb-1 ml-auto" onclick={() => (userDialog = { user: null })}>
           <PlusIcon size={14} class="mr-1.5" aria-hidden="true" />
-          Add user
+          {t("users.addUser")}
         </Button>
       {/if}
     </div>
@@ -230,8 +242,8 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
           />
           <input
             type="search"
-            placeholder="Filter users"
-            aria-label="Filter users"
+            placeholder={t("users.filterUsers")}
+            aria-label={t("users.filterUsers")}
             bind:value={search}
             class="w-48 rounded-md border border-input bg-background py-1.5 pl-8 pr-3 text-sm"
           >
@@ -242,9 +254,10 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
         <Table>
           <TableHeader class="bg-muted/30">
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead>Roles</TableHead>
-              <TableHead class="text-right">Actions</TableHead>
+              <TableHead>{t("common.name")}</TableHead>
+              <TableHead>{t("users.colRoles")}</TableHead>
+              <TableHead class="hidden md:table-cell">{t("users.colLanguage")}</TableHead>
+              <TableHead class="text-right">{t("common.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -268,18 +281,18 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
                       </a>
                     {/if}
                     {#if user.id === currentUserId}
-                      <Badge variant="outline" class="text-[10px] px-1.5 py-0">you</Badge>
+                      <Badge variant="outline" class="text-[10px] px-1.5 py-0">{t("users.you")}</Badge>
                     {/if}
                     {#if user.disabled}
-                      <Badge variant="warning-outline" class="text-[10px] px-1.5 py-0">disabled</Badge>
+                      <Badge variant="warning-outline" class="text-[10px] px-1.5 py-0"
+                        >{t("users.disabledBadge")}</Badge
+                      >
                     {/if}
                   </div>
                   {#if user.displayName}
                     <span class="text-xs text-muted-foreground">{user.displayName}</span>
                   {:else if system}
-                    <span class="text-xs text-muted-foreground"
-                      >Built-in account for background jobs. Cannot sign in.</span
-                    >
+                    <span class="text-xs text-muted-foreground">{t("users.systemAccount")}</span>
                   {/if}
                 </TableCell>
                 <TableCell class={user.disabled ? "opacity-60" : ""}>
@@ -292,23 +305,32 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
                         {role}
                       </Badge>
                     {:else}
-                      <span class="text-xs text-yellow-600 dark:text-yellow-400">no roles</span>
+                      <span class="text-xs text-yellow-600 dark:text-yellow-400">{t("users.noRoles")}</span>
                     {/each}
                   </div>
+                </TableCell>
+                <TableCell
+                  class="hidden md:table-cell text-xs text-muted-foreground {user.disabled ? "opacity-60" : ""}"
+                >
+                  {system ? "-" : languageLabel(user)}
                 </TableCell>
                 <TableCell class="w-1">
                   <div class="flex items-center justify-end gap-1 whitespace-nowrap">
                     {#if system}
-                      <span class="pr-2 text-xs text-muted-foreground">read-only</span>
+                      <span class="pr-2 text-xs text-muted-foreground">{t("users.readOnly")}</span>
                     {:else if confirmDisableId === user.id}
-                      <span class="text-xs text-muted-foreground mr-1">Disable and sign out?</span>
-                      <Button size="sm" variant="destructive" onclick={() => setDisabled(user, true)}>Disable</Button>
-                      <Button size="sm" variant="ghost" onclick={() => (confirmDisableId = null)}>Cancel</Button>
+                      <span class="text-xs text-muted-foreground mr-1">{t("users.confirmDisable")}</span>
+                      <Button size="sm" variant="destructive" onclick={() => setDisabled(user, true)}
+                        >{t("users.disable")}</Button
+                      >
+                      <Button size="sm" variant="ghost" onclick={() => (confirmDisableId = null)}
+                        >{t("common.cancel")}</Button
+                      >
                     {:else}
                       {@const lock = shortDisableLock(user)}
                       <Button size="sm" variant="ghost" onclick={() => (passwordUser = user)}>
                         <KeyIcon size={14} class="mr-1.5" aria-hidden="true" />
-                        Password
+                        {t("users.password")}
                       </Button>
                       {#if user.disabled}
                         <Button
@@ -319,12 +341,12 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
                           onclick={() => setDisabled(user, false)}
                         >
                           <CheckIcon size={14} class="mr-1.5" aria-hidden="true" />
-                          Enable
+                          {t("users.enable")}
                         </Button>
                       {:else if lock}
                         <span
                           class="inline-flex w-28 items-center justify-end gap-1 pr-2 text-xs text-muted-foreground"
-                          title={disableLockReason(user, users, currentUserId)}
+                          title={disableLockReason(user, users, currentUserId, t)}
                         >
                           <LockSimpleIcon size={12} aria-hidden="true" />
                           {lock}
@@ -338,7 +360,7 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
                           onclick={() => (confirmDisableId = user.id)}
                         >
                           <ProhibitIcon size={14} class="mr-1.5" aria-hidden="true" />
-                          Disable
+                          {t("users.disable")}
                         </Button>
                       {/if}
                     {/if}
@@ -347,7 +369,7 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
               </TableRow>
             {:else}
               <TableRow>
-                <TableCell colspan={3} class="text-muted-foreground">No users match "{search}".</TableCell>
+                <TableCell colspan={4} class="text-muted-foreground">{t("users.noMatch", { search })}</TableCell>
               </TableRow>
             {/each}
           </TableBody>
@@ -361,10 +383,10 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
         <Table>
           <TableHeader class="bg-muted/30">
             <TableRow>
-              <TableHead>Name</TableHead>
-              <TableHead class="hidden lg:table-cell">Description</TableHead>
-              <TableHead>Permissions</TableHead>
-              <TableHead class="text-right">Users</TableHead>
+              <TableHead>{t("common.name")}</TableHead>
+              <TableHead class="hidden lg:table-cell">{t("common.description")}</TableHead>
+              <TableHead>{t("users.colPermissions")}</TableHead>
+              <TableHead class="text-right">{t("users.colUsers")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -384,7 +406,7 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
                       {role.name}
                     </a>
                     {#if role.builtIn}
-                      <Badge variant="outline" class="text-[10px] px-1.5 py-0">built-in</Badge>
+                      <Badge variant="outline" class="text-[10px] px-1.5 py-0">{t("users.builtIn")}</Badge>
                     {/if}
                   </span>
                 </TableCell>
@@ -394,7 +416,7 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
                 <TableCell>
                   <div class="flex flex-wrap gap-1">
                     {#if role.name === ROLE_ADMIN}
-                      <span class="text-xs text-muted-foreground">All permissions</span>
+                      <span class="text-xs text-muted-foreground">{t("users.allPermissions")}</span>
                     {:else}
                       {#each permissionSummary(role) as { resource, actions } (resource)}
                         <span class="inline-flex items-center gap-1 rounded bg-secondary px-1.5 py-0.5 text-xs">
@@ -402,7 +424,7 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
                           <span class="text-muted-foreground">{actions}</span>
                         </span>
                       {:else}
-                        <span class="text-xs text-yellow-600 dark:text-yellow-400">No permissions</span>
+                        <span class="text-xs text-yellow-600 dark:text-yellow-400">{t("users.noPermissions")}</span>
                       {/each}
                     {/if}
                   </div>

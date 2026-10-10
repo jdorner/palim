@@ -1,0 +1,6 @@
+{
+  "description": "Cron- und intervallbasierte Job-Planung mit dauerhaft gespeicherten Zeitplänen",
+  "nav": {
+    "/schedules": "Zeitpläne"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "description": "Agent skill for reading and writing wiki pages",
+  "settings": {
+    "enableSemanticSearch": {
+      "description": "Generate embeddings for wiki chunks to enable hybrid (keyword + semantic) search",
+      "title": "Enable semantic search"
+    },
+    "injectPrompt": {
+      "description": "Add instructions to read the wiki at the start of a conversation",
+      "title": "Inject instructions into system prompt"
+    },
+    "maxEmbeddingChars": {
+      "description": "Maximum characters per chunk sent to the embedding model",
+      "title": "Max embedding characters"
+    },
+    "similarityThreshold": {
+      "description": "Minimum cosine similarity for vector search results (0-1)",
+      "title": "Similarity threshold"
+    },
+    "wikiPath": {
+      "description": "Subdirectory of WORK_DIR where the wiki is located",
+      "title": "Wiki directory"
+    }
+  }
+}

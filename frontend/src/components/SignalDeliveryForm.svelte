@@ -9,6 +9,7 @@
 import PaperPlaneTiltIcon from "phosphor-svelte/lib/PaperPlaneTiltIcon";
 import { authFetch } from "$lib/auth";
 import { Button } from "$lib/components/ui/button";
+import { t } from "$lib/i18n.svelte";
 import { buildInitialValues, getProperties } from "$lib/schemaForm";
 import StepConfigForm from "./StepConfigForm.svelte";
 
@@ -75,7 +76,7 @@ async function handleSubmit() {
 
   const payload = buildPayload();
   if (payload === null) {
-    errorMessage = "Invalid JSON payload";
+    errorMessage = t("signal.invalidJson");
     return;
   }
 
@@ -91,19 +92,21 @@ async function handleSubmit() {
       submitted = true;
     } else {
       const data = await res.json().catch(() => null);
-      errorMessage = data?.error ?? `Signal delivery failed (HTTP ${res.status})`;
+      errorMessage = data?.error ?? t("signal.failed", { status: res.status });
       submitting = false;
     }
   } catch (err) {
-    errorMessage = err instanceof Error ? err.message : "Network error";
+    errorMessage = err instanceof Error ? err.message : t("signal.networkError");
     submitting = false;
   }
 }
 </script>
 
 <div class="border-t border-border pt-3 mt-3 space-y-3">
-  <h4 class="text-xs font-medium text-muted-foreground uppercase tracking-wide">Deliver Signal</h4>
-  <p class="text-xs text-muted-foreground">Waiting for: <span class="font-mono text-foreground">{event}</span></p>
+  <h4 class="text-xs font-medium text-muted-foreground uppercase tracking-wide">{t("signal.title")}</h4>
+  <p class="text-xs text-muted-foreground">
+    {t("signal.waitingFor")} <span class="font-mono text-foreground">{event}</span>
+  </p>
 
   {#if hasSchemaFields && inputSchema}
     <StepConfigForm
@@ -114,7 +117,7 @@ async function handleSubmit() {
     />
   {:else}
     <div class="space-y-1">
-      <label class="text-xs font-medium text-muted-foreground" for="signal-payload">Payload (JSON)</label>
+      <label class="text-xs font-medium text-muted-foreground" for="signal-payload">{t("signal.payload")}</label>
       <textarea
         id="signal-payload"
         class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-ring resize-y min-h-20"
@@ -135,11 +138,11 @@ async function handleSubmit() {
   <Button size="sm" variant="default" onclick={handleSubmit} disabled={submitting || submitted}>
     <PaperPlaneTiltIcon size={14} class="mr-1.5" aria-hidden="true" />
     {#if submitted}
-      Signal Delivered
+      {t("signal.delivered")}
     {:else if submitting}
-      Sending...
+      {t("signal.sending")}
     {:else}
-      Send Signal
+      {t("signal.send")}
     {/if}
   </Button>
 </div>

@@ -3,6 +3,7 @@ import MoonIcon from "phosphor-svelte/lib/MoonIcon";
 import SunIcon from "phosphor-svelte/lib/SunIcon";
 import { onMount } from "svelte";
 import { Button } from "$lib/components/ui/button";
+import { t } from "$lib/i18n.svelte";
 
 let dark = $state(false);
 
@@ -22,7 +23,7 @@ onMount(() => {
 });
 </script>
 
-<Button variant="outline" size="icon" onclick={toggleTheme} aria-label="Toggle theme">
+<Button variant="outline" size="icon" onclick={toggleTheme} aria-label={t("theme.toggle")}>
   {#if dark}
     <SunIcon size={20} aria-hidden="true" />
   {:else}

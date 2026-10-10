@@ -102,7 +102,8 @@ src/
 │   ├── chatEvents.ts        # Agent event to chat WS event mappingg
 │   ├── sessionChatMap.ts    # In-memory session-to-chat mapping for push routing
 │   └── routes/
-│       ├── auth.ts          # POST /api/auth/login|logout, GET /api/auth/me
+│       ├── auth.ts          # POST /api/auth/login|logout, GET /api/auth/me, PUT /api/auth/me/locale
+│       ├── i18n.ts          # GET /api/i18n/:locale (extension translation catalogs)
 │       ├── chat.ts          # POST /api/chat
 │       ├── extensions.ts    # GET/PUT /api/extensions (settings with dynamic item enrichment)
 │       ├── jobs.ts          # Job cancel, logs, queue clean endpoints
@@ -127,7 +128,8 @@ src/
 │   │   ├── eventBus.ts      # Agent lifecycle event dispatch
 │   │   ├── dependencyResolver.ts # Topological sort for load order
 │   │   ├── externalDependencyResolver.ts # Dependency resolution for external/dynamic extensions
-│   │   ├── extensionWatcher.ts # Hot-load/unload watcher for external extensions (+ UI rebuild on ui/ changes)
+│   │   ├── extensionWatcher.ts # Hot-load/unload watcher for external extensions (+ UI rebuild on ui/ changes, catalog reload on locales/ changes)
+│   │   ├── localeLoader.ts  # Loads and validates an extension's locales/<locale>.json catalogs
 │   │   ├── uiBuilder.ts     # Compiles extension Svelte pages (Bun.build + svelte/compiler + Tailwind)
 │   │   ├── configResolver.ts # Resolves EXT_<NAME>_<KEY> config from env
 │   │   └── stepTypeSerialization.ts # Serializes custom step types (with dynamic enrichment)
@@ -175,6 +177,7 @@ shared/                      # Types + pure helpers shared between backend and f
 ├── chat.ts                  # ChatWebSocketEvent, TokenUsage
 ├── extensions.ts            # ExtensionInfo, ExtensionLifecycleEvent, ExtensionUiContribution, ExtensionUiPage, NavigationEntry, ...
 ├── extensionUi.ts           # PalimHost (host API for extension pages), MountExtensionPage, ExtensionUiEvent
+├── i18n.ts                  # Pure i18n runtime: SUPPORTED_LOCALES, createTranslator (fallback, {param}, plurals), createFormatters, resolveLocale
 ├── jobs.ts                  # JobEntry, LogEntry
 ├── models.ts                # AvailableModel, ModelIntent, SelectedModelResponse, MODEL_INTENTS
 ├── schedules.ts             # ScheduleEntry
@@ -193,6 +196,7 @@ frontend/                    # Svelte 5 web UI (page-based routing)
     ├── App.svelte           # App shell with sidebar navigation
     ├── router.ts            # Client-side page router
     ├── theme.css            # Tailwind theme tokens (shared with the extension UI builder)
+    ├── locales/             # Core UI catalogs (en.json = source + typed keys, de.json) + parity test
     ├── routes/              # Page components
     │   ├── ChatPage.svelte
     │   ├── JobsPage.svelte
@@ -221,6 +225,9 @@ frontend/                    # Svelte 5 web UI (page-based routing)
         ├── badgeRegistry.ts, extensionStore.ts, iconRegistry.ts
         ├── extensionHost.ts, extensionRoutes.ts  # PalimHost implementation for extension pages
         ├── extensionKit.ts  # Public UI kit for extension pages (`@palim/ui`), stateless components only
+        ├── i18n.svelte.ts   # Host i18n store: locale, core + extension catalogs, t()/tx(), preference persistence
+        ├── i18nCore.ts      # Rune-free i18n: CoreKey type, englishT, translateCore/translateExtension/activeFormat delegates, statusLabel
+        ├── kitI18n.ts       # useI18n()/provideI18n(): i18n store via Svelte context for `@palim/ui` components
         ├── chatStreamStore.svelte.ts, connectionStore.svelte.ts
         ├── modelStore.svelte.ts, readState.svelte.ts, settingsStore.svelte.ts
         ├── workflowRunStore.svelte.ts, workflowValidation.ts
@@ -305,7 +312,7 @@ Extensions can register: tools, HTTP routes (auto-prefixed `/ext/<name>/`; pass 
 
 Extensions declare Svelte 5 pages in `manifest.ui.pages` (`{ id, title, entry: "ui/<Page>.svelte" }`), rendered at `/ext-page/<name>/<id>` (sub-paths allowed for in-page routing). On activation, `uiBuilder.ts` compiles each page with `Bun.build` + `svelte/compiler` into a browser ES module whose default export is `(target, palim) => unmount`, plus a stylesheet with the Tailwind utilities the extension uses (scanned from `ui/`, against `frontend/src/theme.css`). Output lives in `<DATA_DIR>/ext-ui/<name>/<hash>/` (hash of `ui/` sources, pages, UI kit, and the builder itself) and is served publicly with immutable caching from `/ext-ui/*`. Build errors are reported per page, never fail activation.
 
-- Each bundle carries its own Svelte runtime, pinned to the root `svelte` package. Host and page share no stores or context; the page gets a `PalimHost` (`shared/extensionUi.ts`) as its `palim` prop: authenticated `fetch`/`json` (relative paths → `/ext/<name>/...`), `onEvent` (server pushes via `ctx.ui.emit()` → `extension_ui_event` WS message), `theme`/`page` stores, `user`, `navigate`, `notify`, `confirm`.
+- Each bundle carries its own Svelte runtime, pinned to the root `svelte` package. Host and page share no stores or context; the page gets a `PalimHost` (`shared/extensionUi.ts`) as its `palim` prop: authenticated `fetch`/`json` (relative paths → `/ext/<name>/...`), `onEvent` (server pushes via `ctx.ui.emit()` → `extension_ui_event` WS message), `theme`/`page`/`i18n` stores, `user`, `navigate`, `notify`, `confirm`. The mount wrapper also puts `palim.i18n` into Svelte context under `Symbol.for("palim.i18n")`, which kit components (`kitI18n.ts`) and nested extension components (`useI18n()` from `@ext/ui`) read.
 - `@palim/ui` resolves to `frontend/src/lib/extensionKit.ts`; core component sources are compiled into the bundle. Only stateless components may be exported there. `$lib/*` is rejected from extension code. `phosphor-svelte`, `bits-ui`, `clsx`, `tailwind-merge`, `tailwind-variants` resolve from the frontend without installation.
 - Bun quirk: an `onResolve` hook that returns `undefined` drops the import from the bundle, so every resolve hook in the builder has an exact filter and always returns a path.
 - For external extensions with a `ui/` directory, `externalDependencyResolver.ts` symlinks the core `svelte` into the extension's `node_modules` (after `bun install`). The Svelte language server picks its compiler via `node_modules` resolution, not tsconfig `paths`; without the link it falls back to non-runes mode and types child component props as `never`.
@@ -343,6 +350,16 @@ Built-in providers (registered by extensions):
 - `workflow-names` (core-wf-steps) - Names of all loaded workflow definitions, populating the `workflowName` dropdown on the `start-workflow` step
 - `datatable-names` (datatables) - Names of all data tables, populating the `table` dropdown on the `datatable-*` steps
 
+### Internationalization (i18n)
+
+The UI ships in English (source and fallback) and German; `SUPPORTED_LOCALES` in `shared/i18n.ts` lists them. A user's language is stored in `users.locale` (null = follow the browser, migration `0014`), set in the user menu (`PUT /api/auth/me/locale`) or by an admin in the Users & Roles dialog, and returned on the identity.
+
+- **Runtime** (`shared/i18n.ts`): nested JSON catalogs addressed by dot keys, `{param}` interpolation, i18next-style plural suffixes (`key_one`/`key_other`) picked by `Intl.PluralRules` when a numeric `count` is passed (`{count}` is number-formatted), lookup order active locale → English → `params.default` → key. Pure, no state, so it is safe to bundle into extension pages.
+- **Core UI**: catalogs in `frontend/src/locales/{en,de}.json`. `en.json` is bundled and its keys type `t()` (`CoreKey`); others load lazily. Components call `t("ns.key", params)` from `$lib/i18n.svelte`, which reads rune state, so templates re-render on a switch. `App.svelte` drives the locale from the identity and provides the kit context. Plain TS helpers use `translateCore`/`translateExtension`/`activeFormat` from `$lib/i18nCore` (English in tests), or take a `CoreTranslate` parameter. Dates and numbers go through `i18n.format`/`activeFormat()`, not hardcoded locales.
+- **Extensions**: catalogs in `<ext>/locales/<locale>.json`, loaded on activation (`localeLoader.ts`), reloaded by the watcher, served by `GET /api/i18n/:locale`, refetched on `extension_lifecycle` events (incl. `locales_updated`). Manifest/schema text stays English on the wire; the client translates it via reserved keys with the English as fallback: `description`, `nav.<route>`, `pages.<id>.title`, `settings.<prop>.title|description`, `secrets.<KEY>.description`, `secretGroups.<group>`, `steps.<type>.label`, `steps.<type>.config.<prop>[.<nested>].title|description` (`tx()` in the host; `StepConfigForm` takes an `i18nScope`). Pages use `palim.i18n` (`$i18n.t`, `$i18n.format`), whose `t` falls back to core keys (`common.*`).
+- **Guardrails**: `frontend/src/locales/catalogs.test.ts` checks that every non-English catalog (core and all extension `locales/`) has exactly the English keys, and that every core key is referenced. Backend API error messages, agent output, and skills are not translated.
+- When adding UI text: add the key to `en.json` and `de.json` (or the extension's catalogs), never hardcode strings in components.
+
 ### Sessions
 
 Conversation sessions are persisted in SQLite via the session store (`src/session/`). Sessions track source (chat, telegram, scheduler), messages (as pi-agent-core `AgentMessage` blobs), and metadata. The chat queue uses sessions for multi-turn context.
@@ -363,8 +380,10 @@ Elysia serves the built frontend as static files and exposes:
 - `GET /api/jobs/:jobId/logs` - Retrieve job logs
 - `POST /api/auth/login` - Exchange username/password for a bearer token
 - `POST /api/auth/logout` - Revoke the presented token
-- `GET /api/auth/me` - Current user and serialized ability
-- `GET/POST/PATCH/DELETE /api/users` - User management (admin; delete also removes the user's chat sessions and is refused while they still own webhooks, file watchers, or schedules)
+- `GET /api/auth/me` - Current user (incl. `locale`) and serialized ability
+- `PUT /api/auth/me/locale` - Set or clear (`null`) the caller's UI language
+- `GET /api/i18n/:locale` - Translation catalogs of loaded extensions for a locale, plus their English fallbacks
+- `GET/POST/PATCH/DELETE /api/users` - User management (admin; create/update accept `locale`; delete also removes the user's chat sessions and is refused while they still own webhooks, file watchers, or schedules)
 - `GET/POST /api/roles`, `PATCH/DELETE /api/roles/:id`, `PUT /api/roles/:id/permissions` - Role management (admin; delete only for unassigned custom roles)
 - `GET /api/extensions` - List loaded extensions
 - `PUT /api/extensions/:name` - Enable/disable an extension

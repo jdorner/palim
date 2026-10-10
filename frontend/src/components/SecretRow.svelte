@@ -5,6 +5,7 @@ import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import type { Snippet } from "svelte";
 import { Button } from "$lib/components/ui/button";
+import { t } from "$lib/i18n.svelte";
 
 /**
  * One secret in a secrets list: a status icon, the key, optional badges and
@@ -33,9 +34,9 @@ let { secretKey, isSet, highlighted = false, onEdit, onDelete, badges, children 
 <div class="rounded-md border border-border px-3 py-2 space-y-1.5 {highlighted ? "bg-accent" : ""}">
   <div class="flex items-center gap-2">
     {#if isSet}
-      <CheckCircleIcon class="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" aria-label="Secret is set" />
+      <CheckCircleIcon class="w-4 h-4 text-green-600 dark:text-green-400 shrink-0" aria-label={t("secrets.isSet")} />
     {:else}
-      <CircleIcon class="w-4 h-4 text-muted-foreground shrink-0" aria-label="Secret is not set" />
+      <CircleIcon class="w-4 h-4 text-muted-foreground shrink-0" aria-label={t("secrets.notSet")} />
     {/if}
 
     <span class="text-sm font-medium font-mono">{secretKey}</span>
@@ -49,8 +50,8 @@ let { secretKey, isSet, highlighted = false, onEdit, onDelete, badges, children 
           variant="ghost"
           size="icon"
           class="h-7 w-7"
-          aria-label="Edit {secretKey}"
-          title="Edit"
+          aria-label={t("secrets.editKey", { key: secretKey })}
+          title={t("common.edit")}
           onclick={onEdit}
         >
           <PencilSimpleIcon class="w-4 h-4" aria-hidden="true" />
@@ -62,8 +63,8 @@ let { secretKey, isSet, highlighted = false, onEdit, onDelete, badges, children 
           variant="ghost"
           size="icon"
           class="h-7 w-7 text-destructive hover:text-destructive"
-          aria-label="Delete {secretKey}"
-          title="Delete"
+          aria-label={t("secrets.deleteKey", { key: secretKey })}
+          title={t("common.delete")}
           onclick={onDelete}
         >
           <TrashIcon class="w-4 h-4" aria-hidden="true" />

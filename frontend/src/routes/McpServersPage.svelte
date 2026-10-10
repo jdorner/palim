@@ -13,6 +13,7 @@ import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Card, CardContent, CardHeader } from "$lib/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+import { t } from "$lib/i18n.svelte";
 import { formatTimestamp } from "$lib/utils";
 
 interface McpServer {
@@ -63,7 +64,7 @@ async function loadServers() {
     servers = data.servers;
     error = null;
   } catch (err) {
-    error = err instanceof Error ? err.message : "Failed to load servers";
+    error = err instanceof Error ? err.message : t("mcp.loadFailed");
   } finally {
     loading = false;
   }
@@ -76,10 +77,10 @@ async function syncServer(name: string) {
     const resp = await authFetch(`/ext/mcp/servers/${name}/sync`, { method: "POST" });
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     const data = await resp.json();
-    notificationMessage = data.changed ? `Skill regenerated for "${name}"` : `No changes detected for "${name}"`;
+    notificationMessage = data.changed ? t("mcp.skillRegenerated", { name }) : t("mcp.noChanges", { name });
     await loadServers();
   } catch (err) {
-    notificationMessage = `Sync failed: ${err instanceof Error ? err.message : err}`;
+    notificationMessage = t("mcp.syncFailed", { error: err instanceof Error ? err.message : String(err) });
   } finally {
     syncing = null;
   }
@@ -92,7 +93,7 @@ async function deleteServer(name: string) {
     if (editingName === name) resetForm();
     await loadServers();
   } catch (err) {
-    error = `Delete failed: ${err instanceof Error ? err.message : err}`;
+    error = t("mcp.deleteFailed", { error: err instanceof Error ? err.message : String(err) });
   }
 }
 
@@ -106,7 +107,7 @@ async function toggleEnabled(server: McpServer) {
     if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
     await loadServers();
   } catch (err) {
-    error = `Toggle failed: ${err instanceof Error ? err.message : err}`;
+    error = t("mcp.toggleFailed", { error: err instanceof Error ? err.message : String(err) });
   }
 }
 
@@ -139,7 +140,7 @@ async function openEditForm(server: McpServer) {
             .join("\n")
         : "";
   } catch (err) {
-    error = `Failed to load server config: ${err instanceof Error ? err.message : err}`;
+    error = t("mcp.loadConfigFailed", { error: err instanceof Error ? err.message : String(err) });
   }
 }
 
@@ -191,7 +192,7 @@ async function submitForm() {
     resetForm();
     await loadServers();
   } catch (err) {
-    formError = err instanceof Error ? err.message : "Request failed";
+    formError = err instanceof Error ? err.message : t("chat.requestFailed");
   } finally {
     submitting = false;
   }
@@ -218,7 +219,7 @@ async function importServers() {
   try {
     parsed = JSON.parse(importJson);
   } catch {
-    importError = "Invalid JSON. Paste a valid MCP server configuration.";
+    importError = t("mcp.invalidJson");
     return;
   }
 
@@ -254,7 +255,7 @@ async function importServers() {
       await loadServers();
     }
   } catch (err) {
-    importError = err instanceof Error ? err.message : "Import failed";
+    importError = err instanceof Error ? err.message : t("mcp.importFailed");
   }
 }
 
@@ -287,13 +288,13 @@ $effect(() => {
   <Card class="bg-accent">
     <CardHeader class="pb-2">
       <span class="text-sm font-medium">
-        {formMode === "create" ? "Add MCP Server" : `Edit: ${editingName}`}
+        {formMode === "create" ? t("mcp.addTitle") : t("globalSecrets.editTitle", { key: editingName })}
       </span>
     </CardHeader>
     <CardContent class="space-y-3">
       <div class="grid grid-cols-2 gap-3">
         <div class="space-y-1">
-          <label for="mcp-name" class="text-xs font-medium text-muted-foreground">Name</label>
+          <label for="mcp-name" class="text-xs font-medium text-muted-foreground">{t("common.name")}</label>
           <input
             id="mcp-name"
             type="text"
@@ -304,7 +305,7 @@ $effect(() => {
           >
         </div>
         <div class="space-y-1">
-          <label for="mcp-type" class="text-xs font-medium text-muted-foreground">Type</label>
+          <label for="mcp-type" class="text-xs font-medium text-muted-foreground">{t("mcp.type")}</label>
           <select
             id="mcp-type"
             bind:value={formType}
@@ -319,7 +320,7 @@ $effect(() => {
 
       {#if formType === "stdio"}
         <div class="space-y-1">
-          <label for="mcp-command" class="text-xs font-medium text-muted-foreground">Command</label>
+          <label for="mcp-command" class="text-xs font-medium text-muted-foreground">{t("mcp.command")}</label>
           <input
             id="mcp-command"
             type="text"
@@ -329,7 +330,7 @@ $effect(() => {
           >
         </div>
         <div class="space-y-1">
-          <label for="mcp-args" class="text-xs font-medium text-muted-foreground">Arguments (comma-separated)</label>
+          <label for="mcp-args" class="text-xs font-medium text-muted-foreground">{t("mcp.arguments")}</label>
           <input
             id="mcp-args"
             type="text"
@@ -340,7 +341,7 @@ $effect(() => {
         </div>
       {:else}
         <div class="space-y-1">
-          <label for="mcp-url" class="text-xs font-medium text-muted-foreground">URL</label>
+          <label for="mcp-url" class="text-xs font-medium text-muted-foreground">{t("mcp.url")}</label>
           <input
             id="mcp-url"
             type="text"
@@ -350,9 +351,7 @@ $effect(() => {
           >
         </div>
         <div class="space-y-1">
-          <label for="mcp-headers" class="text-xs font-medium text-muted-foreground"
-            >Headers (one per line, Key: Value)</label
-          >
+          <label for="mcp-headers" class="text-xs font-medium text-muted-foreground">{t("mcp.headers")}</label>
           <textarea
             id="mcp-headers"
             bind:value={formHeaders}
@@ -369,9 +368,9 @@ $effect(() => {
       <hr>
       <div class="flex gap-2">
         <Button size="sm" disabled={submitting} onclick={submitForm}>
-          {submitting ? "Saving..." : formMode === "create" ? "Add" : "Save"}
+          {submitting ? t("common.saving") : formMode === "create" ? t("common.add") : t("common.save")}
         </Button>
-        <Button size="sm" variant="outline" onclick={resetForm}>Cancel</Button>
+        <Button size="sm" variant="outline" onclick={resetForm}>{t("common.cancel")}</Button>
       </div>
     </CardContent>
   </Card>
@@ -385,7 +384,7 @@ $effect(() => {
       {#if !formMode}
         <PlusIcon size={14} class="mr-1.5" aria-hidden="true" />
       {/if}
-      {formMode ? "Cancel" : "Add Server"}
+      {formMode ? t("common.cancel") : t("mcp.addServer")}
     </Button>
     <Button
       size="sm"
@@ -395,7 +394,7 @@ $effect(() => {
       }}
     >
       <ClipboardTextIcon size={14} class="mr-1.5" aria-hidden="true" />
-      Import
+      {t("mcp.import")}
     </Button>
   </div>
 
@@ -410,11 +409,11 @@ $effect(() => {
   {#if showImportForm}
     <Card class="bg-accent">
       <CardHeader class="pb-2">
-        <span class="text-sm font-medium">Import MCP Configuration</span>
+        <span class="text-sm font-medium">{t("mcp.importTitle")}</span>
       </CardHeader>
       <CardContent class="space-y-3">
         <p class="text-xs text-muted-foreground">
-          Paste JSON config from Claude Desktop, Cursor, or VS Code MCP settings.
+          {t("mcp.importHint")}
         </p>
         <textarea
           bind:value={importJson}
@@ -428,7 +427,7 @@ $effect(() => {
         {/if}
 
         <div class="flex gap-2">
-          <Button size="sm" onclick={importServers}>Import</Button>
+          <Button size="sm" onclick={importServers}>{t("mcp.import")}</Button>
           <Button
             size="sm"
             variant="outline"
@@ -437,7 +436,7 @@ $effect(() => {
               importError = null;
               notificationMessage = null;
             }}
-            >Cancel</Button
+            >{t("common.cancel")}</Button
           >
         </div>
       </CardContent>
@@ -452,7 +451,7 @@ $effect(() => {
     <LoadingIndicator />
   {:else if servers.length === 0 && !formMode && !showImportForm}
     <p class="text-sm text-muted-foreground">
-      No MCP servers configured. Add one or import a configuration to get started.
+      {t("mcp.empty")}
     </p>
   {:else}
     {#if editingName}
@@ -475,12 +474,14 @@ $effect(() => {
               <ToggleSwitch
                 checked={server.enabled}
                 onChange={() => toggleEnabled(server)}
-                aria-label={server.enabled ? "Disable server" : "Enable server"}
+                aria-label={server.enabled ? t("mcp.disable") : t("mcp.enable")}
               />
             </div>
           </div>
 
-          <div class="text-sm text-muted-foreground">Last synced: {formatTimestamp(server.lastSyncedAt)}</div>
+          <div class="text-sm text-muted-foreground">
+            {t("mcp.lastSynced", { time: formatTimestamp(server.lastSyncedAt) })}
+          </div>
 
           <hr>
 
@@ -496,15 +497,15 @@ $effect(() => {
                 class="mr-1.5 {syncing === server.name ? "animate-spin" : ""}"
                 aria-hidden="true"
               />
-              Sync
+              {t("mcp.sync")}
             </Button>
             <Button size="sm" variant="outline" onclick={() => openEditForm(server)}>
               <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-              Edit
+              {t("common.edit")}
             </Button>
             <Button size="sm" variant="destructive" onclick={() => (confirmDeleteName = server.name)}>
               <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-              Delete
+              {t("common.delete")}
             </Button>
           </div>
         </div>
@@ -516,11 +517,11 @@ $effect(() => {
       <Table>
         <TableHeader class="bg-muted/30">
           <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Type</TableHead>
-            <TableHead>Last Synced</TableHead>
-            <TableHead class="text-center">Enabled</TableHead>
-            <TableHead class="text-center">Actions</TableHead>
+            <TableHead>{t("common.name")}</TableHead>
+            <TableHead>{t("mcp.type")}</TableHead>
+            <TableHead>{t("mcp.colLastSynced")}</TableHead>
+            <TableHead class="text-center">{t("webhooks.enabled")}</TableHead>
+            <TableHead class="text-center">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -542,7 +543,7 @@ $effect(() => {
                 <ToggleSwitch
                   checked={server.enabled}
                   onChange={() => toggleEnabled(server)}
-                  aria-label={server.enabled ? "Disable server" : "Enable server"}
+                  aria-label={server.enabled ? t("mcp.disable") : t("mcp.enable")}
                 />
               </TableCell>
               <TableCell class="text-right w-1">
@@ -558,15 +559,15 @@ $effect(() => {
                       class="mr-1.5 {syncing === server.name ? "animate-spin" : ""}"
                       aria-hidden="true"
                     />
-                    Sync
+                    {t("mcp.sync")}
                   </Button>
                   <Button size="sm" variant="outline" onclick={() => openEditForm(server)}>
                     <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-                    Edit
+                    {t("common.edit")}
                   </Button>
                   <Button size="sm" variant="destructive" onclick={() => (confirmDeleteName = server.name)}>
                     <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                    Delete
+                    {t("common.delete")}
                   </Button>
                 </div>
               </TableCell>
@@ -579,10 +580,10 @@ $effect(() => {
 
   <AlertDialog
     open={confirmDeleteName !== null}
-    title="Delete MCP server"
-    description={`Are you sure you want to delete "${confirmDeleteName}"? This will also remove its generated skill.`}
-    confirmLabel="Delete"
-    cancelLabel="Cancel"
+    title={t("mcp.deleteTitle")}
+    description={t("mcp.deleteConfirm", { name: confirmDeleteName })}
+    confirmLabel={t("common.delete")}
+    cancelLabel={t("common.cancel")}
     confirmVariant="destructive"
     onConfirm={() => {
       if (confirmDeleteName) deleteServer(confirmDeleteName);

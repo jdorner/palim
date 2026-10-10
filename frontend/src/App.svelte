@@ -26,11 +26,14 @@ import { chatStream } from "$lib/chatStreamStore.svelte";
 import { connectionManager } from "$lib/connectionStore.svelte";
 import { dispatchExtensionUiEvent } from "$lib/extensionHost";
 import { extensionNavItems, extensions, fetchBadgesForEnabledExtensions, fetchExtensions } from "$lib/extensionStore";
+import { i18n, t, tx } from "$lib/i18n.svelte";
 import { resolveIcon } from "$lib/iconRegistry";
 import { identity } from "$lib/identity.svelte";
+import { provideI18n } from "$lib/kitI18n";
 import { readState } from "$lib/readState.svelte";
 import { automationStyle } from "$lib/utils";
 import { workflowStore } from "$lib/workflowRunStore.svelte";
+import { resolveLocale } from "$shared/i18n";
 import type { WebSocketMessage } from "../../shared/types";
 import Sidebar from "./components/Sidebar.svelte";
 import UserMenu from "./components/UserMenu.svelte";
@@ -46,6 +49,17 @@ registerClearIdentity(() => identity.clear());
 
 // Register the message handler before connecting
 connectionManager.onMessage(handleMessage);
+
+// Kit components read translations from context (shared with extension pages).
+provideI18n(i18n.store());
+
+// Follow the signed-in user's language preference, else the browser language.
+// Extension catalogs need a token, so they load once the identity is known.
+let preferredLocale = $derived(resolveLocale(identity.user?.locale, navigator.languages));
+let isAuthenticated = $derived(identity.isAuthenticated);
+$effect(() => {
+  i18n.setLocale(preferredLocale, { extensions: isAuthenticated });
+});
 
 function handleMessage(message: WebSocketMessage) {
   switch (message.type) {
@@ -111,6 +125,7 @@ function handleMessage(message: WebSocketMessage) {
       fetchExtensions();
       break;
     case "extension_lifecycle":
+      if (message.action !== "deactivated" && message.action !== "ui_updated") i18n.reloadExtensions();
       fetchExtensions().then(() => {
         fetchBadgesForEnabledExtensions();
         if (message.action === "deactivated") {
@@ -181,31 +196,42 @@ let showConnectionError = $derived(!$connected && !$hasConnected && !isLoginPage
 let hasUnreadChats = $derived(chatStream.conversations.some((c) => readState.isUnread(c.id, c.updatedAt)));
 
 /** Header icon and label for built-in pages, matched in order against the current path. */
-const PAGE_HEADERS: Array<{ match: (path: string) => boolean; icon: Component; label: string; color: string }> = [
-  { match: (p) => p === "/schedules", icon: ClockIcon, label: "Schedules", color: automationStyle("schedule").color },
-  {
-    match: (p) => p === "/" || p === "/chat" || p.startsWith("/chat/"),
-    icon: ChatTextIcon,
-    label: "Chat",
-    color: automationStyle("chat").color,
-  },
-  { match: (p) => p === "/webhooks", icon: LinkIcon, label: "Webhooks", color: automationStyle("webhook").color },
-  {
-    match: (p) => p === "/filewatchers",
-    icon: EyeIcon,
-    label: "File Watchers",
-    color: automationStyle("filewatcher").color,
-  },
-  {
-    match: (p) => p.startsWith("/workflows"),
-    icon: FlowArrowIcon,
-    label: "Workflows",
-    color: automationStyle("workflow").color,
-  },
-  { match: (p) => p === "/settings", icon: GearIcon, label: "Settings", color: "" },
-  { match: (p) => p === "/users", icon: UsersIcon, label: "Users & Roles", color: "" },
-  { match: (p) => p === "/mcp", icon: PlugIcon, label: "MCP Servers", color: automationStyle("mcp").color },
-];
+const PAGE_HEADERS: Array<{ match: (path: string) => boolean; icon: Component; label: string; color: string }> =
+  $derived([
+    {
+      match: (p) => p === "/schedules",
+      icon: ClockIcon,
+      label: t("nav.schedules"),
+      color: automationStyle("schedule").color,
+    },
+    {
+      match: (p) => p === "/" || p === "/chat" || p.startsWith("/chat/"),
+      icon: ChatTextIcon,
+      label: t("nav.chat"),
+      color: automationStyle("chat").color,
+    },
+    {
+      match: (p) => p === "/webhooks",
+      icon: LinkIcon,
+      label: t("nav.webhooks"),
+      color: automationStyle("webhook").color,
+    },
+    {
+      match: (p) => p === "/filewatchers",
+      icon: EyeIcon,
+      label: t("nav.fileWatchers"),
+      color: automationStyle("filewatcher").color,
+    },
+    {
+      match: (p) => p.startsWith("/workflows"),
+      icon: FlowArrowIcon,
+      label: t("nav.workflows"),
+      color: automationStyle("workflow").color,
+    },
+    { match: (p) => p === "/settings", icon: GearIcon, label: t("nav.settings"), color: "" },
+    { match: (p) => p === "/users", icon: UsersIcon, label: t("nav.usersAndRoles"), color: "" },
+    { match: (p) => p === "/mcp", icon: PlugIcon, label: t("nav.mcpServers"), color: automationStyle("mcp").color },
+  ]);
 
 let pageHeader = $derived(PAGE_HEADERS.find((h) => h.match($pathname)));
 
@@ -224,8 +250,10 @@ let currentExtNavItem = $derived.by(() => {
 let currentExtPageTitle = $derived.by(() => {
   if (!isExtensionPage) return null;
   const [, , extName, pageId] = ($pathname.split("?")[0] ?? "").split("/");
+  if (!extName) return null;
   const pages = $extensions.find((e) => e.name === extName)?.ui?.pages ?? [];
-  return (pageId ? pages.find((p) => p.id === pageId) : pages[0])?.title ?? null;
+  const page = pageId ? pages.find((p) => p.id === pageId) : pages[0];
+  return page ? tx(extName, `pages.${page.id}.title`, page.title) : null;
 });
 </script>
 
@@ -250,12 +278,12 @@ let currentExtPageTitle = $derived.by(() => {
                 {#if IconComponent}
                   <IconComponent class="w-6 h-6 {currentExtNavItem.iconColor ?? ""}" aria-hidden="true" />
                 {/if}
-                {currentExtNavItem.label}
+                {tx(currentExtNavItem.extensionName, `nav.${currentExtNavItem.route}`, currentExtNavItem.label)}
               {:else if isExtensionPage && currentExtPageTitle}
                 {currentExtPageTitle}
               {:else}
                 <TrayIcon class="w-6 h-6" aria-hidden="true" />
-                Job Queues
+                {t("nav.jobQueues")}
               {/if}
             </h1>
             <div class="flex items-center gap-3">

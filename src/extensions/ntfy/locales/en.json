@@ -1,0 +1,52 @@
+{
+  "description": "Send push notifications via ntfy.sh, exposed as a workflow step type",
+  "secrets": {
+    "NTFY_ACCESS_TOKEN": {
+      "description": "Optional ntfy access token (Bearer) for publishing to protected topics"
+    },
+    "NTFY_DEFAULT_TOPIC": {
+      "description": "Default ntfy topic used when a step does not specify one. Treated as a secret because the topic name grants read/publish access on unauthenticated servers."
+    }
+  },
+  "settings": {
+    "server": {
+      "description": "Base URL of the ntfy server. Defaults to https://ntfy.sh when omitted.",
+      "title": "ntfy Server URL"
+    }
+  },
+  "steps": {
+    "notify-ntfy": {
+      "config": {
+        "click": {
+          "description": "URL opened when the notification is tapped (ntfy click action). Supports {{template}} expressions. Use http(s):// for a website or a scheme like mailto:, geo:, ntfy:// for deep links.",
+          "title": "Click URL"
+        },
+        "markdown": {
+          "description": "Render the message body as Markdown (bold, links, lists, etc.). Currently rendered by the ntfy web app only; other clients show the raw text. Defaults to on.",
+          "title": "Markdown"
+        },
+        "message": {
+          "description": "The notification body. Supports {{template}} expressions.",
+          "title": "Message"
+        },
+        "priority": {
+          "description": "Message priority from 1 (min) to 5 (max). Default: 3.",
+          "title": "Priority"
+        },
+        "tags": {
+          "description": "Optional tags shown with the notification. Known emoji shortcodes (e.g. \"warning\", \"skull\") render as emoji; any other value is shown as a plain text tag.",
+          "title": "Tags"
+        },
+        "title": {
+          "description": "Optional notification title. Supports {{template}} expressions.",
+          "title": "Title"
+        },
+        "topic": {
+          "description": "Target ntfy topic. Supports {{template}} expressions. Uses the extension's default topic if omitted.",
+          "title": "Topic"
+        }
+      },
+      "label": "Notify (ntfy)"
+    }
+  }
+}

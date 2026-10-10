@@ -1,0 +1,12 @@
+{
+  "description": "Authentifizierte HTTP-Endpunkte zum Empfangen von Ereignissen externer Dienste",
+  "nav": {
+    "/webhooks": "Webhooks"
+  },
+  "settings": {
+    "maxPayloadSize": {
+      "description": "Maximal erlaubte Größe der Webhook-Nutzdaten in Bytes",
+      "title": "Maximale Nutzdatengröße"
+    }
+  }
+}

@@ -4,6 +4,7 @@ import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import NotificationBanner from "$lib/components/NotificationBanner.svelte";
 import { AlertDialog } from "$lib/components/ui/alert-dialog";
 import { createPalimHost } from "$lib/extensionHost";
+import { t, tx } from "$lib/i18n.svelte";
 /**
  * Mounts one compiled extension page: imports its ES module, loads its
  * stylesheet, and calls the module's default export with a host object. The
@@ -132,12 +133,14 @@ $effect(() => {
 <div class="relative flex-1 min-h-0 overflow-auto">
   {#if loading}
     <div class="absolute inset-0 flex items-center justify-center">
-      <LoadingIndicator message="Loading extension page..." />
+      <LoadingIndicator message={t("extPage.loading")} />
     </div>
   {/if}
   {#if mountError}
     <div class="rounded-md border border-destructive/40 p-4 text-sm">
-      <p class="font-medium text-destructive">The page "{page.title}" failed to load.</p>
+      <p class="font-medium text-destructive">
+        {t("extPage.loadFailed", { title: tx(extension.name, `pages.${page.id}.title`, page.title) })}
+      </p>
       <pre class="mt-2 whitespace-pre-wrap wrap-break-word text-xs text-muted-foreground">{mountError}</pre>
     </div>
   {/if}

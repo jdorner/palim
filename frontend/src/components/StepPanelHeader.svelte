@@ -8,6 +8,7 @@
 import BracketsCurlyIcon from "phosphor-svelte/lib/BracketsCurlyIcon";
 import TextboxIcon from "phosphor-svelte/lib/TextboxIcon";
 import XIcon from "phosphor-svelte/lib/XIcon";
+import { t } from "$lib/i18n.svelte";
 import { visualForStepType } from "$lib/nodeVisuals";
 import { categoryForType, iconIdForType, labelForStepType } from "$lib/stepTypes";
 
@@ -54,8 +55,8 @@ let title = $derived(labelForStepType(type, triggerType));
         type="button"
         class="p-1.5 rounded-md text-white/85 hover:text-white hover:bg-white/20 transition-colors"
         onclick={onToggleJson}
-        aria-label={jsonView ? "Show form view" : "Show JSON view"}
-        title={jsonView ? "Form view" : "JSON view"}
+        aria-label={jsonView ? t("stepPanel.showForm") : t("stepPanel.showJson")}
+        title={jsonView ? t("stepPanel.formView") : t("stepPanel.jsonView")}
       >
         {#if jsonView}
           <TextboxIcon size={16} weight="bold" aria-hidden="true" />
@@ -68,8 +69,8 @@ let title = $derived(labelForStepType(type, triggerType));
       type="button"
       class="p-1.5 rounded-md text-white/85 hover:text-white hover:bg-white/20 transition-colors"
       onclick={onclose}
-      aria-label="Close panel"
-      title="Close"
+      aria-label={t("stepPanel.closePanel")}
+      title={t("common.close")}
     >
       <XIcon size={16} weight="bold" aria-hidden="true" />
     </button>

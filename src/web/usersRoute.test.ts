@@ -3,6 +3,7 @@ import { PERMISSIONS, ROLE_ADMIN, ROLE_USER } from "@shared/auth";
 import { AuthService, UserStore } from "@src/auth";
 import { createTestDb, type TestDb } from "@src/auth/testDb";
 import { Elysia } from "elysia";
+import { authRoutes } from "./routes/auth";
 import { userRoutes } from "./routes/users";
 import { authCheck } from "./server";
 import { registerTriggerOwnerCounter } from "./triggerOwnership";
@@ -208,6 +209,64 @@ describe("admin user/role management API", () => {
       const clear = await app.handle(req("PATCH", `/api/users/${alice?.id}`, token, { displayName: "" }));
       expect(clear.status).toBe(200);
       expect(store.getUserById(alice?.id ?? "")?.displayName).toBeUndefined();
+    });
+
+    test("admin sets, lists, and clears a user's locale; unsupported locales are rejected", async () => {
+      const token = await login("root");
+      const alice = store.getUserByUsername("alice");
+      const set = await app.handle(req("PATCH", `/api/users/${alice?.id}`, token, { locale: "de" }));
+      expect(set.status).toBe(200);
+      expect(store.getUserById(alice?.id ?? "")?.locale).toBe("de");
+
+      const list = (await (await app.handle(req("GET", "/api/users", token))).json()) as {
+        users: { username: string; locale?: string }[];
+      };
+      expect(list.users.find((u) => u.username === "alice")?.locale).toBe("de");
+
+      const bad = await app.handle(req("PATCH", `/api/users/${alice?.id}`, token, { locale: "xx" }));
+      expect(bad.status).toBe(422);
+      expect(store.getUserById(alice?.id ?? "")?.locale).toBe("de");
+
+      const clear = await app.handle(req("PATCH", `/api/users/${alice?.id}`, token, { locale: null }));
+      expect(clear.status).toBe(200);
+      expect(store.getUserById(alice?.id ?? "")?.locale).toBeUndefined();
+    });
+
+    test("admin creates a user with a locale", async () => {
+      const token = await login("root");
+      const res = await app.handle(
+        req("POST", "/api/users", token, { username: "eve", password: "password1", locale: "de" }),
+      );
+      expect(res.status).toBe(201);
+      expect(store.getUserByUsername("eve")?.locale).toBe("de");
+    });
+
+    test("any user sets their own locale, which /api/auth/me then returns", async () => {
+      const selfApp = new Elysia()
+        .onBeforeHandle((c) => authCheck(c as never, auth))
+        .use(
+          authRoutes(
+            () => auth,
+            undefined,
+            undefined,
+            () => store,
+          ),
+        );
+      const token = await login("alice");
+
+      const set = await selfApp.handle(req("PUT", "/api/auth/me/locale", token, { locale: "de" }));
+      expect(set.status).toBe(200);
+      const me = (await (await selfApp.handle(req("GET", "/api/auth/me", token))).json()) as {
+        user: { locale?: string };
+      };
+      expect(me.user.locale).toBe("de");
+
+      const bad = await selfApp.handle(req("PUT", "/api/auth/me/locale", token, { locale: "xx" }));
+      expect(bad.status).toBe(422);
+
+      const clear = await selfApp.handle(req("PUT", "/api/auth/me/locale", token, { locale: null }));
+      expect(clear.status).toBe(200);
+      expect(store.getUserByUsername("alice")?.locale).toBeUndefined();
     });
 
     test("role listing includes user counts", async () => {

@@ -1,6 +1,7 @@
 <script lang="ts">
 import { Button } from "$lib/components/ui/button";
 import { Dialog } from "$lib/components/ui/dialog";
+import { t } from "$lib/i18n.svelte";
 import { updateUser } from "./api";
 import PasswordFields from "./PasswordFields.svelte";
 import { type UserRow, validatePassword } from "./userAdmin";
@@ -23,14 +24,14 @@ let saving = $state(false);
 
 async function save(e: SubmitEvent) {
   e.preventDefault();
-  error = validatePassword(password, confirm);
+  error = validatePassword(password, confirm, t);
   if (error) return;
   saving = true;
   try {
     await updateUser(user.id, { password });
-    onSaved(`Password reset for ${user.username}`);
+    onSaved(t("users.passwordReset", { username: user.username }));
   } catch (err) {
-    error = err instanceof Error ? err.message : "Reset failed";
+    error = err instanceof Error ? err.message : t("users.resetFailed");
   } finally {
     saving = false;
   }
@@ -39,8 +40,8 @@ async function save(e: SubmitEvent) {
 
 <Dialog
   open
-  title="Reset password"
-  description="Set a new password for {user.username}. Their existing sign-ins stay active."
+  title={t("users.resetPassword")}
+  description={t("users.resetPasswordDescription", { username: user.username })}
   {onClose}
 >
   <form id="password-dialog-form" class="space-y-4" onsubmit={save}>
@@ -51,9 +52,9 @@ async function save(e: SubmitEvent) {
   </form>
 
   {#snippet footer()}
-    <Button size="sm" variant="outline" onclick={onClose}>Cancel</Button>
+    <Button size="sm" variant="outline" onclick={onClose}>{t("common.cancel")}</Button>
     <Button size="sm" type="submit" form="password-dialog-form" disabled={saving || !password}>
-      {saving ? "Saving..." : "Reset password"}
+      {saving ? t("common.saving") : t("users.resetPassword")}
     </Button>
   {/snippet}
 </Dialog>

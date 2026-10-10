@@ -475,7 +475,7 @@ export function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: Ex
 
 const manifest = {
   name: "workflows",
-  version: "1.2.0",
+  version: "1.3.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,

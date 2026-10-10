@@ -6,6 +6,7 @@ import { tick } from "svelte";
 import type { Conversation } from "$lib/chatStore";
 import { AlertDialog } from "$lib/components/ui/alert-dialog";
 import { Button } from "$lib/components/ui/button";
+import { t } from "$lib/i18n.svelte";
 import { readState } from "$lib/readState.svelte";
 
 interface Props {
@@ -70,13 +71,13 @@ let deleteTitle = $derived(
   <div class="p-4 border-b border-border">
     <Button size="sm" variant="outline" class="w-full" onclick={() => onCreate?.()}>
       <PlusIcon class="w-4 h-4 mr-1.5" aria-hidden="true" />
-      New Chat
+      {t("chat.newChatShort")}
     </Button>
   </div>
 
   <div class="flex-1 overflow-y-auto">
     {#if conversations.length === 0}
-      <p class="text-xs text-muted-foreground text-center p-4">No conversations yet</p>
+      <p class="text-xs text-muted-foreground text-center p-4">{t("chat.noConversations")}</p>
     {/if}
 
     {#each conversations as conv (conv.id)}
@@ -104,7 +105,7 @@ let deleteTitle = $derived(
             onkeydown={(e) => handleRenameKeydown(e, conv)}
             onblur={() => commitRename(conv)}
             class="flex-1 min-w-0 bg-background border border-input rounded px-0 py-0 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
-            aria-label="Rename conversation"
+            aria-label={t("chat.renameConversation")}
           >
         {:else}
           <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -127,24 +128,24 @@ let deleteTitle = $derived(
             <button
               type="button"
               class="p-1 rounded hover:bg-muted transition-colors"
-              title="Rename"
+              title={t("common.rename")}
               onclick={(e) => {
                 e.stopPropagation();
                 startRename(conv);
               }}
-              aria-label="Rename conversation {conv.title}"
+              aria-label={t("chat.renameConversationNamed", { title: conv.title })}
             >
               <PencilSimpleIcon class="w-3 h-3" aria-hidden="true" />
             </button>
             <button
               type="button"
               class="p-1 rounded hover:bg-destructive/10 text-destructive transition-colors"
-              title="Delete"
+              title={t("common.delete")}
               onclick={(e) => {
                 e.stopPropagation();
                 confirmDeleteId = conv.id;
               }}
-              aria-label="Delete conversation {conv.title}"
+              aria-label={t("chat.deleteConversationNamed", { title: conv.title })}
             >
               <TrashIcon class="w-3 h-3" aria-hidden="true" />
             </button>
@@ -157,10 +158,10 @@ let deleteTitle = $derived(
 
 <AlertDialog
   open={confirmDeleteId !== null}
-  title="Delete conversation"
-  description={`Are you sure you want to delete "${deleteTitle}"? This cannot be undone.`}
-  confirmLabel="Delete"
-  cancelLabel="Cancel"
+  title={t("chat.deleteConversation")}
+  description={t("chat.deleteConversationConfirm", { title: deleteTitle })}
+  confirmLabel={t("common.delete")}
+  cancelLabel={t("common.cancel")}
   confirmVariant="destructive"
   onConfirm={() => {
     if (confirmDeleteId) onDelete?.(confirmDeleteId);

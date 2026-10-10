@@ -20,10 +20,12 @@ import type {
   PalimNotifyKind,
   PalimPageRoute,
 } from "$shared/extensionUi";
+import type { I18n } from "$shared/i18n";
 import { navigate, pathname } from "../router";
 import { authFetch } from "./auth";
 import { parsePageRoute, resolveExtensionPath } from "./extensionRoutes";
 import { responseError } from "./http";
+import { i18n } from "./i18n.svelte";
 import { identity } from "./identity.svelte";
 
 type UiEventHandler = (event: string, data: unknown) => void;
@@ -118,6 +120,11 @@ export function createPalimHost(options: PalimHostOptions): { host: PalimHost; d
   );
   cleanups.push(pathname.subscribe((appPath) => route.set(parsePageRoute(appPath, pageRoute))));
 
+  // Translations: the extension's catalog over the core catalog, for the active locale.
+  const i18nStore = i18n.store(extension.name);
+  const i18nSignal = createSignal<I18n>(get(i18nStore));
+  cleanups.push(i18nStore.subscribe((snapshot) => i18nSignal.set(snapshot)));
+
   const host: PalimHost = {
     extension: Object.freeze({ ...extension }),
     page: {
@@ -166,6 +173,12 @@ export function createPalimHost(options: PalimHostOptions): { host: PalimHost; d
         return theme.get();
       },
       subscribe: theme.subscribe,
+    },
+    i18n: {
+      get current() {
+        return i18nSignal.get();
+      },
+      subscribe: i18nSignal.subscribe,
     },
     user: {
       get username() {

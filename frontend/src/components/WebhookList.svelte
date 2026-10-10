@@ -14,6 +14,7 @@ import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Card, CardContent, CardHeader } from "$lib/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+import { t } from "$lib/i18n.svelte";
 
 interface Webhook {
   slug: string;
@@ -45,7 +46,7 @@ let submitting = $state(false);
 
 let confirmingDelete = $state<string | null>(null);
 
-const NO_AUTH_WARNING = "No authentication - webhook is only available in development mode!";
+const NO_AUTH_WARNING = $derived(t("webhooks.noAuthWarning"));
 
 async function fetchWebhooks() {
   loading = true;
@@ -58,11 +59,11 @@ async function fetchWebhooks() {
     webhookCount.set(webhooks.length);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";
-    errorDetail = msg || "Unknown error";
+    errorDetail = msg || t("common.unknownError");
     if (msg.includes("Failed to fetch") || msg.includes("502") || msg.includes("503") || msg.includes("NetworkError")) {
-      error = "Unable to reach the server. Please check that the backend is running.";
+      error = t("common.serverUnreachable");
     } else {
-      error = "Failed to load webhooks. Please try again later.";
+      error = t("webhooks.loadFailed");
     }
   } finally {
     loading = false;
@@ -114,26 +115,26 @@ async function submitForm() {
 
   if (formMode === "create") {
     if (!formSlug || !formName) {
-      formError = "Slug and Name are required.";
+      formError = t("webhooks.slugNameRequired");
       return;
     }
     if (formAuthType !== "none") {
       if (!formSecret) {
-        formError = "Secret is required for HMAC-SHA256 and Bearer auth.";
+        formError = t("webhooks.secretRequired");
         return;
       }
       if (formSecret.length < 8) {
-        formError = "Secret must be at least 8 characters.";
+        formError = t("webhooks.secretMin");
         return;
       }
     }
   } else {
     if (!formName) {
-      formError = "Name is required.";
+      formError = t("webhooks.nameRequired");
       return;
     }
     if (formAuthType !== "none" && formSecret && formSecret.length < 8) {
-      formError = "Secret must be at least 8 characters (or leave blank to keep current).";
+      formError = t("webhooks.secretMinKeep");
       return;
     }
   }
@@ -179,7 +180,7 @@ async function submitForm() {
     await fetchWebhooks();
     resetForm();
   } catch (err) {
-    formError = err instanceof Error ? err.message : "Request failed";
+    formError = err instanceof Error ? err.message : t("chat.requestFailed");
   } finally {
     submitting = false;
   }
@@ -259,13 +260,13 @@ $effect(() => {
   <Card class="bg-accent">
     <CardHeader class="pb-2">
       <span class="text-sm font-medium">
-        {formMode === "create" ? "Create Webhook" : `Edit: ${editingSlug}`}
+        {formMode === "create" ? t("webhooks.createTitle") : t("globalSecrets.editTitle", { key: editingSlug })}
       </span>
     </CardHeader>
     <CardContent class="space-y-3">
       {#if formMode === "create"}
         <div class="space-y-1">
-          <label for="wh-slug" class="text-xs font-medium text-muted-foreground">Slug</label>
+          <label for="wh-slug" class="text-xs font-medium text-muted-foreground">{t("webhooks.slug")}</label>
           <input
             id="wh-slug"
             type="text"
@@ -279,44 +280,44 @@ $effect(() => {
 
       <div class="grid grid-cols-2 gap-3">
         <div class="space-y-1">
-          <label for="wh-name" class="text-xs font-medium text-muted-foreground">Name</label>
+          <label for="wh-name" class="text-xs font-medium text-muted-foreground">{t("common.name")}</label>
           <input
             id="wh-name"
             type="text"
             bind:value={formName}
-            placeholder="My Webhook"
+            placeholder={t("webhooks.namePlaceholder")}
             class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           >
         </div>
         <div class="space-y-1">
-          <label for="wh-enabled" class="text-xs font-medium text-muted-foreground">Enabled</label>
+          <label for="wh-enabled" class="text-xs font-medium text-muted-foreground">{t("webhooks.enabled")}</label>
           <select
             id="wh-enabled"
             bind:value={formEnabled}
             class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           >
-            <option value={true}>Yes</option>
-            <option value={false}>No</option>
+            <option value={true}>{t("common.yes")}</option>
+            <option value={false}>{t("common.no")}</option>
           </select>
         </div>
       </div>
 
       <div class="grid grid-cols-2 gap-3">
         <div class="space-y-1">
-          <label for="wh-auth" class="text-xs font-medium text-muted-foreground">Auth Type</label>
+          <label for="wh-auth" class="text-xs font-medium text-muted-foreground">{t("webhooks.authType")}</label>
           <select
             id="wh-auth"
             bind:value={formAuthType}
             class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
           >
-            <option value="none">None</option>
-            <option value="bearer">Bearer Token</option>
+            <option value="none">{t("webhooks.authNone")}</option>
+            <option value="bearer">{t("webhooks.authBearer")}</option>
             <option value="hmac-sha256">HMAC-SHA256</option>
           </select>
         </div>
         {#if formAuthType === "hmac-sha256"}
           <div class="space-y-1">
-            <label for="wh-header" class="text-xs font-medium text-muted-foreground">Header Name</label>
+            <label for="wh-header" class="text-xs font-medium text-muted-foreground">{t("webhooks.headerName")}</label>
             <input
               id="wh-header"
               type="text"
@@ -324,7 +325,7 @@ $effect(() => {
               placeholder="X-Hub-Signature-256"
               class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
             >
-            <p class="text-xs text-muted-foreground">Leave blank for default</p>
+            <p class="text-xs text-muted-foreground">{t("webhooks.headerDefault")}</p>
           </div>
         {:else}
           <div class="space-y-1"></div>
@@ -335,14 +336,14 @@ $effect(() => {
         <div class="grid grid-cols-2 gap-3">
           <div class="space-y-1">
             <label for="wh-secret" class="text-xs font-medium text-muted-foreground">
-              Secret
-              {formMode === "edit" ? "(leave blank to keep current)" : ""}
+              {t("webhooks.secret")}
+              {formMode === "edit" ? t("webhooks.keepCurrent") : ""}
             </label>
             <input
               id="wh-secret"
               type="password"
               bind:value={formSecret}
-              placeholder={formMode === "edit" ? "unchanged" : "min 8 characters"}
+              placeholder={formMode === "edit" ? t("webhooks.unchanged") : t("webhooks.minChars")}
               class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
             >
           </div>
@@ -363,9 +364,9 @@ $effect(() => {
       <hr>
       <div class="flex gap-2">
         <Button size="sm" disabled={submitting} onclick={submitForm}>
-          {submitting ? "Saving..." : formMode === "create" ? "Create" : "Save"}
+          {submitting ? t("common.saving") : formMode === "create" ? t("common.create") : t("common.save")}
         </Button>
-        <Button size="sm" variant="outline" onclick={resetForm}>Cancel</Button>
+        <Button size="sm" variant="outline" onclick={resetForm}>{t("common.cancel")}</Button>
       </div>
     </CardContent>
   </Card>
@@ -379,7 +380,7 @@ $effect(() => {
       {#if !formMode}
         <PlusIcon size={14} class="mr-1.5" aria-hidden="true" />
       {/if}
-      {formMode ? "Cancel" : "New Webhook"}
+      {formMode ? t("common.cancel") : t("webhooks.new")}
     </Button>
   </div>
 
@@ -397,7 +398,7 @@ $effect(() => {
       {/if}
     </div>
   {:else if webhooks.length === 0 && !formMode}
-    <p class="text-sm text-muted-foreground">No webhooks registered. Create one to get started.</p>
+    <p class="text-sm text-muted-foreground">{t("webhooks.empty")}</p>
   {:else}
     {#if editingSlug}
       {@render webhookForm()}
@@ -414,20 +415,22 @@ $effect(() => {
             </div>
             <div class="flex items-center gap-2 shrink-0">
               {#if webhook.authType === "none"}
-                <Badge title={NO_AUTH_WARNING} variant="warning-outline" aria-label={NO_AUTH_WARNING}>none</Badge>
+                <Badge title={NO_AUTH_WARNING} variant="warning-outline" aria-label={NO_AUTH_WARNING}
+                  >{t("webhooks.authNoneBadge")}</Badge
+                >
               {:else}
                 <Badge variant="outline">{webhook.authType}</Badge>
               {/if}
               <ToggleSwitch
                 checked={webhook.enabled}
                 onChange={() => toggleEnabled(webhook)}
-                aria-label={webhook.enabled ? "Disable webhook" : "Enable webhook"}
+                aria-label={webhook.enabled ? t("webhooks.disable") : t("webhooks.enable")}
               />
             </div>
           </div>
 
           <div class="text-sm">
-            <span>Endpoint:</span>
+            <span>{t("webhooks.endpoint")}</span>
             <code
               class="text-xs bg-muted px-2 py-0.5 rounded font-mono truncate"
               title={`/ext/webhooks/receive/${webhook.slug}`}
@@ -445,7 +448,7 @@ $effect(() => {
               {:else}
                 <CopyIcon size={12} aria-hidden="true" />
               {/if}
-              <span class="sr-only">{copiedSlug === webhook.slug ? "Copied" : "Copy URL"}</span>
+              <span class="sr-only">{copiedSlug === webhook.slug ? t("common.copied") : t("webhooks.copyUrl")}</span>
             </Button>
           </div>
 
@@ -453,25 +456,27 @@ $effect(() => {
 
           {#if confirmingDelete === webhook.slug}
             <div class="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="destructive" onclick={() => deleteWebhook(webhook.slug)}>Confirm</Button>
+              <Button size="sm" variant="destructive" onclick={() => deleteWebhook(webhook.slug)}
+                >{t("common.confirm")}</Button
+              >
               <Button
                 size="sm"
                 variant="outline"
                 onclick={() => {
                   confirmingDelete = null;
                 }}
-                >Cancel</Button
+                >{t("common.cancel")}</Button
               >
             </div>
           {:else}
             <div class="flex flex-wrap items-center gap-2">
               <Button size="sm" variant="outline" onclick={() => duplicateWebhook(webhook)}>
                 <CopySimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-                Duplicate
+                {t("common.duplicate")}
               </Button>
               <Button size="sm" variant="outline" onclick={() => openEditForm(webhook)}>
                 <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-                Edit
+                {t("common.edit")}
               </Button>
               <Button
                 size="sm"
@@ -481,7 +486,7 @@ $effect(() => {
                 }}
               >
                 <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                Delete
+                {t("common.delete")}
               </Button>
             </div>
           {/if}
@@ -494,11 +499,11 @@ $effect(() => {
       <Table>
         <TableHeader class="bg-muted/30">
           <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Endpoint</TableHead>
-            <TableHead>Auth</TableHead>
-            <TableHead class="text-center">Enabled</TableHead>
-            <TableHead class="text-center">Actions</TableHead>
+            <TableHead>{t("common.name")}</TableHead>
+            <TableHead>{t("webhooks.colEndpoint")}</TableHead>
+            <TableHead>{t("webhooks.colAuth")}</TableHead>
+            <TableHead class="text-center">{t("webhooks.enabled")}</TableHead>
+            <TableHead class="text-center">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -529,14 +534,18 @@ $effect(() => {
                     {:else}
                       <CopyIcon size={12} aria-hidden="true" />
                     {/if}
-                    <span class="sr-only">{copiedSlug === webhook.slug ? "Copied" : "Copy URL"}</span>
+                    <span class="sr-only"
+                      >{copiedSlug === webhook.slug ? t("common.copied") : t("webhooks.copyUrl")}</span
+                    >
                   </Button>
                 </div>
               </TableCell>
               <TableCell>
                 {#if webhook.authType === "none"}
                   <div class="flex items-center gap-1.5">
-                    <Badge title={NO_AUTH_WARNING} variant="warning-outline" aria-label={NO_AUTH_WARNING}>none</Badge>
+                    <Badge title={NO_AUTH_WARNING} variant="warning-outline" aria-label={NO_AUTH_WARNING}
+                      >{t("webhooks.authNoneBadge")}</Badge
+                    >
                     <span title={NO_AUTH_WARNING}>
                       <WarningIcon
                         size={14}
@@ -553,14 +562,14 @@ $effect(() => {
                 <ToggleSwitch
                   checked={webhook.enabled}
                   onChange={() => toggleEnabled(webhook)}
-                  aria-label={webhook.enabled ? "Disable webhook" : "Enable webhook"}
+                  aria-label={webhook.enabled ? t("webhooks.disable") : t("webhooks.enable")}
                 />
               </TableCell>
               <TableCell class="w-1">
                 <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
                   {#if confirmingDelete === webhook.slug}
                     <Button size="sm" variant="destructive" onclick={() => deleteWebhook(webhook.slug)}>
-                      Confirm
+                      {t("common.confirm")}
                     </Button>
                     <Button
                       size="sm"
@@ -569,16 +578,16 @@ $effect(() => {
                         confirmingDelete = null;
                       }}
                     >
-                      Cancel
+                      {t("common.cancel")}
                     </Button>
                   {:else}
                     <Button size="sm" variant="outline" onclick={() => duplicateWebhook(webhook)}>
                       <CopySimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      Duplicate
+                      {t("common.duplicate")}
                     </Button>
                     <Button size="sm" variant="outline" onclick={() => openEditForm(webhook)}>
                       <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      Edit
+                      {t("common.edit")}
                     </Button>
                     <div>
                       <Button
@@ -589,7 +598,7 @@ $effect(() => {
                         }}
                       >
                         <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                        Delete
+                        {t("common.delete")}
                       </Button>
                     </div>
                   {/if}

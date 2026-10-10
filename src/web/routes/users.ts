@@ -16,7 +16,7 @@
  * Endpoints:
  * - `GET    /api/users`               - list users (no hashes)
  * - `POST   /api/users`               - create a user with roles
- * - `PATCH  /api/users/:id`           - update display name, roles, disabled, or password
+ * - `PATCH  /api/users/:id`           - update display name, locale, roles, disabled, or password
  * - `DELETE /api/users/:id`           - delete a user and their chat sessions (refused while they own triggers)
  * - `GET    /api/roles`               - list roles with their permissions and user counts
  * - `POST   /api/roles`               - create a role
@@ -41,18 +41,21 @@ import {
 import { Elysia } from "elysia";
 import { getPrincipal } from "../auth";
 import { countTriggersOwnedBy } from "../triggerOwnership";
+import { LocaleValue } from "./auth";
 
 /** Body schema for creating a user. */
 const CreateUserBody = Type.Object({
   username: Type.String({ minLength: 1, maxLength: 64, description: "Unique login username" }),
   password: Type.String({ minLength: 8, description: "Initial password (min 8 chars)" }),
   displayName: Type.Optional(Type.String({ maxLength: 128 })),
+  locale: Type.Optional(LocaleValue),
   roleIds: Type.Optional(Type.Array(Type.String(), { description: "Role ids to assign" })),
 });
 
 /** Body schema for updating a user. */
 const UpdateUserBody = Type.Object({
   displayName: Type.Optional(Type.String({ maxLength: 128 })),
+  locale: Type.Optional(LocaleValue),
   disabled: Type.Optional(Type.Boolean()),
   roleIds: Type.Optional(Type.Array(Type.String())),
   password: Type.Optional(Type.String({ minLength: 8, description: "New password (min 8 chars)" })),
@@ -131,6 +134,7 @@ export function userRoutes(
           username: body.username,
           passwordHash,
           ...(body.displayName ? { displayName: body.displayName } : {}),
+          ...(body.locale ? { locale: body.locale } : {}),
         });
         if (body.roleIds && body.roleIds.length > 0) {
           store.setUserRoles(user.id, body.roleIds);
@@ -165,6 +169,9 @@ export function userRoutes(
         }
         if (body.displayName !== undefined) {
           store.setDisplayName(user.id, body.displayName.trim() || null);
+        }
+        if (body.locale !== undefined) {
+          store.setLocale(user.id, body.locale);
         }
         if (body.password !== undefined) {
           const passwordHash = await auth.hashPassword(body.password);

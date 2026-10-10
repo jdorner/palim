@@ -1,0 +1,6 @@
+{
+  "description": "Konfigurierbare Verzeichnisüberwachungen, die bei Dateiänderungen Ereignisse auslösen",
+  "nav": {
+    "/filewatchers": "Dateiwächter"
+  }
+}

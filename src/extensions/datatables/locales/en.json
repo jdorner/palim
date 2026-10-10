@@ -1,0 +1,329 @@
+{
+  "back": "Back",
+  "cell": {
+    "false": "✗ false",
+    "true": "✓ true"
+  },
+  "columnTypes": {
+    "boolean": "Boolean",
+    "date": "Date",
+    "datetime": "Date & time",
+    "integer": "Integer",
+    "json": "JSON",
+    "number": "Number",
+    "text": "Text"
+  },
+  "columns": {
+    "actions": "Actions",
+    "addColumn": "Add column",
+    "columnKey": "Column key",
+    "columnLabel": "Column label",
+    "columnType": "Column type",
+    "default": "Default",
+    "defaultValue": "Default value",
+    "duplicateKeys": "Duplicate keys: {keys}",
+    "empty": "(empty)",
+    "key": "Key",
+    "keyColumn": "Key column",
+    "keyTitle": "Identifies a row for upserts",
+    "label": "Label",
+    "moveDown": "Move down",
+    "moveUp": "Move up",
+    "removeColumn": "Remove column",
+    "renamedFrom": "Renamed from {key}",
+    "required": "Req.",
+    "requiredAria": "Required",
+    "requiredTitle": "Value required",
+    "source": "Source",
+    "sourceColumn": "Source column",
+    "type": "Type",
+    "unique": "Uniq.",
+    "uniqueAria": "Unique",
+    "uniqueTitle": "Values must be unique"
+  },
+  "description": "Typed data tables with CSV/Excel import and export, workflow steps, and an agent command",
+  "filterOps": {
+    "contains": "contains",
+    "in": "in",
+    "isNull": "is empty",
+    "notNull": "is not empty",
+    "startsWith": "starts with"
+  },
+  "form": {
+    "andMore": "… and {count} more",
+    "columns": "Columns",
+    "columnsHintAfter": "). Renaming a key keeps its values; changing a type converts existing values.",
+    "columnsHintBefore": "Keys are used in workflow templates (",
+    "conflictRow": "Row #{index}: {errors}",
+    "createTable": "Create table",
+    "created": "Table \"{label}\" created",
+    "description": "Description",
+    "editTitle": "Edit table: {label}",
+    "general": "General",
+    "label": "Label",
+    "loading": "Loading table...",
+    "name": "Name",
+    "nameHint": "(used in workflows and the agent command)",
+    "newTitle": "New table",
+    "remove": "Remove",
+    "removeColumnsMessage": "The values of {columns} will be deleted from every row.",
+    "removeColumnsTitle": "Remove columns?",
+    "saveAnyway": "Save anyway and clear failing values",
+    "saved": "Table saved ({rows} rows updated)",
+    "savedCleared": "Table saved ({rows} rows updated, {cleared} values cleared)"
+  },
+  "import": {
+    "another": "Import another file",
+    "append": "Append rows",
+    "dataRow": "Data row {index}: {errors}",
+    "derivedHint": "Column types were derived from the file. Adjust labels, keys, and types before creating the table.",
+    "fileColumn": "File column",
+    "fileColumnFor": "File column for {label}",
+    "headerRow": "First row contains headers",
+    "importRows_one": "Import {count} row",
+    "importRows_other": "Import {count} rows",
+    "imported_one": "Imported {count} row",
+    "imported_other": "Imported {count} rows",
+    "importing": "Importing...",
+    "into": "Import into",
+    "mapAtLeastOne": "Map at least one file column to a table column",
+    "mode": "Mode",
+    "newTable": "New table (columns from this file)",
+    "openTable": "Open table",
+    "preview": "Preview",
+    "previewShowing": "{rows} data rows, {columns} columns (showing first {shown})",
+    "previewStats": "{rows} data rows, {columns} columns",
+    "reading": "Reading file...",
+    "replace": "Replace",
+    "replaceAll": "Replace all rows",
+    "replaceMessage": "All {count} existing rows of \"{label}\" will be deleted first.",
+    "replaceTitle": "Replace all rows?",
+    "required": ", required",
+    "resultImported_one": "{count} row imported into",
+    "resultImported_other": "{count} rows imported into",
+    "sheet": "Sheet",
+    "skip": "(skip / default)",
+    "skipped_one": "{count} row skipped.",
+    "skipped_other": "{count} rows skipped.",
+    "stepFile": "1. File",
+    "stepTarget": "2. Target",
+    "tableColumn": "Table column",
+    "title": "Import CSV / Excel"
+  },
+  "list": {
+    "columns_one": "{count} column: {names}",
+    "columns_other": "{count} columns: {names}",
+    "empty": "No data tables yet.",
+    "emptyHint": "Create one by hand, or import a CSV or Excel file to derive its columns.",
+    "importFile": "Import File",
+    "loading": "Loading tables...",
+    "newTable": "New Table",
+    "updatedAt": "Updated {date}"
+  },
+  "nav": {
+    "/ext-page/datatables/tables": "Data Tables"
+  },
+  "pages": {
+    "tables": {
+      "title": "Data Tables"
+    }
+  },
+  "rows_one": "{count} row",
+  "rows_other": "{count} rows",
+  "steps": {
+    "datatable-delete": {
+      "config": {
+        "all": {
+          "description": "Required to delete without conditions.",
+          "title": "Delete all rows"
+        },
+        "table": {
+          "description": "Name of the data table. Supports {{template}} expressions.",
+          "title": "Table"
+        },
+        "where": {
+          "column": {
+            "title": "Column"
+          },
+          "description": "Conditions (all must match). Columns may also be _id, _createdAt, _updatedAt.",
+          "op": {
+            "title": "Operator"
+          },
+          "title": "Where",
+          "value": {
+            "description": "Comparison value; comma-separated for 'in'. Supports {{template}} expressions.",
+            "title": "Value"
+          }
+        }
+      },
+      "label": "Delete Rows"
+    },
+    "datatable-insert": {
+      "config": {
+        "rows": {
+          "description": "Template resolving to a JSON object or array of objects, e.g. {{ steps.fetch.result.items }}. Used instead of Values for multiple rows.",
+          "title": "Rows (JSON)"
+        },
+        "table": {
+          "description": "Name of the data table. Supports {{template}} expressions.",
+          "title": "Table"
+        },
+        "values": {
+          "description": "Column → value. Values support {{template}} expressions and are converted to the column type.",
+          "title": "Values"
+        }
+      },
+      "label": "Insert Rows"
+    },
+    "datatable-query": {
+      "config": {
+        "desc": {
+          "title": "Descending"
+        },
+        "limit": {
+          "description": "Maximum rows (1-1000).",
+          "title": "Limit"
+        },
+        "orderBy": {
+          "description": "Column to sort by (default: row id).",
+          "title": "Order by"
+        },
+        "table": {
+          "description": "Name of the data table. Supports {{template}} expressions.",
+          "title": "Table"
+        },
+        "where": {
+          "column": {
+            "title": "Column"
+          },
+          "description": "Conditions (all must match). Columns may also be _id, _createdAt, _updatedAt.",
+          "op": {
+            "title": "Operator"
+          },
+          "title": "Where",
+          "value": {
+            "description": "Comparison value; comma-separated for 'in'. Supports {{template}} expressions.",
+            "title": "Value"
+          }
+        }
+      },
+      "label": "Query Table"
+    },
+    "datatable-truncate": {
+      "config": {
+        "table": {
+          "description": "Name of the data table. Supports {{template}} expressions.",
+          "title": "Table"
+        }
+      },
+      "label": "Truncate Table"
+    },
+    "datatable-update": {
+      "config": {
+        "set": {
+          "description": "Column → new value. Supports {{template}} expressions.",
+          "title": "Set"
+        },
+        "table": {
+          "description": "Name of the data table. Supports {{template}} expressions.",
+          "title": "Table"
+        },
+        "where": {
+          "column": {
+            "title": "Column"
+          },
+          "description": "Conditions (all must match). Columns may also be _id, _createdAt, _updatedAt.",
+          "op": {
+            "title": "Operator"
+          },
+          "title": "Where",
+          "value": {
+            "description": "Comparison value; comma-separated for 'in'. Supports {{template}} expressions.",
+            "title": "Value"
+          }
+        }
+      },
+      "label": "Update Rows"
+    },
+    "datatable-upsert": {
+      "config": {
+        "keyColumn": {
+          "description": "Column that identifies a row. Defaults to the table's key column.",
+          "title": "Key column"
+        },
+        "rows": {
+          "description": "Template resolving to a JSON object or array of objects, e.g. {{ steps.fetch.result.items }}. Used instead of Values for multiple rows.",
+          "title": "Rows (JSON)"
+        },
+        "table": {
+          "description": "Name of the data table. Supports {{template}} expressions.",
+          "title": "Table"
+        },
+        "values": {
+          "description": "Column → value. Values support {{template}} expressions and are converted to the column type.",
+          "title": "Values"
+        }
+      },
+      "label": "Upsert Rows"
+    }
+  },
+  "sysColumns": {
+    "created": "Created",
+    "id": "ID",
+    "updated": "Updated"
+  },
+  "view": {
+    "addFilter": "Add filter",
+    "addRow": "Add row",
+    "cancel": "Cancel",
+    "columnPlaceholder": "Column…",
+    "columnTitle": "{key} ({type})",
+    "dblClickHint": "Double-click a cell to edit.",
+    "deleteAll": "Delete all",
+    "deleteAllRows": "Delete all rows",
+    "deleteRowsMessage_one": "{count} row will be deleted.",
+    "deleteRowsMessage_other": "{count} rows will be deleted.",
+    "deleteRowsTitle": "Delete rows?",
+    "deleteSelected": "Delete {count}",
+    "deleteTable": "Delete table",
+    "deletedElsewhere": "Table \"{name}\" was deleted",
+    "dropMessage": "\"{label}\" and all {count} rows will be deleted permanently. Workflows using it will fail.",
+    "dropTitle": "Delete table?",
+    "editTable": "Edit table",
+    "export": "Export",
+    "exportFailed": "Export failed: {error}",
+    "filter": "Filter",
+    "filterColumn": "Filter column",
+    "filterCount": "Filter ({count})",
+    "filterOperator": "Filter operator",
+    "filterValue": "Filter value",
+    "filtered": " (filtered)",
+    "firstPage": "First page",
+    "import": "Import",
+    "keyBadge": "key: {column}",
+    "keyColumnTitle": "Key column (used by upserts)",
+    "lastPage": "Last page",
+    "loadingRows": "Loading rows...",
+    "nextPage": "Next page",
+    "noMatch": "No rows match the filters.",
+    "noRows": "No rows yet.",
+    "pageOf": "Page {page} of {total}",
+    "pagination": "Pagination",
+    "prevPage": "Previous page",
+    "range": "{from}–{to} of {total}",
+    "rangeMatching": "{from}–{to} of {total} matching",
+    "removeFilter": "Remove filter",
+    "requiredSuffix": ", required",
+    "rowAdded": "Row added",
+    "rowsDeleted_one": "{count} row deleted",
+    "rowsDeleted_other": "{count} rows deleted",
+    "save": "Save",
+    "selectAll": "Select all",
+    "selectRow": "Select row",
+    "tableDeleted": "Table \"{label}\" deleted",
+    "truncateMessage": "All {count} rows of \"{label}\" will be deleted. The columns are kept.",
+    "truncateTitle": "Delete all rows?",
+    "uniqueSuffix": ", unique",
+    "value": "Value"
+  }
+}

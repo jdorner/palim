@@ -7,6 +7,8 @@ import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { detailPanelMode } from "$lib/detailPanelMode.svelte";
 import { extensions } from "$lib/extensionStore";
+import { t } from "$lib/i18n.svelte";
+import { localizeStepType } from "$lib/stepTypes";
 import { UndoHistory } from "$lib/undoHistory";
 import { applyWorkflowEvent, normalizeWorkflow, type StepDef, type WorkflowDetail } from "$lib/workflowDetail";
 import {
@@ -85,7 +87,9 @@ let cachedVariableKeys = $state<string[]>([]);
 
 /** Custom step types registered by extensions, derived from the extension store. */
 let customStepTypes = $derived(
-  $extensions.filter((ext) => ext.enabled && ext.ui?.stepTypes?.length).flatMap((ext) => ext.ui!.stepTypes!),
+  $extensions
+    .filter((ext) => ext.enabled && ext.ui?.stepTypes?.length)
+    .flatMap((ext) => ext.ui!.stepTypes!.map(localizeStepType)),
 );
 
 /** WorkflowBuilder instance, recreated when extension step types change. */
@@ -358,7 +362,7 @@ function commitNewStep(type: string, result: { steps: StepDraft[]; edges: EdgeDr
   const newIndex = editDraft.steps.length - 1;
   const newErrors = new Map(validationErrors);
   if (type === "agent") {
-    newErrors.set(`steps[${newIndex}].prompt`, "Prompt is required for agent steps");
+    newErrors.set(`steps[${newIndex}].prompt`, t("validation.promptRequired"));
   }
   validationErrors = newErrors;
 
@@ -573,13 +577,13 @@ function onStepSlugInput(index: number, value: string) {
           const dupeIndexes = editDraft!.steps.map((s, i) => (s.slug === value ? i : -1)).filter((i) => i >= 0);
           if (dupeIndexes.length > 1) {
             for (const di of dupeIndexes) {
-              newErrors.set(`steps[${di}].slug`, "Step slug must be unique");
+              newErrors.set(`steps[${di}].slug`, t("workflows.slugUnique"));
             }
           }
         } else {
           // Clear duplicate errors for all steps with this slug if resolved
           for (let i = 0; i < editDraft!.steps.length; i++) {
-            if (newErrors.get(`steps[${i}].slug`) === "Step slug must be unique") {
+            if (newErrors.get(`steps[${i}].slug`) === t("workflows.slugUnique")) {
               // Re-validate: is this slug still duplicated?
               const otherSlugs = editDraft!.steps.map((s, j) => (j !== i ? s.slug : null)).filter(Boolean);
               if (!otherSlugs.includes(editDraft!.steps[i].slug)) {
@@ -633,7 +637,7 @@ async function saveWorkflow() {
     clearHistory();
     resyncSelectionWithWorkflow();
   } catch (err) {
-    saveError = err instanceof Error ? err.message : "Failed to save. Please try again.";
+    saveError = err instanceof Error ? err.message : t("workflows.saveFailed");
   } finally {
     saving = false;
   }
@@ -744,7 +748,7 @@ async function fetchWorkflow() {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     workflow = normalizeWorkflow(await res.json());
   } catch (err) {
-    error = err instanceof Error ? err.message : "Failed to load workflow";
+    error = err instanceof Error ? err.message : t("workflows.loadWorkflowFailed");
   } finally {
     loading = false;
   }
@@ -929,7 +933,9 @@ onDestroy(() => {
     {#if editMode && editDraft}
       <div class="mb-4 shrink-0 p-4 border border-border rounded-md bg-muted/30" transition:slide={{ duration: 100 }}>
         <div class="flex flex-col gap-1">
-          <label for="edit-description" class="text-xs font-medium text-muted-foreground">Description</label>
+          <label for="edit-description" class="text-xs font-medium text-muted-foreground"
+            >{t("common.description")}</label
+          >
           <input
             id="edit-description"
             type="text"
@@ -939,7 +945,7 @@ onDestroy(() => {
             oninput={(e) => {
               commitDraft({ ...editDraft!, description: (e.target as HTMLInputElement).value }, "description");
             }}
-            placeholder="Optional description"
+            placeholder={t("workflows.descriptionPlaceholder")}
           >
           {#if validationErrors.get("description")}
             <span class="text-xs text-destructive">{validationErrors.get("description")}</span>
@@ -954,13 +960,13 @@ onDestroy(() => {
           value="definition"
           class="px-3 py-1.5 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px"
         >
-          Definition
+          {t("workflows.tabDefinition")}
         </Tabs.Trigger>
         <Tabs.Trigger
           value="runs"
           class="px-3 py-1.5 text-sm font-medium text-muted-foreground data-[state=active]:text-foreground data-[state=active]:border-b-2 data-[state=active]:border-primary -mb-px"
         >
-          Runs ({workflow.runs.length})
+          {t("workflows.tabRuns", { count: workflow.runs.length })}
         </Tabs.Trigger>
         {#if activeTab === "definition"}
           <DetailPanelModeToggle class="ml-auto self-center" />

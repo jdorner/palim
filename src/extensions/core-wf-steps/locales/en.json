@@ -1,0 +1,105 @@
+{
+  "description": "Built-in workflow step types (HTTP Request, etc.)",
+  "steps": {
+    "chunk": {
+      "config": {
+        "input": {
+          "description": "The value to split into batches. Supports {{template}} expressions. A string is split into lines (or on `separator`); a template resolving to a JSON array is grouped directly.",
+          "title": "Input"
+        },
+        "separator": {
+          "description": "String to split the input on. Supports {{template}} expressions. Defaults to newline splitting when omitted.",
+          "title": "Separator"
+        },
+        "size": {
+          "description": "Maximum number of items per batch.",
+          "title": "Batch Size"
+        },
+        "trim": {
+          "description": "Trim whitespace from each item and drop empty items. Defaults to true.",
+          "title": "Trim Items"
+        }
+      },
+      "label": "Chunk"
+    },
+    "fail": {
+      "config": {
+        "message": {
+          "description": "Message to include in the failure. Supports {{template}} expressions.",
+          "title": "Error Message"
+        }
+      },
+      "label": "Fail Workflow"
+    },
+    "http-request": {
+      "config": {
+        "body": {
+          "description": "Request body. Supports {{template}} expressions.",
+          "title": "Body"
+        },
+        "expectedStatus": {
+          "description": "Acceptable HTTP status codes. If empty, any 2xx is accepted.",
+          "title": "Expected Status Codes"
+        },
+        "headers": {
+          "description": "Custom request headers (key-value). Values support {{template}} expressions.",
+          "title": "Headers"
+        },
+        "method": {
+          "description": "HTTP method to use.",
+          "title": "Method"
+        },
+        "responseFormat": {
+          "description": "How to parse the response. 'json' enables dot-path access in downstream steps.",
+          "title": "Response Format"
+        },
+        "timeout": {
+          "description": "Request timeout in milliseconds. Default: 30000.",
+          "title": "Timeout (ms)"
+        },
+        "url": {
+          "description": "Request URL. Supports {{template}} expressions.",
+          "title": "URL"
+        }
+      },
+      "label": "HTTP Request"
+    },
+    "noop": {
+      "label": "End Branch"
+    },
+    "set-variables": {
+      "config": {
+        "variables": {
+          "description": "Variables to set, evaluated in order.",
+          "name": {
+            "description": "Variable name (letters, digits, underscore; not starting with a digit). Referenced as {{steps.<slug>.result.<name>}}.",
+            "title": "Name"
+          },
+          "title": "Variables",
+          "type": {
+            "description": "Type the resolved value is converted to. Defaults to string.",
+            "title": "Type"
+          },
+          "value": {
+            "description": "Literal value or {{template}} expression. Inside this step, {{steps.<slug>.result.<name>}} refers to the variable's current value.",
+            "title": "Value"
+          }
+        }
+      },
+      "label": "Set Variables"
+    },
+    "start-workflow": {
+      "config": {
+        "payload": {
+          "description": "Payload to pass to the started workflow. Supports {{template}} expressions. Parsed as JSON when possible, otherwise forwarded as a raw string.",
+          "title": "Payload"
+        },
+        "workflowName": {
+          "description": "Name of the workflow to start. Supports {{template}} expressions.",
+          "title": "Workflow Name"
+        }
+      },
+      "label": "Start Workflow"
+    }
+  }
+}

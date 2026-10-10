@@ -4,15 +4,17 @@
  * - `POST /api/auth/login` - exchange username/password for an opaque bearer token.
  * - `POST /api/auth/logout` - revoke the presented bearer token.
  * - `GET /api/auth/me` - return the authenticated user and serialized ability.
+ * - `PUT /api/auth/me/locale` - set or clear the caller's preferred UI locale.
  *
  * @module
  */
 
+import { SUPPORTED_LOCALES } from "@shared/i18n";
 import { Type } from "@sinclair/typebox";
-import type { AuthResolver } from "@src/auth";
+import type { AuthResolver, UserStore } from "@src/auth";
 import { serializeAbility } from "@src/auth";
 import { Elysia } from "elysia";
-import { clientAddress, extractBearerToken } from "../auth";
+import { clientAddress, extractBearerToken, getPrincipal } from "../auth";
 import type { LoginThrottle } from "../loginThrottle";
 
 /** Minimal login-capable surface of the auth service. */
@@ -41,18 +43,23 @@ export interface LoginService extends AuthResolver {
   logout(token: string): boolean;
 }
 
+/** A supported UI locale, or null to follow the browser language. */
+export const LocaleValue = Type.Union([...SUPPORTED_LOCALES.map((l) => Type.Literal(l)), Type.Null()]);
+
 /**
  * Creates the auth route group.
  *
  * @param getAuthService - Getter for the auth service (may be undefined during startup).
  * @param onSessionRevoked - Called after a logout revokes a token (e.g. to close its open WebSockets).
  * @param throttle - Optional brute-force throttle; locked-out attempts get 429 without checking the password.
+ * @param getUserStore - Getter for the user store (persists self-service preferences such as the locale).
  * @returns Elysia plugin with auth routes.
  */
 export function authRoutes(
   getAuthService: () => LoginService | undefined,
   onSessionRevoked?: () => void,
   throttle?: LoginThrottle,
+  getUserStore?: () => UserStore | undefined,
 ) {
   return new Elysia()
     .post(
@@ -109,5 +116,17 @@ export function authRoutes(
         user: principal.user,
         ability: serializeAbility(principal),
       });
-    });
+    })
+    .put(
+      "/api/auth/me/locale",
+      ({ body, request, status }) => {
+        const store = getUserStore?.();
+        if (!store) return status(503, { error: "User store unavailable" });
+        const principal = getPrincipal(request);
+        if (!principal) return status(401, { error: "Unauthorized" });
+        store.setLocale(principal.user.id, body.locale);
+        return status(200, { locale: body.locale });
+      },
+      { body: Type.Object({ locale: LocaleValue }) },
+    );
 }

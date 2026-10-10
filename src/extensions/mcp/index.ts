@@ -19,7 +19,7 @@ import { syncAllSkills } from "./skillGenerator.ts";
 
 const manifest = {
   name: "mcp",
-  version: "1.0.0",
+  version: "1.1.0",
   description: "Bridges MCP servers into the skill system",
   settingsSchema: Type.Object({
     autoSync: Type.Optional(

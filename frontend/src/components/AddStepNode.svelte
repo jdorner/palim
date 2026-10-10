@@ -2,6 +2,7 @@
 import { Handle, type NodeProps, Position } from "@xyflow/svelte";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 import { tick } from "svelte";
+import { t } from "$lib/i18n.svelte";
 import StepTypePicker from "./StepTypePicker.svelte";
 
 interface Props extends NodeProps {
@@ -86,7 +87,7 @@ function portal(node: HTMLElement) {
     bind:this={buttonRef}
     class="flex items-center justify-center rounded-full border-2 border-dashed border-primary/40 bg-muted/20 cursor-pointer hover:bg-muted/50 hover:border-primary/70 transition-all duration-200"
     style="width: 32px; height: 32px;"
-    title="Add Step"
+    title={t("graph.addStep")}
     onclick={toggleMenu}
   >
     <PlusIcon size={20} weight="bold" class="text-primary" />

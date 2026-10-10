@@ -10,6 +10,7 @@ import AlertDialog from "$lib/components/ui/alert-dialog/AlertDialog.svelte";
 import { Button } from "$lib/components/ui/button";
 import { Card, CardContent, CardHeader } from "$lib/components/ui/card";
 import { ensureOk } from "$lib/http";
+import { i18n, t } from "$lib/i18n.svelte";
 import type { GlobalVariableEntry } from "../../../shared/types";
 
 /** Maximum length of a variable value in characters (mirrors the API limit). */
@@ -81,7 +82,7 @@ async function fetchVariables() {
     const data: { variables: GlobalVariableEntry[] } = await res.json();
     variables = data.variables;
   } catch (err) {
-    fetchError = err instanceof Error ? err.message : "Failed to load variables";
+    fetchError = err instanceof Error ? err.message : t("variables.loadFailed");
   } finally {
     loading = false;
   }
@@ -140,30 +141,30 @@ async function submitForm() {
 
   if (formMode === "create") {
     if (!key) {
-      formError = "Key is required";
+      formError = t("globalSecrets.keyRequired");
       return;
     }
     if (!/^[A-Z][A-Z0-9_]{0,63}$/.test(key)) {
-      formError = "Key must be UPPER_SNAKE_CASE (e.g. MY_VARIABLE)";
+      formError = t("variables.keyFormat");
       return;
     }
     if (variables.some((v) => v.key === key)) {
-      formError = `Variable "${key}" already exists`;
+      formError = t("variables.exists", { key });
       return;
     }
   }
 
   // Value is required for both create and edit (variables cannot be empty).
   if (formValue.trim().length === 0) {
-    formError = "Value cannot be empty";
+    formError = t("secrets.valueEmpty");
     return;
   }
   if (formValue.length > MAX_VALUE_LEN) {
-    formError = `Value exceeds maximum length of ${MAX_VALUE_LEN} characters`;
+    formError = t("variables.valueTooLong", { max: MAX_VALUE_LEN });
     return;
   }
   if (formDescription.length > MAX_DESCRIPTION_LEN) {
-    formError = `Description exceeds maximum length of ${MAX_DESCRIPTION_LEN} characters`;
+    formError = t("variables.descriptionTooLong", { max: MAX_DESCRIPTION_LEN });
     return;
   }
 
@@ -171,13 +172,13 @@ async function submitForm() {
   try {
     await saveVariable(key, formValue, formDescription.trim(), formMode === "create");
 
-    const action = formMode === "create" ? "added" : "updated";
+    const message = t(formMode === "create" ? "variables.added" : "variables.updated", { key });
     resetForm();
     await fetchVariables();
-    showSuccess(`Variable "${key}" ${action}`);
+    showSuccess(message);
   } catch (err) {
     // Preserve entered values (do not reset form) and surface the API error.
-    formError = err instanceof Error ? err.message : "Failed to save";
+    formError = err instanceof Error ? err.message : t("common.saveFailedShort");
     // A create can collide with a variable added elsewhere; refresh the list.
     if (formMode === "create") fetchVariables();
   } finally {
@@ -262,10 +263,10 @@ async function executeDelete() {
 
     if (editingKey === key) resetForm();
     await fetchVariables();
-    showSuccess(`Variable "${key}" deleted`);
+    showSuccess(t("variables.deleted", { key }));
     closeDeleteDialog();
   } catch (err) {
-    formError = err instanceof Error ? err.message : "Failed to delete";
+    formError = err instanceof Error ? err.message : t("common.deleteFailedShort");
     closeDeleteDialog();
   } finally {
     deleting = false;
@@ -301,7 +302,7 @@ function showSuccess(msg: string) {
  * @returns Human-readable date/time.
  */
 function formatDate(epoch: number): string {
-  return new Date(epoch).toLocaleDateString(undefined, {
+  return i18n.format.date(epoch, {
     year: "numeric",
     month: "short",
     day: "numeric",
@@ -329,45 +330,49 @@ function handleKeydown(event: KeyboardEvent) {
   <Card class="bg-accent">
     <CardHeader class="pb-2">
       <span class="text-sm font-medium">
-        {formMode === "create" ? "Add Global Variable" : `Edit: ${editingKey}`}
+        {formMode === "create" ? t("variables.addTitle") : t("globalSecrets.editTitle", { key: editingKey })}
       </span>
     </CardHeader>
     <CardContent class="space-y-3">
       <div class="space-y-1">
-        <label for="variable-key" class="text-xs font-medium text-muted-foreground">Key (UPPER_SNAKE_CASE)</label>
+        <label for="variable-key" class="text-xs font-medium text-muted-foreground"
+          >{t("globalSecrets.keyLabel")}</label
+        >
         <input
           id="variable-key"
           type="text"
           class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm font-mono disabled:opacity-60"
-          placeholder="e.g. DEFAULT_TIMEZONE"
+          placeholder={t("variables.keyPlaceholder")}
           bind:value={formKey}
           disabled={formMode === "edit"}
         >
         {#if formMode === "edit"}
-          <p class="text-xs text-muted-foreground">The key cannot be changed. Delete and recreate to rename.</p>
+          <p class="text-xs text-muted-foreground">{t("variables.keyLocked")}</p>
         {/if}
       </div>
 
       <div class="space-y-1">
-        <label for="variable-value" class="text-xs font-medium text-muted-foreground">Value</label>
+        <label for="variable-value" class="text-xs font-medium text-muted-foreground">{t("globalSecrets.value")}</label>
         <input
           id="variable-value"
           type="text"
           maxlength={MAX_VALUE_LEN}
           class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-          placeholder="Variable value"
+          placeholder={t("variables.valuePlaceholder")}
           bind:value={formValue}
         >
       </div>
 
       <div class="space-y-1">
-        <label for="variable-desc" class="text-xs font-medium text-muted-foreground">Description (optional)</label>
+        <label for="variable-desc" class="text-xs font-medium text-muted-foreground"
+          >{t("globalSecrets.descriptionLabel")}</label
+        >
         <input
           id="variable-desc"
           type="text"
           maxlength={MAX_DESCRIPTION_LEN}
           class="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm"
-          placeholder="e.g. Default timezone for scheduled workflows"
+          placeholder={t("variables.descriptionPlaceholder")}
           bind:value={formDescription}
         >
       </div>
@@ -381,9 +386,9 @@ function handleKeydown(event: KeyboardEvent) {
       <div class="flex gap-2">
         <Button size="sm" disabled={submitting} onclick={submitForm}>
           <FloppyDiskIcon class="w-4 h-4 mr-1.5" aria-hidden="true" />
-          {submitting ? "Saving..." : formMode === "create" ? "Create" : "Save"}
+          {submitting ? t("common.saving") : formMode === "create" ? t("common.create") : t("common.save")}
         </Button>
-        <Button size="sm" variant="outline" onclick={resetForm}>Cancel</Button>
+        <Button size="sm" variant="outline" onclick={resetForm}>{t("common.cancel")}</Button>
       </div>
     </CardContent>
   </Card>
@@ -392,7 +397,7 @@ function handleKeydown(event: KeyboardEvent) {
 <svelte:window onkeydown={handleKeydown} />
 
 {#if loading}
-  <LoadingIndicator message="Loading global variables..." />
+  <LoadingIndicator message={t("variables.loading")} />
 {:else if fetchError}
   <p class="text-sm text-destructive">{fetchError}</p>
 {:else}
@@ -403,7 +408,7 @@ function handleKeydown(event: KeyboardEvent) {
         {#if !formMode}
           <PlusIcon size={14} class="mr-1.5" aria-hidden="true" />
         {/if}
-        {formMode ? "Cancel" : "Add Variable"}
+        {formMode ? t("common.cancel") : t("variables.add")}
       </Button>
     </div>
 
@@ -414,7 +419,7 @@ function handleKeydown(event: KeyboardEvent) {
 
     <!-- Empty state -->
     {#if variables.length === 0 && !formMode}
-      <p class="text-sm text-muted-foreground">No global variables configured, yet.</p>
+      <p class="text-sm text-muted-foreground">{t("variables.empty")}</p>
     {/if}
 
     <!-- Edit form (shown above the list when editing) -->
@@ -433,7 +438,7 @@ function handleKeydown(event: KeyboardEvent) {
             <div class="flex items-center gap-2">
               <CheckCircleIcon
                 class="w-4 h-4 text-green-600 dark:text-green-400 shrink-0"
-                aria-label="Variable is set"
+                aria-label={t("variables.isSet")}
               />
               <span class="text-sm font-medium font-mono">{entry.key}</span>
 
@@ -444,8 +449,8 @@ function handleKeydown(event: KeyboardEvent) {
                   variant="ghost"
                   size="icon"
                   class="h-7 w-7"
-                  aria-label="Edit {entry.key}"
-                  title="Edit"
+                  aria-label={t("secrets.editKey", { key: entry.key })}
+                  title={t("common.edit")}
                   onclick={() => openEditForm(entry)}
                 >
                   <PencilSimpleIcon class="w-4 h-4" aria-hidden="true" />
@@ -455,8 +460,8 @@ function handleKeydown(event: KeyboardEvent) {
                   variant="ghost"
                   size="icon"
                   class="h-7 w-7 text-destructive hover:text-destructive"
-                  aria-label="Delete {entry.key}"
-                  title="Delete"
+                  aria-label={t("secrets.deleteKey", { key: entry.key })}
+                  title={t("common.delete")}
                   onclick={() => confirmDelete(entry.key)}
                 >
                   <TrashIcon class="w-4 h-4" aria-hidden="true" />
@@ -473,7 +478,7 @@ function handleKeydown(event: KeyboardEvent) {
                 <p class="text-xs text-muted-foreground">{entry.description}</p>
               {/if}
               <span class="text-xs text-muted-foreground/60 ml-auto shrink-0">
-                Updated {formatDate(entry.updatedAt)}
+                {t("common.updatedAt", { date: formatDate(entry.updatedAt) })}
               </span>
             </div>
           </div>
@@ -495,12 +500,20 @@ function handleKeydown(event: KeyboardEvent) {
      workflows once an unconfirmed delete returns a 409. -->
 <AlertDialog
   open={deleteDialogOpen}
-  title="Delete Variable"
+  title={t("variables.deleteTitle")}
   description={deleteReferencingWorkflows.length > 0
-    ? `"${deleteTargetKey}" is referenced by ${deleteReferencingWorkflows.length} workflow(s): ${deleteReferencingWorkflows.join(", ")}. Deleting it may break those workflows. Confirm to delete anyway.`
-    : `Are you sure you want to delete "${deleteTargetKey}"? This action is irreversible.`}
-  confirmLabel={deleting ? "Deleting..." : deleteReferencingWorkflows.length > 0 ? "Delete anyway" : "Delete"}
-  cancelLabel="Cancel"
+    ? t("variables.deleteReferenced", {
+        key: deleteTargetKey,
+        count: deleteReferencingWorkflows.length,
+        workflows: deleteReferencingWorkflows.join(", "),
+      })
+    : t("variables.deleteConfirm", { key: deleteTargetKey })}
+  confirmLabel={deleting
+    ? t("common.deleting")
+    : deleteReferencingWorkflows.length > 0
+      ? t("variables.deleteAnyway")
+      : t("common.delete")}
+  cancelLabel={t("common.cancel")}
   confirmVariant="destructive"
   onConfirm={executeDelete}
   onCancel={closeDeleteDialog}

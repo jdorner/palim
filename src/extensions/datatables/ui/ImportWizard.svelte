@@ -25,6 +25,7 @@ import { type EditableColumn, errorText, INPUT_CLASS, PAGE_ROUTE, request, toCol
 import ColumnEditor from "./ColumnEditor.svelte";
 
 let { palim, initialTable = "" }: { palim: PalimHost; initialTable?: string } = $props();
+const i18n = palim.i18n;
 
 let tables: TableSummary[] = $state([]);
 let file: File | null = $state(null);
@@ -115,12 +116,15 @@ async function runImport() {
     let options: Record<string, unknown>;
     if (target) {
       const m = Object.fromEntries(Object.entries(mapping).filter(([, v]) => v !== null));
-      if (Object.keys(m).length === 0) throw new Error("Map at least one file column to a table column");
+      if (Object.keys(m).length === 0) throw new Error(i18n.current.t("import.mapAtLeastOne"));
       if (mode === "replace") {
         const ok = await palim.confirm({
-          title: "Replace all rows?",
-          message: `All ${targetTable?.rowCount ?? ""} existing rows of "${targetTable?.label}" will be deleted first.`,
-          confirmLabel: "Replace",
+          title: i18n.current.t("import.replaceTitle"),
+          message: i18n.current.t("import.replaceMessage", {
+            count: targetTable?.rowCount ?? 0,
+            label: targetTable?.label,
+          }),
+          confirmLabel: i18n.current.t("import.replace"),
           destructive: true,
         });
         if (!ok) return;
@@ -142,7 +146,7 @@ async function runImport() {
     form.set("file", file);
     form.set("options", JSON.stringify(options));
     result = await request<ImportResult>(palim, "/import", { method: "POST", body: form });
-    palim.notify(`Imported ${result.inserted} row(s)`, "success");
+    palim.notify(i18n.current.t("import.imported", { count: result.inserted }), "success");
   } catch (err) {
     error = errorText(err);
   } finally {
@@ -154,28 +158,27 @@ const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURICom
 </script>
 
 <div class="flex items-center gap-3">
-  <Button size="sm" variant="outline" onclick={back}>&laquo;&nbsp;Back</Button>
-  <h2 class="text-lg font-semibold">Import CSV / Excel</h2>
+  <Button size="sm" variant="outline" onclick={back}>&laquo;&nbsp;{$i18n.t("back")}</Button>
+  <h2 class="text-lg font-semibold">{$i18n.t("import.title")}</h2>
 </div>
 
 {#if result}
   <Card>
     <CardContent class="space-y-3 pt-4 text-sm">
       <p>
-        <span class="font-medium">{result.inserted.toLocaleString()}</span>
-        row(s) imported into
+        {$i18n.t("import.resultImported", { count: result.inserted })}
         <code>{result.table}</code>.
         {#if result.skippedCount > 0}
-          <span class="text-destructive">{result.skippedCount} row(s) skipped.</span>
+          <span class="text-destructive">{$i18n.t("import.skipped", { count: result.skippedCount })}</span>
         {/if}
       </p>
       {#if result.skipped.length > 0}
         <ul class="max-h-48 list-inside list-disc overflow-auto text-xs text-muted-foreground">
           {#each result.skipped as row (row.index)}
-            <li>Data row {row.index + 1}: {row.errors.join("; ")}</li>
+            <li>{$i18n.t("import.dataRow", { index: row.index + 1, errors: row.errors.join("; ") })}</li>
           {/each}
           {#if result.skippedCount > result.skipped.length}
-            <li>… and {result.skippedCount - result.skipped.length} more</li>
+            <li>{$i18n.t("form.andMore", { count: result.skippedCount - result.skipped.length })}</li>
           {/if}
         </ul>
       {/if}
@@ -184,15 +187,15 @@ const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURICom
           size="sm"
           onclick={() => result && palim.navigate(`${PAGE_ROUTE}/t/${encodeURIComponent(result.table)}`)}
         >
-          Open table
+          {$i18n.t("import.openTable")}
         </Button>
-        <Button size="sm" variant="outline" onclick={() => (result = null)}>Import another file</Button>
+        <Button size="sm" variant="outline" onclick={() => (result = null)}>{$i18n.t("import.another")}</Button>
       </div>
     </CardContent>
   </Card>
 {:else}
   <Card>
-    <CardHeader class="pb-2"><span class="text-sm font-medium">1. File</span></CardHeader>
+    <CardHeader class="pb-2"><span class="text-sm font-medium">{$i18n.t("import.stepFile")}</span></CardHeader>
     <CardContent class="flex flex-wrap items-center gap-4">
       <input
         type="file"
@@ -209,11 +212,11 @@ const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURICom
             loadPreview();
           }}
         />
-        <label for="dt-header-row" class="text-sm">First row contains headers</label>
+        <label for="dt-header-row" class="text-sm">{$i18n.t("import.headerRow")}</label>
       </div>
       {#if preview && preview.sheets.length > 1}
         <label class="flex items-center gap-2 text-sm">
-          Sheet
+          {$i18n.t("import.sheet")}
           <select class="{INPUT_CLASS} w-auto" bind:value={sheet} onchange={loadPreview}>
             {#each preview.sheets as s (s)}
               <option value={s}>{s}</option>
@@ -225,16 +228,17 @@ const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURICom
   </Card>
 
   {#if previewing}
-    <LoadingIndicator message="Reading file..." />
+    <LoadingIndicator message={$i18n.t("import.reading")} />
   {:else if preview}
     <Card>
       <CardHeader class="pb-2">
-        <span class="text-sm font-medium">Preview</span>
+        <span class="text-sm font-medium">{$i18n.t("import.preview")}</span>
         <span class="text-xs text-muted-foreground">
-          {preview.totalRows.toLocaleString()}
-          data rows, {preview.headers.length} columns{preview.sampleRows.length < preview.totalRows
-            ? ` (showing first ${preview.sampleRows.length})`
-            : ""}
+          {$i18n.t(preview.sampleRows.length < preview.totalRows ? "import.previewShowing" : "import.previewStats", {
+            rows: $i18n.format.number(preview.totalRows),
+            columns: preview.headers.length,
+            shown: preview.sampleRows.length,
+          })}
         </span>
       </CardHeader>
       <CardContent>
@@ -262,13 +266,13 @@ const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURICom
     </Card>
 
     <Card>
-      <CardHeader class="pb-2"><span class="text-sm font-medium">2. Target</span></CardHeader>
+      <CardHeader class="pb-2"><span class="text-sm font-medium">{$i18n.t("import.stepTarget")}</span></CardHeader>
       <CardContent class="space-y-3">
         <div class="flex flex-wrap items-end gap-3">
           <label class="space-y-1 text-xs font-medium text-muted-foreground">
-            <span class="block">Import into</span>
+            <span class="block">{$i18n.t("import.into")}</span>
             <select class="{INPUT_CLASS} w-64" bind:value={target}>
-              <option value="">New table (columns from this file)</option>
+              <option value="">{$i18n.t("import.newTable")}</option>
               {#each tables as t (t.name)}
                 <option value={t.name}>{t.label} ({t.name})</option>
               {/each}
@@ -276,19 +280,19 @@ const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURICom
           </label>
           {#if target}
             <label class="space-y-1 text-xs font-medium text-muted-foreground">
-              <span class="block">Mode</span>
+              <span class="block">{$i18n.t("import.mode")}</span>
               <select class="{INPUT_CLASS} w-48" bind:value={mode}>
-                <option value="append">Append rows</option>
-                <option value="replace">Replace all rows</option>
+                <option value="append">{$i18n.t("import.append")}</option>
+                <option value="replace">{$i18n.t("import.replaceAll")}</option>
               </select>
             </label>
           {:else}
             <label class="space-y-1 text-xs font-medium text-muted-foreground">
-              <span class="block">Label</span>
+              <span class="block">{$i18n.t("form.label")}</span>
               <input class="{INPUT_CLASS} w-56" bind:value={label}>
             </label>
             <label class="space-y-1 text-xs font-medium text-muted-foreground">
-              <span class="block">Name</span>
+              <span class="block">{$i18n.t("form.name")}</span>
               <input class="{INPUT_CLASS} w-48 font-mono" bind:value={tableName}>
             </label>
           {/if}
@@ -299,8 +303,8 @@ const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURICom
             <Table>
               <TableHeader class="bg-muted/30">
                 <TableRow class="hover:bg-transparent">
-                  <TableHead>Table column</TableHead>
-                  <TableHead>File column</TableHead>
+                  <TableHead>{$i18n.t("import.tableColumn")}</TableHead>
+                  <TableHead>{$i18n.t("import.fileColumn")}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -308,17 +312,21 @@ const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURICom
                   <TableRow>
                     <TableCell class="py-2">
                       {col.label}
-                      <span class="text-xs text-muted-foreground">({col.type}{col.required ? ", required" : ""})</span>
+                      <span class="text-xs text-muted-foreground"
+                        >({$i18n.t(`columnTypes.${col.type}`, { default: col.type })}{col.required
+                          ? $i18n.t("import.required")
+                          : ""})</span
+                      >
                     </TableCell>
                     <TableCell class="py-2">
                       <select
                         class={INPUT_CLASS}
-                        aria-label="File column for {col.label}"
+                        aria-label={$i18n.t("import.fileColumnFor", { label: col.label })}
                         value={mapping[col.key] ?? ""}
                         onchange={(e) =>
                           (mapping[col.key] = e.currentTarget.value === "" ? null : Number(e.currentTarget.value))}
                       >
-                        <option value="">(skip / default)</option>
+                        <option value="">{$i18n.t("import.skip")}</option>
                         {#each preview.headers as h, i (i)}
                           <option value={i}>{h}</option>
                         {/each}
@@ -331,7 +339,7 @@ const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURICom
           </div>
         {:else if !target}
           <p class="text-xs text-muted-foreground">
-            Column types were derived from the file. Adjust labels, keys, and types before creating the table.
+            {$i18n.t("import.derivedHint")}
           </p>
           <ColumnEditor bind:columns bind:keyColumn headers={preview.headers} />
         {/if}
@@ -343,9 +351,9 @@ const back = () => palim.navigate(initialTable ? `${PAGE_ROUTE}/t/${encodeURICom
     {/if}
     <div class="flex gap-2">
       <Button size="sm" disabled={importing || (!target && !tableName)} onclick={runImport}>
-        {importing ? "Importing..." : `Import ${preview.totalRows.toLocaleString()} rows`}
+        {importing ? $i18n.t("import.importing") : $i18n.t("import.importRows", { count: preview.totalRows })}
       </Button>
-      <Button size="sm" variant="outline" onclick={back}>Cancel</Button>
+      <Button size="sm" variant="outline" onclick={back}>{$i18n.t("common.cancel")}</Button>
     </div>
   {:else if error}
     <p class="rounded-md border border-destructive/40 px-3 py-2 text-sm text-destructive">{error}</p>

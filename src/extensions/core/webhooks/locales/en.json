@@ -1,0 +1,12 @@
+{
+  "description": "Authenticated HTTP endpoints for receiving external service events",
+  "nav": {
+    "/webhooks": "Webhooks"
+  },
+  "settings": {
+    "maxPayloadSize": {
+      "description": "Maximum allowed webhook payload size in bytes",
+      "title": "Max Payload Size"
+    }
+  }
+}

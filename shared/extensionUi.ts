@@ -11,6 +11,7 @@
  */
 
 import type { AppAction, AppSubject } from "./auth";
+import type { I18n } from "./i18n";
 
 /** Severity of a host notification. */
 export type PalimNotifyKind = "info" | "success" | "error";
@@ -107,6 +108,33 @@ export interface PalimHost {
      * @returns Unsubscribe function
      */
     subscribe(callback: (dark: boolean) => void): () => void;
+  };
+
+  /**
+   * Translations and locale-aware formatting. A Svelte store of the current
+   * {@link I18n} snapshot that updates when the user switches language:
+   *
+   * ```svelte
+   * const i18n = palim.i18n;
+   * <h2>{$i18n.t("tables.title")}</h2>
+   * <p>{$i18n.t("tables.rows", { count: rows.length })}</p>
+   * <time>{$i18n.format.date(table.updatedAt)}</time>
+   * ```
+   *
+   * `t` looks up the extension's own catalog (`locales/<locale>.json`), then the
+   * core UI catalog (so `common.*` keys such as `common.save` can be reused),
+   * then English, and finally returns `params.default` or the key itself.
+   */
+  readonly i18n: {
+    /** The current snapshot. */
+    readonly current: I18n;
+    /**
+     * Subscribes to locale and catalog changes; the callback is invoked immediately.
+     *
+     * @param callback - Receives the current snapshot
+     * @returns Unsubscribe function
+     */
+    subscribe(callback: (i18n: I18n) => void): () => void;
   };
 
   /** The signed-in user. */

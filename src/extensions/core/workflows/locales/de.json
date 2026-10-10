@@ -1,0 +1,21 @@
+{
+  "description": "In JSON5 definierte DAG-Job-Pipelines",
+  "nav": {
+    "/workflows": "Workflows"
+  },
+  "steps": {
+    "emit": {
+      "config": {
+        "event": {
+          "description": "Name des zu sendenden Signal-Ereignisses. Unterstützt {{template}}-Ausdrücke.",
+          "title": "Ereignis"
+        },
+        "payload": {
+          "description": "Optionaler Template-Ausdruck für die Nutzdaten, die an wartende Ausführungen geliefert werden.",
+          "title": "Nutzdaten"
+        }
+      },
+      "label": "Signal senden"
+    }
+  }
+}

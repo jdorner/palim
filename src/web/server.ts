@@ -29,6 +29,7 @@ import { chatRoutes } from "./routes/chat";
 import { extensionRoutes } from "./routes/extensions";
 import { globalSecretRoutes } from "./routes/globalSecrets";
 import { globalVariableRoutes } from "./routes/globalVariables";
+import { i18nRoutes } from "./routes/i18n";
 import { jobRoutes } from "./routes/jobs";
 import { modelRoutes } from "./routes/models";
 import { pushRoutes } from "./routes/push";
@@ -135,9 +136,17 @@ export async function createWebServer(deps: WebServerDeps) {
     )
     .onBeforeHandle((ctx) => authCheck(ctx, authService, extensionRouter))
     // --- Route modules ---
-    .use(authRoutes(() => authService, revalidateSockets, new LoginThrottle()))
+    .use(
+      authRoutes(
+        () => authService,
+        revalidateSockets,
+        new LoginThrottle(),
+        () => deps.userStore,
+      ),
+    )
     .use(jobRoutes(monitor))
     .use(extensionRoutes(getRegistry))
+    .use(i18nRoutes(getRegistry))
     .use(modelRoutes(getRegistry))
     .use(chatRoutes(chatQueue, (chatId, userId) => monitor.registerChatOwner(chatId, userId)))
     .use(sessionRoutes())

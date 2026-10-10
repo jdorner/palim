@@ -1,4 +1,5 @@
 <script lang="ts">
+import { t } from "$lib/i18n.svelte";
 import { computeInsertion, detectTrigger, navigateHighlight, type TriggerContext } from "../lib/autocompleteEngine";
 import { allowsSelfReference } from "../lib/stepTypes";
 import {
@@ -501,11 +502,11 @@ $effect(() => {
       ? `bottom: ${position.bottom}px; left: ${position.left}px;`
       : `top: ${position.top}px; left: ${position.left}px;`}
     role="listbox"
-    aria-label="Template suggestions"
+    aria-label={t("autocomplete.label")}
   >
     <div bind:this={listElement} class="max-h-50 overflow-y-auto p-1">
       {#if suggestions.length === 0}
-        <div class="px-3 py-2 text-xs text-muted-foreground">No suggestions</div>
+        <div class="px-3 py-2 text-xs text-muted-foreground">{t("autocomplete.none")}</div>
       {:else}
         {#each suggestions as suggestion, i (suggestion.label)}
           <button

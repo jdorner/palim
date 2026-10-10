@@ -3,6 +3,7 @@ import ArrowsClockwiseIcon from "phosphor-svelte/lib/ArrowsClockwiseIcon";
 import { authFetch } from "$lib/auth";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import { Badge } from "$lib/components/ui/badge";
+import { t } from "$lib/i18n.svelte";
 import { modelStore } from "$lib/modelStore.svelte";
 import type { AvailableModel } from "../../../shared/types";
 
@@ -45,8 +46,8 @@ async function fetchModels() {
   try {
     const [modelsRes, selectedRes] = await Promise.all([authFetch("/api/models"), authFetch("/api/models/selected")]);
 
-    if (!modelsRes.ok) throw new Error(`Failed to load models: HTTP ${modelsRes.status}`);
-    if (!selectedRes.ok) throw new Error(`Failed to load selection: HTTP ${selectedRes.status}`);
+    if (!modelsRes.ok) throw new Error(t("models.loadFailedHttp", { status: modelsRes.status }));
+    if (!selectedRes.ok) throw new Error(t("models.loadSelectionFailed", { status: selectedRes.status }));
 
     models = await modelsRes.json();
     availableModels = models;
@@ -54,7 +55,7 @@ async function fetchModels() {
     selectedModelId = selected.modelId;
     reasoning = selected.reasoning ?? false;
   } catch (err) {
-    error = err instanceof Error ? err.message : "Failed to load models";
+    error = err instanceof Error ? err.message : t("models.loadFailed");
     statusMessage = error;
     statusVariant = "error";
   } finally {
@@ -78,13 +79,13 @@ async function saveSelection(modelId: string, reasoningValue: boolean) {
     });
 
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    statusMessage = "Model settings saved";
+    statusMessage = t("models.saved");
     statusVariant = "success";
     modelStore.selectedModelId = modelId;
     if (successTimer) clearTimeout(successTimer);
     successTimer = setTimeout(() => (statusMessage = null), 3000);
   } catch (err) {
-    error = err instanceof Error ? err.message : "Failed to save model settings";
+    error = err instanceof Error ? err.message : t("models.saveFailed");
     statusMessage = error;
     statusVariant = "error";
   } finally {
@@ -135,10 +136,10 @@ $effect(() => {
       value={selectedModelId ?? ""}
       onchange={onModelChange}
       disabled={loading || saving || models.length === 0}
-      aria-label="Select LLM model"
+      aria-label={t("models.selectLabel")}
     >
       {#if !selectedModelId}
-        <option value="" disabled>Select a model...</option>
+        <option value="" disabled>{t("models.selectPlaceholder")}</option>
       {/if}
       {#each models as model (model.id)}
         <option value={model.id}>{model.id}</option>
@@ -150,7 +151,7 @@ $effect(() => {
       class="p-2 rounded-md text-muted-foreground hover:text-foreground hover:bg-accent/50 transition-colors"
       onclick={fetchModels}
       disabled={loading}
-      aria-label="Refresh model list"
+      aria-label={t("models.refresh")}
     >
       <ArrowsClockwiseIcon class="w-4 h-4 {loading ? "animate-spin" : ""}" aria-hidden="true" />
     </button>
@@ -159,24 +160,26 @@ $effect(() => {
   {#if selectedModel}
     <div class="flex flex-wrap items-center gap-1.5">
       {#if selectedModel.contextWindow}
-        <Badge variant="outline" class="text-xs font-normal">ctx {formatTokens(selectedModel.contextWindow)}</Badge>
+        <Badge variant="outline" class="text-xs font-normal"
+          >{t("models.ctx", { tokens: formatTokens(selectedModel.contextWindow) })}</Badge
+        >
       {/if}
       {#if selectedModel.vision}
-        <Badge variant="outline" class="text-xs font-normal">vision</Badge>
+        <Badge variant="outline" class="text-xs font-normal">{t("models.vision")}</Badge>
       {/if}
     </div>
 
     <div class="flex items-center justify-between rounded-md border border-border px-3 py-2">
       <div>
-        <p class="text-sm font-medium">Reasoning</p>
+        <p class="text-sm font-medium">{t("models.reasoning")}</p>
         <p class="text-xs text-muted-foreground">
-          Enable extended thinking to let the model reason step-by-step before responding
+          {t("models.reasoningHint")}
         </p>
       </div>
       <ToggleSwitch
         checked={reasoning}
         onChange={() => onReasoningToggle()}
-        aria-label="Toggle reasoning mode"
+        aria-label={t("models.toggleReasoning")}
         disabled={saving || !selectedModelId}
       />
     </div>

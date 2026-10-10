@@ -8,7 +8,23 @@
  */
 
 import { get } from "svelte/store";
+import type { StepTypeInfo } from "$shared/extensions";
 import { extensions } from "./extensionStore";
+import { translateCore as t, translateExtension } from "./i18nCore";
+
+/**
+ * Returns a step type with its label translated through the owning extension's
+ * catalog (`steps.<type>.label`), falling back to the registered label.
+ *
+ * @param stepType - The registered step type
+ * @returns A copy with the localized label
+ */
+export function localizeStepType<T extends Pick<StepTypeInfo, "type" | "label" | "extensionName">>(stepType: T): T {
+  return {
+    ...stepType,
+    label: translateExtension(stepType.extensionName, `steps.${stepType.type}.label`, stepType.label),
+  };
+}
 
 /**
  * Looks up a registered custom step type's label from the extension store.
@@ -21,7 +37,7 @@ export function getCustomStepLabel(type: string): string | undefined {
   for (const ext of allExtensions) {
     if (!ext.enabled || !ext.ui?.stepTypes) continue;
     const match = ext.ui.stepTypes.find((st) => st.type === type);
-    if (match) return match.label;
+    if (match) return translateExtension(ext.name, `steps.${type}.label`, match.label);
   }
   return undefined;
 }
@@ -100,30 +116,30 @@ export function labelForStepType(type: string, triggerType?: string): string {
     case "trigger":
       switch (triggerType) {
         case "webhook":
-          return "Webhook Trigger";
+          return t("stepType.webhookTrigger");
         case "schedule":
-          return "Schedule Trigger";
+          return t("stepType.scheduleTrigger");
         case "manual":
-          return "Manual Trigger";
+          return t("stepType.manualTrigger");
         case "filewatcher":
-          return "File Watcher Trigger";
+          return t("stepType.filewatcherTrigger");
         default:
-          return "Trigger";
+          return t("stepType.trigger");
       }
     case "agent":
-      return "Agent";
+      return t("stepType.agent");
     case "if":
-      return "If";
+      return t("stepType.if");
     case "case":
-      return "Case";
+      return t("stepType.case");
     case "iterator":
-      return "Iterator";
+      return t("stepType.iterator");
     case "aggregator":
-      return "Aggregator";
+      return t("stepType.aggregator");
     case "waitFor":
-      return "Wait For";
+      return t("stepType.waitFor");
     case "emit":
-      return "Emit";
+      return t("stepType.emit");
     default:
       return getCustomStepLabel(type) ?? `${type.charAt(0).toUpperCase()}${type.slice(1)}`;
   }

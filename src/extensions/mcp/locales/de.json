@@ -1,0 +1,12 @@
+{
+  "description": "Bindet MCP-Server in das Skill-System ein",
+  "nav": {
+    "/mcp": "MCP-Server"
+  },
+  "settings": {
+    "autoSync": {
+      "description": "Beim Start automatisch mit allen aktivierten MCP-Servern verbinden und die Skills neu generieren",
+      "title": "Beim Start automatisch synchronisieren"
+    }
+  }
+}

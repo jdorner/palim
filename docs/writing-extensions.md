@@ -58,6 +58,7 @@ Extensions are self-contained modules that hook into the agent system. Each exte
   - [The `palim` Host API](#the-palim-host-api)
   - [UI Kit and Styling](#ui-kit-and-styling)
   - [Server Events](#server-events)
+  - [Translations](#translations)
   - [Build, Caching, and Hot Reload](#build-caching-and-hot-reload)
   - [Page Rules](#page-rules)
 - [Lifecycle Summary](#lifecycle-summary)
@@ -1379,6 +1380,7 @@ Pages run with their own Svelte runtime, so they cannot share stores or context 
 | `json<T>(path, init?)` | Like `fetch`, but `init.body` is JSON-encoded, the response is parsed, and a non-2xx status throws an `Error` with the response's `error` message |
 | `onEvent(handler)` | Receives events sent with `ctx.ui.emit()`; returns an unsubscribe function |
 | `theme` | `{ dark }`; also a Svelte store: `$theme` is `true` in dark mode |
+| `i18n` | `{ locale, t, format }` for the active language; also a Svelte store. See [Translations](#translations) |
 | `user` | `{ username, displayName, can(action, subject) }` for UI gating (the server enforces) |
 | `navigate(path)` | Navigate the app, e.g. to `/workflows` or a sub-path of this page |
 | `notify(message, kind?)` | Transient notification (`"info"`, `"success"`, `"error"`) |
@@ -1433,6 +1435,60 @@ ctx.ui.emit("account-connected", { name: "work-mail" });
 ```
 
 Events go to every connected client. Send identifiers and let the page fetch details through the extension's (authenticated) routes.
+
+### Translations
+
+The UI ships in English and German. Each user picks a language in the user menu, or an admin sets it on the Users & Roles page. "Browser default" follows the browser language. Extensions translate their UI through the same mechanism: they ship catalogs, and the host resolves them for the active language.
+
+**Catalogs** live in `locales/<locale>.json` next to `index.ts`, one file per supported locale (`en`, `de`). A catalog is nested JSON with string leaves; keys are addressed with dots (`{ "list": { "empty": "No tables yet." } }` → `list.empty`). English is the fallback for missing keys. Malformed files and unsupported locales are skipped with a warning and never fail activation. For external extensions, saving a catalog reloads it and open pages update immediately.
+
+**Interpolation and plurals.** `{name}` placeholders are filled from the parameters. Plurals use i18next-style suffixes, chosen by the language's plural rules when a numeric `count` is passed; `{count}` is rendered with the locale's number format (`1,234` / `1.234`):
+
+```json
+{ "rows_one": "{count} row", "rows_other": "{count} rows" }
+```
+
+**In pages**, `palim.i18n` is a Svelte store of `{ locale, t, format }` that updates when the user switches language:
+
+```svelte
+<script lang="ts">
+  import type { PalimHost } from "@ext/ui";
+  let { palim }: { palim: PalimHost } = $props();
+  const i18n = palim.i18n;
+</script>
+
+<h2>{$i18n.t("list.title")}</h2>
+<p>{$i18n.t("rows", { count: table.rowCount })}</p>
+<time>{$i18n.format.date(table.updatedAt)}</time>
+<button>{$i18n.t("common.save")}</button>
+```
+
+`t` looks up the extension's catalog first, then the core UI catalog, so core keys such as `common.save`, `common.cancel`, and `common.delete` can be reused. `format` has `date`, `number`, and `relative` (`"3 minutes ago"`). Outside markup, for example in `palim.notify(...)` or `palim.confirm(...)`, read the current snapshot with `palim.i18n.current.t(...)`. Nested components that do not receive `palim` call `useI18n()` from `@ext/ui`, which returns the same store:
+
+```svelte
+<script lang="ts">
+  import { useI18n } from "@ext/ui";
+  const i18n = useI18n();
+</script>
+
+<th>{$i18n.t("columns.type")}</th>
+```
+
+`@palim/ui` components (dialogs, `MultiSelect`, `LoadingIndicator`, ...) translate their built-in labels automatically.
+
+**Manifest and schema metadata** stays English in the code. The host translates it through reserved catalog keys and falls back to the English text when a key is missing:
+
+| Key | Translates |
+| --- | --- |
+| `description` | The extension description (settings page) |
+| `nav.<route>` | A sidebar entry, e.g. `nav./ext-page/datatables/tables` |
+| `pages.<id>.title` | A page title |
+| `settings.<prop>.title` / `.description` | A settings field |
+| `secrets.<KEY>.description`, `secretGroups.<group>` | Secret descriptions and group headings |
+| `steps.<type>.label` | A workflow step type label |
+| `steps.<type>.config.<prop>.title` / `.description` | A step config field; nested fields extend the path (`config.where.column.title`) |
+
+See `src/extensions/datatables/locales/` for a complete example.
 
 ### Build, Caching, and Hot Reload
 

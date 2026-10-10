@@ -5,6 +5,7 @@ import EyeIcon from "phosphor-svelte/lib/EyeIcon";
 import EyeSlashIcon from "phosphor-svelte/lib/EyeSlashIcon";
 import SparkleIcon from "phosphor-svelte/lib/SparkleIcon";
 import { Button } from "$lib/components/ui/button";
+import { t } from "$lib/i18n.svelte";
 import { generatePassword, MIN_PASSWORD_LENGTH } from "./userAdmin";
 
 interface Props {
@@ -48,7 +49,7 @@ const inputClass = "rounded-md border border-input bg-background px-3 py-1.5 tex
   <div class="space-y-1">
     <div class="flex items-center justify-between">
       <label for="{idPrefix}-password" class="text-xs font-medium text-muted-foreground">
-        Password <span class="font-normal">(min {MIN_PASSWORD_LENGTH} characters)</span>
+        {t("users.password")} <span class="font-normal">{t("users.passwordMin", { min: MIN_PASSWORD_LENGTH })}</span>
       </label>
       <button
         type="button"
@@ -56,7 +57,7 @@ const inputClass = "rounded-md border border-input bg-background px-3 py-1.5 tex
         onclick={generate}
       >
         <SparkleIcon size={12} aria-hidden="true" />
-        Generate
+        {t("users.generate")}
       </button>
     </div>
     <div class="flex gap-2">
@@ -72,7 +73,7 @@ const inputClass = "rounded-md border border-input bg-background px-3 py-1.5 tex
         size="icon"
         variant="outline"
         class="h-9 w-9 shrink-0"
-        aria-label={visible ? "Hide password" : "Show password"}
+        aria-label={visible ? t("users.hidePassword") : t("users.showPassword")}
         onclick={() => (visible = !visible)}
       >
         {#if visible}
@@ -82,7 +83,13 @@ const inputClass = "rounded-md border border-input bg-background px-3 py-1.5 tex
         {/if}
       </Button>
       {#if visible && password}
-        <Button size="icon" variant="outline" class="h-9 w-9 shrink-0" aria-label="Copy password" onclick={copy}>
+        <Button
+          size="icon"
+          variant="outline"
+          class="h-9 w-9 shrink-0"
+          aria-label={t("users.copyPassword")}
+          onclick={copy}
+        >
           {#if copied}
             <CheckIcon size={14} aria-hidden="true" />
           {:else}
@@ -92,12 +99,14 @@ const inputClass = "rounded-md border border-input bg-background px-3 py-1.5 tex
       {/if}
     </div>
     {#if generated}
-      <p class="text-xs text-muted-foreground">Copy this password now — it is not shown again after saving.</p>
+      <p class="text-xs text-muted-foreground">{t("users.copyPasswordNow")}</p>
     {/if}
   </div>
   {#if !generated}
     <div class="space-y-1">
-      <label for="{idPrefix}-confirm" class="text-xs font-medium text-muted-foreground">Confirm password</label>
+      <label for="{idPrefix}-confirm" class="text-xs font-medium text-muted-foreground"
+        >{t("users.confirmPassword")}</label
+      >
       <input
         id="{idPrefix}-confirm"
         type={visible ? "text" : "password"}
