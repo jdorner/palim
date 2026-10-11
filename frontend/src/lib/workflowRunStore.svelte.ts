@@ -13,7 +13,7 @@ import type { ControlFlowEvaluation } from "../../../shared/workflows";
 export interface RunStep {
   slug: string;
   type: string;
-  status: "waiting" | "active" | "completed" | "failed" | "waiting-signal" | "dead";
+  status: "waiting" | "pending" | "active" | "completed" | "failed" | "waiting-signal" | "dead";
   jobId: string;
   /** Signal event name (populated when status is waiting-signal). */
   waitEvent?: string;

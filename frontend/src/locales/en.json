@@ -482,7 +482,6 @@
   },
   "runs": {
     "cancelling": "Cancelling...",
-    "closeLogs": "Close log sidebar",
     "colRunId": "Run ID",
     "colStarted": "Started",
     "completed": "Completed: {time}",

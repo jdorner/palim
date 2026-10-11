@@ -1,13 +1,15 @@
 <!--
   Colored header bar for the workflow step / trigger detail panel (docked
   sidebar and floating node popup). Shows the step type icon and label as the
-  title, the step slug as an optional subtitle, and icon buttons to switch
-  between form and JSON view and to close the panel.
+  title, the step slug as an optional subtitle, an optional badge (e.g. the
+  step's run status), and icon buttons to switch between form and JSON view
+  and to close the panel.
 -->
 <script lang="ts">
 import BracketsCurlyIcon from "phosphor-svelte/lib/BracketsCurlyIcon";
 import TextboxIcon from "phosphor-svelte/lib/TextboxIcon";
 import XIcon from "phosphor-svelte/lib/XIcon";
+import type { Snippet } from "svelte";
 import { t } from "$lib/i18n.svelte";
 import { visualForStepType } from "$lib/nodeVisuals";
 import { categoryForType, iconIdForType, labelForStepType } from "$lib/stepTypes";
@@ -19,6 +21,8 @@ interface Props {
   triggerType?: string;
   /** Optional secondary line (e.g. the step slug). */
   subtitle?: string;
+  /** Optional content shown before the buttons (rendered on the colored band). */
+  badge?: Snippet;
   /** Whether the JSON view is currently shown. */
   jsonView?: boolean;
   /** Toggle between form and JSON view; the toggle button is hidden when omitted. */
@@ -27,7 +31,7 @@ interface Props {
   onclose: () => void;
 }
 
-let { type, triggerType, subtitle, jsonView = false, onToggleJson, onclose }: Props = $props();
+let { type, triggerType, subtitle, badge, jsonView = false, onToggleJson, onclose }: Props = $props();
 
 let visual = $derived(
   type === "trigger"
@@ -49,6 +53,9 @@ let title = $derived(labelForStepType(type, triggerType));
       <span class="text-[11px] text-white/80 font-mono truncate">{subtitle}</span>
     {/if}
   </div>
+  {#if badge}
+    <div class="relative shrink-0">{@render badge()}</div>
+  {/if}
   <div class="relative flex items-center gap-0.5 shrink-0">
     {#if onToggleJson}
       <button

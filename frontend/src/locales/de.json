@@ -482,7 +482,6 @@
   },
   "runs": {
     "cancelling": "Wird abgebrochen...",
-    "closeLogs": "Log-Seitenleiste schließen",
     "colRunId": "Ausführungs-ID",
     "colStarted": "Gestartet",
     "completed": "Abgeschlossen: {time}",
