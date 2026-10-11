@@ -184,10 +184,6 @@ Deliver a signal to the waiting `waitFor` step `:slug` of a run. The JSON body b
 
 Deliver a signal by its ID (`waitSignalId` of a waiting step in `GET /ext/workflows/runs/:runId`). Same body and status codes as above.
 
-### POST /ext/workflows/runs/:runId/signal/:event
-
-Deliver a signal to the step of a run waiting on `:event`. If several steps of the run wait on the same event, this answers `409` with the candidate `steps`; address one of them with the step route instead.
-
 ### DELETE /ext/workflows/runs/:runId
 
 Cancel all steps of a workflow run.

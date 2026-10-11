@@ -9,7 +9,8 @@
  * - `GET    /ext/workflows/runs/:runId`  - get run status with per-step states
  * - `GET    /ext/workflows/runs/:runId/logs` - get per-step execution logs
  * - `POST   /ext/workflows/runs/:runId/rerun` - start a new run of a failed run with its trigger payload
- * - `POST   /ext/workflows/runs/:runId/signal/:event` - deliver a signal to a waiting run
+ * - `POST   /ext/workflows/runs/:runId/steps/:slug/signal` - deliver a signal to a waiting step of a run
+ * - `POST   /ext/workflows/signals/:signalId` - deliver a signal by signal ID
  * - `DELETE /ext/workflows/runs/:runId`  - cancel all steps of a workflow run
  * - `DELETE /ext/workflows/:name`        - delete a workflow definition (removes JSON5 file)
  *
@@ -518,7 +519,7 @@ export function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: Ex
 
 const manifest = {
   name: "workflows",
-  version: "1.5.1",
+  version: "2.0.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -1400,52 +1401,6 @@ export function createExtension(): Extension {
           }
 
           return deliverAndRespond(signal.id, body.payload);
-        },
-        { parse: "none" },
-      );
-
-      /**
-       * Signal delivery by run and event name. Ambiguous when several steps of
-       * the run wait on the same event; the caller must then address a step.
-       */
-      ctx.routes.register(
-        "POST",
-        "/runs/:runId/signal/:event",
-        async (reqCtx) => {
-          const runId = (reqCtx.params as Record<string, string>).runId;
-          const event = (reqCtx.params as Record<string, string>).event;
-          if (!runId || !event) return Response.json({ error: "Missing runId or event" }, { status: 400 });
-
-          const body = await readSignalPayload(reqCtx.request);
-          if ("error" in body) return body.error;
-
-          const run = dagRunStore.get(runId);
-          if (!run) {
-            return Response.json({ error: "Run not found" }, { status: 404 });
-          }
-
-          if (run.status !== "waiting-signal") {
-            return Response.json(
-              { error: `Run is not awaiting a signal (current status: "${run.status}")` },
-              { status: 409 },
-            );
-          }
-
-          const candidates = signalStore.listWaitingForRunEvent(runId, event);
-          if (candidates.length === 0) {
-            return Response.json({ error: `Run is not awaiting signal "${event}"` }, { status: 409 });
-          }
-          if (candidates.length > 1) {
-            return Response.json(
-              {
-                error: `Several steps await signal "${event}"; deliver to a step via /runs/${runId}/steps/<slug>/signal`,
-                steps: candidates.map((c) => c.stepSlug),
-              },
-              { status: 409 },
-            );
-          }
-
-          return deliverAndRespond(candidates[0]!.id, body.payload);
         },
         { parse: "none" },
       );

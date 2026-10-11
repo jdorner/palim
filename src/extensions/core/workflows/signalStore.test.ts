@@ -17,14 +17,13 @@ import {
   getById,
   getWaitingForStep,
   listWaitingForRun,
-  listWaitingForRunEvent,
   markReceived,
   markTimedOut,
 } from "./signalStore";
 
 /** Helper: the first waiting signal of a run for an event (null if none). */
 function getWaiting(runId: string, event: string) {
-  return listWaitingForRunEvent(runId, event)[0] ?? null;
+  return listWaitingForRun(runId).find((s) => s.event === event) ?? null;
 }
 
 /** Helper: creates a minimal signal record for testing. */
@@ -480,17 +479,17 @@ describe("Signal Store scoping", () => {
     expect(getWaitingForStep("run-1", "a")).toBeNull();
   });
 
-  test("listWaitingForRunEvent returns every step of a run waiting on the event", () => {
+  test("listWaitingForRun returns every waiting step of a run", () => {
     create({ runId: "run-1", stepSlug: "a", event: "go", inputSchema: null, timeoutMs: null });
     create({ runId: "run-1", stepSlug: "b", event: "go", inputSchema: null, timeoutMs: null });
     create({ runId: "run-1", stepSlug: "c", event: "other", inputSchema: null, timeoutMs: null });
+    create({ runId: "run-2", stepSlug: "a", event: "go", inputSchema: null, timeoutMs: null });
 
     expect(
-      listWaitingForRunEvent("run-1", "go")
+      listWaitingForRun("run-1")
         .map((s) => s.stepSlug)
         .sort(),
-    ).toEqual(["a", "b"]);
-    expect(listWaitingForRun("run-1")).toHaveLength(3);
+    ).toEqual(["a", "b", "c"]);
   });
 
   test("markReceived and markTimedOut report whether they claimed the signal", () => {
