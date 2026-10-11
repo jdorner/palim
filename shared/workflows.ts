@@ -52,7 +52,13 @@ export interface OutputSchemas {
  * in. This is the single source of truth shared by the backend template engine,
  * the backend DAG validator, and the frontend template scope.
  */
-export const DEFAULT_ENV_ALLOWLIST: readonly string[] = ["WEB_HOST", "WEB_PORT", "AGENT_WORK_DIR", "NODE_ENV"];
+export const DEFAULT_ENV_ALLOWLIST: readonly string[] = [
+  "WEB_SCHEME",
+  "WEB_HOST",
+  "WEB_PORT",
+  "AGENT_WORK_DIR",
+  "NODE_ENV",
+];
 
 /**
  * Fields of the `run` template namespace (`{{run.id}}`, ...), describing the
