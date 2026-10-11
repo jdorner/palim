@@ -7,11 +7,14 @@ import { BUILTIN_STEP_TYPES } from "$shared/workflowBuilder";
 import type { OutputSchemaShorthand } from "$shared/workflows";
 import { translateCore as t } from "./i18nCore";
 import { buildInitialValues } from "./schemaForm";
+import type { WorkflowDetail, WorkflowWarning } from "./workflowDetail";
 import {
   computeOrphanedStepIndices,
   disconnectedStepError,
   type EdgeDraft,
   type StepDraft,
+  validateSlug,
+  validateStepSlugsUnique,
   type WorkflowDraft,
 } from "./workflowValidation";
 
@@ -390,4 +393,117 @@ export function parseSaveErrorDetails(details: string | undefined): string[] {
     .split("; ")
     .map((d) => d.trim())
     .filter((d) => d.length > 0);
+}
+
+/**
+ * Builds an edit draft from a loaded workflow, deep-copying everything the
+ * editor mutates.
+ *
+ * @param workflow - The loaded workflow
+ * @returns The edit draft
+ */
+export function draftFromWorkflow(workflow: WorkflowDetail): WorkflowDraft {
+  return {
+    name: workflow.name,
+    description: workflow.description ?? "",
+    trigger: {
+      type: workflow.trigger.type,
+      ref: workflow.trigger.ref ?? "",
+      ...(workflow.trigger.outputSchema
+        ? { outputSchema: JSON.parse(JSON.stringify(workflow.trigger.outputSchema)) }
+        : {}),
+    },
+    enabled: workflow.enabled ?? true,
+    steps: workflow.steps.map((s) => toStepDraft({ ...s })),
+    edges: (workflow.edges ?? []).map((e) => ({ ...e })),
+  };
+}
+
+/**
+ * Returns the first free placeholder slug `step-<n>`, starting at
+ * `n = taken.size + 1`.
+ *
+ * @param taken - Slugs already in use (draft slugs plus ones handed out but not yet committed)
+ * @returns An unused slug
+ */
+export function uniqueStepSlug(taken: Set<string>): string {
+  let n = taken.size + 1;
+  let candidate = `step-${n}`;
+  while (taken.has(candidate)) {
+    n++;
+    candidate = `step-${n}`;
+  }
+  return candidate;
+}
+
+/**
+ * Recomputes the slug errors after the slug of step `index` changed to
+ * `value`: the format error of that step, and the duplicate errors of every
+ * step sharing a slug (set for new duplicates, cleared once resolved).
+ *
+ * @param errors - Current validation errors
+ * @param steps - Draft steps (with the edit applied)
+ * @param index - Index of the edited step
+ * @param value - The new slug
+ * @returns The updated error map
+ */
+export function slugErrorsAfterEdit(
+  errors: Map<string, string>,
+  steps: StepDraft[],
+  index: number,
+  value: string,
+): Map<string, string> {
+  const next = new Map(errors);
+  const duplicateMessage = t("workflows.slugUnique");
+  const slugResult = validateSlug(value);
+  if (!slugResult.valid && slugResult.error) {
+    next.set(`steps[${index}].slug`, slugResult.error);
+    return next;
+  }
+  next.delete(`steps[${index}].slug`);
+  if (!validateStepSlugsUnique(steps.map((s) => s.slug)).valid) {
+    const dupeIndexes = steps.map((s, i) => (s.slug === value ? i : -1)).filter((i) => i >= 0);
+    if (dupeIndexes.length > 1) {
+      for (const i of dupeIndexes) next.set(`steps[${i}].slug`, duplicateMessage);
+    }
+  } else {
+    // No duplicates left: clear the duplicate errors that are resolved.
+    for (let i = 0; i < steps.length; i++) {
+      if (next.get(`steps[${i}].slug`) !== duplicateMessage) continue;
+      const otherSlugs = steps.map((s, j) => (j !== i ? s.slug : null)).filter(Boolean);
+      if (!otherSlugs.includes(steps[i]!.slug)) next.delete(`steps[${i}].slug`);
+    }
+  }
+  return next;
+}
+
+/**
+ * Synthetic node ids of draft steps that should show an error badge: steps with
+ * a live validation error (`steps[<index>].…`) and steps a backend warning
+ * names by slug. Matching on the id keeps the badge on the right node while a
+ * slug is temporarily empty or duplicated; warnings for unknown slugs are dropped.
+ *
+ * @param draft - The edit draft
+ * @param errors - Live validation errors
+ * @param warnings - Backend warnings for the draft (or the saved workflow until analyzed)
+ * @returns The node ids to badge
+ */
+export function draftErrorNodeIds(
+  draft: WorkflowDraft,
+  errors: Map<string, string>,
+  warnings: WorkflowWarning[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const key of errors.keys()) {
+    const match = key.match(/^steps\[(\d+)\]\./);
+    if (!match) continue;
+    const id = draft.steps[Number.parseInt(match[1]!, 10)]?.id;
+    if (id) ids.add(id);
+  }
+  const slugToId = new Map(draft.steps.map((s) => [s.slug, s.id]));
+  for (const w of warnings) {
+    const id = slugToId.get(w.stepSlug);
+    if (id) ids.add(id);
+  }
+  return ids;
 }
