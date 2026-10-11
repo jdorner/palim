@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { compileOutputSchema } from "./outputSchemaCompiler";
 import {
   BUILTIN_TRIGGER_SCHEMAS,
   FILEWATCHER_TRIGGER_SCHEMA,
+  PORTAL_TRIGGER_SCHEMA,
   resolveTriggerOutputSchema,
   SCHEDULER_TRIGGER_SCHEMA,
 } from "./triggerSchemas";
@@ -58,12 +60,17 @@ describe("BUILTIN_TRIGGER_SCHEMAS", () => {
     expect(Object.keys(schema!).sort()).toEqual(["description", "id", "label", "slug", "source"]);
   });
 
-  test("all schema values are strings (flat schemas)", () => {
+  test("portal schema describes the upload, form data, and submitter", () => {
+    expect(BUILTIN_TRIGGER_SCHEMAS.portal).toEqual(PORTAL_TRIGGER_SCHEMA);
+    expect(Object.keys(PORTAL_TRIGGER_SCHEMA).sort()).toEqual(["data", "file", "submittedAt", "submittedBy"]);
+  });
+
+  test("every built-in schema compiles without warnings", () => {
     for (const [, schema] of Object.entries(BUILTIN_TRIGGER_SCHEMAS)) {
       if (!schema) continue;
-      for (const value of Object.values(schema)) {
-        expect(typeof value).toBe("string");
-      }
+      const warnings: string[] = [];
+      compileOutputSchema(schema, (message) => warnings.push(message));
+      expect(warnings).toEqual([]);
     }
   });
 });

@@ -22,6 +22,7 @@ import type {
   ManagedQueueOptions,
   ManagedQueuePort,
   ModelIntent,
+  PortalApi,
   PushMessageOptions,
   PushMessageResult,
   QueueJob,
@@ -1113,6 +1114,12 @@ export interface ExtensionContext {
      * handler must be removed with the returned function in `shutdown()`.
      */
     hitl?: HitlApi;
+    /**
+     * Portal workflow launchers. Undefined when the portal is disabled
+     * (`HITL_ENABLED` off) or in tests. The registration must be removed with
+     * the returned function in `shutdown()`.
+     */
+    portal?: PortalApi;
   };
 }
 
@@ -1134,7 +1141,15 @@ export interface Extension {
 // Re-exported queue types for extension use
 // ---------------------------------------------------------------------------
 
-export type { HitlApi, HitlCreateTaskInput, HitlSourceHandler, HitlTaskRecord } from "./publicTypes";
+export type {
+  HitlApi,
+  HitlCreateTaskInput,
+  HitlSourceHandler,
+  HitlTaskRecord,
+  PortalApi,
+  PortalLauncherDef,
+  PortalLauncherProvider,
+} from "./publicTypes";
 export type { JobProcessor, ManagedQueueOptions, ManagedQueuePort, QueueJob, QueueJobLogs, SchedulerInfo };
 
 // ---------------------------------------------------------------------------

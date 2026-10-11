@@ -37,6 +37,8 @@ export type {
   HitlSourceHandler,
   TaskRecord as HitlTaskRecord,
 } from "../hitl/types";
+// Portal workflow launcher contract for the workflows extension (self-contained module).
+export type { PortalApi, PortalLauncherDef, PortalLauncherProvider } from "../portal/types";
 // Push message value types (extracted from the value-heavy push service).
 export type { PushMessageOptions, PushMessageResult } from "../push/types";
 // Core queue contract.

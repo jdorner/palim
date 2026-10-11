@@ -32,6 +32,28 @@ export type OutputSchemaShorthandValue = string | OutputSchemaShorthand | [Outpu
 export type OutputSchemaShorthand = { [key: string]: OutputSchemaShorthandValue };
 
 /**
+ * Configuration of a `portal` trigger (`trigger.portal`): how the workflow is
+ * offered in the portal and who may start it. Mirrors the backend schema
+ * `PortalTriggerConfigSchema`.
+ */
+export interface PortalTriggerConfig {
+  /** Title shown in the portal (defaults to the workflow name). */
+  title?: string;
+  /** Explanation shown above the form (defaults to the workflow description). */
+  description?: string;
+  /** Role names that may start the workflow; empty = everyone with `portal:start`. */
+  roles?: string[];
+  /** Accepted file types (`accept` attribute syntax). */
+  accept?: string;
+  /** Whether a file must be uploaded (default true). */
+  fileRequired?: boolean;
+  /** Upload size limit in MB (default 20). */
+  maxSizeMb?: number;
+  /** JSON Schema (object) of additional form fields (`trigger.payload.data`). */
+  fields?: Record<string, unknown>;
+}
+
+/**
  * The `outputSchemas` payload returned by the workflow detail API.
  *
  * Carries the resolved canonical JSON Schemas for the workflow trigger and for

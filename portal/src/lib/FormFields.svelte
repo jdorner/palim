@@ -1,7 +1,7 @@
-<!-- Renders a task's form from its JSON Schema (common subset; see lib/form.ts). -->
+<!-- Renders form fields from a JSON Schema (common subset; see lib/form.ts). Used by task answers and workflow launchers. -->
 <script lang="ts">
-import type { FormField } from "$app/form";
-import { t } from "$app/i18n.svelte";
+import type { FormField } from "./form";
+import { t } from "./i18n.svelte";
 
 interface Props {
   /** The form fields. */
@@ -33,14 +33,14 @@ const inputClass =
         <label class="text-sm font-medium" for={id}>
           {field.label}
           {#if field.required}
-            <span class="text-destructive" title={t("tasks.required")}>*</span>
+            <span class="text-destructive" title={t("form.required")}>*</span>
           {/if}
         </label>
         {#if field.kind === "textarea"}
           <textarea {id} rows="4" class={inputClass} bind:value={values[field.key]} {disabled}></textarea>
         {:else if field.kind === "select"}
           <select {id} class={inputClass} bind:value={values[field.key]} {disabled}>
-            <option value="">{t("tasks.choose")}</option>
+            <option value="">{t("form.choose")}</option>
             {#each field.options as option (option.value)}
               <option value={String(option.value)}>{option.label}</option>
             {/each}
@@ -60,7 +60,7 @@ const inputClass =
         {:else if field.kind === "text"}
           <input {id} type="text" class={inputClass} bind:value={values[field.key]} {disabled}>
         {:else}
-          <p class="text-xs text-muted-foreground">{t("tasks.unsupportedField")}</p>
+          <p class="text-xs text-muted-foreground">{t("form.unsupportedField")}</p>
         {/if}
       {/if}
       {#if field.description}

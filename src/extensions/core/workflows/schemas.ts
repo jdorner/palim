@@ -5,6 +5,7 @@
  * step definitions (a map keyed by slug), and the edges between them.
  */
 
+import { PORTAL_UPLOAD_MAX_MB } from "@shared/portal";
 import type { OutputSchemaShorthand } from "@shared/workflows";
 import { type Static, Type } from "@sinclair/typebox";
 
@@ -43,6 +44,34 @@ export const OutputSchemaSchema = Type.Record(Type.String(), OutputSchemaValueSc
  */
 export type { OutputSchemaShorthand, OutputSchemaShorthandValue } from "@shared/workflows";
 
+/**
+ * Configuration of a `portal` trigger: how the workflow is offered in the
+ * portal (title, accepted upload, form fields) and who may start it. The
+ * account the run executes as is deliberately NOT part of the definition (a
+ * file anyone with work-dir access can write): it is bound to the operator who
+ * last saved the workflow in the editor (`portalRunAs.ts`).
+ */
+export const PortalTriggerConfigSchema = Type.Object(
+  {
+    title: Type.Optional(Type.String({ maxLength: 200 })),
+    description: Type.Optional(Type.String({ maxLength: 2000 })),
+    /** Role names that may start the workflow; empty or absent = everyone with `portal:start`. */
+    roles: Type.Optional(Type.Array(Type.String({ minLength: 1 }), { maxItems: 50 })),
+    /** Accepted file types (`accept` attribute syntax, e.g. `image/*,application/pdf`). */
+    accept: Type.Optional(Type.String({ maxLength: 500 })),
+    /** Whether a file must be uploaded (default true). */
+    fileRequired: Type.Optional(Type.Boolean()),
+    /** Upload size limit in MB (default 20). */
+    maxSizeMb: Type.Optional(Type.Number({ exclusiveMinimum: 0, maximum: PORTAL_UPLOAD_MAX_MB })),
+    /** JSON Schema (object) of additional form fields, passed as `trigger.payload.data`. */
+    fields: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
+  },
+  { additionalProperties: false },
+);
+
+/** TypeScript type for a `portal` trigger configuration (structurally the shared `PortalTriggerConfig`). */
+export type PortalTriggerConfig = Static<typeof PortalTriggerConfigSchema>;
+
 /** Trigger configuration - how a workflow is started. */
 export const TriggerSchema = Type.Object(
   {
@@ -51,8 +80,11 @@ export const TriggerSchema = Type.Object(
       Type.Literal("schedule"),
       Type.Literal("manual"),
       Type.Literal("filewatcher"),
+      Type.Literal("portal"),
     ]),
     ref: Type.Optional(Type.String({ minLength: 1 })),
+    /** Only for `type: "portal"`. */
+    portal: Type.Optional(PortalTriggerConfigSchema),
     outputSchema: Type.Optional(OutputSchemaSchema),
   },
   { additionalProperties: false },

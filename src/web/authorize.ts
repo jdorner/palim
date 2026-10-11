@@ -104,6 +104,14 @@ const RULES: readonly AuthorizationRule[] = [
     action: "manage",
     subject: "HumanTask",
   },
+  // Portal workflow launchers: listing and starting need portal:start. Which
+  // launchers a caller sees is decided by the launcher registry (roles).
+  {
+    methods: ["GET", "POST"],
+    pattern: /^\/api\/portal\/workflows(\/|$)/,
+    action: "create",
+    subject: "PortalWorkflow",
+  },
   {
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
     pattern: /^\/api\/portal(\/|$)/,

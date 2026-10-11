@@ -1,5 +1,5 @@
 /**
- * Authenticated JSON client for the Palim API.
+ * Authenticated JSON (and multipart upload) client for the Palim API.
  *
  * Sends the stored bearer token, maps errors to {@link ApiError}, and signs
  * the user out on 401.
@@ -68,16 +68,33 @@ export class ApiError extends Error {
  * @throws {ApiError} for non-2xx responses and network failures
  */
 export async function request<T>(path: string, init: { method?: string; body?: unknown } = {}): Promise<T> {
+  return send<T>(path, init.method ?? "GET", init.body !== undefined ? JSON.stringify(init.body) : undefined);
+}
+
+/**
+ * Posts a multipart form (e.g. a file upload) and parses the JSON response.
+ *
+ * @param path - API path
+ * @param form - The form data; the browser sets the multipart content type
+ * @returns The parsed response body
+ * @throws {ApiError} for non-2xx responses and network failures
+ */
+export async function upload<T>(path: string, form: FormData): Promise<T> {
+  return send<T>(path, "POST", form);
+}
+
+/** Sends a request with a JSON string or multipart body and maps the response. */
+async function send<T>(path: string, method: string, body?: string | FormData): Promise<T> {
   const token = getToken();
   let res: Response;
   try {
     res = await fetch(apiUrl(path), {
-      method: init.method ?? "GET",
+      method,
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(init.body !== undefined ? { "Content-Type": "application/json" } : {}),
+        ...(typeof body === "string" ? { "Content-Type": "application/json" } : {}),
       },
-      ...(init.body !== undefined ? { body: JSON.stringify(init.body) } : {}),
+      ...(body !== undefined ? { body } : {}),
     });
   } catch (err) {
     throw new ApiError(0, err instanceof Error ? err.message : "Network error");

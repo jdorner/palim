@@ -114,6 +114,9 @@ function applyPermission(can: AbilityBuilder<AppAbility>["can"], permission: Per
     case PERMISSIONS.HITL_MANAGE:
       can("manage", "HumanTask");
       break;
+    case PERMISSIONS.PORTAL_START:
+      can("create", "PortalWorkflow");
+      break;
     default:
       // Unknown permission strings grant nothing (deny by default).
       break;

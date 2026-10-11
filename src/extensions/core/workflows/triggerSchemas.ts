@@ -5,7 +5,7 @@
  * enabling deep property path autocomplete in the frontend editor.
  *
  * The schemas are derived from the actual event payloads emitted by each
- * trigger source extension (filewatcher, webhooks, scheduler).
+ * trigger source (filewatcher, webhooks, scheduler, portal).
  */
 
 import type { OutputSchemaShorthand } from "./schemas";
@@ -39,6 +39,20 @@ export const SCHEDULER_TRIGGER_SCHEMA: OutputSchemaShorthand = {
 };
 
 /**
+ * Output schema for portal triggers.
+ *
+ * Built by the portal start route: the uploaded file (saved in the work
+ * directory; `null` when none was uploaded), the form fields, and the portal
+ * user who started the run.
+ */
+export const PORTAL_TRIGGER_SCHEMA: OutputSchemaShorthand = {
+  file: { path: "string", name: "string", mimeType: "string", size: "number" },
+  data: "object",
+  submittedBy: { id: "string", username: "string", displayName: "string" },
+  submittedAt: "string",
+};
+
+/**
  * Built-in trigger output schemas keyed by trigger type.
  *
  * Webhook and manual triggers have no built-in schema since their
@@ -48,6 +62,7 @@ export const SCHEDULER_TRIGGER_SCHEMA: OutputSchemaShorthand = {
 export const BUILTIN_TRIGGER_SCHEMAS: Partial<Record<string, OutputSchemaShorthand>> = {
   filewatcher: FILEWATCHER_TRIGGER_SCHEMA,
   schedule: SCHEDULER_TRIGGER_SCHEMA,
+  portal: PORTAL_TRIGGER_SCHEMA,
 };
 
 /**

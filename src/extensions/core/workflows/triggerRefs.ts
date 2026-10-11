@@ -37,6 +37,19 @@ function createTriggerSourceFetch(request: Request): typeof globalThis.fetch {
 /** Trigger types whose `ref` points at an entity owned by another extension. */
 type RefTriggerType = "webhook" | "schedule" | "filewatcher";
 
+/** Trigger types that take no `ref` (started directly, not by another extension's event). */
+const REFLESS_TRIGGER_TYPES: readonly string[] = ["manual", "portal"];
+
+/**
+ * Whether a trigger type requires a `ref`.
+ *
+ * @param type - The trigger type
+ * @returns True for webhook, schedule, and filewatcher triggers
+ */
+export function isRefTriggerType(type: string): type is RefTriggerType {
+  return !REFLESS_TRIGGER_TYPES.includes(type);
+}
+
 /**
  * Known trigger refs per trigger type. `null` means the lookup failed (owning
  * extension disabled, unreachable, or access denied), so refs of that type
@@ -81,13 +94,29 @@ export async function fetchTriggerRefs(request: Request, origin: string): Promis
  * reserved `__trigger__` step slug so the UI attributes them to the trigger
  * node. Refs whose lookup failed are not reported.
  *
+ * Portal triggers have no ref; they are reported when their run-as binding
+ * is missing or unusable (when `describeRunAs` is given).
+ *
  * @param definition - The DAG workflow definition to check
  * @param refs - Known trigger refs per trigger type
+ * @param describeRunAs - Describes a portal workflow's run-as account (null = unbound or deleted); omit to skip the check
  * @returns Array of trigger warnings (empty if the trigger is valid or unverifiable)
  */
-export function getTriggerRefWarnings(definition: DagWorkflowDefinition, refs: TriggerRefLookup): TemplateWarning[] {
+export function getTriggerRefWarnings(
+  definition: DagWorkflowDefinition,
+  refs: TriggerRefLookup,
+  describeRunAs?: (workflowName: string) => { username: string; usable: boolean } | null,
+): TemplateWarning[] {
   const { type, ref } = definition.trigger;
-  if (type === "manual") return [];
+  if (type === "portal") {
+    if (!describeRunAs) return [];
+    const runAs = describeRunAs(definition.name);
+    const warn = (message: string): TemplateWarning[] => [{ stepSlug: "__trigger__", field: "runAs", message }];
+    if (!runAs) return warn("Portal trigger has no run-as account: save the workflow in the editor to bind it");
+    if (!runAs.usable) return warn(`Run-as account "${runAs.username}" is disabled or not an operator account`);
+    return [];
+  }
+  if (!isRefTriggerType(type)) return [];
 
   const label = TRIGGER_REF_LABELS[type];
   if (!ref) {

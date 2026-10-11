@@ -46,9 +46,11 @@ Create the people who use the portal on the **Users** page:
 
 1. Set the kind to **Portal**. A portal account can only reach the portal API: no other API routes, no WebSocket, no operator data.
 2. Give it the built-in role **portal-user** (`hitl:respond`).
-3. To assign tasks to groups instead of single people, create custom roles (e.g. `accounting`) with only `hitl:*` permissions and add them to the accounts. Portal accounts can't hold roles with other permissions.
+3. To assign tasks to groups instead of single people, create custom roles (e.g. `accounting`) with only portal permissions (`hitl:*`, `portal:start`) and add them to the accounts. Portal accounts can't hold roles with other permissions.
 
-Operator accounts can use the portal too. The built-in `user` role includes `hitl:respond`, and `admin` also has `hitl:manage`. See [the API security model](api-security-model.md#portal-accounts) for the full rules.
+4. To let accounts start workflows from the portal (see [Starting Workflows](#starting-workflows)), give them a role with `portal:start`. No built-in role has it, so create one (e.g. `uploaders`).
+
+Operator accounts can use the portal too. The built-in `user` role includes `hitl:respond`, and `admin` also has `hitl:manage` and `portal:start`. See [the API security model](api-security-model.md#portal-accounts) for the full rules.
 
 ## Answering Tasks
 
@@ -106,6 +108,41 @@ Palim doesn't notify assignees about new tasks yet. Add a notify step next to th
 
 Store the portal address as a global variable (here `PORTAL_URL`) so every workflow links to the same place. The task ID is only known after the step started, so the link opens the inbox rather than the task. `notify-telegram` works the same way with the link in the `message`.
 
+## Starting Workflows
+
+A workflow with a `portal` trigger appears under **Start** in the portal. People pick it, take a photo or choose a file, fill in the optional fields, and send. With only one such workflow, **Start** opens it directly. The **Start** tab only shows for accounts with `portal:start`.
+
+```json5
+"trigger": {
+  "type": "portal",
+  "portal": {
+    "title": "Submit a receipt",          // default: the workflow name
+    "description": "Photo of the receipt", // default: the workflow description
+    "accept": "image/*,application/pdf",  // default: any file
+    "maxSizeMb": 10,                      // default 20, at most 50
+    "fileRequired": true,                 // default true
+    "roles": ["uploaders"],               // default: everyone with portal:start
+    "fields": {                           // optional JSON Schema object
+      "type": "object",
+      "properties": { "note": { "type": "string", "title": "Note" } }
+    }
+  }
+}
+```
+
+The upload is saved under `uploads/portal/<id>/` in the work directory. The run gets:
+
+| Path | Value |
+| --- | --- |
+| `trigger.payload.file` | `{ path, name, mimeType, size }` (`path` relative to the work directory), or `null` without a file |
+| `trigger.payload.data` | The form fields; empty optional fields are `null` |
+| `trigger.payload.submittedBy` | `{ id, username, displayName }` of the portal user |
+| `trigger.payload.submittedAt` | ISO timestamp |
+
+For example, an agent step can convert the photo with `convert --file {{trigger.payload.file.path}}` (converter skill).
+
+**Who the run acts as.** Portal accounts may only hold portal permissions, so the run doesn't execute as them. It executes as the operator who last saved the workflow in the editor, the same way a webhook or schedule runs as its owner. This binding is stored in Palim's database, not in the workflow file, so editing the file can't change it. A portal workflow that was never saved in the editor can't be started yet; the workflow page warns about it and shows the run-as account on the trigger. That account can't be deleted while workflows are bound to it.
+
 ## Managing Tasks
 
 Users with `hitl:manage` see all tasks, can answer any of them, and can cancel or reassign them. In the operator interface, the run page of a waiting workflow shows its task with assignees and due date, and lets managers cancel it. A cancelled task fails its workflow run, and a run that fails or is deleted cancels its open tasks.
@@ -121,5 +158,7 @@ Users with `hitl:manage` see all tasks, can answer any of them, and can cancel o
 | `POST` | `/api/portal/tasks/:id/cancel` | Cancel (`hitl:manage`) |
 | `PATCH` | `/api/portal/tasks/:id/assignees` | Reassign (`hitl:manage`) |
 | `GET` | `/api/portal/events` | Server-sent events: `ready`, `task_created`, `task_updated`, `task_removed` |
+| `GET` | `/api/portal/workflows` | Workflows you may start (`portal:start`) |
+| `POST` | `/api/portal/workflows/:name/start` | Start one: multipart `file` and `data` (JSON string). `413` too large, `415` file type not accepted, `422` invalid data, `409` no usable run-as account |
 
 All routes need a bearer token from `POST /api/auth/login`. The event stream also takes it in the `Authorization` header, so read it with a streaming `fetch` rather than `EventSource`.

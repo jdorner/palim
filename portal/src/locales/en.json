@@ -6,11 +6,12 @@
   },
   "nav": {
     "tasks": "Tasks",
+    "start": "Start",
     "settings": "Settings"
   },
   "login": {
     "title": "Sign in",
-    "subtitle": "Sign in to see the tasks assigned to you.",
+    "subtitle": "Sign in to see your tasks and start workflows.",
     "username": "Username",
     "password": "Password",
     "submit": "Sign in",
@@ -21,7 +22,7 @@
   },
   "noAccess": {
     "title": "Nothing to do here",
-    "description": "Your account {username} has no access to the portal. Ask an administrator for the portal-user role."
+    "description": "Your account {username} has no access to the portal. Ask an administrator for a portal role."
   },
   "notFound": {
     "title": "Page not found",
@@ -38,6 +39,12 @@
     "themeDark": "Dark",
     "logout": "Sign out",
     "saveFailed": "Could not save: {message}"
+  },
+  "form": {
+    "required": "Required",
+    "choose": "Choose…",
+    "unsupportedField": "This field cannot be edited here.",
+    "missingFields": "Please fill in: {fields}"
   },
   "tasks": {
     "title": "Tasks",
@@ -67,8 +74,6 @@
     "comment": "Comment",
     "commentRequired": "Comment (required)",
     "commentPlaceholder": "Optional note for the record",
-    "required": "Required",
-    "missingFields": "Please fill in: {fields}",
     "commentMissing": "Please add a comment.",
     "submitting": "Sending…",
     "answered": "Answer sent.",
@@ -81,10 +86,8 @@
     "unknownUser": "unknown user",
     "noLongerOpen": "This task is {status} and can no longer be answered.",
     "history": "History",
-    "unsupportedField": "This field cannot be edited here.",
     "yes": "Yes",
     "no": "No",
-    "choose": "Choose…",
     "event": {
       "created": "Created",
       "viewed": "Viewed by {user}",
@@ -93,5 +96,32 @@
       "expired": "Expired",
       "reassigned": "Reassigned"
     }
+  },
+  "launch": {
+    "title": "Start",
+    "subtitle": "Upload a photo or file to start a workflow.",
+    "empty": "There is nothing you can start right now.",
+    "loadFailed": "Could not load: {message}",
+    "notAvailable": "This workflow is not available (anymore).",
+    "back": "All workflows",
+    "file": "File",
+    "photo": "Photo",
+    "takePhoto": "Take photo",
+    "chooseFile": "Choose file",
+    "replace": "Replace",
+    "remove": "Remove",
+    "fileHint": "Up to {size} MB",
+    "fileMissing": "Please add a file.",
+    "fileTooLarge": "The file is larger than {size} MB.",
+    "fileType": "This file type is not accepted.",
+    "details": "Details",
+    "submit": "Send",
+    "submitting": "Sending…",
+    "submitFailed": "Could not send: {message}",
+    "notConfigured": "This workflow is not set up yet. Please contact an administrator.",
+    "started": "Sent",
+    "startedDescription": "\"{title}\" has been started.",
+    "again": "Send another",
+    "retry": "Try again"
   }
 }

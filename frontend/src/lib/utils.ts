@@ -63,7 +63,7 @@ export interface AutomationStyle {
   /** Tailwind border color class for indicators. */
   border: string;
   /** Phosphor icon component name hint (for reference). */
-  icon: "timer" | "eye" | "link" | "flow" | "chat" | "cursor" | "default";
+  icon: "timer" | "eye" | "link" | "flow" | "chat" | "cursor" | "camera" | "default";
 }
 
 const DEFAULT_AUTOMATION_STYLE: AutomationStyle = {
@@ -113,6 +113,12 @@ const AUTOMATION_STYLES: Record<string, AutomationStyle> = {
     bg: "bg-fuchsia-400 dark:bg-fuchsia-300",
     border: "border-fuchsia-400 dark:border-fuchsia-300",
     icon: "cursor",
+  },
+  portal: {
+    color: "text-sky-500 dark:text-sky-300",
+    bg: "bg-sky-500 dark:bg-sky-300",
+    border: "border-sky-500 dark:border-sky-300",
+    icon: "camera",
   },
   mcp: {
     color: "text-violet-600 dark:text-violet-500",

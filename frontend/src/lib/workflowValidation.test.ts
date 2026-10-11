@@ -226,6 +226,20 @@ describe("workflowValidation", () => {
       expect(errors.has("trigger.ref")).toBe(false);
     });
 
+    test("a portal trigger needs no ref, but invalid fields JSON blocks saving", () => {
+      const draft: WorkflowDraft = {
+        name: "my-workflow",
+        description: "",
+        trigger: { type: "portal", ref: "", portal: { accept: "image/*" } },
+        enabled: true,
+        steps: [{ slug: "step-one", type: "agent", prompt: "Do something" }],
+        edges: [],
+      };
+      expect(validateWorkflowDraft(draft).size).toBe(0);
+      const broken = { ...draft, trigger: { ...draft.trigger, portalFieldsError: "Not a valid JSON object" } };
+      expect(validateWorkflowDraft(broken).get("trigger.portal.fields")).toBe("Not a valid JSON object");
+    });
+
     test("allows ref on non-manual trigger types", () => {
       const draft: WorkflowDraft = {
         name: "my-workflow",
@@ -590,6 +604,24 @@ describe("serializeWorkflowDraft", () => {
     const result = serializeWorkflowDraft(draft) as { trigger: { type: string; ref?: string } };
     expect(result.trigger.type).toBe("manual");
     expect(result.trigger).not.toHaveProperty("ref");
+  });
+
+  test("keeps the portal configuration only on portal triggers and drops editor-only state", () => {
+    const portal = { title: "Receipts", accept: "image/*" };
+    const draft = {
+      name: "my-workflow",
+      description: "",
+      trigger: { type: "portal", ref: "", portal, portalFieldsError: "x" },
+      enabled: true,
+      steps: [{ slug: "step-one", type: "agent", prompt: "Do it" }],
+    };
+    const result = serializeWorkflowDraft(draft) as { trigger: Record<string, unknown> };
+    expect(result.trigger).toEqual({ type: "portal", portal });
+
+    const manual = serializeWorkflowDraft({ ...draft, trigger: { type: "manual", ref: "", portal } }) as {
+      trigger: Record<string, unknown>;
+    };
+    expect(manual.trigger).toEqual({ type: "manual" });
   });
 });
 

@@ -55,9 +55,11 @@ $effect(() => {
   if (router.path === "/" && available.length > 0) router.navigate(available[0]!.nav.path, true);
 });
 
-// One live event stream for all modules while signed in.
+// One live event stream while signed in, when a module consumes it (the
+// stream needs task access; launcher-only accounts would be refused).
+const wantsEvents = $derived(available.some((m) => m.onEvent));
 $effect(() => {
-  if (available.length === 0) return;
+  if (!wantsEvents) return;
   const close = openEventStream("/api/portal/events", {
     onMessage: (message) => {
       let event: PortalEvent;

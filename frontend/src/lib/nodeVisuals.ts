@@ -9,6 +9,7 @@
 
 import ArrowsSplitIcon from "phosphor-svelte/lib/ArrowsSplitIcon";
 import BroadcastIcon from "phosphor-svelte/lib/BroadcastIcon";
+import CameraIcon from "phosphor-svelte/lib/CameraIcon";
 import ClockIcon from "phosphor-svelte/lib/ClockIcon";
 import EyeIcon from "phosphor-svelte/lib/EyeIcon";
 import GearIcon from "phosphor-svelte/lib/GearIcon";
@@ -66,6 +67,7 @@ const TRIGGER_ICONS: Record<string, Component> = {
   schedule: ClockIcon,
   manual: LightningIcon,
   filewatcher: EyeIcon,
+  portal: CameraIcon,
 };
 
 /**

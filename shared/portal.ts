@@ -6,6 +6,9 @@
  * `humanTask` step) that a person answers by picking an outcome, optionally
  * filling a form and leaving a comment.
  *
+ * The second module is workflow launchers: workflows with a `portal` trigger
+ * that a person starts from the portal, typically by uploading a photo or file.
+ *
  * Pure types and constants only, so this module is import-safe from both the
  * backend and frontends.
  *
@@ -157,3 +160,60 @@ export type PortalEvent =
   | { type: "task_created"; task: HumanTask; counts: HumanTaskCounts }
   | { type: "task_updated"; task: HumanTask; counts: HumanTaskCounts }
   | { type: "task_removed"; taskId: string; counts: HumanTaskCounts };
+
+/** Default upload size limit of a portal workflow launcher, in MB. */
+export const PORTAL_UPLOAD_DEFAULT_MB = 20;
+
+/** Largest upload size limit a portal workflow launcher may declare, in MB. */
+export const PORTAL_UPLOAD_MAX_MB = 50;
+
+/**
+ * A workflow the viewer may start from the portal (`GET /api/portal/workflows`).
+ * Derived from a workflow's `portal` trigger.
+ */
+export interface PortalWorkflow {
+  /** Workflow name (the launcher id). */
+  name: string;
+  /** Title shown in the portal; the workflow name when the trigger sets none. */
+  title: string;
+  /** Optional explanation shown above the form. */
+  description: string | null;
+  /** Accepted file types for the file input (`accept` attribute syntax, e.g. `image/*,application/pdf`); null = any. */
+  accept: string | null;
+  /** Whether a file must be uploaded. */
+  fileRequired: boolean;
+  /** Maximum upload size in MB. */
+  maxSizeMb: number;
+  /** JSON Schema (object) of the optional form fields; null when there are none. */
+  fields: Record<string, unknown> | null;
+}
+
+/** Response of `POST /api/portal/workflows/:name/start`. */
+export interface PortalWorkflowStartResult {
+  /** Id of the started workflow run. */
+  runId: string;
+}
+
+/**
+ * Whether a file matches an `accept` list (HTML `accept` attribute syntax:
+ * comma-separated MIME types, `type/*` wildcards, and `.ext` suffixes).
+ *
+ * @param accept - The accept list; null or blank accepts everything
+ * @param mimeType - The file's MIME type
+ * @param filename - The file's name (for `.ext` entries)
+ * @returns True when the file is accepted
+ */
+export function matchesAccept(accept: string | null, mimeType: string, filename: string): boolean {
+  const tokens = (accept ?? "")
+    .split(",")
+    .map((token) => token.trim().toLowerCase())
+    .filter(Boolean);
+  if (tokens.length === 0) return true;
+  const mime = mimeType.toLowerCase();
+  const name = filename.toLowerCase();
+  return tokens.some((token) => {
+    if (token.startsWith(".")) return name.endsWith(token);
+    if (token.endsWith("/*")) return mime.startsWith(token.slice(0, -1));
+    return mime === token;
+  });
+}

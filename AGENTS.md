@@ -116,7 +116,7 @@ src/
 │       ├── globalSecrets.ts # Global secret CRUD + audit log
 │       ├── globalVariables.ts # Global variable CRUD (plaintext, no ACL)
 │       ├── sessions.ts      # GET/DELETE /api/sessions/:id/messages
-│       └── portal/          # /api/portal/*: tasks.ts (human task API), events.ts (SSE stream)
+│       └── portal/          # /api/portal/*: tasks.ts (human task API), workflows.ts (workflow launchers + upload), events.ts (SSE stream)
 ├── extensions/
 │   ├── types.ts             # Public extension API (Extension, ExtensionContext)
 │   ├── publicTypes.ts       # Public-facing type definitions for extension authors
@@ -156,6 +156,10 @@ src/
 │   ├── store.ts             # VariableStore: SQLite-backed plaintext global variables (no ACL, no encryption)
 │   ├── variablesSchema.ts   # Drizzle schema for global_variables table
 │   ├── types.ts             # GlobalVariableEntry re-export for backend use
+│   └── index.ts             # Re-exports
+├── portal/
+│   ├── launchers.ts         # Portal workflow launcher registry: role visibility, run-as resolution (bridge to the workflows extension)
+│   ├── types.ts             # Launcher contract (PortalLauncherDef/Provider, PortalApi via ctx.internal.portal), re-exported via @ext/types
 │   └── index.ts             # Re-exports
 ├── hitl/
 │   ├── hitlSchema.ts        # Drizzle schema: hitl_tasks, hitl_task_assignees, hitl_task_events
@@ -251,7 +255,7 @@ portal/                      # End-user portal (Svelte 5 + Vite + Tailwind 4), s
 └── src/
     ├── App.svelte           # Shell: session gate, module navigation, shared SSE stream, routing
     ├── lib/                 # `$app/*`: config (runtime config.json), api, auth, sse, router, i18n, form
-    ├── modules/             # Portal modules (registry in index.ts); tasks/ = human task inbox + task page
+    ├── modules/             # Portal modules (registry in index.ts); tasks/ = human task inbox + task page, launch/ = start workflows by upload
     ├── pages/               # Login, settings, no-access, not-found
     └── locales/             # Portal catalogs (en, de) + parity test
                              # `$lib` = frontend/src/lib (reused `@palim/ui` kit), `$shared` = shared/
@@ -310,6 +314,8 @@ Workflows (`src/extensions/core/workflows/`) are directed acyclic graphs: a `ste
 `waitFor` nodes park their branch on a signal record (`workflow_signals`), one per waiting step of a run, so a signal ID is an instance-scoped address. All delivery paths (`POST /ext/workflows/runs/:runId/steps/:slug/signal`, `/signals/:signalId`, and the `emit` step) go through `deliverSignal` (`signalDelivery.ts`): run-active check, source check, `inputSchema` validation (`src/utils/jsonSchema.ts`), atomic claim, timer cancel, resume. `emit` only reaches waits with `scope: "broadcast"` (default is `instance`) and is narrowed by `correlate` (correlation key) and `targetRun`. Timeouts are re-armed at boot from `createdAt + timeoutMs`.
 
 `humanTask` nodes (experimental, only with `HITL_ENABLED=true`; otherwise boot creates no HITL service, the portal API answers 503, `/portal/` is not served, the step fails validation, and the editor hides it) (`humanTask.ts`, registered in the coordinator like `waitFor`) create a portal task through `ctx.internal.hitl` (the `src/hitl/` service) and park on an instance-scoped signal with `source: "humanTask"`, which only `deliverSignal(..., { via: "hitl" })` may deliver. `humanTaskSource.ts` registers the `workflow` task source: answers resume the run, a manager cancel fails it, and the signal timeout hook expires the task (resuming with `outcome: "expired"` when `onTimeout: "expire"`). Any `workflow_failed` broadcast and run deletion cancel the run's open tasks. The step's output schema is built in (`humanTaskOutputSchema`).
+
+`portal` triggers (portal workflow launchers, behind `HITL_ENABLED` like the rest of the portal): a workflow with `trigger.type: "portal"` (no ref; optional `trigger.portal` with title, `accept`, `maxSizeMb`, `fileRequired`, `roles`, `fields` JSON Schema) is offered at `GET /api/portal/workflows` to accounts with `portal:start` (filtered by `roles`). `POST /api/portal/workflows/:name/start` (multipart `file` + `data`) saves the upload under `<WORK_DIR>/uploads/portal/<uuid>/` and dispatches with payload `{ file: {path,name,mimeType,size}|null, data, submittedBy, submittedAt }`. The run executes as the operator bound when the workflow was last saved via `PUT` (stored in `app_config` by `portalRunAs.ts`, never in the JSON5 file, which the sandbox can write); unbound or unusable bindings answer 409 and surface as a trigger warning. The workflows extension registers the provider (`portalLaunchers.ts`) through `ctx.internal.portal` into the core registry (`src/portal/`).
 
 The `http-request`, `fail`, `noop`, `chunk`, `set-variables`, and `start-workflow` step types are provided by the `core-wf-steps` extension.
 
@@ -434,6 +440,8 @@ Elysia serves the built frontend as static files and exposes:
 - `POST /api/portal/tasks/:id/complete` - Answer a task (`outcome`, `data`, `comment`, `version`; 409 when already answered or changed, 422 invalid answer)
 - `POST /api/portal/tasks/:id/cancel` - Cancel a task (`hitl:manage`)
 - `PATCH /api/portal/tasks/:id/assignees` - Reassign a task (`hitl:manage`)
+- `GET /api/portal/workflows` - Workflows the caller may start from the portal (`portal:start`, filtered by the trigger's roles)
+- `POST /api/portal/workflows/:name/start` - Start one (multipart `file` + `data`; 404 hidden, 413/415 file, 422 data, 409 no usable run-as account)
 - `GET /api/portal/events` - Server-sent events: `ready`, `task_created`, `task_updated`, `task_removed` (per-user, with badge counts)
 - `GET /api/models` - List available LLM models
 - `GET /api/models/selected` - Get currently selected model
@@ -446,7 +454,7 @@ Elysia serves the built frontend as static files and exposes:
 
 Rate limiting: authenticated requests are limited per token (1000/min), so a user's browser session and the internal token their agent jobs use get separate buckets; everything else is limited per client IP (60/min). Failed logins are additionally throttled per IP and per username with exponential lockouts (`src/web/loginThrottle.ts`). Behind a reverse proxy, set `TRUSTED_PROXIES` so the client IP is taken from `X-Forwarded-For`.
 
-Auth is always on: all `/api/` and `/ext/` routes (except login, health, and extension routes registered with `{ public: true }`, such as webhook receive) and the WebSocket require a per-user bearer token. Every user can read everything except other users' chat sessions; roles map to write/management permissions (RBAC). Accounts have a `kind` (`users.kind`, migration `0017`): `operator` (default) or `portal`. Portal accounts are fenced in `authCheck` to `PORTAL_PATH_PREFIXES` (`/api/auth/`, `/api/portal/`, `/api/i18n/`, `shared/auth.ts`), get no implicit reads in the ability, are refused the WebSocket (close `4003`), and may only hold roles whose permissions are all portal-safe (`hitl:*`; built-in role `portal-user`), enforced by the guards in `src/auth/guards.ts`. See `docs/api-security-model.md`.
+Auth is always on: all `/api/` and `/ext/` routes (except login, health, and extension routes registered with `{ public: true }`, such as webhook receive) and the WebSocket require a per-user bearer token. Every user can read everything except other users' chat sessions; roles map to write/management permissions (RBAC). Accounts have a `kind` (`users.kind`, migration `0017`): `operator` (default) or `portal`. Portal accounts are fenced in `authCheck` to `PORTAL_PATH_PREFIXES` (`/api/auth/`, `/api/portal/`, `/api/i18n/`, `shared/auth.ts`), get no implicit reads in the ability, are refused the WebSocket (close `4003`), and may only hold roles whose permissions are all portal-safe (`hitl:*`, `portal:start`; built-in role `portal-user`), enforced by the guards in `src/auth/guards.ts`. See `docs/api-security-model.md`.
 
 ### Secrets Management
 

@@ -13,7 +13,7 @@ When creating or modifying a workflow, be sure to follow these steps meticulousl
 1. **Discover step types.** Run `workflow step-types` to list what is available in this deployment (built-in plus extension-registered), including each type's config fields. Do not rely on assumptions about what exists
 2. **Choose the most deterministic step type per step.** For each step, pick the most deterministic type that does the job (see the determinism principle above). Reserve `agent` steps for work that genuinely needs an LLM
 3. **Replace `agent` steps where possible.** For any `agent` step, re-check whether a deterministic type (or a command run in a command-running step type) could do the same work. Prefer it
-4. **Ensure the trigger's ref exists.** For a `webhook`, `schedule`, or `filewatcher` trigger, create the referenced webhook/schedule/watcher FIRST - the workflow will not start if `trigger.ref` does not match an existing ref (Manual triggers take no ref.)
+4. **Ensure the trigger's ref exists.** For a `webhook`, `schedule`, or `filewatcher` trigger, create the referenced webhook/schedule/watcher FIRST - the workflow will not start if `trigger.ref` does not match an existing ref (Manual and portal triggers take no ref.)
 5. **Wire the graph.** Define `steps` and `edges`, respecting branch rules for control-flow nodes (`if`/`case`/`iterator`)
 6. **Approval.** Always ask for permisson before making any changes to the system. Lay out the implementation plan first
 7. **Write.** `workflow write "<name>" '<json5>'`. This validates schema, DAG structure, and custom step-type config. If it fails, fix the reported problem and rewrite - never work around a validation failure
@@ -41,7 +41,7 @@ Do not assume the only way to run a command or use a skill is inside an `agent` 
   "description": "What this workflow does.",
   // required
   "trigger": {
-    "type": "manual", // "manual", "webhook", "schedule", or "filewatcher"
+    "type": "manual", // "manual", "webhook", "schedule", "filewatcher", or "portal"
     "ref": "my-webhook-slug", // required for webhook/schedule/filewatcher
   },
   // optional, defaults to true
@@ -320,6 +320,25 @@ Triggered when a matching file watcher detects a new file. The file watcher exte
 ```
 
 The file metadata is available as `{{trigger.payload.filename}}` (path relative to WORK_DIR, e.g. `inbox/example.txt` for a watcher on `inbox`) and `{{trigger.payload.hash}}`.
+
+### Portal
+
+Started by a person in the portal (`portal:start` permission), usually by uploading a photo or file. No ref; the optional `portal` object configures the form:
+
+```json5
+"trigger": {
+  "type": "portal",
+  "portal": {
+    "title": "Submit a receipt",
+    "accept": "image/*,application/pdf",  // default: any file
+    "maxSizeMb": 10,                      // default 20, max 50
+    "roles": ["uploaders"],               // default: everyone with portal:start
+    "fields": { "type": "object", "properties": { "note": { "type": "string", "title": "Note" } } }
+  }
+}
+```
+
+The payload: `{{trigger.payload.file.path}}` (uploaded file, relative to WORK_DIR, e.g. for `convert --file`), `file.name`, `file.mimeType`, `file.size`, `{{trigger.payload.data.<field>}}` (empty optional fields are null), and `{{trigger.payload.submittedBy.username}}`. The run executes as the operator who last saved the workflow in the editor, so a workflow written as a file must be saved once in the editor before the portal can start it.
 
 ## Full examples
 

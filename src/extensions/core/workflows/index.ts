@@ -28,6 +28,7 @@ import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ex
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import { setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
 import { resolveAmbientUserId } from "@src/utils/fetch";
+import { registerTriggerOwnerCounter } from "@src/web/triggerOwnership";
 import {
   type DagCoordinatorDeps,
   evaluateInlineRoot,
@@ -40,6 +41,7 @@ import { loadDagWorkflows, loadSingleWorkflow } from "./dagLoader";
 import { initDagRunStore } from "./dagRunStore";
 import { createDagStepProcessor } from "./dagWorker";
 import { cancelRunTasks, installHumanTaskSource } from "./humanTaskSource";
+import { countPortalWorkflowsRunAs, createPortalLauncherProvider } from "./portalLaunchers";
 import { createReloadScheduler, type ReloadScheduler } from "./reloadScheduler";
 import { registerWorkflowRoutes } from "./routes";
 import type { DagWorkflowDefinition } from "./schemas";
@@ -54,7 +56,7 @@ import { createWorkflowAnalyzer } from "./workflowAnalysis";
 
 const manifest = {
   name: "workflows",
-  version: "2.0.2",
+  version: "2.1.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -89,11 +91,13 @@ export function createExtension(): Extension {
     reloads: ReloadScheduler | null;
     workflowsDir: string;
     uninstallHumanTasks: (() => void) | null;
+    uninstallPortal: (() => void) | null;
   } = {
     watcher: null,
     reloads: null,
     workflowsDir: "",
     uninstallHumanTasks: null,
+    uninstallPortal: null,
   };
 
   /** Reloads one workflow file into the store, or removes it when the file is gone or invalid. */
@@ -264,6 +268,22 @@ export function createExtension(): Extension {
         return dispatchAndAnnounce(wf, payload, resolveAmbientUserId());
       });
 
+      // Workflows with a `portal` trigger are offered in the portal and run as
+      // the operator bound to them on save.
+      const portal = ctx.internal?.portal;
+      if (portal) {
+        const unregisterProvider = portal.registerLauncherProvider(
+          createPortalLauncherProvider(store, dispatchAndAnnounce),
+        );
+        const unregisterCounter = registerTriggerOwnerCounter("portal workflow", (userId) =>
+          countPortalWorkflowsRunAs(store, userId),
+        );
+        state.uninstallPortal = () => {
+          unregisterProvider();
+          unregisterCounter();
+        };
+      }
+
       // Expose the loaded workflow names so other extensions (e.g. core-wf-steps)
       // can populate editor dropdowns and validate workflow references. Reads the
       // live in-memory store, so it stays current across hot-reloads.
@@ -422,6 +442,8 @@ export function createExtension(): Extension {
       signalTimers.cleanup();
       state.uninstallHumanTasks?.();
       state.uninstallHumanTasks = null;
+      state.uninstallPortal?.();
+      state.uninstallPortal = null;
       store.clear();
     },
   };

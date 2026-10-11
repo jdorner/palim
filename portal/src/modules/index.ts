@@ -1,5 +1,5 @@
 /**
- * Portal modules: each feature area (v1: human tasks; later: mini apps)
+ * Portal modules: each feature area (human tasks, workflow launchers)
  * contributes navigation, routes, and live event handling. The shell renders
  * whatever the registered modules provide, so new modules plug in without
  * touching it.
@@ -9,6 +9,7 @@
 
 import type { Component } from "svelte";
 import type { PortalEvent } from "$shared/portal";
+import { launchModule } from "./launch";
 import { tasksModule } from "./tasks";
 
 /** A route of a module. */
@@ -45,4 +46,4 @@ export interface PortalModule {
 }
 
 /** All modules, in navigation order. */
-export const MODULES: readonly PortalModule[] = [tasksModule];
+export const MODULES: readonly PortalModule[] = [tasksModule, launchModule];
