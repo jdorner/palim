@@ -249,7 +249,6 @@ export class AppBootstrap {
 
     // ---------------------------------------------------------------------------
     // Initialize user management (users, roles, RBAC) and seed the admin.
-    // Replaces the legacy shared AUTH_TOKEN with per-user accounts.
     // ---------------------------------------------------------------------------
     const userStore = new UserStore(getDb());
     const authService = new AuthService(userStore, { sessionTtlMs: AUTH_SESSION_TTL_MS });

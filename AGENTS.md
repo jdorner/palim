@@ -257,12 +257,11 @@ portal/                      # End-user portal (Svelte 5 + Vite + Tailwind 4), s
                              # `$lib` = frontend/src/lib (reused `@palim/ui` kit), `$shared` = shared/
                              # Built to portal/dist; Palim serves it at /portal/ when present
 
-WORK_DIR/                       # AGENT_WORK_DIR - the agent's workspace (real directory mounted into sandbox)
-├── inbox/                   # Drop files here for auto-processing (OCR)
-├── outbox/                  # Processed file output
-├── data/                    # Agent data files (wiki, error reports, etc.)
-├── tasks.md                 # Task list ([ ] open, [x] done, [p] in progress)
-└── workflows/               # Workflow pipeline definitions (JSON5 DAG)
+WORK_DIR/                    # AGENT_WORK_DIR - the agent's workspace (real directory mounted into sandbox)
+├── .palim/                  # Default DATA_DIR: databases, compiled extension UI bundles
+├── data/wiki/               # Wiki extension pages (default of its "Wiki directory" setting)
+├── workflows/               # Workflow pipeline definitions (JSON5 DAG)
+└── ...                      # Anything else is user/agent content (e.g. folders watched by file watchers)
 ```
 
 ## Architecture

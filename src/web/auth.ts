@@ -1,9 +1,8 @@
 /**
  * Request authentication helpers for the web server.
  *
- * The legacy shared `AUTH_TOKEN` gate has been replaced by per-user
- * authentication: a bearer token is resolved to an authenticated principal by
- * the {@link import("@src/auth").AuthResolver}. This module provides token
+ * Authentication is per user: a bearer token is resolved to an authenticated
+ * principal by the {@link import("@src/auth").AuthResolver}. This module provides token
  * extraction and a request-scoped principal registry so route handlers can read
  * the authenticated identity resolved by the central auth check.
  *
