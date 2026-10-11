@@ -5,8 +5,6 @@
  * run status. Designed for the DAG execution model where coordination
  * is driven by edge state transitions rather than a linear cursor.
  *
- * Uses the same module-level DB injection pattern as the legacy Run Store.
- *
  * @module
  */
 
