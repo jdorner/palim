@@ -948,16 +948,24 @@ async function dispatchStep(
     ...(run.createdByUserId ? { initiatorUserId: run.createdByUserId } : {}),
   });
 
+  // Mark the step running before enqueueing: the in-process worker can pick up
+  // and finish a fast job before add() resolves, and a status write after the
+  // await would clobber its "completed" (or "failed") state.
+  dagRunStore.updateStepStatus(runId, slug, "running");
+
   try {
     const result = await flowProducer.add(job);
-    dagRunStore.updateStepStatus(runId, slug, "running");
 
-    broadcast({
-      type: "workflow_step_started",
-      workflowRunId: runId,
-      stepSlug: slug,
-      jobId: result.job.id,
-    });
+    // Only announce the start while the step is still running; a late
+    // started event after its completion would show it active again.
+    if (dagRunStore.get(runId)?.stepStatuses[slug] === "running") {
+      broadcast({
+        type: "workflow_step_started",
+        workflowRunId: runId,
+        stepSlug: slug,
+        jobId: result.job.id,
+      });
+    }
 
     log.debug(`DAG coordinator: dispatched step "${slug}" for run ${runId} (job ${result.job.id})`);
   } catch (err) {

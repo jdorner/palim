@@ -118,6 +118,79 @@ describe("applyWorkflowEvent", () => {
     expect(aggregateStepStatus(wf.runs[0]!.steps)).toBe("completed");
   });
 
+  test("ignores a started event that arrives after the same job completed", () => {
+    let wf = applyWorkflowEvent(
+      base(),
+      { type: "workflow_step_started", workflowRunId: "r1", stepSlug: "a", jobId: "j1" },
+      "w",
+    );
+    wf = applyWorkflowEvent(
+      wf,
+      { type: "workflow_step_completed", workflowRunId: "r1", stepSlug: "a", jobId: "j1" },
+      "w",
+    );
+    const late = applyWorkflowEvent(
+      wf,
+      { type: "workflow_step_started", workflowRunId: "r1", stepSlug: "a", jobId: "j1" },
+      "w",
+    );
+    expect(late).toBe(wf);
+
+    // A new job for the same step (next iterator pass) is a real start.
+    const next = applyWorkflowEvent(
+      wf,
+      { type: "workflow_step_started", workflowRunId: "r1", stepSlug: "a", jobId: "j2" },
+      "w",
+    );
+    expect(next.runs[0]!.steps[0]).toEqual({ slug: "a", status: "active", jobId: "j2" });
+  });
+
+  test("late step events don't revive a finished run", () => {
+    let wf = applyWorkflowEvent(base(), { type: "workflow_completed", workflowRunId: "r1" }, "w");
+    wf = applyWorkflowEvent(
+      wf,
+      { type: "workflow_step_started", workflowRunId: "r1", stepSlug: "b", jobId: "j9" },
+      "w",
+    );
+    expect(wf.runs[0]!.status).toBe("completed");
+  });
+
+  test("keeps the run waiting while another step still waits for a signal", () => {
+    let wf = base();
+    for (const stepSlug of ["a", "b"]) {
+      wf = applyWorkflowEvent(
+        wf,
+        { type: "workflow_step_waiting", workflowRunId: "r1", stepSlug, event: "go" } as never,
+        "w",
+      );
+    }
+    wf = applyWorkflowEvent(
+      wf,
+      { type: "workflow_step_resumed", workflowRunId: "r1", stepSlug: "a", signalEvent: "go" },
+      "w",
+    );
+    expect(wf.runs[0]!.status).toBe("waiting-signal");
+    expect(wf.runs[0]!.steps.map((s) => s.status)).toEqual(["completed", "waiting-signal"]);
+  });
+
+  test("settles steps left open when the run finishes (missed step events)", () => {
+    let wf = applyWorkflowEvent(
+      base(),
+      { type: "workflow_step_waiting", workflowRunId: "r1", stepSlug: "a", event: "go" } as never,
+      "w",
+    );
+    wf = applyWorkflowEvent(wf, { type: "workflow_step_started", workflowRunId: "r1", stepSlug: "b", jobId: "j" }, "w");
+    const completed = applyWorkflowEvent(wf, { type: "workflow_completed", workflowRunId: "r1" }, "w");
+    expect(completed.runs[0]!.steps.map((s) => s.status)).toEqual(["completed", "completed"]);
+
+    const failed = applyWorkflowEvent(
+      wf,
+      { type: "workflow_failed", workflowRunId: "r1", failedStep: "b", error: "boom" },
+      "w",
+    );
+    expect(failed.runs[0]!.steps.map((s) => s.status)).toEqual(["dead", "active"]);
+  });
+
   test("removes deleted runs", () => {
     expect(applyWorkflowEvent(base(), { type: "workflow_run_removed", workflowRunId: "r1" }, "w").runs).toEqual([]);
   });

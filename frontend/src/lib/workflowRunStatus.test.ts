@@ -5,8 +5,11 @@ import {
   computeDeadSteps,
   type DefinitionEdge,
   isEdgeAnimated,
+  isStaleStepStart,
+  isTerminalRunStatus,
   normalizeStepStatus,
   type StatusNode,
+  settleOpenSteps,
 } from "./workflowRunStatus";
 
 describe("normalizeStepStatus", () => {
@@ -227,5 +230,51 @@ describe("buildStatusMap with dead-branch derivation", () => {
     expect(map["skipped-a"]).toBeUndefined();
     expect(map["skipped-b"]).toBeUndefined();
     expect(map.taken).toBeUndefined();
+  });
+});
+
+describe("live event guards", () => {
+  test("isTerminalRunStatus is true only for completed and failed runs", () => {
+    expect(isTerminalRunStatus("completed")).toBe(true);
+    expect(isTerminalRunStatus("failed")).toBe(true);
+    expect(isTerminalRunStatus("running")).toBe(false);
+    expect(isTerminalRunStatus("waiting-signal")).toBe(false);
+  });
+
+  test("isStaleStepStart flags only a start for the job that already completed", () => {
+    expect(isStaleStepStart({ status: "completed", jobId: "j1" }, "j1")).toBe(true);
+    expect(isStaleStepStart({ status: "completed", jobId: "j1" }, "j2")).toBe(false);
+    expect(isStaleStepStart({ status: "completed", jobId: "" }, "j1")).toBe(false);
+    expect(isStaleStepStart({ status: "failed", jobId: "j1" }, "j1")).toBe(false);
+    expect(isStaleStepStart(undefined, "j1")).toBe(false);
+  });
+
+  test("settleOpenSteps settles running and waiting steps, except the named one", () => {
+    const steps = [
+      { slug: "a", status: "active" },
+      { slug: "b", status: "running" },
+      { slug: "c", status: "waiting-signal" },
+      { slug: "d", status: "waiting" },
+      { slug: "e", status: "completed" },
+    ];
+    expect(settleOpenSteps(steps, "completed").map((s) => s.status)).toEqual([
+      "completed",
+      "completed",
+      "completed",
+      "waiting",
+      "completed",
+    ]);
+    expect(settleOpenSteps(steps, "dead", "a").map((s) => s.status)).toEqual([
+      "active",
+      "dead",
+      "dead",
+      "waiting",
+      "completed",
+    ]);
+  });
+
+  test("settleOpenSteps returns the same array when nothing is open", () => {
+    const steps = [{ slug: "a", status: "completed" }];
+    expect(settleOpenSteps(steps, "completed")).toBe(steps);
   });
 });

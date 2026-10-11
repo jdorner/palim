@@ -3,6 +3,7 @@ import HourglassIcon from "phosphor-svelte/lib/HourglassIcon";
 import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import PauseCircleIcon from "phosphor-svelte/lib/PauseCircleIcon";
 import { onDestroy, onMount, untrack } from "svelte";
+import { onReconnect } from "$lib/appStore";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
@@ -119,10 +120,18 @@ const statusMap = $derived.by((): Record<string, StepStatus> => {
   );
 });
 
-async function fetchRun() {
+/**
+ * Loads the run detail and workflow definition.
+ * @param silent - Refresh in place (after a reconnect) without the loading state.
+ */
+async function fetchRun(silent = false) {
   if (!runId) return;
-  loading = true;
-  error = null;
+  if (!silent) {
+    loading = true;
+    error = null;
+  }
+  // Buffer live events until the snapshot is tracked, so none are lost in between.
+  workflowStore.prepare(runId);
   try {
     // Fetch both run data and workflow definition in parallel
     const [runRes, defRes] = await Promise.all([
@@ -142,7 +151,7 @@ async function fetchRun() {
       definitionEdges = def.edges ?? [];
     }
   } catch (err) {
-    error = err instanceof Error ? err.message : t("runs.loadFailed");
+    if (!silent) error = err instanceof Error ? err.message : t("runs.loadFailed");
   } finally {
     loading = false;
   }
@@ -214,7 +223,10 @@ function handleKeydown(e: KeyboardEvent) {
 onMount(() => {
   fetchRun();
 });
+// Events sent while the WebSocket was down are lost: reload the run once it is back.
+const unsubReconnect = onReconnect(() => fetchRun(true));
 onDestroy(() => {
+  unsubReconnect();
   workflowStore.untrack();
 });
 </script>

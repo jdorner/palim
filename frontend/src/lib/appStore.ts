@@ -8,6 +8,22 @@ export const connected = writable(false);
 /** Whether the WebSocket has ever successfully connected since page load. */
 export const hasConnected = writable(false);
 
+/**
+ * Calls `callback` each time the WebSocket comes back after being
+ * disconnected. Live events sent while the socket was down are lost, so pages
+ * that keep state from events use this to refetch it.
+ *
+ * @param callback - Invoked on every disconnected-to-connected transition
+ * @returns Unsubscribe function
+ */
+export function onReconnect(callback: () => void): () => void {
+  let previous: boolean | undefined;
+  return connected.subscribe((isConnected) => {
+    if (previous === false && isConnected) callback();
+    previous = isConnected;
+  });
+}
+
 /** All known jobs. */
 export const jobs = writable<JobEntry[]>([]);
 

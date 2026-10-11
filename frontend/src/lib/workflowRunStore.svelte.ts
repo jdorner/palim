@@ -8,6 +8,7 @@
 
 import type { WebSocketMessage } from "../../../shared/types";
 import type { ControlFlowEvaluation } from "../../../shared/workflows";
+import { isStaleStepStart, isTerminalRunStatus, settleOpenSteps } from "./workflowRunStatus";
 
 /** A single step within a workflow run. */
 export interface RunStep {
@@ -82,6 +83,15 @@ class WorkflowStore {
   private subscribers = new Set<WorkflowEventHandler>();
 
   /**
+   * Events for the active run received while its detail is (re)loading.
+   * Replayed onto the fetched snapshot so changes between the server's
+   * snapshot and {@link track} are not lost.
+   */
+  private pending: WebSocketMessage[] = [];
+  /** Whether a detail request for the active run is in flight (see {@link prepare}). */
+  private buffering = false;
+
+  /**
    * Subscribe to workflow events. Returns an unsubscribe function.
    * @param handler - Callback invoked for each workflow WebSocket event.
    * @returns Unsubscribe function.
@@ -98,14 +108,32 @@ class WorkflowStore {
   // -------------------------------------------------------------------------
 
   /**
-   * Sets the active run to observe. Called by WorkflowRunPage after fetching run data.
+   * Starts buffering events for a run whose detail is about to be (re)fetched.
+   * Called by WorkflowRunPage before the request; {@link track} replays them.
+   * A run already shown keeps updating live in the meantime.
+   * @param runId - The run ID that will be tracked.
+   */
+  prepare(runId: string): void {
+    if (this.activeRunId !== runId) this.run = null;
+    this.activeRunId = runId;
+    this.pending = [];
+    this.buffering = true;
+  }
+
+  /**
+   * Sets the active run to observe. Called by WorkflowRunPage after fetching
+   * run data; events buffered since {@link prepare} are applied on top.
    * @param runId - The run ID to track events for.
    * @param detail - The initial run detail from the API.
    */
   track(runId: string, detail: RunDetail): void {
+    const buffered = this.activeRunId === runId ? this.pending : [];
+    this.pending = [];
+    this.buffering = false;
     this.activeRunId = runId;
     this.run = detail;
     this.chosenBranches = detail.chosenBranches ?? {};
+    for (const message of buffered) this.updateRunState(message);
   }
 
   /** Clears the tracked run (called when the page unmounts). */
@@ -113,6 +141,8 @@ class WorkflowStore {
     this.activeRunId = null;
     this.run = null;
     this.chosenBranches = {};
+    this.pending = [];
+    this.buffering = false;
   }
 
   // -------------------------------------------------------------------------
@@ -125,7 +155,10 @@ class WorkflowStore {
    * @param message - The WebSocket message.
    */
   handleEvent(message: WebSocketMessage): void {
-    // Update reactive run state for WorkflowRunPage
+    // Update reactive run state for WorkflowRunPage, buffering while its detail loads
+    if (this.buffering && "workflowRunId" in message && message.workflowRunId === this.activeRunId) {
+      this.pending.push(message);
+    }
     if (this.run && this.activeRunId) {
       this.updateRunState(message);
     }
@@ -150,10 +183,12 @@ class WorkflowStore {
     switch (message.type) {
       case "workflow_step_started":
         if (message.workflowRunId === this.activeRunId) {
-          const existsStarted = this.run.steps.some((s) => s.slug === message.stepSlug);
+          const current = this.run.steps.find((s) => s.slug === message.stepSlug);
+          if (isStaleStepStart(current, message.jobId)) break;
+          const existsStarted = current !== undefined;
           this.run = {
             ...this.run,
-            status: "running",
+            status: isTerminalRunStatus(this.run.status) ? this.run.status : "running",
             steps: existsStarted
               ? this.run.steps.map((s) =>
                   s.slug === message.stepSlug ? { ...s, status: "active" as const, jobId: message.jobId } : s,
@@ -226,7 +261,7 @@ class WorkflowStore {
           const exists = this.run.steps.some((s) => s.slug === message.stepSlug);
           this.run = {
             ...this.run,
-            status: "waiting-signal",
+            status: isTerminalRunStatus(this.run.status) ? this.run.status : "waiting-signal",
             steps: exists
               ? this.run.steps.map((s) =>
                   s.slug === message.stepSlug
@@ -250,13 +285,20 @@ class WorkflowStore {
 
       case "workflow_step_resumed":
         if (message.workflowRunId === this.activeRunId) {
-          // Signal was received — the waitFor step is now complete
+          // Signal was received — the waitFor step is now complete. The run
+          // keeps waiting while another step is still paused on a signal.
+          const steps = this.run.steps.map((s) =>
+            s.slug === message.stepSlug ? { ...s, status: "completed" as const } : s,
+          );
+          const stillWaiting = steps.some((s) => s.status === "waiting-signal");
           this.run = {
             ...this.run,
-            status: "running",
-            steps: this.run.steps.map((s) =>
-              s.slug === message.stepSlug ? { ...s, status: "completed" as const } : s,
-            ),
+            status: isTerminalRunStatus(this.run.status)
+              ? this.run.status
+              : stillWaiting
+                ? "waiting-signal"
+                : "running",
+            steps,
           };
         }
         break;
@@ -273,7 +315,8 @@ class WorkflowStore {
 
       case "workflow_completed":
         if (message.workflowRunId === this.activeRunId) {
-          this.run = { ...this.run, status: "completed" };
+          // Settle steps whose completion event was missed.
+          this.run = { ...this.run, status: "completed", steps: settleOpenSteps(this.run.steps, "completed") };
         }
         break;
 
@@ -291,12 +334,14 @@ class WorkflowStore {
             status: "failed" as const,
             ...(inline ? { error: message.error } : {}),
           };
+          const steps = failed
+            ? this.run.steps.map((s) => (s.slug === message.failedStep ? failedStep : s))
+            : [...this.run.steps, failedStep];
           this.run = {
             ...this.run,
             status: "failed",
-            steps: failed
-              ? this.run.steps.map((s) => (s.slug === message.failedStep ? failedStep : s))
-              : [...this.run.steps, failedStep],
+            // The backend sweeps the remaining open steps dead; settle any whose event was missed.
+            steps: settleOpenSteps(steps, "dead", message.failedStep),
           };
         }
         break;

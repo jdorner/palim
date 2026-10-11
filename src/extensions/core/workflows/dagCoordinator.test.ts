@@ -787,3 +787,43 @@ describe("dead-edge propagation into inline nodes", () => {
     expect(signalStore.getAllWaiting().filter((s) => s.runId === run.id).length).toBe(1);
   });
 });
+
+describe("dispatch vs. fast completion", () => {
+  // Regression: a step that completes before `flowProducer.add` resolves (a fast
+  // job picked up immediately by the in-process worker) was overwritten back to
+  // "running" by the dispatcher, and its late `workflow_step_started` broadcast
+  // arrived after `workflow_step_completed`, leaving the UI showing it active.
+  test("a step completed during add() stays completed and is not re-announced as started", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "fast-step-wf",
+      trigger: { type: "manual" },
+      steps: {
+        a: { type: "agent", prompt: "start" },
+        b: { type: "agent", prompt: "fast" },
+      },
+      edges: [{ from: "a", to: "b" }],
+    };
+
+    const run = initRun(def);
+    dagRunStore.updateStepStatus(run.id, "a", "running");
+    const deps = createTestDeps(def);
+    deps.flowProducer = {
+      add: async (job: any) => {
+        // The worker finishes the job before add() returns.
+        await handleDagStepCompletion(run.id, job.data.stepSlug, "fast-done", "job-b", deps);
+        return { job: { id: "job-b" } };
+      },
+    } as any;
+
+    await handleDagStepCompletion(run.id, "a", "done", "job-a", deps);
+
+    const finalRun = dagRunStore.get(run.id)!;
+    expect(finalRun.stepStatuses.b).toBe("completed");
+    expect(finalRun.status).toBe("completed");
+
+    const bEvents = (deps.broadcasts as { type: string; stepSlug?: string }[])
+      .filter((e) => e.stepSlug === "b")
+      .map((e) => e.type);
+    expect(bEvents).toEqual(["workflow_step_completed"]);
+  });
+});
