@@ -242,7 +242,6 @@ onDestroy(() => {
         <span class="text-xs text-muted-foreground font-mono">{t("runs.runId", { id: run.runId.slice(0, 8) })}</span>
       </div>
       <div class="flex items-center gap-2">
-        <DetailPanelModeToggle />
         {#if isRunCancellable(run.status)}
           <Button size="sm" variant="destructive" onclick={cancelRun} disabled={cancelling}>
             <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
@@ -251,6 +250,10 @@ onDestroy(() => {
         {/if}
         <Badge variant={statusVariant(run.status)}>{statusLabel(run.status)}</Badge>
       </div>
+    </div>
+
+    <div class="flex justify-end mb-2 shrink-0">
+      <DetailPanelModeToggle />
     </div>
 
     <div class="flex flex-1 min-h-0 gap-0">
