@@ -1,12 +1,11 @@
 /**
  * Identity-carrying, optionally prefix-confined fetch for internal API calls.
  *
- * The legacy implementation injected a single shared `AUTH_TOKEN` for any
- * request to the local origin, and was handed unwrapped to extensions and skill
- * sandbox programs. That is a confused-deputy hazard: a low-privilege caller who
- * can influence such a request borrows the shared identity's authority.
+ * A fetch that injects one shared token for every request to the local origin
+ * would be a confused-deputy hazard: a low-privilege caller who can influence
+ * such a request borrows the shared identity's authority.
  *
- * This module instead builds fetch wrappers bound to a specific principal's
+ * This module therefore builds fetch wrappers bound to a specific principal's
  * token (supplied lazily by a token provider, so per-job identities can be
  * threaded in) and, when a `prefix` is given, confines local-origin requests to
  * that extension's own route namespace (plus a small allowlist such as the push
