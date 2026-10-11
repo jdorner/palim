@@ -70,6 +70,7 @@ export type {
 } from "./workflowBuilder";
 export { BUILTIN_STEP_TYPES, getDescriptor, WorkflowBuilder } from "./workflowBuilder";
 export type {
+  ControlFlowEvaluation,
   OutputSchema,
   OutputSchemas,
   ResolvedExpression,

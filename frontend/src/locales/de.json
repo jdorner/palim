@@ -487,11 +487,20 @@
     "colStarted": "Gestartet",
     "completed": "Abgeschlossen: {time}",
     "empty": "Noch keine Ausführungen. Klicke auf „Workflow ausführen“, um eine zu starten.",
+    "evaluation": {
+      "expression": "Ausdruck",
+      "value": "Wert",
+      "unresolved": "Nicht auflösbar",
+      "comparison": "Vergleich",
+      "branch": "Zweig",
+      "fallback": "{branch} (kein Pfad passte)"
+    },
     "loadFailed": "Ausführung konnte nicht geladen werden",
     "noLogs": "Keine Logs verfügbar",
     "retrying": "Wird wiederholt...",
     "runId": "Ausführung: {id}",
     "started": "Gestartet: {time}",
+    "stepError": "Fehler",
     "waitingPrevious": "Warte auf den Abschluss des vorherigen Schritts",
     "waitingSignal": "Warte auf externes Signal"
   },

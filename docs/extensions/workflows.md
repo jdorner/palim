@@ -69,7 +69,7 @@ The `http-request` step type supports additional options: custom `headers`, `tim
 - `emit` - broadcasts a signal to workflows waiting on that event (fire-and-forget)
 - `fail` - aborts the run with a message (provided by `core-wf-steps`)
 
-`if` and `case` nodes are evaluated inline by the engine rather than dispatched as jobs. See the `workflows` agent skill for detailed control-flow examples.
+`if` and `case` nodes are evaluated inline by the engine rather than dispatched as jobs, so they have no logs. Their step result records the resolved value (`if`: `{ condition, chosenBranch, value }`, `case`: `{ matched, value, fallback }`), and the run page shows the expression, value, and branch taken when you select the node. See the `workflows` agent skill for detailed control-flow examples.
 
 ### Human Tasks
 
@@ -170,7 +170,7 @@ Trigger a manual workflow run. Returns the run ID and per-step job IDs.
 
 ### GET /ext/workflows/runs/:runId
 
-Get run status with per-step states.
+Get run status with per-step states. `if`/`case` steps carry an `evaluation` (expression, resolved value, branch), and a step that failed without a job (e.g. a `case` with no matching path) carries the failure reason as `error`.
 
 ### GET /ext/workflows/runs/:runId/logs
 

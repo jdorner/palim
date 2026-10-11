@@ -487,11 +487,20 @@
     "colStarted": "Started",
     "completed": "Completed: {time}",
     "empty": "No runs yet. Click \"Run Workflow\" to start one.",
+    "evaluation": {
+      "expression": "Expression",
+      "value": "Value",
+      "unresolved": "Could not be resolved",
+      "comparison": "Comparison",
+      "branch": "Branch",
+      "fallback": "{branch} (no path matched)"
+    },
     "loadFailed": "Failed to load run",
     "noLogs": "No logs available",
     "retrying": "Retrying...",
     "runId": "Run: {id}",
     "started": "Started: {time}",
+    "stepError": "Error",
     "waitingPrevious": "Waiting for previous step to complete",
     "waitingSignal": "Waiting for external signal"
   },

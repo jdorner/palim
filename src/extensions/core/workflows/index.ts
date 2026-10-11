@@ -24,7 +24,7 @@ import { mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger, OutputSchemaContext } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
-import { type OutputSchema, type OutputSchemas, walkSchemaPath } from "@shared/workflows";
+import { type ControlFlowEvaluation, type OutputSchema, type OutputSchemas, walkSchemaPath } from "@shared/workflows";
 import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
@@ -34,6 +34,7 @@ import { createInternalFetch, resolveAmbientToken, resolveAmbientUserId } from "
 import type { TemplateVariableResolver } from "@src/variables";
 import { extractBearerToken } from "@src/web/auth";
 import { requestUserId } from "@src/web/triggerOwnership";
+import { describeControlFlowStep } from "./controlFlowEvaluation";
 import {
   type DagCoordinatorDeps,
   evaluateInlineRoot,
@@ -1242,12 +1243,20 @@ export function createExtension(): Extension {
             waitScope?: signalStore.SignalScope;
             waitCorrelationKey?: string | null;
             humanTask?: WaitingHumanTask;
+            evaluation?: ControlFlowEvaluation;
+            error?: string;
           } = {
             slug,
             type: stepDef?.type ?? "unknown",
             status,
             jobId: stepJobIds.get(slug) ?? "",
           };
+          // Control-flow nodes run inline (no job, no logs): expose how they decided.
+          const evaluation = describeControlFlowStep(stepDef, run.stepResults[slug]);
+          if (evaluation) entry.evaluation = evaluation;
+          // A step that failed without a job failed inline in the coordinator;
+          // the run's failure reason is its only error record.
+          if (status === "failed" && !entry.jobId && run.failureReason) entry.error = run.failureReason;
           const signal = waitingSignalsByStep.get(slug);
           if (signal) {
             entry.waitEvent = signal.event;

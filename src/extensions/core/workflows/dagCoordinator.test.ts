@@ -229,7 +229,7 @@ describe("handleDagStepCompletion", () => {
     test("routes to the branch named by default", async () => {
       const { dispatched, run } = await runUnmatched(caseDef("other", "other"));
       expect(dispatched).toEqual(["fallback"]);
-      expect(run.stepResults.route).toEqual({ matched: "other" });
+      expect(run.stepResults.route).toEqual({ matched: "other", value: "unknown", fallback: true });
     });
 
     test("default can name a path key", async () => {
@@ -255,7 +255,7 @@ describe("handleDagStepCompletion", () => {
       def.steps.route = { type: "case", match: "{{steps.classify.result}}", paths: ["low", "high", "unknown"] };
       const { dispatched, run } = await runUnmatched(def);
       expect(dispatched).toEqual([]);
-      expect(run.stepResults.route).toEqual({ matched: "unknown" });
+      expect(run.stepResults.route).toEqual({ matched: "unknown", value: "unknown", fallback: false });
       expect(run.stepStatuses).toMatchObject({ handle_low: "dead", handle_high: "dead", fallback: "dead" });
       expect(run.status).toBe("completed");
     });

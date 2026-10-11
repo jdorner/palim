@@ -74,7 +74,7 @@ function isFiniteNumber(value: unknown): boolean {
  * @returns A tuple of [operator name, operand value]
  * @throws Error if zero or more than one operator field is present
  */
-function extractOperator(condition: Condition): [ConditionOperator, unknown] {
+export function extractOperator(condition: Condition): [ConditionOperator, unknown] {
   const entries: [ConditionOperator, unknown][] = [];
 
   for (const key of Object.keys(condition)) {

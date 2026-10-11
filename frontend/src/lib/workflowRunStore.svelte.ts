@@ -7,6 +7,7 @@
  */
 
 import type { WebSocketMessage } from "../../../shared/types";
+import type { ControlFlowEvaluation } from "../../../shared/workflows";
 
 /** A single step within a workflow run. */
 export interface RunStep {
@@ -18,6 +19,10 @@ export interface RunStep {
   waitEvent?: string;
   /** JSON Schema for signal payload validation (populated when status is waiting-signal). */
   waitInputSchema?: Record<string, unknown> | null;
+  /** How a control-flow node (if/case) decided; these nodes have no job and no logs. */
+  evaluation?: ControlFlowEvaluation;
+  /** Failure reason of a step that failed without a job (e.g. a case with no matching path). */
+  error?: string;
 }
 
 /** Workflow run detail tracked by the store. */
@@ -173,17 +178,22 @@ class WorkflowStore {
             this.chosenBranches = { ...this.chosenBranches, [message.stepSlug]: message.chosenBranch };
           }
           const existsCompleted = this.run.steps.some((s) => s.slug === message.stepSlug);
+          const evaluation = message.evaluation;
           this.run = {
             ...this.run,
             steps: existsCompleted
-              ? this.run.steps.map((s) => (s.slug === message.stepSlug ? { ...s, status: "completed" as const } : s))
+              ? this.run.steps.map((s) =>
+                  s.slug === message.stepSlug ? { ...s, status: "completed" as const, evaluation } : s,
+                )
               : [
                   ...this.run.steps,
                   {
                     slug: message.stepSlug,
                     type: "",
                     status: "completed" as const,
-                    jobId: message.jobId,
+                    // Control-flow nodes report the run ID here, which is not a job.
+                    jobId: evaluation ? "" : message.jobId,
+                    evaluation,
                   },
                 ],
           };
@@ -269,7 +279,25 @@ class WorkflowStore {
 
       case "workflow_failed":
         if (message.workflowRunId === this.activeRunId) {
-          this.run = { ...this.run, status: "failed" };
+          // A step that failed inline (no job, so no workflow_step_failed event)
+          // carries the run's failure reason as its error.
+          const failed = this.run.steps.find((s) => s.slug === message.failedStep);
+          const inline = !failed?.jobId;
+          const failedStep = {
+            slug: message.failedStep,
+            type: failed?.type ?? "",
+            jobId: failed?.jobId ?? "",
+            ...failed,
+            status: "failed" as const,
+            ...(inline ? { error: message.error } : {}),
+          };
+          this.run = {
+            ...this.run,
+            status: "failed",
+            steps: failed
+              ? this.run.steps.map((s) => (s.slug === message.failedStep ? failedStep : s))
+              : [...this.run.steps, failedStep],
+          };
         }
         break;
     }

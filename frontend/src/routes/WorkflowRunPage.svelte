@@ -317,6 +317,37 @@ onDestroy(() => {
               inputSchema={inspectedStep.waitInputSchema}
             />
           {/if}
+        {:else if inspectedStep.error}
+          <p class="text-xs font-medium text-muted-foreground mb-1">{t("runs.stepError")}</p>
+          <div
+            class="text-xs font-mono whitespace-pre-wrap wrap-break-word rounded bg-destructive/10 text-destructive p-2"
+          >
+            {inspectedStep.error}
+          </div>
+        {:else if inspectedStep.evaluation}
+          {@const evaluation = inspectedStep.evaluation}
+          <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-xs">
+            <dt class="text-muted-foreground">{t("runs.evaluation.expression")}</dt>
+            <dd class="font-mono break-all">{evaluation.expression}</dd>
+            {#if evaluation.value !== undefined}
+              <dt class="text-muted-foreground">{t("runs.evaluation.value")}</dt>
+              <dd class="font-mono break-all">
+                {#if evaluation.value === null}
+                  <span class="italic text-muted-foreground">{t("runs.evaluation.unresolved")}</span>
+                {:else}
+                  {JSON.stringify(evaluation.value)}
+                {/if}
+              </dd>
+            {/if}
+            {#if evaluation.operator}
+              <dt class="text-muted-foreground">{t("runs.evaluation.comparison")}</dt>
+              <dd class="font-mono break-all">{evaluation.operator} {JSON.stringify(evaluation.operand)}</dd>
+            {/if}
+            <dt class="text-muted-foreground">{t("runs.evaluation.branch")}</dt>
+            <dd class="font-mono font-medium">
+              {evaluation.fallback ? t("runs.evaluation.fallback", { branch: evaluation.branch }) : evaluation.branch}
+            </dd>
+          </dl>
         {:else if loadingLogs}
           <p class="text-sm text-muted-foreground">{t("jobs.loadingLogs")}</p>
         {:else if stepLogs.length === 0}

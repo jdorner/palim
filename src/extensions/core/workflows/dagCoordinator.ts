@@ -16,6 +16,7 @@ import type { HitlApi, Logger } from "@ext/types";
 import type { WorkflowWebSocketEvent } from "@shared/workflows";
 import type { FlowProducer } from "bunqueue/client";
 import { evaluateCondition } from "./condition";
+import { type CaseStepResult, describeControlFlowStep, type IfStepResult } from "./controlFlowEvaluation";
 import { buildDagStepJob, buildIncomingEdgeMap, buildOutgoingEdgeMap, type SessionFactory } from "./dagEngine";
 import * as dagRunStore from "./dagRunStore";
 import { type DagWorkflowRun, edgeId } from "./dagRunStore";
@@ -261,7 +262,11 @@ async function evaluateIfNode(
   const chosenBranch = conditionResult ? "then" : "else";
 
   // Mark step completed with result
-  const ifResult = { condition: conditionResult, chosenBranch };
+  const ifResult: IfStepResult = {
+    condition: conditionResult,
+    chosenBranch,
+    value: typeof resolvedValue === "string" ? resolvedValue : null,
+  };
   dagRunStore.updateStepResult(runId, stepSlug, ifResult);
   dagRunStore.updateStepStatus(runId, stepSlug, "completed");
 
@@ -283,6 +288,7 @@ async function evaluateIfNode(
     stepSlug,
     jobId: runId,
     chosenBranch,
+    evaluation: describeControlFlowStep(stepDef, ifResult),
   });
 
   log.info(`DAG if node "${stepSlug}" in run ${runId}: condition=${conditionResult}, branch="${chosenBranch}"`);
@@ -356,7 +362,8 @@ async function evaluateCaseNode(
   const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
 
   // Fall back to the default branch
-  if (matchedBranch === null) {
+  const fallback = matchedBranch === null;
+  if (fallback) {
     matchedBranch = caseFallbackBranch(stepDef, outEdges);
   }
 
@@ -371,7 +378,7 @@ async function evaluateCaseNode(
   }
 
   // Mark step completed with result
-  const caseResult = { matched: matchedBranch };
+  const caseResult: CaseStepResult = { matched: matchedBranch, value: resolvedMatch, fallback };
   dagRunStore.updateStepResult(runId, stepSlug, caseResult);
   dagRunStore.updateStepStatus(runId, stepSlug, "completed");
 
@@ -392,6 +399,7 @@ async function evaluateCaseNode(
     stepSlug,
     jobId: runId,
     chosenBranch: matchedBranch,
+    evaluation: describeControlFlowStep(stepDef, caseResult),
   });
 
   log.info(`DAG case node "${stepSlug}" in run ${runId}: matched="${matchedBranch}"`);
