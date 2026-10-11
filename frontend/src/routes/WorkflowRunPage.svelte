@@ -258,7 +258,9 @@ onDestroy(() => {
         {#if run.status === "failed"}
           <DeleteRunButton
             runId={run.runId}
-            onDeleted={() => navigate("/workflows/:name", { params: { name: `${workflowName}` } })}
+            onDeleted={() => {
+              navigate("/workflows/:name", { params: { name: `${workflowName}` } });
+            }}
           />
         {/if}
         {#if isRunCancellable(run.status)}
