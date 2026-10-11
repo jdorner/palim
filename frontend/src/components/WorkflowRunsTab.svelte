@@ -9,7 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$
 import { t } from "$lib/i18n.svelte";
 /**
  * Paginated run history for a workflow: cards on small screens, a table on
- * desktop, with Retry (failed runs) and Cancel (in-flight runs) actions.
+ * desktop, with Run again (failed runs) and Cancel (in-flight runs) actions.
  */
 import { statusLabel } from "$lib/i18nCore";
 import { aggregateStepStatus, formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
@@ -41,13 +41,28 @@ $effect(() => {
 });
 
 let cancellingRunId = $state<string | null>(null);
+let rerunningRunId = $state<string | null>(null);
+/** Failed re-run attempt, shown next to that run's button. */
+let rerunError = $state<{ runId: string; message: string } | null>(null);
 
-async function retryRun(runId: string) {
+/**
+ * Starts a new run of a failed run's workflow with the same trigger payload.
+ * The failed run stays unchanged; the new run shows up in the list via the
+ * `workflow_started` WebSocket event.
+ */
+async function rerun(runId: string) {
+  rerunningRunId = runId;
+  rerunError = null;
   try {
-    const res = await authFetch(`/ext/workflows/runs/${runId}/retry`, { method: "POST" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const res = await authFetch(`/ext/workflows/runs/${runId}/rerun`, { method: "POST" });
+    if (!res.ok) {
+      const body = (await res.json().catch(() => ({}))) as { error?: string };
+      throw new Error(body.error ?? `HTTP ${res.status}`);
+    }
   } catch (err) {
-    console.error("Failed to retry workflow run:", err);
+    rerunError = { runId, message: err instanceof Error ? err.message : String(err) };
+  } finally {
+    rerunningRunId = null;
   }
 }
 
@@ -73,6 +88,25 @@ async function cancelRun(runId: string) {
   </a>
 {/snippet}
 
+{#snippet rerunButton(
+  runId: string,
+  size: "xs" | "sm",
+)}
+  {#if rerunError?.runId === runId}
+    <span class="text-xs text-destructive" title={rerunError.message}>{t("runs.rerunFailed")}</span>
+  {/if}
+  <Button
+    {size}
+    variant="default"
+    disabled={rerunningRunId === runId}
+    title={t("runs.rerunHint")}
+    onclick={() => rerun(runId)}
+  >
+    <ArrowCounterClockwiseIcon size={size === "xs" ? 12 : 14} class="mr-1" aria-hidden="true" />
+    {rerunningRunId === runId ? t("runs.rerunning") : t("runs.rerun")}
+  </Button>
+{/snippet}
+
 {#if runs.length === 0}
   <p class="text-sm text-muted-foreground text-center mt-3">{t("runs.empty")}</p>
 {:else}
@@ -96,10 +130,7 @@ async function cancelRun(runId: string) {
         {#if run.status === "failed" || isRunCancellable(run.status)}
           <div class="flex flex-wrap items-center gap-2">
             {#if run.status === "failed"}
-              <Button size="xs" variant="default" onclick={() => retryRun(run.runId)}>
-                <ArrowCounterClockwiseIcon size={12} class="mr-1" aria-hidden="true" />
-                {t("common.retry")}
-              </Button>
+              {@render rerunButton(run.runId, "xs")}
             {/if}
             {#if isRunCancellable(run.status)}
               <Button
@@ -149,12 +180,9 @@ async function cancelRun(runId: string) {
               <Badge variant={statusVariant(run.status)}>{statusLabel(run.status)}</Badge>
             </TableCell>
             <TableCell class="text-right">
-              <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
+              <div class="inline-flex items-center justify-end gap-2 flex-wrap xl:flex-nowrap">
                 {#if run.status === "failed"}
-                  <Button size="sm" variant="default" onclick={() => retryRun(run.runId)}>
-                    <ArrowCounterClockwiseIcon size={14} class="mr-1" aria-hidden="true" />
-                    {t("common.retry")}
-                  </Button>
+                  {@render rerunButton(run.runId, "sm")}
                 {/if}
                 {#if isRunCancellable(run.status)}
                   <Button

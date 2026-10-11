@@ -8,6 +8,7 @@
  * - `POST   /ext/workflows/run/:name`    - trigger a workflow run
  * - `GET    /ext/workflows/runs/:runId`  - get run status with per-step states
  * - `GET    /ext/workflows/runs/:runId/logs` - get per-step execution logs
+ * - `POST   /ext/workflows/runs/:runId/rerun` - start a new run of a failed run with its trigger payload
  * - `POST   /ext/workflows/runs/:runId/signal/:event` - deliver a signal to a waiting run
  * - `DELETE /ext/workflows/runs/:runId`  - cancel all steps of a workflow run
  * - `DELETE /ext/workflows/:name`        - delete a workflow definition (removes JSON5 file)
@@ -1167,6 +1168,24 @@ export function createExtension(): Extension {
         // Record the requester as the run's initiator so the run is owned by
         // (and its steps authorize as) them rather than being ownerless.
         const result = await dispatchAndAnnounce(wf, payload, requestUserId(reqCtx.request));
+        return Response.json({ ok: true, workflowRunId: result.workflowRunId, jobIds: result.jobIds }, { status: 202 });
+      });
+
+      // Starts a fresh run of a failed run's workflow with the same trigger
+      // payload. The original run is left untouched (it stays failed).
+      ctx.routes.register("POST", "/runs/:runId/rerun", async (reqCtx) => {
+        const runId = (reqCtx.params as Record<string, string>).runId;
+        if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
+        const run = dagRunStore.get(runId);
+        if (!run) return Response.json({ error: "Run not found" }, { status: 404 });
+        if (run.status !== "failed") {
+          return Response.json({ error: "Only failed runs can be re-run" }, { status: 409 });
+        }
+        const wf = store.get(run.workflowName);
+        if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
+
+        const result = await dispatchAndAnnounce(wf, run.triggerPayload, requestUserId(reqCtx.request));
+        logger.info(`Re-ran failed workflow run ${runId} as ${result.workflowRunId}`);
         return Response.json({ ok: true, workflowRunId: result.workflowRunId, jobIds: result.jobIds }, { status: 202 });
       });
 

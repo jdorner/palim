@@ -1,5 +1,4 @@
 <script lang="ts">
-import ArrowCounterClockwiseIcon from "phosphor-svelte/lib/ArrowCounterClockwiseIcon";
 import HourglassIcon from "phosphor-svelte/lib/HourglassIcon";
 import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import PauseCircleIcon from "phosphor-svelte/lib/PauseCircleIcon";
@@ -29,7 +28,6 @@ type StepStatus = GraphStepStatus;
 
 let loading = $state(true);
 let error = $state<string | null>(null);
-let retrying = $state(false);
 let cancelling = $state(false);
 /**
  * The step shown in the panel: its slug and graph type, plus a placeholder for
@@ -151,19 +149,6 @@ async function fetchRun() {
 
 let sidebarOpen = $state(false);
 
-async function retryRun() {
-  if (!runId) return;
-  retrying = true;
-  try {
-    const res = await authFetch(`/ext/workflows/runs/${runId}/retry`, { method: "POST" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  } catch (err) {
-    console.error("Failed to retry workflow run:", err);
-  } finally {
-    retrying = false;
-  }
-}
-
 async function cancelRun() {
   if (!runId) return;
   cancelling = true;
@@ -258,12 +243,6 @@ onDestroy(() => {
       </div>
       <div class="flex items-center gap-2">
         <DetailPanelModeToggle />
-        {#if run.status === "failed"}
-          <Button size="sm" variant="default" onclick={retryRun} disabled={retrying}>
-            <ArrowCounterClockwiseIcon size={14} class="mr-1.5" aria-hidden="true" />
-            {retrying ? t("runs.retrying") : t("common.retry")}
-          </Button>
-        {/if}
         {#if isRunCancellable(run.status)}
           <Button size="sm" variant="destructive" onclick={cancelRun} disabled={cancelling}>
             <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
