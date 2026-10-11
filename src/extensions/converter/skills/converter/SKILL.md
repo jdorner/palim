@@ -23,6 +23,16 @@ File types are detected by reading magic bytes from the file header, not by file
 - When converting raw documents into structured markdown pages
 - When asking questions about image or PDF content (e.g. describing what's in a photo)
 
+## In workflows
+
+Don't use an agent step to run `convert` in a workflow. Use the `convert` step type, which converts a work-dir file directly:
+
+```json5
+"read-scan": { "type": "convert", "file": "{{trigger.payload.file.path}}", "prompt": "Optional extraction instructions" }
+```
+
+Later steps read `{{steps.read-scan.result.markdown}}`. Optional `output` also saves the markdown to a work-dir path.
+
 ## Command reference
 
 ```

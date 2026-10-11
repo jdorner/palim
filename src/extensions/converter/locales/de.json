@@ -9,5 +9,24 @@
       "description": "Maximale Kantenlänge, auf die Bilder vor dem Senden an das Vision-Modell verkleinert werden",
       "title": "Bildgröße"
     }
+  },
+  "steps": {
+    "convert": {
+      "label": "Konvertiere nach Markdown",
+      "config": {
+        "file": {
+          "title": "Datei",
+          "description": "Pfad des Bildes oder PDFs, relativ zum Arbeitsverzeichnis. Unterstützt {{template}}-Ausdrücke."
+        },
+        "prompt": {
+          "title": "Prompt",
+          "description": "Anweisungen anstelle des Standard-OCR-Prompts (z. B. was extrahiert werden soll). Unterstützt {{template}}-Ausdrücke."
+        },
+        "output": {
+          "title": "Speichern unter",
+          "description": "Optionaler Pfad (relativ zum Arbeitsverzeichnis), unter dem das Markdown zusätzlich gespeichert wird. Unterstützt {{template}}-Ausdrücke."
+        }
+      }
+    }
   }
 }

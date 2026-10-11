@@ -7,6 +7,9 @@
  * - `filenames`: optional display names aligned with `data`, used only for job labels/logs
  * Multiple inputs are merged into a single conversion (pages of one document).
  *
+ * It also registers the `convert` workflow step, which converts a file from
+ * the work directory (see `convertStep.ts`).
+ *
  * Conversion jobs are processed on the `converter:jobs` queue, giving
  * visibility in the web UI.
  */
@@ -29,6 +32,7 @@ import type { ImageContent, TextContent } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { fileTypeFromBuffer } from "file-type";
+import { createConvertStepHandler } from "./convertStep";
 import { buildImageParts, OCR_SYSTEM_PROMPT } from "./ocr";
 
 /** MIME types supported for conversion. */
@@ -122,19 +126,18 @@ const MIME_TO_EXT: Record<string, string> = {
 };
 
 /**
- * Writes base64-encoded data to a temporary file with the correct extension.
+ * Writes file bytes to a temporary file with the correct extension.
  * Uses `mkdtempSync` to create an isolated temp directory, avoiding filename collisions.
  *
- * @param data - Base64-encoded file content
+ * @param bytes - File content
  * @param mimeType - Detected MIME type (used to choose file extension)
  * @returns Absolute path to the temporary file
  */
-async function writeDataToTempFile(data: string, mimeType: string): Promise<string> {
+async function writeBytesToTempFile(bytes: Uint8Array, mimeType: string): Promise<string> {
   const ext = MIME_TO_EXT[mimeType] ?? ".bin";
   const dir = mkdtempSync(path.join(tmpdir(), "palim-convert-"));
   const tempPath = path.join(dir, `input${ext}`);
-  const buffer = Buffer.from(data, "base64");
-  await Bun.write(tempPath, buffer);
+  await Bun.write(tempPath, bytes);
   return tempPath;
 }
 
@@ -144,22 +147,21 @@ type ResolveResult =
   | { ok: false; status: number; body: Record<string, unknown> };
 
 /**
- * Resolves a base64 data input by detecting its type and writing it to a temp file.
+ * Resolves file bytes by detecting their type and writing them to a temp file.
  *
- * @param data - Base64-encoded file content
+ * @param bytes - File content
  * @param displayName - Optional original filename for labels/logs; falls back to the temp file basename
  * @returns A resolve result with either the resolved input (and temp file path) or an error response
  */
-async function resolveDataInput(data: string, displayName?: string): Promise<ResolveResult> {
-  const buffer = Buffer.from(data, "base64");
-  const typeResult = await fileTypeFromBuffer(buffer);
+async function resolveBytesInput(bytes: Uint8Array, displayName?: string): Promise<ResolveResult> {
+  const typeResult = await fileTypeFromBuffer(bytes);
   const mimeType = typeResult?.mime ?? "application/octet-stream";
 
   if (!isSupportedMime(mimeType)) {
     return { ok: false, status: 415, body: { error: `Unsupported file type: ${mimeType}`, mimeType } };
   }
 
-  const tempFile = await writeDataToTempFile(data, mimeType);
+  const tempFile = await writeBytesToTempFile(bytes, mimeType);
   return {
     ok: true,
     input: { filePath: tempFile, mimeType, displayName: displayName ?? path.basename(tempFile) },
@@ -167,9 +169,22 @@ async function resolveDataInput(data: string, displayName?: string): Promise<Res
   };
 }
 
+/**
+ * Removes the temp directories created while resolving inputs.
+ *
+ * @param tempFiles - Temp file paths from {@link resolveBytesInput}
+ */
+function cleanupTempFiles(tempFiles: string[]): void {
+  for (const tempFile of tempFiles) {
+    try {
+      rmSync(path.dirname(tempFile), { recursive: true });
+    } catch {}
+  }
+}
+
 const manifest = {
   name: "converter",
-  version: "1.1.0",
+  version: "1.2.0",
   description: "Converts files (PDFs, images) to markdown via vision LLM",
   settingsSchema: Type.Object({
     resizeImagePx: Type.Number({
@@ -202,11 +217,47 @@ export function createExtension(): Extension {
     pending: new Map(),
   };
 
+  /**
+   * Enqueues a conversion job and waits for its result.
+   *
+   * @param inputs - Resolved inputs (temp files), converted as one document
+   * @param prompt - Optional prompt replacing the default OCR instructions
+   * @param timeoutMs - How long to wait for the job
+   * @returns The job result
+   * @throws When the job fails, times out, or the extension shuts down
+   */
+  async function enqueueAndWait(
+    inputs: ConvertInput[],
+    prompt: string | undefined,
+    timeoutMs: number,
+  ): Promise<ConvertJobResult> {
+    const label =
+      inputs.length === 1
+        ? inputs[0]!.displayName
+        : `${inputs.length} inputs (${inputs.map((input) => input.displayName).join(", ")})`;
+    const jobData: ConvertJobData = { inputs };
+    if (prompt) jobData.prompt = prompt;
+    const jobId = await mutableState.queue!.add(`Convert: ${label}`, jobData);
+
+    return new Promise<ConvertJobResult>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        mutableState.pending.delete(jobId);
+        reject(new Error("Conversion timed out"));
+      }, timeoutMs);
+      mutableState.pending.set(jobId, { resolve, reject, timer });
+    });
+  }
+
+  /** Bound in `initialize` (needs the extension config for the timeout). */
+  let runConversion: (inputs: ConvertInput[], prompt?: string) => Promise<ConvertJobResult>;
+
   return {
     manifest,
 
     async initialize(ctx: ExtensionContext) {
       logger = ctx.log;
+      runConversion = (inputs, prompt) =>
+        enqueueAndWait(inputs, prompt, ctx.config.get<number>("CONVERSION_TIMEOUT_MS", 5 * 60 * 1000));
 
       // --- Conversion queue ---
       mutableState.queue = ctx.queues.create<ConvertJobData, ConvertJobResult>(
@@ -318,6 +369,20 @@ export function createExtension(): Extension {
         }
       });
 
+      // --- `convert` workflow step: a work-dir file to markdown, no agent step needed ---
+      ctx.stepTypes.register(
+        "convert",
+        createConvertStepHandler(async (bytes, filename, prompt) => {
+          const resolved = await resolveBytesInput(bytes, filename);
+          if (!resolved.ok) throw new Error(String(resolved.body.error));
+          try {
+            return (await runConversion([resolved.input], prompt)).markdown;
+          } finally {
+            cleanupTempFiles([resolved.tempFile]);
+          }
+        }),
+      );
+
       // --- POST /ext/converter/convert ---
       ctx.routes.register("POST", "convert", async (elysiaCtx) => {
         try {
@@ -347,19 +412,10 @@ export function createExtension(): Extension {
           const inputs: ConvertInput[] = [];
           const tempFiles: string[] = [];
 
-          /** Removes all temp directories created while resolving base64 inputs. */
-          const cleanupTempFiles = () => {
-            for (const tempFile of tempFiles) {
-              try {
-                rmSync(path.dirname(tempFile), { recursive: true });
-              } catch {}
-            }
-          };
-
           for (let i = 0; i < dataInputs.length; i++) {
-            const resolveResult = await resolveDataInput(dataInputs[i]!, dataFilenames[i]);
+            const resolveResult = await resolveBytesInput(Buffer.from(dataInputs[i]!, "base64"), dataFilenames[i]);
             if (!resolveResult.ok) {
-              cleanupTempFiles();
+              cleanupTempFiles(tempFiles);
               return new Response(JSON.stringify(resolveResult.body), {
                 status: resolveResult.status,
                 headers: { "Content-Type": "application/json" },
@@ -369,30 +425,12 @@ export function createExtension(): Extension {
             tempFiles.push(resolveResult.tempFile);
           }
 
-          // Enqueue conversion job and wait for result
-          const label =
-            inputs.length === 1
-              ? inputs[0]!.displayName
-              : `${inputs.length} inputs (${inputs.map((input) => input.displayName).join(", ")})`;
-          const jobData: ConvertJobData = { inputs };
-          if (payload.prompt) {
-            jobData.prompt = payload.prompt;
+          let result: ConvertJobResult;
+          try {
+            result = await runConversion(inputs, payload.prompt);
+          } finally {
+            cleanupTempFiles(tempFiles);
           }
-          const jobId = await mutableState.queue!.add(`Convert: ${label}`, jobData);
-
-          const conversionTimeoutMs = ctx.config.get<number>("CONVERSION_TIMEOUT_MS", 5 * 60 * 1000);
-
-          const result = await new Promise<ConvertJobResult>((resolve, reject) => {
-            const timer = setTimeout(() => {
-              mutableState.pending.delete(jobId);
-              reject(new Error("Conversion timed out"));
-            }, conversionTimeoutMs);
-
-            mutableState.pending.set(jobId, { resolve, reject, timer });
-          });
-
-          // Clean up any temp files/directories we created
-          cleanupTempFiles();
 
           return new Response(JSON.stringify({ markdown: result.markdown }), {
             status: 200,
