@@ -26,6 +26,7 @@ import {
   getLabel,
   getProperties,
   getRecordValueSchema,
+  parseTagList,
   type SchemaProperty,
 } from "$lib/schemaForm";
 import type { OutputSchemas, SlugEdge } from "$lib/templateScope";
@@ -338,19 +339,26 @@ function parseNumberList(raw: string): number[] {
         {@render fieldLabel(key, label, description)}
         <input
           id="{idPrefix}{key}"
+          bind:this={fieldRefs[key]}
           type="text"
+          autocomplete="off"
           class="block w-full rounded-md border border-border bg-background px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-ring"
           value={Array.isArray(formValues[key]) ? (formValues[key] as string[]).join(", ") : ""}
           placeholder={t("condition.valuesPlaceholder")}
-          oninput={(e) => {
-            const raw = e.currentTarget.value;
-            const items = raw
-              .split(",")
-              .map((s) => s.trim())
-              .filter((s) => s.length > 0);
-            updateValue(key, items);
-          }}
+          oninput={(e) => updateValue(key, parseTagList(e.currentTarget.value))}
         >
+        {#if autocompleteEnabled}
+          <TemplateAutocomplete
+            targetElement={fieldRefs[key] ?? null}
+            steps={steps ?? []}
+            currentStepIndex={currentStepIndex ?? 0}
+            secretKeys={secretKeys ?? []}
+            variableKeys={variableKeys ?? []}
+            {outputSchemas}
+            {edges}
+            onChange={(newValue) => updateValue(key, parseTagList(newValue))}
+          />
+        {/if}
       {:else if inputType === "number"}
         {@render fieldLabel(key, label, description)}
         <input

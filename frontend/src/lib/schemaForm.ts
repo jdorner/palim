@@ -176,6 +176,37 @@ export function getRecordValueSchema(prop: SchemaProperty): SchemaProperty | und
 }
 
 /**
+ * Split a comma-separated tag input into trimmed, non-empty entries. Commas
+ * inside `{{...}}` template expressions (function arguments) do not split.
+ *
+ * @param raw - The raw input text
+ * @returns The entries
+ */
+export function parseTagList(raw: string): string[] {
+  const items: string[] = [];
+  let current = "";
+  let depth = 0;
+  for (let i = 0; i < raw.length; i++) {
+    if (raw.startsWith("{{", i)) {
+      depth++;
+      current += "{{";
+      i++;
+    } else if (depth > 0 && raw.startsWith("}}", i)) {
+      depth--;
+      current += "}}";
+      i++;
+    } else if (raw[i] === "," && depth === 0) {
+      items.push(current);
+      current = "";
+    } else {
+      current += raw[i];
+    }
+  }
+  items.push(current);
+  return items.map((s) => s.trim()).filter((s) => s.length > 0);
+}
+
+/**
  * Get the appropriate empty/initial value for a property based on its type.
  *
  * @param prop - The property schema object

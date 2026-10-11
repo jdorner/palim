@@ -5,6 +5,7 @@ import {
   getEmptyValue,
   getInputType,
   getRecordValueSchema,
+  parseTagList,
   type SchemaProperty,
 } from "./schemaForm";
 
@@ -175,5 +176,22 @@ describe("buildInitialValues", () => {
     };
     const vals = buildInitialValues(objRequired, undefined);
     expect(vals.cfg).toEqual({});
+  });
+});
+
+describe("parseTagList", () => {
+  test("splits on commas and drops empty entries", () => {
+    expect(parseTagList(" alice, bob ,, ")).toEqual(["alice", "bob"]);
+  });
+
+  test("keeps commas inside template expressions", () => {
+    expect(parseTagList('{{ before(trigger.payload.mail, "@") }}, bob')).toEqual([
+      '{{ before(trigger.payload.mail, "@") }}',
+      "bob",
+    ]);
+  });
+
+  test("keeps an unclosed expression in one entry while typing", () => {
+    expect(parseTagList("alice, {{ var.X, ")).toEqual(["alice", "{{ var.X,"]);
   });
 });
