@@ -1,5 +1,5 @@
 import { createRouter } from "sv-router";
-import { get, readable } from "svelte/store";
+import { get, type Readable, toStore } from "svelte/store";
 import { getToken } from "$lib/auth";
 import { disabledExtensionRoutes } from "$lib/extensionStore";
 import { identity } from "$lib/identity.svelte";
@@ -63,35 +63,14 @@ function getHashPathname(): string {
 }
 
 /**
- * A Svelte store that tracks the current route pathname.
- * Bridges sv-router's Svelte 5 `$state` reactivity with Svelte 4 legacy components.
+ * A Svelte store with the current route pathname (including a `?query`), for
+ * `$pathname` in components and `subscribe`/`get` in plain TS.
+ *
+ * Reads the URL hash, so the value is right before the router's first
+ * navigation has resolved (sv-router's own state starts at `/`), and uses
+ * `route.pathname` only as the change signal.
  */
-export const pathname = readable(getHashPathname(), (set) => {
-  function update() {
-    set(getHashPathname());
-  }
-
-  // Catch the initial route resolution (Router's init + onNavigate use replaceState)
-  queueMicrotask(update);
-
-  window.addEventListener("popstate", update);
-  window.addEventListener("hashchange", update);
-
-  const original = window.history.pushState.bind(window.history);
-  const originalReplace = window.history.replaceState.bind(window.history);
-  window.history.pushState = (...args) => {
-    original(...args);
-    queueMicrotask(update);
-  };
-  window.history.replaceState = (...args) => {
-    originalReplace(...args);
-    queueMicrotask(update);
-  };
-
-  return () => {
-    window.removeEventListener("popstate", update);
-    window.removeEventListener("hashchange", update);
-    window.history.pushState = original;
-    window.history.replaceState = originalReplace;
-  };
+export const pathname: Readable<string> = toStore(() => {
+  void route.pathname;
+  return getHashPathname();
 });
