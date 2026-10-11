@@ -40,6 +40,7 @@ import { loadDagWorkflows, loadSingleWorkflow } from "./dagLoader";
 import { initDagRunStore } from "./dagRunStore";
 import { createDagStepProcessor } from "./dagWorker";
 import { cancelRunTasks, installHumanTaskSource } from "./humanTaskSource";
+import { createReloadScheduler, type ReloadScheduler } from "./reloadScheduler";
 import { registerWorkflowRoutes } from "./routes";
 import type { DagWorkflowDefinition } from "./schemas";
 import { initSignalStore } from "./signalStore";
@@ -53,7 +54,7 @@ import { createWorkflowAnalyzer } from "./workflowAnalysis";
 
 const manifest = {
   name: "workflows",
-  version: "2.0.1",
+  version: "2.0.2",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -85,58 +86,42 @@ export function createExtension(): Extension {
   /** Mutable extension state. */
   const state: {
     watcher: FSWatcher | null;
-    reloadTimer: ReturnType<typeof setTimeout> | null;
+    reloads: ReloadScheduler | null;
     workflowsDir: string;
     uninstallHumanTasks: (() => void) | null;
   } = {
     watcher: null,
-    reloadTimer: null,
+    reloads: null,
     workflowsDir: "",
     uninstallHumanTasks: null,
   };
 
-  /**
-   * Reloads workflow definitions from disk, debounced.
-   *
-   * If a specific filename is provided, only that workflow is reloaded (or
-   * removed from the store if the file no longer exists). Otherwise all
-   * workflows are reloaded from disk.
-   */
-  function scheduleReload(ctx: ExtensionContext, filename?: string) {
-    if (state.reloadTimer) clearTimeout(state.reloadTimer);
-    state.reloadTimer = setTimeout(async () => {
-      state.reloadTimer = null;
-      try {
-        if (filename) {
-          // Single-file reload via shared loader
-          const filePath = path.join(state.workflowsDir, filename);
-          if (!(await Bun.file(filePath).exists())) {
-            // File deleted (possibly via the DELETE route, which already updated the store)
-            const name = filename.replace(/\.json5$/, "");
-            if (store.delete(name)) logger.info(`Removed workflow "${name}" from store (file deleted)`);
-          } else {
-            const definition = await loadSingleWorkflow(filePath, logger);
-            if (definition) {
-              store.set(definition.name, definition);
-              logger.info(`Reloaded workflow "${definition.name}" from ${filename}`);
-            } else {
-              // File was invalid — remove from store
-              store.delete(filename.replace(".json5", ""));
-              logger.info(`Removed workflow "${filename}" from store`);
-            }
-          }
-        } else {
-          // Full reload
-          const loaded = await loadDagWorkflows(state.workflowsDir, logger);
-          store.clear();
-          for (const [k, v] of loaded) store.set(k, v);
-          logger.info(`Reloaded ${store.size} workflow definition(s)`);
-        }
-        ctx.messaging.broadcast({ type: "workflow_reload" });
-      } catch (err) {
-        logger.error("Failed to reload workflows:", err);
-      }
-    }, 300);
+  /** Reloads one workflow file into the store, or removes it when the file is gone or invalid. */
+  async function reloadFile(filename: string) {
+    const filePath = path.join(state.workflowsDir, filename);
+    if (!(await Bun.file(filePath).exists())) {
+      // File deleted (possibly via the DELETE route, which already updated the store)
+      const name = filename.replace(/\.json5$/, "");
+      if (store.delete(name)) logger.info(`Removed workflow "${name}" from store (file deleted)`);
+      return;
+    }
+    const definition = await loadSingleWorkflow(filePath, logger);
+    if (definition) {
+      store.set(definition.name, definition);
+      logger.info(`Reloaded workflow "${definition.name}" from ${filename}`);
+    } else {
+      // File was invalid — remove from store
+      store.delete(filename.replace(".json5", ""));
+      logger.info(`Removed workflow "${filename}" from store`);
+    }
+  }
+
+  /** Reloads all workflow files from disk, replacing the store. */
+  async function reloadAll() {
+    const loaded = await loadDagWorkflows(state.workflowsDir, logger);
+    store.clear();
+    for (const [k, v] of loaded) store.set(k, v);
+    logger.info(`Reloaded ${store.size} workflow definition(s)`);
   }
 
   return {
@@ -284,12 +269,19 @@ export function createExtension(): Extension {
       // live in-memory store, so it stays current across hot-reloads.
       setWorkflowNamesFn(() => [...store.keys()]);
 
-      // Watch for file changes and hot-reload
+      // Watch for file changes and hot-reload (debounced; every changed file in a burst is reloaded)
+      state.reloads = createReloadScheduler({
+        delayMs: 300,
+        reloadFile,
+        reloadAll,
+        onReloaded: () => ctx.messaging.broadcast({ type: "workflow_reload" }),
+        onError: (err) => logger.error("Failed to reload workflows:", err),
+      });
       try {
         state.watcher = watch(state.workflowsDir, (_event, filename) => {
           if (filename?.endsWith(".json5")) {
             logger.debug(`Workflow file changed: ${filename}`);
-            scheduleReload(ctx, filename);
+            state.reloads?.schedule(filename);
           }
         });
         state.watcher.on("error", (err) => logger.error("Workflow watcher error:", err));
@@ -415,7 +407,7 @@ export function createExtension(): Extension {
         coordinatorDeps,
         hitl,
         dispatchAndAnnounce,
-        scheduleReload: () => scheduleReload(ctx),
+        scheduleReload: () => state.reloads?.schedule(),
         analyzeWorkflow: createWorkflowAnalyzer(ctx),
       });
     },
@@ -425,10 +417,8 @@ export function createExtension(): Extension {
         state.watcher.close();
         state.watcher = null;
       }
-      if (state.reloadTimer) {
-        clearTimeout(state.reloadTimer);
-        state.reloadTimer = null;
-      }
+      state.reloads?.cancel();
+      state.reloads = null;
       signalTimers.cleanup();
       state.uninstallHumanTasks?.();
       state.uninstallHumanTasks = null;
