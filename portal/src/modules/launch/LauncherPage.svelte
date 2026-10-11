@@ -235,13 +235,17 @@ function again() {
         </section>
       {/if}
 
-      {#if message}
-        <p class="text-sm text-destructive" role="alert">{message}</p>
-      {/if}
-
-      <Button type="submit" class="w-full sm:w-auto" disabled={submitting}>
-        {submitting ? t("launch.submitting") : t("launch.submit")}
-      </Button>
+      <!-- Pinned above the phone tab bar (h-14 + safe area), at the bottom on larger screens. -->
+      <div
+        class="sticky bottom-[calc(3.5rem+env(safe-area-inset-bottom))] -mx-4 space-y-2 border-t bg-background/95 px-4 py-3 backdrop-blur sm:bottom-0 sm:mx-0 sm:border-t-0 sm:px-0"
+      >
+        {#if message}
+          <p class="text-sm text-destructive" role="alert">{message}</p>
+        {/if}
+        <Button type="submit" class="w-full sm:w-auto" disabled={submitting}>
+          {submitting ? t("launch.submitting") : t("launch.submit")}
+        </Button>
+      </div>
     </form>
   {/if}
 </div>
