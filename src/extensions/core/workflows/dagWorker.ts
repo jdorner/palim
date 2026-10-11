@@ -1,8 +1,8 @@
 /**
  * DAG Workflow step worker - processes step jobs dispatched by the DAG engine.
  *
- * Similar to the legacy worker but reads template context from the DAG Run Store
- * instead of chain-parent results (since DAG jobs are individually dispatched).
+ * Reads template context from the DAG Run Store, since each DAG job is
+ * dispatched individually.
  *
  * @module
  */
