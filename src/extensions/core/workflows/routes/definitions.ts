@@ -11,7 +11,7 @@ import { requestUserId } from "@src/web/triggerOwnership";
 import * as dagRunStore from "../dagRunStore";
 import { validateCfEdges, validateDag } from "../dagValidation";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema } from "../schemas";
-import { createTriggerSourceFetch, fetchTriggerRefs } from "../triggerRefs";
+import { fetchTriggerRefs } from "../triggerRefs";
 import type { WorkflowRouteDeps } from "./types";
 
 /**
@@ -156,36 +156,14 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
       return Response.json({ error: `Trigger type "${def.trigger.type}" requires a ref value` }, { status: 400 });
     }
 
-    // Validate that trigger.ref exists for the given trigger type
+    // Reject a trigger ref that does not exist. A failed lookup (owning
+    // extension disabled, unreachable, or access denied) cannot verify the ref,
+    // so the save goes through, as the list and detail warnings treat it.
     if (def.trigger.type !== "manual" && def.trigger.ref) {
-      const triggerType = def.trigger.type;
-      const ref = def.trigger.ref;
-      const origin = ctx.urls.origin;
-      const triggerFetch = createTriggerSourceFetch(reqCtx.request);
-      let refExists = false;
-      try {
-        if (triggerType === "webhook") {
-          const res = await triggerFetch(`${origin}/ext/webhooks/${encodeURIComponent(ref)}`);
-          refExists = res.ok;
-        } else if (triggerType === "filewatcher") {
-          const res = await triggerFetch(`${origin}/ext/filewatcher`);
-          if (res.ok) {
-            const list = (await res.json()) as { slug: string }[];
-            refExists = list.some((w) => w.slug === ref);
-          }
-        } else if (triggerType === "schedule") {
-          const res = await triggerFetch(`${origin}/ext/scheduler/schedules`);
-          if (res.ok) {
-            const list = (await res.json()) as { id: string }[];
-            refExists = list.some((s) => s.id === ref);
-          }
-        }
-      } catch {
-        refExists = true;
-      }
-      if (!refExists) {
+      const known = (await fetchTriggerRefs(reqCtx.request, ctx.urls.origin))[def.trigger.type];
+      if (known && !known.includes(def.trigger.ref)) {
         return Response.json(
-          { error: `Trigger ref "${ref}" does not exist for type "${triggerType}"` },
+          { error: `Trigger ref "${def.trigger.ref}" does not exist for type "${def.trigger.type}"` },
           { status: 400 },
         );
       }

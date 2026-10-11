@@ -8,156 +8,61 @@ import { Type } from "@sinclair/typebox";
 import type { DagWorkflowDefinition } from "./schemas";
 import { buildStepJobIdMap } from "./stepJobs";
 import { getTriggerRefWarnings, type TriggerRefLookup } from "./triggerRefs";
-import { getDependencyWarnings, validateWorkflowDependencies } from "./workflowAnalysis";
+import { getDependencyWarnings } from "./workflowAnalysis";
 
 // ---------------------------------------------------------------------------
-// validateWorkflowDependencies (DAG model)
+// getDependencyWarnings - agent tools and skills
 // ---------------------------------------------------------------------------
 
-describe("validateWorkflowDependencies", () => {
+describe("getDependencyWarnings (agent tools and skills)", () => {
   /** Builds a minimal mock ExtensionContext exposing tool and skill name sets. */
   function mockCtx(extensionTools: string[], skills: string[]): ExtensionContext {
     return {
       tools: { names: () => extensionTools },
       skills: { names: () => skills },
+      stepTypes: { get: () => undefined },
     } as unknown as ExtensionContext;
   }
 
-  test("returns valid when workflow has no tools or skills", () => {
-    const wf: DagWorkflowDefinition = {
-      name: "simple",
-      trigger: { type: "manual" },
-      steps: { "step-one": { type: "agent", prompt: "Hello" } },
-      edges: [],
-    };
+  /** Builds a manual-trigger workflow from a steps map. */
+  function wf(steps: DagWorkflowDefinition["steps"]): DagWorkflowDefinition {
+    return { name: "wf", trigger: { type: "manual" }, steps, edges: [] };
+  }
 
-    const result = validateWorkflowDependencies(wf, mockCtx([], []));
-    expect(result.valid).toBe(true);
-    expect(result.missingTools).toEqual([]);
-    expect(result.missingSkills).toEqual([]);
+  test("no warnings when the agent step uses no tools or skills", () => {
+    expect(getDependencyWarnings(wf({ a: { type: "agent", prompt: "Hello" } }), mockCtx([], []))).toEqual([]);
   });
 
-  test("returns valid when all tools and skills are available", () => {
-    const wf: DagWorkflowDefinition = {
-      name: "all-available",
-      trigger: { type: "manual" },
-      steps: {
-        "step-one": { type: "agent", prompt: "Go", tools: ["exec", "send_telegram_message"], skills: ["wiki"] },
-      },
-      edges: [],
-    };
-
-    const result = validateWorkflowDependencies(wf, mockCtx(["send_telegram_message"], ["wiki"]));
-    expect(result.valid).toBe(true);
-    expect(result.missingTools).toEqual([]);
-    expect(result.missingSkills).toEqual([]);
+  test("no warnings when all tools and skills are available", () => {
+    const def = wf({ a: { type: "agent", prompt: "Go", tools: ["exec", "send_telegram_message"], skills: ["wiki"] } });
+    expect(getDependencyWarnings(def, mockCtx(["send_telegram_message"], ["wiki"]))).toEqual([]);
   });
 
   test("recognizes sandbox tools as available", () => {
-    const wf: DagWorkflowDefinition = {
-      name: "sandbox-tools",
-      trigger: { type: "manual" },
-      steps: {
-        "step-one": {
-          type: "agent",
-          prompt: "Go",
-          tools: ["exec", "read_file", "write_file", "list_files", "edit", "create_directory"],
-        },
+    const def = wf({
+      a: {
+        type: "agent",
+        prompt: "Go",
+        tools: ["exec", "read_file", "write_file", "list_files", "edit", "create_directory"],
       },
-      edges: [],
-    };
-
-    const result = validateWorkflowDependencies(wf, mockCtx([], []));
-    expect(result.valid).toBe(true);
-    expect(result.missingTools).toEqual([]);
+    });
+    expect(getDependencyWarnings(def, mockCtx([], []))).toEqual([]);
   });
 
-  test("reports missing tools across steps", () => {
-    const wf: DagWorkflowDefinition = {
-      name: "missing-tools",
-      trigger: { type: "manual" },
-      steps: {
-        "step-one": { type: "agent", prompt: "Go", tools: ["exec", "nonexistent_tool"] },
-        "step-two": { type: "agent", prompt: "Go", tools: ["another_missing"] },
-      },
-      edges: [{ from: "step-one", to: "step-two" }],
-    };
-
-    const result = validateWorkflowDependencies(wf, mockCtx([], []));
-    expect(result.valid).toBe(false);
-    expect(result.missingTools).toEqual(["another_missing", "nonexistent_tool"]);
-    expect(result.missingSkills).toEqual([]);
+  test("warns per step about missing tools and skills", () => {
+    const def = wf({
+      a: { type: "agent", prompt: "Go", tools: ["exec", "missing_tool"], skills: ["wiki", "missing_skill"] },
+      b: { type: "agent", prompt: "Go", tools: ["missing_tool"] },
+    });
+    expect(getDependencyWarnings(def, mockCtx([], ["wiki"])).map((w) => [w.stepSlug, w.field, w.message])).toEqual([
+      ["a", "tools", 'Tool "missing_tool" is not available (not registered or extension disabled)'],
+      ["a", "skills", 'Skill "missing_skill" is not available (not found or extension disabled)'],
+      ["b", "tools", 'Tool "missing_tool" is not available (not registered or extension disabled)'],
+    ]);
   });
 
-  test("reports missing skills", () => {
-    const wf: DagWorkflowDefinition = {
-      name: "missing-skills",
-      trigger: { type: "manual" },
-      steps: { "step-one": { type: "agent", prompt: "Go", skills: ["wiki", "nonexistent_skill"] } },
-      edges: [],
-    };
-
-    const result = validateWorkflowDependencies(wf, mockCtx([], ["wiki"]));
-    expect(result.valid).toBe(false);
-    expect(result.missingTools).toEqual([]);
-    expect(result.missingSkills).toEqual(["nonexistent_skill"]);
-  });
-
-  test("reports both missing tools and skills", () => {
-    const wf: DagWorkflowDefinition = {
-      name: "both-missing",
-      trigger: { type: "manual" },
-      steps: { "step-one": { type: "agent", prompt: "Go", tools: ["bad_tool"], skills: ["bad_skill"] } },
-      edges: [],
-    };
-
-    const result = validateWorkflowDependencies(wf, mockCtx([], []));
-    expect(result.valid).toBe(false);
-    expect(result.missingTools).toEqual(["bad_tool"]);
-    expect(result.missingSkills).toEqual(["bad_skill"]);
-  });
-
-  test("deduplicates missing items across steps", () => {
-    const wf: DagWorkflowDefinition = {
-      name: "duplicates",
-      trigger: { type: "manual" },
-      steps: {
-        "step-one": { type: "agent", prompt: "Go", tools: ["missing_tool"], skills: ["missing_skill"] },
-        "step-two": { type: "agent", prompt: "Go", tools: ["missing_tool"], skills: ["missing_skill"] },
-      },
-      edges: [{ from: "step-one", to: "step-two" }],
-    };
-
-    const result = validateWorkflowDependencies(wf, mockCtx([], []));
-    expect(result.missingTools).toEqual(["missing_tool"]);
-    expect(result.missingSkills).toEqual(["missing_skill"]);
-  });
-
-  test("ignores non-agent steps", () => {
-    const wf: DagWorkflowDefinition = {
-      name: "emit-only",
-      trigger: { type: "manual" },
-      steps: { notify: { type: "emit", event: "done" } },
-      edges: [],
-    };
-
-    const result = validateWorkflowDependencies(wf, mockCtx([], []));
-    expect(result.valid).toBe(true);
-  });
-
-  test("returns sorted results", () => {
-    const wf: DagWorkflowDefinition = {
-      name: "sorted",
-      trigger: { type: "manual" },
-      steps: {
-        "step-one": { type: "agent", prompt: "Go", tools: ["z_tool", "a_tool"], skills: ["z_skill", "a_skill"] },
-      },
-      edges: [],
-    };
-
-    const result = validateWorkflowDependencies(wf, mockCtx([], []));
-    expect(result.missingTools).toEqual(["a_tool", "z_tool"]);
-    expect(result.missingSkills).toEqual(["a_skill", "z_skill"]);
+  test("ignores tools and skills checks for built-in non-agent steps", () => {
+    expect(getDependencyWarnings(wf({ notify: { type: "emit", event: "done" } }), mockCtx([], []))).toEqual([]);
   });
 });
 

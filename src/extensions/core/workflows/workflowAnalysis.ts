@@ -25,57 +25,6 @@ import { getTriggerRefWarnings, type TriggerRefLookup } from "./triggerRefs";
 /** Built-in step types handled directly by the workflow engine. */
 const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "iterator", "aggregator", "waitFor", "humanTask", "emit"]);
 
-/** Result of validating tool and skill availability for a workflow. */
-export interface WorkflowValidationResult {
-  /** Whether all referenced tools and skills are available. */
-  valid: boolean;
-  /** Tool names referenced in steps that are not available. */
-  missingTools: string[];
-  /** Skill names referenced in steps that are not available. */
-  missingSkills: string[];
-}
-
-/**
- * Validates that all tools and skills referenced by a workflow's agent steps
- * are currently available.
- *
- * @param definition - The DAG workflow definition to validate
- * @param ctx - Extension context for querying available tools and skills
- * @returns Validation result with lists of missing tools and skills
- */
-export function validateWorkflowDependencies(
-  definition: DagWorkflowDefinition,
-  ctx: ExtensionContext,
-): WorkflowValidationResult {
-  const availableTools = new Set([...ctx.tools.names(), ...SANDBOX_TOOL_NAMES]);
-  const availableSkills = new Set(ctx.skills.names());
-
-  const missingTools = new Set<string>();
-  const missingSkills = new Set<string>();
-
-  for (const stepDef of Object.values(definition.steps)) {
-    if (stepDef.type !== "agent") continue;
-    const agentStep = stepDef as { tools?: string[]; skills?: string[] };
-
-    if (agentStep.tools) {
-      for (const tool of agentStep.tools) {
-        if (!availableTools.has(tool)) missingTools.add(tool);
-      }
-    }
-    if (agentStep.skills) {
-      for (const skill of agentStep.skills) {
-        if (!availableSkills.has(skill)) missingSkills.add(skill);
-      }
-    }
-  }
-
-  return {
-    valid: missingTools.size === 0 && missingSkills.size === 0,
-    missingTools: [...missingTools].sort(),
-    missingSkills: [...missingSkills].sort(),
-  };
-}
-
 /**
  * The resolved `outputSchemas` payload together with any warnings accumulated
  * while building it (unrecognized type hints, per-step failures).

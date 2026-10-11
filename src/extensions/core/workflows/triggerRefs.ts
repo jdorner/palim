@@ -25,7 +25,7 @@ const TRIGGER_SOURCE_PREFIXES = ["/ext/webhooks", "/ext/filewatcher", "/ext/sche
  * @param request - The incoming request whose principal the lookups act as.
  * @returns A `fetch`-compatible function confined to trigger-source routes.
  */
-export function createTriggerSourceFetch(request: Request): typeof globalThis.fetch {
+function createTriggerSourceFetch(request: Request): typeof globalThis.fetch {
   const token = extractBearerToken(request.headers.get("authorization"));
   return createInternalFetch({
     tokenProvider: () => token || resolveAmbientToken(),

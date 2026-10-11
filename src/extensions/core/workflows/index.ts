@@ -53,7 +53,7 @@ import { createWorkflowAnalyzer } from "./workflowAnalysis";
 
 const manifest = {
   name: "workflows",
-  version: "2.0.0",
+  version: "2.0.1",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
