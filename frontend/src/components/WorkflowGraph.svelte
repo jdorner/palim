@@ -613,6 +613,7 @@ onMount(() => {
     {isValidConnection}
     onconnect={editMode ? handleConnect : undefined}
     ondelete={editMode ? handleDelete : undefined}
+    deleteKey={editMode ? undefined : null}
     onbeforereconnect={editMode ? handleBeforeReconnect : undefined}
     onreconnect={editMode ? handleReconnect : undefined}
     onnodedragstop={editMode ? handleNodeDragStop : undefined}
