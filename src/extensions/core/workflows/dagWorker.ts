@@ -19,6 +19,7 @@ import type {
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import { mintIdentityToken, resolveInitiatorToken } from "@src/auth";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
+import { WORK_DIR_MAX_FILE_READ_BYTES } from "@src/tools/sandbox";
 import { runWithIdentity } from "@src/utils/fetch";
 import type { TemplateVariableResolver } from "@src/variables";
 import { type IFileSystem, ReadWriteFs } from "just-bash";
@@ -177,7 +178,7 @@ export function createDagStepProcessor(deps: DagStepWorkerDeps) {
   const getStepFs = (): IFileSystem => {
     if (!stepFs) {
       mkdirSync(deps.ctx.paths.work, { recursive: true });
-      stepFs = new ReadWriteFs({ root: deps.ctx.paths.work });
+      stepFs = new ReadWriteFs({ root: deps.ctx.paths.work, maxFileReadSize: WORK_DIR_MAX_FILE_READ_BYTES });
     }
     return stepFs;
   };
