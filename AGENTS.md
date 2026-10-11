@@ -185,7 +185,6 @@ src/
 shared/                      # Types + pure helpers shared between backend and frontend,
 │                            # split into domain modules and re-exported from index.ts
 ├── index.ts                 # Barrel re-export of all shared modules
-├── types.ts                 # Backward-compatible re-export (legacy import path)
 ├── chat.ts                  # ChatWebSocketEvent, TokenUsage
 ├── extensions.ts            # ExtensionInfo, ExtensionLifecycleEvent, ExtensionUiContribution, ExtensionUiPage, NavigationEntry, ...
 ├── extensionUi.ts           # PalimHost (host API for extension pages), MountExtensionPage, ExtensionUiEvent

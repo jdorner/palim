@@ -5,7 +5,7 @@ import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { t } from "$lib/i18n.svelte";
 import { modelStore } from "$lib/modelStore.svelte";
-import type { AvailableModel } from "../../../shared/types";
+import type { AvailableModel } from "../../../shared/models";
 
 interface Props {
   /** Bindable status message emitted by the selector (success or error text). */

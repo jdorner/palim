@@ -6,7 +6,8 @@
  * and delegates send/cancel/edit actions through its methods.
  */
 
-import type { ApprovalRequestEvent, ChatWebSocketEvent, PushMessageEvent } from "../../../shared/types";
+import type { ChatWebSocketEvent } from "../../../shared/chat";
+import type { ApprovalRequestEvent, PushMessageEvent } from "../../../shared/websocket";
 import { authFetch } from "./auth";
 import {
   addMessage,

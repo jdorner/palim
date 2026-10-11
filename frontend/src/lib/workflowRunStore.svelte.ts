@@ -6,7 +6,7 @@
  * Pages subscribe to specific events via callbacks or read reactive state.
  */
 
-import type { WebSocketMessage } from "../../../shared/types";
+import type { WebSocketMessage } from "../../../shared/websocket";
 import type { ControlFlowEvaluation } from "../../../shared/workflows";
 import { isStaleStepStart, isTerminalRunStatus, settleOpenSteps } from "./workflowRunStatus";
 

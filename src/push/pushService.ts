@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { WebSocketMessage } from "@shared/types";
+import type { WebSocketMessage } from "@shared/websocket";
 import { getSessionStore } from "@src/session";
 import { resolveSessionChat } from "@src/web/sessionChatMap";
 import createLogger from "logging";

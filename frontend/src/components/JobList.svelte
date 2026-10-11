@@ -16,7 +16,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$
 import { t } from "$lib/i18n.svelte";
 import { statusLabel } from "$lib/i18nCore";
 import { aggregateStepStatus, automationStyle, formatTimestamp, isJobCancellable, isRunCancellable } from "$lib/utils";
-import type { JobEntry } from "../../../shared/types";
+import type { JobEntry } from "../../../shared/jobs";
 import DeleteRunButton from "./DeleteRunButton.svelte";
 import JobLogs from "./JobLogs.svelte";
 import StatusDot from "./StatusDot.svelte";

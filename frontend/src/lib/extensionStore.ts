@@ -1,5 +1,5 @@
 import { derived, get, writable } from "svelte/store";
-import type { ExtensionInfo } from "../../../shared/types";
+import type { ExtensionInfo } from "../../../shared/extensions";
 import {
   fetchFileWatcherCount,
   fetchMcpServerCount,

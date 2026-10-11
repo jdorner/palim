@@ -6,7 +6,7 @@ import { Button } from "$lib/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "$lib/components/ui/card";
 import { t } from "$lib/i18n.svelte";
 import { formatTimestamp } from "$lib/utils";
-import type { JobEntry, LogEntry } from "../../../shared/types";
+import type { JobEntry, LogEntry } from "../../../shared/jobs";
 import ChatMarkdown from "./ChatMarkdown.svelte";
 
 let { job, onClose }: { job?: JobEntry; onClose: () => void } = $props();

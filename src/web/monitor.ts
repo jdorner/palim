@@ -6,7 +6,8 @@
  * with no direct dependency on the underlying queue implementation.
  */
 
-import type { JobEntry, WebSocketMessage } from "@shared/types";
+import type { JobEntry } from "@shared/jobs";
+import type { WebSocketMessage } from "@shared/websocket";
 import type { AuthResolver, ResolvedPrincipal } from "@src/auth";
 import type { JobInfo, ManagedQueuePort, QueueJobLogs } from "@src/queue";
 import { getLogStore } from "@src/queue";

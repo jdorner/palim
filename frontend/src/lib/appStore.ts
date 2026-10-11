@@ -1,5 +1,6 @@
 import { type Writable, writable } from "svelte/store";
-import type { JobEntry, ScheduleEntry } from "../../../shared/types";
+import type { JobEntry } from "../../../shared/jobs";
+import type { ScheduleEntry } from "../../../shared/schedules";
 import { authFetch, getToken } from "./auth";
 
 /** Whether the WebSocket is connected. */

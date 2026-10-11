@@ -6,7 +6,7 @@
  */
 
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { ChatWebSocketEvent, TokenUsage } from "@shared/types";
+import type { ChatWebSocketEvent, TokenUsage } from "@shared/chat";
 import type { AgentEventContext, EventParam } from "@src/extensions";
 
 // ---------------------------------------------------------------------------

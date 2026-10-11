@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { JobEntry } from "@shared/types";
+import type { JobEntry } from "@shared/jobs";
 import type { ManagedQueuePort, QueueJobLogs } from "@src/queue";
 import { mainLogger as log } from "@src/utils/logger";
 

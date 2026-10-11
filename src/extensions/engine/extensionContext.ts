@@ -7,8 +7,9 @@
 
 import type { RouteRegistry } from "@ext/types";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
+import type { StepTypeInfo } from "@shared/extensions";
 import type { ModelIntent } from "@shared/models";
-import type { StepTypeInfo, WebSocketMessage } from "@shared/types";
+import type { WebSocketMessage } from "@shared/websocket";
 import { serverOrigin } from "@src/config";
 import type { HitlService } from "@src/hitl";
 import type { PushMessageFn } from "@src/push";

@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { ExtensionInfo, SecretSchemaEntry } from "@shared/types";
+import type { ExtensionInfo, SecretSchemaEntry } from "@shared/extensions";
 import type { ExtensionRegistry } from "@src/extensions";
 import { SecretVault } from "@src/secrets/vault";
 import { createTestDb } from "@src/test/db";

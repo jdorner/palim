@@ -8,7 +8,7 @@ import { Button } from "$lib/components/ui/button";
 import { Flash } from "$lib/flash.svelte";
 import { ensureOk, responseError } from "$lib/http";
 import { t, tx } from "$lib/i18n.svelte";
-import type { SecretSchemaEntry } from "../../../shared/types";
+import type { SecretSchemaEntry } from "../../../shared/extensions";
 import FlashMessage from "./FlashMessage.svelte";
 import SecretDeleteDialog from "./SecretDeleteDialog.svelte";
 import SecretRow from "./SecretRow.svelte";

@@ -8,7 +8,7 @@
  * @module
  */
 
-import type { JobEntry } from "@shared/types";
+import type { JobEntry } from "@shared/jobs";
 import { abortJob } from "@src/jobs";
 import type { JobInfo, ManagedQueuePort } from "@src/queue";
 
