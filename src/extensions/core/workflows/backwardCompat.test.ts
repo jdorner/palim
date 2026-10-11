@@ -30,9 +30,9 @@ import { createFailHandler } from "../../core-wf-steps/fail";
 import { createHttpRequestHandler } from "../../core-wf-steps/http-request";
 import { resolveHandlerOutputSchema } from "../../engine/stepTypeSerialization";
 import { createNotifyStepHandler } from "../../telegram/notifyStep";
-import { buildOutputSchemas } from "./index";
 import { compileOutputSchema } from "./outputSchemaCompiler";
 import type { DagWorkflowDefinition, OutputSchemaShorthand } from "./schemas";
+import { buildOutputSchemas } from "./workflowAnalysis";
 
 // ---------------------------------------------------------------------------
 // Reference legacy shorthand walker + JSON Schema walker (re-declared locally)

@@ -5,14 +5,10 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionContext, StepTypeHandler } from "@ext/types";
 import { Type } from "@sinclair/typebox";
-import {
-  buildStepJobIdMap,
-  getDependencyWarnings,
-  getTriggerRefWarnings,
-  type TriggerRefLookup,
-  validateWorkflowDependencies,
-} from "./index";
 import type { DagWorkflowDefinition } from "./schemas";
+import { buildStepJobIdMap } from "./stepJobs";
+import { getTriggerRefWarnings, type TriggerRefLookup } from "./triggerRefs";
+import { getDependencyWarnings, validateWorkflowDependencies } from "./workflowAnalysis";
 
 // ---------------------------------------------------------------------------
 // validateWorkflowDependencies (DAG model)
