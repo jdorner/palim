@@ -110,7 +110,6 @@ describe("authorizeRequest", () => {
       expect(authorizeRequest("POST", "/ext/workflows/runs/r1/rerun", builtInUserAbility).allowed).toBe(true);
       expect(authorizeRequest("GET", "/ext/workflows/runs", builtInUserAbility).allowed).toBe(true);
       expect(authorizeRequest("GET", "/ext/workflows/runs/r1/logs", builtInUserAbility).allowed).toBe(true);
-      expect(authorizeRequest("POST", "/ext/workflows/runs/r1/signal/go", builtInUserAbility).allowed).toBe(true);
       expect(authorizeRequest("POST", "/ext/workflows/runs/r1/steps/wait/signal", builtInUserAbility).allowed).toBe(
         true,
       );
@@ -125,7 +124,6 @@ describe("authorizeRequest", () => {
     });
 
     test("a user without workflows:write cannot deliver signals", () => {
-      expect(authorizeRequest("POST", "/ext/workflows/runs/r1/signal/go", userAbility).allowed).toBe(false);
       expect(authorizeRequest("POST", "/ext/workflows/runs/r1/steps/wait/signal", userAbility).allowed).toBe(false);
       expect(authorizeRequest("POST", "/ext/workflows/signals/s1", userAbility).allowed).toBe(false);
     });

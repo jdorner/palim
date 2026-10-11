@@ -247,28 +247,6 @@ export function getWaitingForStep(runId: string, stepSlug: string): SignalRecord
 }
 
 /**
- * Lists all waiting signals of a run for an event name.
- *
- * More than one entry means several steps of the run wait on the same event,
- * so an address of (run, event) is ambiguous.
- *
- * @param runId - The workflow run identifier
- * @param event - The signal event name
- * @returns The waiting signal records (possibly empty)
- */
-export function listWaitingForRunEvent(runId: string, event: string): SignalRecord[] {
-  const rows = db
-    .select()
-    .from(workflowSignals)
-    .where(
-      and(eq(workflowSignals.runId, runId), eq(workflowSignals.event, event), eq(workflowSignals.status, "waiting")),
-    )
-    .all();
-
-  return rows.map(rowToSignal);
-}
-
-/**
  * Lists all waiting signals of a run.
  *
  * @param runId - The workflow run identifier

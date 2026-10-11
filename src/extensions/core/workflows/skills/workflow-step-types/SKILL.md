@@ -330,7 +330,6 @@ Every waiting step of every run has its own address, so a signal resumes exactly
 ```
 POST /ext/workflows/runs/<runId>/steps/<stepSlug>/signal   # preferred: one step of one run
 POST /ext/workflows/signals/<signalId>                     # signal ID from GET /ext/workflows/runs/<runId>
-POST /ext/workflows/runs/<runId>/signal/<event>            # by event; 409 if several steps wait on it
 Content-Type: application/json
 
 { "approver": "joe", "comment": "Looks good" }
@@ -341,7 +340,7 @@ To let an external system call back into the right run, pass it the address from
 Response codes:
 - `200` - Signal accepted, workflow resumed
 - `404` - Run or signal not found
-- `409` - Not waiting (already delivered, timed out, run ended), or the event matches several steps
+- `409` - Not waiting (already delivered, timed out, run ended)
 - `422` - Payload fails inputSchema validation
 
 A timeout survives restarts: after a restart, pending timeouts are re-armed and already elapsed ones fire immediately.
