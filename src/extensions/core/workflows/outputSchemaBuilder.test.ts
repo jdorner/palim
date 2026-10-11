@@ -2,9 +2,9 @@ import { describe, expect, test } from "bun:test";
 import type { OutputSchemaContext } from "@ext/types";
 import { type TSchema, Type } from "@sinclair/typebox";
 import fc from "fast-check";
-import { buildOutputSchemas } from "./index";
 import { compileOutputSchema } from "./outputSchemaCompiler";
 import type { DagWorkflowDefinition, OutputSchemaShorthand } from "./schemas";
+import { buildOutputSchemas } from "./workflowAnalysis";
 
 // ---------------------------------------------------------------------------
 // Arbitraries
