@@ -10,7 +10,7 @@ import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { t } from "$lib/i18n.svelte";
 import { formatTimestamp } from "$lib/utils";
-import type { ScheduleEntry } from "../../../shared/types";
+import type { ScheduleEntry } from "../../../shared/schedules";
 
 let items = $state<ScheduleEntry[]>([]);
 let sortedItems = $derived([...items].sort((a, b) => a.id.localeCompare(b.id)));

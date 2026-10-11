@@ -2,7 +2,7 @@ import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { WebSocketMessage } from "@shared/types";
+import type { WebSocketMessage } from "@shared/websocket";
 import { DATA_DIR } from "@src/config";
 import { closeDb, getDb, schema } from "@src/db";
 import type { RegistryInitDeps } from "./registry";

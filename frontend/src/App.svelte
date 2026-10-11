@@ -34,7 +34,7 @@ import { readState } from "$lib/readState.svelte";
 import { automationStyle } from "$lib/utils";
 import { workflowStore } from "$lib/workflowRunStore.svelte";
 import { resolveLocale } from "$shared/i18n";
-import type { WebSocketMessage } from "../../shared/types";
+import type { WebSocketMessage } from "../../shared/websocket";
 import PortalAccountNotice from "./components/PortalAccountNotice.svelte";
 import Sidebar from "./components/Sidebar.svelte";
 import UserMenu from "./components/UserMenu.svelte";

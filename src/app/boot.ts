@@ -10,7 +10,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
-import type { WebSocketMessage } from "@shared/types";
+import type { WebSocketMessage } from "@shared/websocket";
 import { AuthService, seedAuth, setIdentityMinter, UserStore } from "@src/auth";
 import {
   AUTH_ADMIN_PASSWORD,

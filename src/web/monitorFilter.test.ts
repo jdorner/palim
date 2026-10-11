@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import type { JobEntry } from "@shared/types";
+import type { JobEntry } from "@shared/jobs";
 import type { ResolvedPrincipal } from "@src/auth";
 import { buildAbility } from "@src/auth";
 import { QueueMonitor } from "./monitor";

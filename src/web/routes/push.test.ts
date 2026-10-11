@@ -3,7 +3,7 @@
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { WebSocketMessage } from "@shared/types";
+import type { WebSocketMessage } from "@shared/websocket";
 import { getDb } from "@src/db";
 import { createPushService } from "@src/push";
 import { getSessionStore } from "@src/session";

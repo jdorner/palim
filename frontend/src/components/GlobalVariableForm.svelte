@@ -11,7 +11,7 @@ import { Button } from "$lib/components/ui/button";
 import { Card, CardContent, CardHeader } from "$lib/components/ui/card";
 import { ensureOk } from "$lib/http";
 import { i18n, t } from "$lib/i18n.svelte";
-import type { GlobalVariableEntry } from "../../../shared/types";
+import type { GlobalVariableEntry } from "../../../shared/variables";
 
 /** Maximum length of a variable value in characters (mirrors the API limit). */
 const MAX_VALUE_LEN = 65536;

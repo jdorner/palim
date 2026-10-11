@@ -10,7 +10,7 @@
  */
 
 import type { ExtensionUiPage } from "@shared/extensions";
-import type { WebSocketMessage } from "@shared/types";
+import type { WebSocketMessage } from "@shared/websocket";
 import type { ManagedQueuePort } from "@src/queue";
 import createLogger from "logging";
 import type { LoadedExtension } from "../internalTypes";

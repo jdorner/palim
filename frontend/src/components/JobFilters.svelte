@@ -1,7 +1,7 @@
 <script lang="ts">
 import { t } from "$lib/i18n.svelte";
 import { statusLabel } from "$lib/i18nCore";
-import type { JobEntry } from "../../../shared/types";
+import type { JobEntry } from "../../../shared/jobs";
 
 let {
   selectedStatuses = $bindable(new Set<string>()),

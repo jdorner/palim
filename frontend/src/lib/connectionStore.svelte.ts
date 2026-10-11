@@ -6,7 +6,7 @@
  * connection logic previously spread across App.svelte, appStore, and auth.
  */
 
-import type { WebSocketMessage } from "../../../shared/types";
+import type { WebSocketMessage } from "../../../shared/websocket";
 import { buildWsConnection, connected, hasConnected } from "./appStore";
 import { forceLogout } from "./auth";
 import { chatStream } from "./chatStreamStore.svelte";

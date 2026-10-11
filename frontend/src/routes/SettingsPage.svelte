@@ -16,7 +16,8 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$
 import { t, tx } from "$lib/i18n.svelte";
 import { modelStore } from "$lib/modelStore.svelte";
 import { settings } from "$lib/settingsStore.svelte";
-import type { AvailableModel, ExtensionInfo, ModelIntent } from "../../../shared/types";
+import type { ExtensionInfo } from "../../../shared/extensions";
+import type { AvailableModel, ModelIntent } from "../../../shared/models";
 import GlobalSecretForm from "../components/GlobalSecretForm.svelte";
 import GlobalVariableForm from "../components/GlobalVariableForm.svelte";
 import IntentModelSelector from "../components/IntentModelSelector.svelte";
