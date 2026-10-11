@@ -52,6 +52,7 @@ The web UI is served at `http://localhost:3000` by default (configurable via `WE
 | `AUTH_ADMIN_PASSWORD`  | Seeded admin password (empty = generate + log) | -                          |
 | `AUTH_SESSION_TTL_MS`  | Login token lifetime (ms)                      | `604800000` (7 days)       |
 | `DATA_DIR`             | Directory for databases and generated content  | `<AGENT_WORK_DIR>/.palim/` |
+| `HITL_ENABLED`         | Enable human tasks (humanTask step, portal API + app; experimental) | `false` |
 | `PORTAL_PUBLIC_URL`    | Public URL of the portal (deep links, hint for portal accounts) | - |
 | `TELEGRAM_BOT_TOKEN`   | Telegram bot token                             | -                          |
 | `EXT_TELEGRAM_CHAT_ID` | Default Telegram chat ID                       | -                          |
@@ -310,7 +311,7 @@ Workflows (`src/extensions/core/workflows/`) are directed acyclic graphs: a `ste
 
 `waitFor` nodes park their branch on a signal record (`workflow_signals`), one per waiting step of a run, so a signal ID is an instance-scoped address. All delivery paths (`POST /ext/workflows/runs/:runId/steps/:slug/signal`, `/signals/:signalId`, the legacy `/runs/:runId/signal/:event`, and the `emit` step) go through `deliverSignal` (`signalDelivery.ts`): run-active check, source check, `inputSchema` validation (`src/utils/jsonSchema.ts`), atomic claim, timer cancel, resume. `emit` only reaches waits with `scope: "broadcast"` (default is `instance`) and is narrowed by `correlate` (correlation key) and `targetRun`. Timeouts are re-armed at boot from `createdAt + timeoutMs`.
 
-`humanTask` nodes (`humanTask.ts`, registered in the coordinator like `waitFor`) create a portal task through `ctx.internal.hitl` (the `src/hitl/` service) and park on an instance-scoped signal with `source: "humanTask"`, which only `deliverSignal(..., { via: "hitl" })` may deliver. `humanTaskSource.ts` registers the `workflow` task source: answers resume the run, a manager cancel fails it, and the signal timeout hook expires the task (resuming with `outcome: "expired"` when `onTimeout: "expire"`). Any `workflow_failed` broadcast and run deletion cancel the run's open tasks. The step's output schema is built in (`humanTaskOutputSchema`).
+`humanTask` nodes (experimental, only with `HITL_ENABLED=true`; otherwise boot creates no HITL service, the portal API answers 503, `/portal/` is not served, the step fails validation, and the editor hides it) (`humanTask.ts`, registered in the coordinator like `waitFor`) create a portal task through `ctx.internal.hitl` (the `src/hitl/` service) and park on an instance-scoped signal with `source: "humanTask"`, which only `deliverSignal(..., { via: "hitl" })` may deliver. `humanTaskSource.ts` registers the `workflow` task source: answers resume the run, a manager cancel fails it, and the signal timeout hook expires the task (resuming with `outcome: "expired"` when `onTimeout: "expire"`). Any `workflow_failed` broadcast and run deletion cancel the run's open tasks. The step's output schema is built in (`humanTaskOutputSchema`).
 
 The `http-request`, `fail`, `noop`, `chunk`, `set-variables`, and `start-workflow` step types are provided by the `core-wf-steps` extension.
 

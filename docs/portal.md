@@ -6,6 +6,16 @@ The portal is a small, mobile-first web app in `portal/`. It talks to Palim only
 
 ## Setting It Up
 
+### Enable Human Tasks
+
+Human tasks and the portal are experimental and off by default. Turn them on in `.env` and restart Palim:
+
+```bash
+HITL_ENABLED=true
+```
+
+While it is off, the workflow editor does not offer the *Human task* step, workflows that use one show a warning and fail when the step is reached, the portal API answers `503`, and `/portal/` is not served. Existing tasks and portal accounts are kept and come back when you turn it on again.
+
 ### Build
 
 ```bash

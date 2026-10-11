@@ -65,7 +65,7 @@ The `http-request` step type supports additional options: custom `headers`, `tim
 - `if` - conditional branching; branches are expressed as edges with `branch: "then"` / `branch: "else"`
 - `case` - multi-way branching; `paths` is an array of branch key strings, branches connected via `branch` edges. When nothing matches, the run takes the branch named by `default` (a path key or a key of its own), or else an edge with `branch: "default"`; without either, the run fails
 - `waitFor` - pauses its own branch until an external signal arrives (blocks only its successors, not the whole run)
-- `humanTask` - asks a person in the portal and pauses its own branch until they answer (see [Human Tasks](#human-tasks))
+- `humanTask` - asks a person in the portal and pauses its own branch until they answer (see [Human Tasks](#human-tasks)) - experimental, requires `HITL_ENABLED=true`
 - `emit` - broadcasts a signal to workflows waiting on that event (fire-and-forget)
 - `fail` - aborts the run with a message (provided by `core-wf-steps`)
 

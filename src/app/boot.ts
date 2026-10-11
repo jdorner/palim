@@ -19,6 +19,7 @@ import {
   DATA_DIR,
   EXTENSIONS_DIR,
   EXTERNAL_EXTENSIONS_DIR,
+  HITL_ENABLED,
   PROJECT_DIR,
   WEB_HOST,
   WEB_PORT,
@@ -254,12 +255,16 @@ export class AppBootstrap {
     const authService = new AuthService(userStore, { sessionTtlMs: AUTH_SESSION_TTL_MS });
 
     // ---------------------------------------------------------------------------
-    // Initialize human tasks (HITL), answered by users in the portal
+    // Initialize human tasks (HITL), answered by users in the portal.
+    // Experimental: only when HITL_ENABLED is set.
     // ---------------------------------------------------------------------------
-    const hitlService = createHitlService({
-      store: new TaskStore(getDb()),
-      directory: createUserDirectory(userStore),
-    });
+    const hitlService = HITL_ENABLED
+      ? createHitlService({
+          store: new TaskStore(getDb()),
+          directory: createUserDirectory(userStore),
+        })
+      : undefined;
+    if (!HITL_ENABLED) log.info("Human tasks (HITL) are disabled (set HITL_ENABLED=true to enable)");
     try {
       const seed = await seedAuth({
         userStore,

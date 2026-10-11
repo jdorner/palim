@@ -3,7 +3,7 @@
  *
  * - `POST /api/auth/login` - exchange username/password for an opaque bearer token.
  * - `POST /api/auth/logout` - revoke the presented bearer token.
- * - `GET /api/auth/me` - return the authenticated user, serialized ability, and portal URL (null when unset).
+ * - `GET /api/auth/me` - return the authenticated user, serialized ability, portal URL (null when unset), and enabled features.
  * - `PUT /api/auth/me/locale` - set or clear the caller's preferred UI locale.
  *
  * @module
@@ -13,7 +13,7 @@ import { SUPPORTED_LOCALES } from "@shared/i18n";
 import { Type } from "@sinclair/typebox";
 import type { AuthResolver, UserStore } from "@src/auth";
 import { serializeAbility } from "@src/auth";
-import { PORTAL_PUBLIC_URL } from "@src/config";
+import { HITL_ENABLED, PORTAL_PUBLIC_URL } from "@src/config";
 import { Elysia } from "elysia";
 import { clientAddress, extractBearerToken, getPrincipal } from "../auth";
 import type { LoginThrottle } from "../loginThrottle";
@@ -117,6 +117,7 @@ export function authRoutes(
         user: principal.user,
         ability: serializeAbility(principal),
         portalUrl: PORTAL_PUBLIC_URL || null,
+        features: { hitl: HITL_ENABLED },
       });
     })
     .put(

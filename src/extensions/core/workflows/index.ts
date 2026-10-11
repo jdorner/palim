@@ -433,7 +433,7 @@ export function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: Ex
         warnings.push({
           stepSlug: slug,
           field: "type",
-          message: "Human tasks are not available (HITL not configured)",
+          message: "Human tasks are disabled (set HITL_ENABLED=true)",
         });
       }
       // One warning per field: a missing property also fails its type check.

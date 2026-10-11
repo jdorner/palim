@@ -143,3 +143,18 @@ export const PORTAL_PUBLIC_URL: string = (() => {
   assert(/^https?:\/\/[^\s]+$/.test(raw), `Invalid PORTAL_PUBLIC_URL: "${raw}" (must be an http(s) URL)`);
   return raw.replace(/\/+$/, "");
 })();
+
+/**
+ * Whether human tasks (HITL) are enabled: the `humanTask` workflow step, the
+ * portal API and the bundled portal app. Experimental, so off by default; set
+ * `HITL_ENABLED=true` to turn it on. Stored tasks and portal accounts are kept
+ * while it is off, but nothing can create or answer tasks.
+ */
+export const HITL_ENABLED: boolean = (() => {
+  const raw = process.env.HITL_ENABLED?.trim().toLowerCase() ?? "";
+  assert(
+    ["", "true", "false", "1", "0"].includes(raw),
+    `Invalid HITL_ENABLED: "${process.env.HITL_ENABLED}" (must be "true" or "false")`,
+  );
+  return raw === "true" || raw === "1";
+})();

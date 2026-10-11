@@ -205,22 +205,25 @@ const inputClass = "w-full rounded-md border border-input bg-background px-3 py-
       <p id="user-locale-hint" class="text-xs text-muted-foreground">{t("users.languageHint")}</p>
     </div>
 
-    <div class="space-y-1">
-      <label for="user-kind" class="text-xs font-medium text-muted-foreground">{t("users.accountType")}</label>
-      <select
-        id="user-kind"
-        value={kind}
-        onchange={(e) => changeKind(e.currentTarget.value as UserKind)}
-        class="{inputClass} sm:w-1/2"
-        aria-describedby="user-kind-hint"
-      >
-        <option value="operator">{t("users.kindOperator")}</option>
-        <option value="portal">{t("users.kindPortal")}</option>
-      </select>
-      <p id="user-kind-hint" class="text-xs text-muted-foreground">
-        {kind === "portal" ? t("users.kindPortalHint") : t("users.kindOperatorHint")}
-      </p>
-    </div>
+    <!-- Portal accounts only matter with human tasks; existing ones stay editable so they can be switched back. -->
+    {#if identity.hitlEnabled || initialKind === "portal"}
+      <div class="space-y-1">
+        <label for="user-kind" class="text-xs font-medium text-muted-foreground">{t("users.accountType")}</label>
+        <select
+          id="user-kind"
+          value={kind}
+          onchange={(e) => changeKind(e.currentTarget.value as UserKind)}
+          class="{inputClass} sm:w-1/2"
+          aria-describedby="user-kind-hint"
+        >
+          <option value="operator">{t("users.kindOperator")}</option>
+          <option value="portal">{t("users.kindPortal")}</option>
+        </select>
+        <p id="user-kind-hint" class="text-xs text-muted-foreground">
+          {kind === "portal" ? t("users.kindPortalHint") : t("users.kindOperatorHint")}
+        </p>
+      </div>
+    {/if}
 
     {#if isCreate}
       <PasswordFields idPrefix="new-user" bind:password bind:confirm />

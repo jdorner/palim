@@ -5,6 +5,7 @@
  * Used by both AddStepNode (the dashed circle menu) and the edge insert popup.
  */
 import { t } from "$lib/i18n.svelte";
+import { identity } from "$lib/identity.svelte";
 import { visualForStepType } from "$lib/nodeVisuals";
 
 interface StepTypeEntry {
@@ -38,7 +39,10 @@ const builtinTypes = $derived([
 const builtinTypeSlugs = new Set<string>(["agent", "iterator", "if", "case", "waitFor", "humanTask", "emit"]);
 
 let controlFlowTypes = $derived(
-  builtinTypes.filter((t) => t.category === "control-flow").sort((a, b) => a.label.localeCompare(b.label)),
+  builtinTypes
+    // Human tasks are experimental and only offered when the server enables them.
+    .filter((t) => t.category === "control-flow" && (t.type !== "humanTask" || identity.hitlEnabled))
+    .sort((a, b) => a.label.localeCompare(b.label)),
 );
 let customTypes = $derived(customStepTypes.filter((t) => !builtinTypeSlugs.has(t.type)));
 let customActionTypes = $derived(

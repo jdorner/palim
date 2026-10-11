@@ -72,7 +72,7 @@ interface WebServerDeps {
   authService?: AuthService;
   /** User store for account/role lookups (used by admin routes). */
   userStore?: UserStore;
-  /** Human task (HITL) service backing the portal API. */
+  /** Human task (HITL) service backing the portal API. Absent when HITL is disabled. */
   hitlService?: HitlService;
 }
 
@@ -117,8 +117,8 @@ export async function createWebServer(deps: WebServerDeps) {
   const app = new Elysia()
     .get("/health", () => "OK")
     .use(compression())
-    // The portal (end-user app), when built, at /portal/ (before the operator UI's catch-all).
-    .use(await portalStatic())
+    // The portal (end-user app), when built and HITL is enabled, at /portal/ (before the operator UI's catch-all).
+    .use(deps.hitlService ? await portalStatic() : new Elysia({ name: "portal-static" }))
     .use(
       await staticPlugin({
         assets: "./frontend/dist",

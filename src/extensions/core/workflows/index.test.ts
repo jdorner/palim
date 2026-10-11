@@ -270,7 +270,7 @@ describe("getDependencyWarnings (custom step-type config)", () => {
     const warnings = getDependencyWarnings(wf, mockCtx({}));
     expect(warnings).toHaveLength(1);
     expect(warnings[0]!.field).toBe("type");
-    expect(warnings[0]!.message).toContain("not available");
+    expect(warnings[0]!.message).toContain("disabled");
   });
 });
 
@@ -347,11 +347,11 @@ describe("getDependencyWarnings (humanTask)", () => {
     expect(warnings.filter((w) => w.field === "title")).toHaveLength(1);
   });
 
-  test("warns when human tasks are not available", () => {
+  test("warns when human tasks are disabled", () => {
     const warnings = getDependencyWarnings(
       wf({ type: "humanTask", title: "Approve", assignees: { users: ["a"] } }),
       mockCtx(false),
     );
-    expect(warnings.some((w) => w.message.includes("not available"))).toBe(true);
+    expect(warnings.some((w) => w.message.includes("disabled"))).toBe(true);
   });
 });

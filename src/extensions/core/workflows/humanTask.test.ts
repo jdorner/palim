@@ -233,7 +233,7 @@ describe("humanTask node", () => {
 
     const run = await reachReview(def, deps);
 
-    expect(dagRunStore.get(run.id)!.failureReason).toContain("not available");
+    expect(dagRunStore.get(run.id)!.failureReason).toContain("disabled");
   });
 
   test("onTimeout expire resumes the run with outcome expired", async () => {

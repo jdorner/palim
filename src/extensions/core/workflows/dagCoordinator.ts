@@ -1252,7 +1252,7 @@ async function registerHumanTaskNode(
 ): Promise<void> {
   const { log, broadcast, hitl } = deps;
   if (!hitl) {
-    failRun(runId, slug, "Human tasks are not available (HITL service not configured)", deps);
+    failRun(runId, slug, "Human tasks are disabled (set HITL_ENABLED=true)", deps);
     return;
   }
 
