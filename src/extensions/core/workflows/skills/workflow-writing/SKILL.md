@@ -26,7 +26,7 @@ When creating or modifying a workflow, be sure to follow these steps meticulousl
 
 Deciding between the two:
 
-- Deterministic work ("convert / fetch / move / read / write / transform this file", "call this API", "branch on a value", "loop over a list") -> a non-agent step type. Built-in options are `http-request`, `set-variables`, `if`, `case`, `iterator`/`aggregator`, `fail`, `emit`, `waitFor`, and extensions may add more.
+- Deterministic work ("convert / fetch / move / read / write / transform this file", "call this API", "branch on a value", "loop over a list") -> a non-agent step type. Built-in options are `http-request`, `set-variables`, `if`, `case`, `iterator`/`aggregator`, `fail`, `emit`, `waitFor`, and extensions add more (e.g. `convert` from the converter extension turns an image or PDF in the work directory into markdown, `datatable-*` from datatables).
 - Open-ended reasoning -> an `agent` step.
 
 Do not assume the only way to run a command or use a skill is inside an `agent` step. Run `workflow step-types` to see which step types this deployment actually has before defaulting to `agent`; a deployment may provide non-agent step types that run shell commands or skill programs directly.

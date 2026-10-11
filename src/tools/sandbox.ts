@@ -18,6 +18,13 @@ import type { SkillEntry } from "./skillEntry";
 
 export type { SkillEntry } from "./skillEntry";
 
+/**
+ * Largest file the work-dir filesystem reads at once (sandbox and workflow
+ * steps). just-bash defaults to 10 MB, which phone photos and scanned PDFs
+ * easily exceed.
+ */
+export const WORK_DIR_MAX_FILE_READ_BYTES = 100 * 1024 * 1024;
+
 const SANDBOX_HOME_DIR = "/home/user" as const;
 const SANDBOX_SKILLS_DIR = "/skills" as const;
 
@@ -303,7 +310,7 @@ export async function createShell(options: CreateShellOptions): Promise<Bash> {
   basefs.mkdirSync("/tmp", { recursive: true });
 
   const fs = new MountableFs({ base: basefs });
-  fs.mount(agentWorkDir, new ReadWriteFs({ root: hostWorkDir }));
+  fs.mount(agentWorkDir, new ReadWriteFs({ root: hostWorkDir, maxFileReadSize: WORK_DIR_MAX_FILE_READ_BYTES }));
 
   // Resolve all skills upfront (fail-fast on missing skills)
   const resolvedSkills = options.skills.map((name) => {

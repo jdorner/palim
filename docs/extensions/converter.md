@@ -1,6 +1,6 @@
 # Converter
 
-The Converter extension transforms files (PDFs, images) into markdown text using a vision LLM. It exposes an HTTP endpoint that accepts a file path or base64-encoded data, queues the conversion job, and returns the extracted text.
+The Converter extension transforms files (PDFs, images) into markdown text using a vision LLM. Workflows use its `convert` step, agents the `convert` shell command, and other callers the HTTP endpoint. Each conversion runs as a job on the `converter:jobs` queue.
 
 ## Enabling
 
@@ -38,6 +38,27 @@ Each setting can also be overridden via environment variable (highest precedence
 | --- | --- |
 | Image Size | `EXT_CONVERTER_RESIZE_IMAGE_PX` |
 | Timeout | `EXT_CONVERTER_CONVERSION_TIMEOUT_MS` |
+
+## Workflow Step: convert
+
+Converts a file from the work directory to markdown, without an agent step in between.
+
+```json5
+"read-receipt": {
+  "type": "convert",
+  "file": "{{trigger.payload.file.path}}",         // path relative to the work directory
+  "prompt": "Extract date, vendor and total.",     // optional, replaces the OCR instructions
+  "output": "receipts/{{run.id}}.md"               // optional, also saves the markdown
+}
+```
+
+| Field | Description |
+| --- | --- |
+| `file` | Image or PDF, relative to the work directory. Supports `{{template}}` expressions. Files outside the work directory can't be read. |
+| `prompt` | Optional instructions replacing the default OCR prompt. |
+| `output` | Optional path to also write the markdown to. Folders are created as needed. |
+
+The result is `{ markdown, file, output }`, so later steps use `{{steps.read-receipt.result.markdown}}`. The step fails for missing files and unsupported file types, and when the conversion times out (see the Timeout setting).
 
 ## HTTP API
 

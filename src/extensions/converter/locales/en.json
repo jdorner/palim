@@ -9,5 +9,24 @@
       "description": "Maximum dimension to resize images to before sending to vision model",
       "title": "Image Size"
     }
+  },
+  "steps": {
+    "convert": {
+      "label": "Convert to Markdown",
+      "config": {
+        "file": {
+          "title": "File",
+          "description": "Path of the image or PDF, relative to the work directory. Supports {{template}} expressions."
+        },
+        "prompt": {
+          "title": "Prompt",
+          "description": "Instructions replacing the default OCR prompt (e.g. what to extract). Supports {{template}} expressions."
+        },
+        "output": {
+          "title": "Save as",
+          "description": "Optional path (relative to the work directory) to also write the markdown to. Supports {{template}} expressions."
+        }
+      }
+    }
   }
 }
