@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "useDefineForClassFields": true,
+    "module": "ESNext",
+    "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "moduleResolution": "bundler",
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "checkJs": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "strict": true,
+    "skipLibCheck": true,
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["svelte", "vite/client"],
+    "paths": {
+      "$app": ["./src/lib"],
+      "$app/*": ["./src/lib/*"],
+      "$lib": ["../frontend/src/lib"],
+      "$lib/*": ["../frontend/src/lib/*"],
+      "$shared": ["../shared"],
+      "$shared/*": ["../shared/*"],
+      "@palim/ui": ["../frontend/src/lib/extensionKit.ts"]
+    }
+  },
+  "include": ["src/**/*.ts", "src/**/*.svelte", "src/locales/*.json", "../shared/**/*.ts", "vite.config.ts"],
+  "exclude": ["src/**/*.test.ts", "../shared/**/*.test.ts"]
+}

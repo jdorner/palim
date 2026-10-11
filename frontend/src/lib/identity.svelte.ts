@@ -24,6 +24,10 @@ class IdentityStore {
   user = $state<AuthenticatedUser | null>(null);
   /** The serialized ability, or null when unknown/logged out. */
   ability = $state<SerializedAbility | null>(null);
+  /** Public URL of the portal (from `GET /api/auth/me`), or null when not configured. */
+  portalUrl = $state<string | null>(null);
+  /** Whether human tasks (HITL) are enabled on the server (from `GET /api/auth/me`). */
+  hitlEnabled = $state(false);
 
   /** Whether an authenticated identity is currently loaded. */
   get isAuthenticated(): boolean {
@@ -47,9 +51,16 @@ class IdentityStore {
         this.clear();
         return false;
       }
-      const data = (await res.json()) as { user: AuthenticatedUser; ability: SerializedAbility };
+      const data = (await res.json()) as {
+        user: AuthenticatedUser;
+        ability: SerializedAbility;
+        portalUrl?: string | null;
+        features?: { hitl?: boolean };
+      };
       this.user = data.user;
       this.ability = data.ability;
+      this.portalUrl = data.portalUrl ?? null;
+      this.hitlEnabled = data.features?.hitl ?? false;
       return true;
     } catch {
       this.clear();
@@ -72,6 +83,8 @@ class IdentityStore {
   clear(): void {
     this.user = null;
     this.ability = null;
+    this.portalUrl = null;
+    this.hitlEnabled = false;
   }
 
   /**

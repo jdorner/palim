@@ -7,11 +7,13 @@ import { Button } from "$lib/components/ui/button";
 import { Dialog } from "$lib/components/ui/dialog";
 import { t } from "$lib/i18n.svelte";
 import { identity } from "$lib/identity.svelte";
+import { ROLE_PORTAL_USER, type UserKind } from "$shared/auth";
 import { isLocale, LOCALE_NAMES, type Locale, SUPPORTED_LOCALES } from "$shared/i18n";
 import { createUser, deleteUser, updateUser } from "./api";
 import PasswordFields from "./PasswordFields.svelte";
 import {
   deleteLockReason,
+  isPortalRole,
   type RoleRow,
   roleIdsForNames,
   roleLockReason,
@@ -49,6 +51,8 @@ let locale = $state<Locale | "">(initialLocale);
 let password = $state("");
 let confirm = $state("");
 let roleIds = $state<string[]>([...initialRoleIds]);
+const initialKind: UserKind = untrack(() => initial?.kind ?? "operator");
+let kind = $state<UserKind>(initialKind);
 let error = $state<string | null>(null);
 let saving = $state(false);
 let confirmingDelete = $state(false);
@@ -88,7 +92,20 @@ function toggleRole(id: string) {
 }
 
 function lockReason(role: RoleRow): string | null {
+  if (kind === "portal" && !isPortalRole(role)) return t("users.reasonNotForPortal");
   return user ? roleLockReason(user, role, users, currentUserId, t) : null;
+}
+
+/** Switching to a portal account drops roles it may not hold and preselects the portal-user role. */
+function changeKind(next: UserKind) {
+  kind = next;
+  if (next !== "portal") return;
+  roleIds = roleIds.filter((id) => {
+    const role = roles.find((r) => r.id === id);
+    return role !== undefined && isPortalRole(role);
+  });
+  const portalRole = roles.find((r) => r.name === ROLE_PORTAL_USER);
+  if (roleIds.length === 0 && portalRole) roleIds = [portalRole.id];
 }
 
 const rolesChanged = $derived(
@@ -96,7 +113,8 @@ const rolesChanged = $derived(
 );
 const displayNameChanged = $derived(displayName.trim() !== (user?.displayName ?? ""));
 const localeChanged = $derived(locale !== initialLocale);
-const dirty = $derived(isCreate || rolesChanged || displayNameChanged || localeChanged);
+const kindChanged = $derived(kind !== initialKind);
+const dirty = $derived(isCreate || rolesChanged || displayNameChanged || localeChanged || kindChanged);
 
 async function save(e: SubmitEvent) {
   e.preventDefault();
@@ -119,6 +137,7 @@ async function save(e: SubmitEvent) {
         ...(displayNameChanged ? { displayName: displayName.trim() } : {}),
         ...(rolesChanged ? { roleIds } : {}),
         ...(localeChanged ? { locale: locale || null } : {}),
+        ...(kindChanged ? { kind } : {}),
       });
       // Editing your own language applies it right away.
       if (localeChanged && user.id === identity.user?.id) {
@@ -131,6 +150,7 @@ async function save(e: SubmitEvent) {
         password,
         ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
         ...(locale ? { locale } : {}),
+        kind,
         roleIds,
       });
       onSaved(t("users.createdUser", { username: username.trim() }));
@@ -184,6 +204,26 @@ const inputClass = "w-full rounded-md border border-input bg-background px-3 py-
       </select>
       <p id="user-locale-hint" class="text-xs text-muted-foreground">{t("users.languageHint")}</p>
     </div>
+
+    <!-- Portal accounts only matter with human tasks; existing ones stay editable so they can be switched back. -->
+    {#if identity.hitlEnabled || initialKind === "portal"}
+      <div class="space-y-1">
+        <label for="user-kind" class="text-xs font-medium text-muted-foreground">{t("users.accountType")}</label>
+        <select
+          id="user-kind"
+          value={kind}
+          onchange={(e) => changeKind(e.currentTarget.value as UserKind)}
+          class="{inputClass} sm:w-1/2"
+          aria-describedby="user-kind-hint"
+        >
+          <option value="operator">{t("users.kindOperator")}</option>
+          <option value="portal">{t("users.kindPortal")}</option>
+        </select>
+        <p id="user-kind-hint" class="text-xs text-muted-foreground">
+          {kind === "portal" ? t("users.kindPortalHint") : t("users.kindOperatorHint")}
+        </p>
+      </div>
+    {/if}
 
     {#if isCreate}
       <PasswordFields idPrefix="new-user" bind:password bind:confirm />

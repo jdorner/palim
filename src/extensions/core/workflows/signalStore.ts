@@ -23,7 +23,7 @@ import { nanoid } from "nanoid";
 import { workflowSignals } from "./signalSchema";
 
 /** Signal record status values. */
-export type SignalStatus = "waiting" | "received" | "timed_out";
+export type SignalStatus = "waiting" | "received" | "timed_out" | "cancelled";
 
 /**
  * Delivery scope of a signal.
@@ -373,6 +373,24 @@ export function markTimedOut(id: string): boolean {
     .set({
       status: "timed_out",
     })
+    .where(and(eq(workflowSignals.id, id), eq(workflowSignals.status, "waiting")))
+    .returning({ id: workflowSignals.id })
+    .all();
+
+  return claimed.length === 1;
+}
+
+/**
+ * Atomically marks a signal as cancelled (its wait was abandoned, e.g. the
+ * human task behind it was cancelled).
+ *
+ * @param id - The signal record identifier
+ * @returns True if this call cancelled the signal, false if it was no longer waiting
+ */
+export function markCancelled(id: string): boolean {
+  const claimed = db
+    .update(workflowSignals)
+    .set({ status: "cancelled" })
     .where(and(eq(workflowSignals.id, id), eq(workflowSignals.status, "waiting")))
     .returning({ id: workflowSignals.id })
     .all();

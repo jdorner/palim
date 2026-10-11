@@ -1,7 +1,9 @@
 <script lang="ts">
-import ArrowCounterClockwiseIcon from "phosphor-svelte/lib/ArrowCounterClockwiseIcon";
+import HourglassIcon from "phosphor-svelte/lib/HourglassIcon";
+import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import PauseCircleIcon from "phosphor-svelte/lib/PauseCircleIcon";
-import { onDestroy, onMount } from "svelte";
+import { onDestroy, onMount, untrack } from "svelte";
+import { onReconnect } from "$lib/appStore";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
@@ -15,8 +17,12 @@ import { formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import { buildStatusMap, type GraphStepStatus } from "$lib/workflowRunStatus";
 import { type RunStep, workflowStore } from "$lib/workflowRunStore.svelte";
 import ChatMarkdown from "../components/ChatMarkdown.svelte";
+import DeleteRunButton from "../components/DeleteRunButton.svelte";
 import DetailPanelModeToggle from "../components/DetailPanelModeToggle.svelte";
+import HumanTaskCard from "../components/HumanTaskCard.svelte";
 import SignalDeliveryForm from "../components/SignalDeliveryForm.svelte";
+import StatusDot from "../components/StatusDot.svelte";
+import StepPanelHeader from "../components/StepPanelHeader.svelte";
 import WorkflowGraph from "../components/WorkflowGraph.svelte";
 import { navigate, route } from "../router";
 
@@ -24,9 +30,12 @@ type StepStatus = GraphStepStatus;
 
 let loading = $state(true);
 let error = $state<string | null>(null);
-let retrying = $state(false);
 let cancelling = $state(false);
-let inspectedStep = $state<RunStep | null>(null);
+/**
+ * The step shown in the panel: its slug and graph type, plus a placeholder for
+ * steps the run has not recorded (skipped branches).
+ */
+let inspected = $state<{ slug: string; type: string; placeholder?: RunStep } | null>(null);
 let stepLogs = $state<Array<{ message: string; timestamp: number }>>([]);
 let loadingLogs = $state(false);
 
@@ -42,6 +51,45 @@ const workflowName = $derived(params.name ?? "");
 
 /** Reactive reference to the store's run state. */
 const run = $derived(workflowStore.run);
+
+/**
+ * The inspected step, read live from the run so status changes arriving over
+ * the WebSocket update the open panel. Steps first seen via WebSocket events
+ * have no type; the graph node's type fills in.
+ */
+const inspectedStep = $derived.by((): RunStep | null => {
+  if (!inspected) return null;
+  const live = run?.steps.find((s) => s.slug === inspected!.slug);
+  if (live) return { ...live, type: live.type || inspected.type };
+  return inspected.placeholder ?? null;
+});
+
+/** Job whose logs the panel shows, re-read whenever the step's status changes. */
+const logSource = $derived(inspectedStep?.jobId ? `${inspectedStep.jobId}:${inspectedStep.status}` : "");
+
+let logRequest = 0;
+$effect(() => {
+  const source = logSource;
+  const jobId = source.slice(0, source.lastIndexOf(":"));
+  const request = ++logRequest;
+  if (!jobId) {
+    loadingLogs = false;
+    return;
+  }
+  // Keep the logs already shown while refreshing; only the first load shows the spinner.
+  if (untrack(() => stepLogs.length) === 0) loadingLogs = true;
+  authFetch(`/api/jobs/${jobId}/logs`)
+    .then(async (res) => {
+      if (request !== logRequest) return;
+      if (res.ok) stepLogs = ((await res.json()).logs ?? []) as typeof stepLogs;
+    })
+    .catch(() => {
+      /* ignore */
+    })
+    .finally(() => {
+      if (request === logRequest) loadingLogs = false;
+    });
+});
 
 /**
  * Custom step types registered by enabled extensions, derived from the
@@ -72,10 +120,18 @@ const statusMap = $derived.by((): Record<string, StepStatus> => {
   );
 });
 
-async function fetchRun() {
+/**
+ * Loads the run detail and workflow definition.
+ * @param silent - Refresh in place (after a reconnect) without the loading state.
+ */
+async function fetchRun(silent = false) {
   if (!runId) return;
-  loading = true;
-  error = null;
+  if (!silent) {
+    loading = true;
+    error = null;
+  }
+  // Buffer live events until the snapshot is tracked, so none are lost in between.
+  workflowStore.prepare(runId);
   try {
     // Fetch both run data and workflow definition in parallel
     const [runRes, defRes] = await Promise.all([
@@ -95,26 +151,13 @@ async function fetchRun() {
       definitionEdges = def.edges ?? [];
     }
   } catch (err) {
-    error = err instanceof Error ? err.message : t("runs.loadFailed");
+    if (!silent) error = err instanceof Error ? err.message : t("runs.loadFailed");
   } finally {
     loading = false;
   }
 }
 
 let sidebarOpen = $state(false);
-
-async function retryRun() {
-  if (!runId) return;
-  retrying = true;
-  try {
-    const res = await authFetch(`/ext/workflows/runs/${runId}/retry`, { method: "POST" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  } catch (err) {
-    console.error("Failed to retry workflow run:", err);
-  } finally {
-    retrying = false;
-  }
-}
 
 async function cancelRun() {
   if (!runId) return;
@@ -130,12 +173,16 @@ async function cancelRun() {
   }
 }
 
-async function openSidebar(step: { slug: string; type: string; status?: string; jobId?: string }) {
+function openSidebar(step: { slug: string; type: string; status?: string; jobId?: string }) {
   const found = run?.steps.find((s) => s.slug === step.slug);
   if (!found) {
     // Step exists in definition but was not executed (skipped) - just show status
     if (step.status === "skipped") {
-      inspectedStep = { slug: step.slug, type: step.type, status: "waiting", jobId: "" };
+      inspected = {
+        slug: step.slug,
+        type: step.type,
+        placeholder: { slug: step.slug, type: step.type, status: "waiting", jobId: "" },
+      };
       stepLogs = [];
       sidebarOpen = true;
     }
@@ -143,28 +190,14 @@ async function openSidebar(step: { slug: string; type: string; status?: string; 
   }
 
   // Double-clicking the same step toggles the sidebar closed
-  if (inspectedStep?.slug === found.slug && sidebarOpen) {
+  if (inspected?.slug === found.slug && sidebarOpen) {
     closeSidebar();
     return;
   }
 
-  inspectedStep = found;
+  inspected = { slug: step.slug, type: step.type };
   stepLogs = [];
   sidebarOpen = true;
-
-  if (found.jobId) {
-    loadingLogs = true;
-    try {
-      const res = await authFetch(`/api/jobs/${found.jobId}/logs`);
-      if (res.ok) {
-        const data = await res.json();
-        stepLogs = data.logs ?? [];
-      }
-    } catch {
-      /* ignore */
-    }
-    loadingLogs = false;
-  }
 }
 
 function closeSidebar() {
@@ -172,7 +205,7 @@ function closeSidebar() {
   // Delay clearing data so the slide-out animation can play
   setTimeout(() => {
     if (!sidebarOpen) {
-      inspectedStep = null;
+      inspected = null;
       stepLogs = [];
     }
   }, 200);
@@ -190,7 +223,10 @@ function handleKeydown(e: KeyboardEvent) {
 onMount(() => {
   fetchRun();
 });
+// Events sent while the WebSocket was down are lost: reload the run once it is back.
+const unsubReconnect = onReconnect(() => fetchRun(true));
 onDestroy(() => {
+  unsubReconnect();
   workflowStore.untrack();
 });
 </script>
@@ -219,12 +255,13 @@ onDestroy(() => {
         <span class="text-xs text-muted-foreground font-mono">{t("runs.runId", { id: run.runId.slice(0, 8) })}</span>
       </div>
       <div class="flex items-center gap-2">
-        <DetailPanelModeToggle />
         {#if run.status === "failed"}
-          <Button size="sm" variant="default" onclick={retryRun} disabled={retrying}>
-            <ArrowCounterClockwiseIcon size={14} class="mr-1.5" aria-hidden="true" />
-            {retrying ? t("runs.retrying") : t("common.retry")}
-          </Button>
+          <DeleteRunButton
+            runId={run.runId}
+            onDeleted={() => {
+              navigate("/workflows/:name", { params: { name: `${workflowName}` } });
+            }}
+          />
         {/if}
         {#if isRunCancellable(run.status)}
           <Button size="sm" variant="destructive" onclick={cancelRun} disabled={cancelling}>
@@ -234,6 +271,10 @@ onDestroy(() => {
         {/if}
         <Badge variant={statusVariant(run.status)}>{statusLabel(run.status)}</Badge>
       </div>
+    </div>
+
+    <div class="flex justify-end mb-2 shrink-0">
+      <DetailPanelModeToggle />
     </div>
 
     <div class="flex flex-1 min-h-0 gap-0">
@@ -283,30 +324,29 @@ onDestroy(() => {
 {#snippet logPanel()}
   {#if inspectedStep && run}
     <div class="w-95 h-full flex flex-col">
-      <!-- Sidebar header -->
-      <div class="flex items-center gap-2 px-4 pb-2 {detailPanelMode.current === "floating" ? "pt-2" : "pt-0"}">
-        <button
-          type="button"
-          class="shrink-0 p-0 rounded hover:bg-accent text-muted-foreground hover:text-foreground transition-colors"
-          onclick={closeSidebar}
-          aria-label={t("runs.closeLogs")}
-        >
-          ✕
-        </button>
-        <span class="text-sm font-medium truncate">{inspectedStep.slug}</span>
-        <Badge variant={statusVariant(inspectedStep.status)}>{statusLabel(inspectedStep.status)}</Badge>
-      </div>
+      <StepPanelHeader type={inspectedStep.type} subtitle={inspectedStep.slug} onclose={closeSidebar}>
+        {#snippet badge()}
+          <span
+            class="flex items-center gap-1.5 rounded-full bg-black/35 px-2 py-0.5 text-[11px] font-semibold text-white ring-1 ring-white/25"
+          >
+            <StatusDot status={inspectedStep!.status} />
+            {statusLabel(inspectedStep!.status)}
+          </span>
+        {/snippet}
+      </StepPanelHeader>
 
       <!-- Sidebar content -->
       <div class="flex-1 overflow-y-auto min-h-0 p-4">
-        {#if inspectedStep.status === "waiting"}
-          <p class="text-sm text-muted-foreground">{t("runs.waitingPrevious")}</p>
+        {#if inspectedStep.status === "waiting" || inspectedStep.status === "pending"}
+          {@render emptyState(HourglassIcon, t("runs.waitingPrevious"))}
         {:else if inspectedStep.status === "waiting-signal"}
           <div class="flex items-center gap-2 mb-3">
             <PauseCircleIcon size={16} class="text-amber-500" aria-hidden="true" />
             <p class="text-sm text-muted-foreground">{t("runs.waitingSignal")}</p>
           </div>
-          {#if inspectedStep.waitEvent}
+          {#if inspectedStep.type === "humanTask"}
+            <HumanTaskCard runId={run.runId} stepSlug={inspectedStep.slug} />
+          {:else if inspectedStep.waitEvent}
             <SignalDeliveryForm
               runId={run.runId}
               stepSlug={inspectedStep.slug}
@@ -314,10 +354,41 @@ onDestroy(() => {
               inputSchema={inspectedStep.waitInputSchema}
             />
           {/if}
+        {:else if inspectedStep.error}
+          <p class="text-xs font-medium text-muted-foreground mb-1">{t("runs.stepError")}</p>
+          <div
+            class="text-xs font-mono whitespace-pre-wrap wrap-break-word rounded bg-destructive/10 text-destructive p-2"
+          >
+            {inspectedStep.error}
+          </div>
+        {:else if inspectedStep.evaluation}
+          {@const evaluation = inspectedStep.evaluation}
+          <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2 text-xs">
+            <dt class="text-muted-foreground">{t("runs.evaluation.expression")}</dt>
+            <dd class="font-mono break-all">{evaluation.expression}</dd>
+            {#if evaluation.value !== undefined}
+              <dt class="text-muted-foreground">{t("runs.evaluation.value")}</dt>
+              <dd class="font-mono break-all">
+                {#if evaluation.value === null}
+                  <span class="italic text-muted-foreground">{t("runs.evaluation.unresolved")}</span>
+                {:else}
+                  {JSON.stringify(evaluation.value)}
+                {/if}
+              </dd>
+            {/if}
+            {#if evaluation.operator}
+              <dt class="text-muted-foreground">{t("runs.evaluation.comparison")}</dt>
+              <dd class="font-mono break-all">{evaluation.operator} {JSON.stringify(evaluation.operand)}</dd>
+            {/if}
+            <dt class="text-muted-foreground">{t("runs.evaluation.branch")}</dt>
+            <dd class="font-mono font-medium">
+              {evaluation.fallback ? t("runs.evaluation.fallback", { branch: evaluation.branch }) : evaluation.branch}
+            </dd>
+          </dl>
         {:else if loadingLogs}
           <p class="text-sm text-muted-foreground">{t("jobs.loadingLogs")}</p>
         {:else if stepLogs.length === 0}
-          <p class="text-sm text-muted-foreground">{t("runs.noLogs")}</p>
+          {@render emptyState(InfoIcon, t("runs.noLogs"))}
         {:else}
           <div class="space-y-1">
             {#each stepLogs as log}
@@ -335,8 +406,19 @@ onDestroy(() => {
   {/if}
 {/snippet}
 
+<!-- Centered placeholder for a step panel without content. -->
+{#snippet emptyState(
+  Icon: typeof InfoIcon,
+  message: string,
+)}
+  <div class="flex h-full min-h-32 flex-col items-center justify-center gap-2 text-center text-muted-foreground">
+    <Icon size={28} weight="duotone" class="opacity-70" aria-hidden="true" />
+    <p class="text-sm">{message}</p>
+  </div>
+{/snippet}
+
 {#snippet floatingLogPanel()}
-  <div class="h-[28rem] max-h-[60vh] overflow-hidden rounded-lg border border-border bg-background shadow-xl">
+  <div class="h-112 max-h-[60vh] overflow-hidden rounded-lg border border-border bg-background shadow-xl">
     {@render logPanel()}
   </div>
 {/snippet}

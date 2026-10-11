@@ -13,14 +13,14 @@ A workflow is a set of named `steps` plus an `edges` array that wires them toget
 - **Sequential chains** - edge from one step to the next
 - **Parallel fan-out** - a step with multiple outgoing edges dispatches all successors at once
 - **Join / convergence** - a step with multiple incoming edges waits until all predecessors resolve before running
-- **Control flow** - conditional branching (`if`, `case`), data-driven iteration (`iterator`/`aggregator`), external signal gates (`waitFor`), and cross-workflow signaling (`emit`)
+- **Control flow** - conditional branching (`if`, `case`), data-driven iteration (`iterator`/`aggregator`), external signal gates (`waitFor`), human approvals and input (`humanTask`), and cross-workflow signaling (`emit`)
 
 ## Related skills
 
 This skill covers the concept and the CLI. For the details, read the companion skills:
 
 - **Authoring a definition** (schema, edges, prompts, per-step tools/skills, template variables, secrets, triggers, worked examples, execution model): run `skill read workflow-writing`
-- **Step type reference** (every step type's fields and behavior: `agent`, `http-request`, `fail`, `set-variables`, `if`, `case`, `iterator`/`aggregator`, `waitFor`, `emit`): run `skill read workflow-step-types`
+- **Step type reference** (every step type's fields and behavior: `agent`, `http-request`, `fail`, `set-variables`, `if`, `case`, `iterator`/`aggregator`, `waitFor`, `humanTask`, `emit`): run `skill read workflow-step-types`
 
 ## When to use
 

@@ -16,6 +16,7 @@ import type { Logger } from "logging";
 // paths so this module (aliased @ext/types) stays resolvable by external
 // extensions without any @src/@shared alias. See ./publicTypes for the rationale.
 import type {
+  HitlApi,
   JobInfo,
   JobProcessor,
   ManagedQueueOptions,
@@ -1106,6 +1107,12 @@ export interface ExtensionContext {
        */
       has(key: string): boolean;
     };
+    /**
+     * Human tasks (HITL), answered by users in the portal. Undefined when the
+     * HITL service is not configured (e.g. in tests). A registered source
+     * handler must be removed with the returned function in `shutdown()`.
+     */
+    hitl?: HitlApi;
   };
 }
 
@@ -1127,6 +1134,7 @@ export interface Extension {
 // Re-exported queue types for extension use
 // ---------------------------------------------------------------------------
 
+export type { HitlApi, HitlCreateTaskInput, HitlSourceHandler, HitlTaskRecord } from "./publicTypes";
 export type { JobProcessor, ManagedQueueOptions, ManagedQueuePort, QueueJob, QueueJobLogs, SchedulerInfo };
 
 // ---------------------------------------------------------------------------

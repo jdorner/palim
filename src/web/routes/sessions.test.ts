@@ -54,7 +54,7 @@ function buildAdminApp() {
   return new Elysia()
     .onRequest(({ request }) =>
       setPrincipal(request, {
-        user: { id: adminId, username: "admin", roles: ["admin"] },
+        user: { id: adminId, username: "admin", roles: ["admin"], kind: "operator" },
         isAdmin: true,
         permissions: [],
         ability: buildAbility({ userId: adminId, isAdmin: true, permissions: [] }),

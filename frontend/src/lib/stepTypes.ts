@@ -138,6 +138,8 @@ export function labelForStepType(type: string, triggerType?: string): string {
       return t("stepType.aggregator");
     case "waitFor":
       return t("stepType.waitFor");
+    case "humanTask":
+      return t("stepType.humanTask");
     case "emit":
       return t("stepType.emit");
     default:

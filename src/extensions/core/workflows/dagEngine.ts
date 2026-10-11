@@ -171,11 +171,11 @@ export async function dispatchDagWorkflow(
   // Compute root steps (no incoming edges)
   const rootSlugs = computeRootSteps(definition);
 
-  // Filter out non-dispatchable root nodes (CF and waitFor are handled inline,
+  // Filter out non-dispatchable root nodes (CF, waitFor, humanTask are handled inline,
   // not dispatched as queue jobs).
   const dispatchableRoots = rootSlugs.filter((slug) => {
     const t = steps[slug]!.type;
-    return !DAG_CF_TYPES.has(t) && t !== "waitFor";
+    return !DAG_CF_TYPES.has(t) && t !== "waitFor" && t !== "humanTask";
   });
 
   if (dispatchableRoots.length === 0 && rootSlugs.length > 0) {
@@ -222,6 +222,13 @@ export async function dispatchDagWorkflow(
   log.info(
     `Dispatched DAG workflow "${definition.name}" run ${workflowRunId} (${Object.keys(steps).length} steps, ${rootSlugs.length} root(s) dispatched: ${jobIds.join(", ")})`,
   );
+
+  // Inline roots next to dispatchable ones (e.g. a humanTask that runs in
+  // parallel with an agent step) are evaluated by the coordinator as well.
+  const inlineRoots = rootSlugs.filter((slug) => !dispatchableRoots.includes(slug));
+  if (inlineRoots.length > 0 && onInlineRoots) {
+    await onInlineRoots(workflowRunId, inlineRoots);
+  }
 
   return { workflowRunId, jobIds };
 }

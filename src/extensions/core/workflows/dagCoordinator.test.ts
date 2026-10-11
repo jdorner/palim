@@ -190,6 +190,77 @@ describe("handleDagStepCompletion", () => {
     expect(deps.dispatched).toEqual(["done"]);
   });
 
+  describe("case default", () => {
+    /** A case node whose match never hits a path, with the given default and fallback edge branch. */
+    function caseDef(defaultKey: string | undefined, fallbackBranch: string): DagWorkflowDefinition {
+      return {
+        name: "case-default-wf",
+        trigger: { type: "manual" },
+        steps: {
+          classify: { type: "agent", prompt: "classify input" },
+          route: {
+            type: "case",
+            match: "{{steps.classify.result}}",
+            paths: ["low", "high"],
+            ...(defaultKey ? { default: defaultKey } : {}),
+          },
+          handle_low: { type: "agent", prompt: "low path" },
+          handle_high: { type: "agent", prompt: "high path" },
+          fallback: { type: "agent", prompt: "fallback" },
+        },
+        edges: [
+          { from: "classify", to: "route" },
+          { from: "route", to: "handle_low", branch: "low" },
+          { from: "route", to: "handle_high", branch: "high" },
+          { from: "route", to: "fallback", branch: fallbackBranch },
+        ],
+      };
+    }
+
+    /** Runs classify with an unmatched result and returns what was dispatched. */
+    async function runUnmatched(def: DagWorkflowDefinition) {
+      const run = initRun(def);
+      dagRunStore.updateStepStatus(run.id, "classify", "running");
+      const deps = createTestDeps(def);
+      await handleDagStepCompletion(run.id, "classify", "unknown", "job-classify", deps);
+      return { dispatched: deps.dispatched, run: dagRunStore.get(run.id)! };
+    }
+
+    test("routes to the branch named by default", async () => {
+      const { dispatched, run } = await runUnmatched(caseDef("other", "other"));
+      expect(dispatched).toEqual(["fallback"]);
+      expect(run.stepResults.route).toEqual({ matched: "other", value: "unknown", fallback: true });
+    });
+
+    test("default can name a path key", async () => {
+      const def = caseDef("high", "other");
+      def.edges = def.edges.filter((e) => e.to !== "fallback");
+      delete def.steps.fallback;
+      const { dispatched } = await runUnmatched(def);
+      expect(dispatched).toEqual(["handle_high"]);
+    });
+
+    test("falls back to a literal default edge (earlier engine)", async () => {
+      const { dispatched } = await runUnmatched(caseDef("other", "default"));
+      expect(dispatched).toEqual(["fallback"]);
+    });
+
+    test("a literal default edge needs no default key", async () => {
+      const { dispatched } = await runUnmatched(caseDef(undefined, "default"));
+      expect(dispatched).toEqual(["fallback"]);
+    });
+
+    test("a matched path without edges completes the run", async () => {
+      const def = caseDef(undefined, "default");
+      def.steps.route = { type: "case", match: "{{steps.classify.result}}", paths: ["low", "high", "unknown"] };
+      const { dispatched, run } = await runUnmatched(def);
+      expect(dispatched).toEqual([]);
+      expect(run.stepResults.route).toEqual({ matched: "unknown", value: "unknown", fallback: false });
+      expect(run.stepStatuses).toMatchObject({ handle_low: "dead", handle_high: "dead", fallback: "dead" });
+      expect(run.status).toBe("completed");
+    });
+  });
+
   test("run completes when all terminal steps finish", async () => {
     const def: DagWorkflowDefinition = {
       name: "complete-wf",
@@ -714,5 +785,45 @@ describe("dead-edge propagation into inline nodes", () => {
     expect(afterRun.stepStatuses.skipped).toBe("dead");
     expect(afterRun.stepStatuses.wait).toBe("waiting-signal");
     expect(signalStore.getAllWaiting().filter((s) => s.runId === run.id).length).toBe(1);
+  });
+});
+
+describe("dispatch vs. fast completion", () => {
+  // Regression: a step that completes before `flowProducer.add` resolves (a fast
+  // job picked up immediately by the in-process worker) was overwritten back to
+  // "running" by the dispatcher, and its late `workflow_step_started` broadcast
+  // arrived after `workflow_step_completed`, leaving the UI showing it active.
+  test("a step completed during add() stays completed and is not re-announced as started", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "fast-step-wf",
+      trigger: { type: "manual" },
+      steps: {
+        a: { type: "agent", prompt: "start" },
+        b: { type: "agent", prompt: "fast" },
+      },
+      edges: [{ from: "a", to: "b" }],
+    };
+
+    const run = initRun(def);
+    dagRunStore.updateStepStatus(run.id, "a", "running");
+    const deps = createTestDeps(def);
+    deps.flowProducer = {
+      add: async (job: any) => {
+        // The worker finishes the job before add() returns.
+        await handleDagStepCompletion(run.id, job.data.stepSlug, "fast-done", "job-b", deps);
+        return { job: { id: "job-b" } };
+      },
+    } as any;
+
+    await handleDagStepCompletion(run.id, "a", "done", "job-a", deps);
+
+    const finalRun = dagRunStore.get(run.id)!;
+    expect(finalRun.stepStatuses.b).toBe("completed");
+    expect(finalRun.status).toBe("completed");
+
+    const bEvents = (deps.broadcasts as { type: string; stepSlug?: string }[])
+      .filter((e) => e.stepSlug === "b")
+      .map((e) => e.type);
+    expect(bEvents).toEqual(["workflow_step_completed"]);
   });
 });

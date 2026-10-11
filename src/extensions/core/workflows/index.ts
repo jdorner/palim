@@ -8,6 +8,7 @@
  * - `POST   /ext/workflows/run/:name`    - trigger a workflow run
  * - `GET    /ext/workflows/runs/:runId`  - get run status with per-step states
  * - `GET    /ext/workflows/runs/:runId/logs` - get per-step execution logs
+ * - `POST   /ext/workflows/runs/:runId/rerun` - start a new run of a failed run with its trigger payload
  * - `POST   /ext/workflows/runs/:runId/signal/:event` - deliver a signal to a waiting run
  * - `DELETE /ext/workflows/runs/:runId`  - cancel all steps of a workflow run
  * - `DELETE /ext/workflows/:name`        - delete a workflow definition (removes JSON5 file)
@@ -24,7 +25,7 @@ import { mkdir, unlink } from "node:fs/promises";
 import path from "node:path";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger, OutputSchemaContext } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
-import { type OutputSchema, type OutputSchemas, walkSchemaPath } from "@shared/workflows";
+import { type ControlFlowEvaluation, type OutputSchema, type OutputSchemas, walkSchemaPath } from "@shared/workflows";
 import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import { setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
@@ -34,6 +35,7 @@ import { createInternalFetch, resolveAmbientToken, resolveAmbientUserId } from "
 import type { TemplateVariableResolver } from "@src/variables";
 import { extractBearerToken } from "@src/web/auth";
 import { requestUserId } from "@src/web/triggerOwnership";
+import { describeControlFlowStep } from "./controlFlowEvaluation";
 import {
   type DagCoordinatorDeps,
   evaluateInlineRoot,
@@ -48,10 +50,12 @@ import { initDagRunStore } from "./dagRunStore";
 import { type TemplateWarning, validateDagWorkflowTemplates } from "./dagTemplateValidation";
 import { validateCfEdges, validateDag, validateIteratorPairing } from "./dagValidation";
 import { createDagStepProcessor } from "./dagWorker";
+import { humanTaskOutputSchema } from "./humanTask";
+import { cancelRunTasks, installHumanTaskSource } from "./humanTaskSource";
 import { compileOutputSchema, resolveTriggerOutputSchemaJson } from "./outputSchemaCompiler";
 import { inferSchemaFromRuns, type SchemaSampleSource } from "./schemaSample";
-import type { DagWorkflowDefinition, OutputSchemaShorthand } from "./schemas";
-import { DagWorkflowDefinitionSchema } from "./schemas";
+import type { DagHumanTaskStep, DagWorkflowDefinition, OutputSchemaShorthand } from "./schemas";
+import { DagHumanTaskStepSchema, DagWorkflowDefinitionSchema } from "./schemas";
 import { deliverSignal } from "./signalDelivery";
 import * as signalStore from "./signalStore";
 import { initSignalStore } from "./signalStore";
@@ -98,8 +102,19 @@ export function buildStepJobIdMap(jobs: { stepSlug: string; id: string }[]): Map
   return map;
 }
 
+/** The open human task a waiting `humanTask` step shows on the run page. */
+interface WaitingHumanTask {
+  id: string;
+  title: string;
+  priority: string;
+  dueAt: number | null;
+  createdAt: number;
+  /** Assigned usernames and role names. */
+  assignees: { users: string[]; roles: string[] };
+}
+
 /** Built-in step types handled directly by the workflow engine. */
-const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "iterator", "aggregator", "waitFor", "emit"]);
+const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "iterator", "aggregator", "waitFor", "humanTask", "emit"]);
 
 /** Result of validating tool and skill availability for a workflow. */
 export interface WorkflowValidationResult {
@@ -276,6 +291,9 @@ export function buildOutputSchemas(
         schema = compileOutputSchema(handAuthored, (message) => {
           warnings.push({ stepSlug: slug, field: "outputSchema", message });
         });
+      } else if ((stepDef as { type: string }).type === "humanTask") {
+        // Built-in node with a config-derived result shape (outcomes, form).
+        schema = humanTaskOutputSchema(stepDef as DagHumanTaskStep);
       } else {
         // Precedence 2: handler-declared TypeBox schema (static or config-derived),
         // resolved for this instance and serialized to JSON Schema.
@@ -408,6 +426,31 @@ export function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: Ex
   const warnings: TemplateWarning[] = [];
 
   for (const [slug, stepDef] of Object.entries(definition.steps)) {
+    // Built-in human task nodes: the generic step schema accepts any shape, so
+    // check the node's own schema, and that the HITL service is available.
+    if (stepDef.type === "humanTask") {
+      if (!ctx.internal?.hitl) {
+        warnings.push({
+          stepSlug: slug,
+          field: "type",
+          message: "Human tasks are disabled (set HITL_ENABLED=true)",
+        });
+      }
+      // One warning per field: a missing property also fails its type check.
+      const reported = new Set<string>();
+      for (const err of Value.Errors(DagHumanTaskStepSchema, stepDef)) {
+        const field = err.path ? err.path.replace(/^\//, "").replace(/\//g, ".") : "humanTask";
+        if (reported.has(field)) continue;
+        reported.add(field);
+        warnings.push({
+          stepSlug: slug,
+          field: field || "config",
+          message: `Invalid "humanTask" step: ${err.message}${err.path ? ` (at ${err.path})` : ""}`,
+        });
+      }
+      continue;
+    }
+
     // Check custom (extension-registered) step types are available
     if (!BUILTIN_STEP_TYPES.has(stepDef.type)) {
       const handler = ctx.stepTypes.get(stepDef.type);
@@ -475,7 +518,7 @@ export function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: Ex
 
 const manifest = {
   name: "workflows",
-  version: "1.4.0",
+  version: "1.5.1",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -509,10 +552,12 @@ export function createExtension(): Extension {
     watcher: FSWatcher | null;
     reloadTimer: ReturnType<typeof setTimeout> | null;
     workflowsDir: string;
+    uninstallHumanTasks: (() => void) | null;
   } = {
     watcher: null,
     reloadTimer: null,
     workflowsDir: "",
+    uninstallHumanTasks: null,
   };
 
   /**
@@ -610,16 +655,38 @@ export function createExtension(): Extension {
       );
 
       // Build the coordinator dependencies (shared by completion, failure, resume, emit).
+      const hitl = ctx.internal?.hitl;
       const coordinatorDeps: DagCoordinatorDeps = {
         flowProducer,
         sessionFactory,
         log: logger,
-        broadcast: (event) => ctx.messaging.broadcast(event),
+        broadcast: (event) => {
+          // Every failure path announces workflow_failed; a failed run's open
+          // human tasks can no longer be answered.
+          if (event.type === "workflow_failed") {
+            cancelRunTasks(hitl, event.workflowRunId, `Workflow run failed: ${event.error}`);
+          }
+          ctx.messaging.broadcast(event);
+        },
         getWorkflowDefinition: (name) => store.get(name),
         cancelJob: async (jobId) => {
           await stepsQueue.cancelJob(jobId);
         },
+        hitl,
       };
+
+      // Answers, cancellations, and timeouts of human tasks drive their runs.
+      state.uninstallHumanTasks = hitl
+        ? installHumanTaskSource({
+            hitl,
+            coordinatorDeps,
+            log: logger,
+            inFlightJobIds: async (runId) =>
+              runJobs(await stepsQueue.getAllJobs(), runId)
+                .filter((s) => s.state === "active" || s.state === "waiting" || s.state === "delayed")
+                .map((s) => s.id),
+          })
+        : null;
 
       // Register the DAG emit step type handler
       ctx.stepTypes.register("emit", createDagEmitHandler({ coordinatorDeps }));
@@ -1104,6 +1171,24 @@ export function createExtension(): Extension {
         return Response.json({ ok: true, workflowRunId: result.workflowRunId, jobIds: result.jobIds }, { status: 202 });
       });
 
+      // Starts a fresh run of a failed run's workflow with the same trigger
+      // payload. The original run is left untouched (it stays failed).
+      ctx.routes.register("POST", "/runs/:runId/rerun", async (reqCtx) => {
+        const runId = (reqCtx.params as Record<string, string>).runId;
+        if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
+        const run = dagRunStore.get(runId);
+        if (!run) return Response.json({ error: "Run not found" }, { status: 404 });
+        if (run.status !== "failed") {
+          return Response.json({ error: "Only failed runs can be re-run" }, { status: 409 });
+        }
+        const wf = store.get(run.workflowName);
+        if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
+
+        const result = await dispatchAndAnnounce(wf, run.triggerPayload, requestUserId(reqCtx.request));
+        logger.info(`Re-ran failed workflow run ${runId} as ${result.workflowRunId}`);
+        return Response.json({ ok: true, workflowRunId: result.workflowRunId, jobIds: result.jobIds }, { status: 202 });
+      });
+
       // Lightweight bulk run-status lookup. Returns one { runId, status }
       // entry per persisted run across ALL workflows in a single request, so
       // the job list can enrich workflow group badges without fanning out one
@@ -1129,6 +1214,23 @@ export function createExtension(): Extension {
         const waitingSignalsByStep = new Map<string, signalStore.SignalRecord>();
         for (const signal of signalStore.listWaitingForRun(runId)) {
           waitingSignalsByStep.set(signal.stepSlug, signal);
+        }
+        // Open human tasks keyed by the step that waits for them.
+        const openTasksByStep = new Map<string, WaitingHumanTask>();
+        for (const task of hitl?.listOpenBySource("workflow", runId) ?? []) {
+          const stepSlug = (task.source.ref as { stepSlug?: unknown }).stepSlug;
+          if (typeof stepSlug !== "string") continue;
+          openTasksByStep.set(stepSlug, {
+            id: task.id,
+            title: task.title,
+            priority: task.priority,
+            dueAt: task.dueAt,
+            createdAt: task.createdAt,
+            assignees: {
+              users: task.assignees.users.map((id) => hitl?.describeUser(id)?.username ?? id),
+              roles: task.assignees.roles,
+            },
+          });
         }
 
         // Extract chosenBranch info from step results for CF nodes
@@ -1159,12 +1261,21 @@ export function createExtension(): Extension {
             waitSignalId?: string;
             waitScope?: signalStore.SignalScope;
             waitCorrelationKey?: string | null;
+            humanTask?: WaitingHumanTask;
+            evaluation?: ControlFlowEvaluation;
+            error?: string;
           } = {
             slug,
             type: stepDef?.type ?? "unknown",
             status,
             jobId: stepJobIds.get(slug) ?? "",
           };
+          // Control-flow nodes run inline (no job, no logs): expose how they decided.
+          const evaluation = describeControlFlowStep(stepDef, run.stepResults[slug]);
+          if (evaluation) entry.evaluation = evaluation;
+          // A step that failed without a job failed inline in the coordinator;
+          // the run's failure reason is its only error record.
+          if (status === "failed" && !entry.jobId && run.failureReason) entry.error = run.failureReason;
           const signal = waitingSignalsByStep.get(slug);
           if (signal) {
             entry.waitEvent = signal.event;
@@ -1172,6 +1283,8 @@ export function createExtension(): Extension {
             entry.waitSignalId = signal.id;
             entry.waitScope = signal.scope;
             entry.waitCorrelationKey = signal.correlationKey;
+            const task = openTasksByStep.get(slug);
+            if (task) entry.humanTask = task;
           }
           return entry;
         });
@@ -1355,6 +1468,7 @@ export function createExtension(): Extension {
         const cancelled = await stepsQueue.removeJobs(stepJobs.map((d) => d.id));
 
         for (const signal of signalStore.listWaitingForRun(runId)) signalTimers.cancel(signal.id);
+        cancelRunTasks(hitl, runId, "Workflow run deleted");
         signalStore.deleteByRunIds([runId]);
         dagRunStore.deleteByIds([runId]);
 
@@ -1528,6 +1642,8 @@ export function createExtension(): Extension {
         state.reloadTimer = null;
       }
       signalTimers.cleanup();
+      state.uninstallHumanTasks?.();
+      state.uninstallHumanTasks = null;
       store.clear();
     },
   };

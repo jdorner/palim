@@ -71,6 +71,30 @@ describe("computeLayout", () => {
     });
   });
 
+  describe("case default branch", () => {
+    /** Branch handles of the case node for a given `default` value. */
+    function caseHandles(defaultKey: string): string[] {
+      const steps: Record<string, Record<string, unknown>> = {
+        categorize: { type: "agent", prompt: "classify" },
+        sort: { type: "case", match: "{{steps.categorize.result}}", paths: ["a", "b"], default: defaultKey },
+      };
+      const layout = computeLayout(buildDagGraph(toStepArray(steps), [{ from: "categorize", to: "sort" }]), {});
+      return [...((layout.nodes.find((n) => n.id === "sort")!.data.branches as string[]) ?? [])].sort();
+    }
+
+    test("a default key of its own gets a handle", () => {
+      expect(caseHandles("other")).toEqual(["a", "b", "other"]);
+    });
+
+    test("a default naming a path key adds no extra handle", () => {
+      expect(caseHandles("b")).toEqual(["a", "b"]);
+    });
+
+    test('a literal "default" key keeps the default handle', () => {
+      expect(caseHandles("default")).toEqual(["a", "b", "default"]);
+    });
+  });
+
   describe("add-step nodes (edit mode)", () => {
     describe("populated branches", () => {
       // Regression: previously every branch spawned a spurious "empty branch"

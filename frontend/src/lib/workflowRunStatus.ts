@@ -50,6 +50,56 @@ export interface RunStepStatus {
   status: string;
 }
 
+// ---------------------------------------------------------------------------
+// Live event guards (shared by the run page store and the run list)
+// ---------------------------------------------------------------------------
+
+/** Step statuses of a step that has not settled yet (backend and UI vocabulary). */
+const OPEN_STEP_STATUSES = new Set(["active", "running", "waiting-signal"]);
+
+/**
+ * Whether a run status is terminal, so later step events must not revive it.
+ *
+ * @param status - Run status
+ * @returns true for completed and failed runs
+ */
+export function isTerminalRunStatus(status: string): boolean {
+  return status === "completed" || status === "failed";
+}
+
+/**
+ * Whether a `workflow_step_started` event is stale: it reports the job that
+ * already completed this step (the started and completed broadcasts can
+ * arrive out of order). A start with a different job is a new execution, e.g.
+ * the next iteration of an iterator body, and is not stale.
+ *
+ * @param current - The step as currently shown, if known
+ * @param jobId - Job ID reported by the event
+ * @returns true when the event must be ignored
+ */
+export function isStaleStepStart(current: { status: string; jobId?: string } | undefined, jobId: string): boolean {
+  return current?.status === "completed" && !!current.jobId && current.jobId === jobId;
+}
+
+/**
+ * Settles the steps a finished run left open. A completed run has no running
+ * or waiting step left, and a failed run swept them dead; if one of those
+ * step events was missed, the step would otherwise stay active or waiting.
+ *
+ * @param steps - Steps of the run
+ * @param to - Status for open steps: "completed" for a completed run, "dead" for a failed one
+ * @param except - Slug to leave untouched (the step that failed the run)
+ * @returns The steps with open ones settled (same array when nothing changed)
+ */
+export function settleOpenSteps<T extends { slug: string; status: string }>(
+  steps: T[],
+  to: "completed" | "dead",
+  except?: string,
+): T[] {
+  if (!steps.some((s) => s.slug !== except && OPEN_STEP_STATUSES.has(s.status))) return steps;
+  return steps.map((s) => (s.slug !== except && OPEN_STEP_STATUSES.has(s.status) ? { ...s, status: to } : s));
+}
+
 /** A DAG edge from the workflow definition. */
 export interface DefinitionEdge {
   from: string;

@@ -3,6 +3,7 @@ import type { Edge } from "@xyflow/svelte";
 import { Tabs } from "bits-ui";
 import { onDestroy, onMount } from "svelte";
 import { slide } from "svelte/transition";
+import { onReconnect } from "$lib/appStore";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { detailPanelMode } from "$lib/detailPanelMode.svelte";
@@ -830,6 +831,24 @@ const unsubWorkflow = workflowStore.subscribe((msg: WorkflowEvent) => {
   if (workflow) workflow = applyWorkflowEvent(workflow, msg, name);
 });
 
+/**
+ * Refreshes only the run list after a WebSocket reconnect: run events sent
+ * while the socket was down are lost. The definition (and any edit in
+ * progress) is left alone.
+ */
+async function refreshRuns() {
+  if (!workflow || !name) return;
+  try {
+    const res = await authFetch(`/ext/workflows/${name}`);
+    if (!res.ok) return;
+    const fresh = normalizeWorkflow(await res.json());
+    if (workflow) workflow = { ...workflow, runs: fresh.runs };
+  } catch {
+    /* best effort: the next event or page load catches up */
+  }
+}
+const unsubReconnect = onReconnect(refreshRuns);
+
 /** Keyboard shortcuts: Escape dismisses the floating detail panel, then edit-mode shortcuts. */
 function handleKeydown(e: KeyboardEvent) {
   // Escape already handled by a nested control (open dropdown, autocomplete).
@@ -885,6 +904,7 @@ onMount(() => {
 
 onDestroy(() => {
   unsubWorkflow();
+  unsubReconnect();
   window.removeEventListener("keydown", handleKeydown);
   window.removeEventListener("focusout", handleFocusOut);
 });

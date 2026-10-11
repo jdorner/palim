@@ -70,7 +70,12 @@ export function deliverSignal(
     return {
       ok: false,
       status: 409,
-      error: signal.status === "timed_out" ? "Signal has already timed out" : "Signal has already been delivered",
+      error:
+        signal.status === "timed_out"
+          ? "Signal has already timed out"
+          : signal.status === "cancelled"
+            ? "Signal was cancelled"
+            : "Signal has already been delivered",
     };
   }
 

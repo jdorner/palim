@@ -18,7 +18,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { type AuthenticatedUser, type Permission, ROLE_ADMIN, type SerializedAbility } from "@shared/auth";
 import { type AppAbility, buildAbility } from "./ability";
-import type { UserStore } from "./userStore";
+import type { UserRecord, UserStore } from "./userStore";
 
 /** Default lifetime of an issued session token, in milliseconds (7 days). */
 export const DEFAULT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -194,7 +194,7 @@ export class AuthService implements AuthResolver {
     const expiresAt = Date.now() + this.sessionTtlMs;
     this.store.insertSession({ userId: user.id, tokenHash: hashToken(token), expiresAt });
 
-    const principal = this.buildPrincipal(user.id, user.username, user.displayName, user.locale);
+    const principal = this.buildPrincipal(user);
     if (!principal) return null;
     return { token, expiresAt, principal };
   }
@@ -224,7 +224,7 @@ export class AuthService implements AuthResolver {
     if (!user || user.disabled) return null;
 
     this.store.touchSession(session.id, now);
-    return this.buildPrincipal(user.id, user.username, user.displayName, user.locale);
+    return this.buildPrincipal(user);
   }
 
   /**
@@ -334,18 +334,16 @@ export class AuthService implements AuthResolver {
    * Build a {@link ResolvedPrincipal} for a user by loading their roles and
    * effective permissions and constructing the CASL ability.
    *
-   * @param userId - The user id.
-   * @param username - The user's username.
-   * @param displayName - The user's optional display name.
-   * @param locale - The user's optional preferred UI locale.
-   * @returns The resolved principal, or null when role loading fails unexpectedly.
+   * @param record - The user record (id, username, display name, locale, kind).
+   * @returns The resolved principal.
    */
-  private buildPrincipal(userId: string, username: string, displayName?: string, locale?: string): ResolvedPrincipal {
+  private buildPrincipal(record: UserRecord): ResolvedPrincipal {
+    const { id: userId, username, displayName, locale, kind } = record;
     const roleNames = this.store.getUserRoleNames(userId);
     const isAdmin = roleNames.includes(ROLE_ADMIN);
     const permissions = isAdmin ? [] : this.store.getEffectivePermissions(userId);
-    const ability = buildAbility({ userId, isAdmin, permissions });
-    const user: AuthenticatedUser = { id: userId, username, displayName, locale, roles: roleNames };
+    const ability = buildAbility({ userId, isAdmin, permissions, kind });
+    const user: AuthenticatedUser = { id: userId, username, displayName, locale, roles: roleNames, kind };
     return { user, isAdmin, permissions, ability };
   }
 }
@@ -361,5 +359,6 @@ export function serializeAbility(principal: ResolvedPrincipal): SerializedAbilit
     userId: principal.user.id,
     isAdmin: principal.isAdmin,
     permissions: principal.permissions,
+    kind: principal.user.kind,
   };
 }

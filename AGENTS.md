@@ -52,6 +52,8 @@ The web UI is served at `http://localhost:3000` by default (configurable via `WE
 | `AUTH_ADMIN_PASSWORD`  | Seeded admin password (empty = generate + log) | -                          |
 | `AUTH_SESSION_TTL_MS`  | Login token lifetime (ms)                      | `604800000` (7 days)       |
 | `DATA_DIR`             | Directory for databases and generated content  | `<AGENT_WORK_DIR>/.palim/` |
+| `HITL_ENABLED`         | Enable human tasks (humanTask step, portal API + app; experimental) | `false` |
+| `PORTAL_PUBLIC_URL`    | Public URL of the portal (deep links, hint for portal accounts) | - |
 | `TELEGRAM_BOT_TOKEN`   | Telegram bot token                             | -                          |
 | `EXT_TELEGRAM_CHAT_ID` | Default Telegram chat ID                       | -                          |
 | `EXT_TELEGRAM_MAX_IMAGE_SIZE_MB` | Max size of incoming Telegram images (MB, ≤ 20) | `20`              |
@@ -101,6 +103,7 @@ src/
 │   ├── loginThrottle.ts     # Per-IP + per-username login failure lockouts
 │   ├── chatEvents.ts        # Agent event to chat WS event mappingg
 │   ├── sessionChatMap.ts    # In-memory session-to-chat mapping for push routing
+│   ├── portalEvents.ts      # PortalEventHub: per-user SSE fan-out of HITL task changes (/api/portal/events)
 │   └── routes/
 │       ├── auth.ts          # POST /api/auth/login|logout, GET /api/auth/me, PUT /api/auth/me/locale
 │       ├── i18n.ts          # GET /api/i18n/:locale (extension translation catalogs)
@@ -112,7 +115,8 @@ src/
 │       ├── secrets.ts       # Extension secret CRUD + audit log
 │       ├── globalSecrets.ts # Global secret CRUD + audit log
 │       ├── globalVariables.ts # Global variable CRUD (plaintext, no ACL)
-│       └── sessions.ts      # GET/DELETE /api/sessions/:id/messages
+│       ├── sessions.ts      # GET/DELETE /api/sessions/:id/messages
+│       └── portal/          # /api/portal/*: tasks.ts (human task API), events.ts (SSE stream)
 ├── extensions/
 │   ├── types.ts             # Public extension API (Extension, ExtensionContext)
 │   ├── publicTypes.ts       # Public-facing type definitions for extension authors
@@ -153,6 +157,13 @@ src/
 │   ├── variablesSchema.ts   # Drizzle schema for global_variables table
 │   ├── types.ts             # GlobalVariableEntry re-export for backend use
 │   └── index.ts             # Re-exports
+├── hitl/
+│   ├── hitlSchema.ts        # Drizzle schema: hitl_tasks, hitl_task_assignees, hitl_task_events
+│   ├── taskStore.ts         # TaskStore: task persistence, atomic complete/cancel/expire, visibility queries
+│   ├── hitlService.ts       # createHitlService: create/list/answer tasks, source handlers, change listeners
+│   ├── directory.ts         # createUserDirectory: user/role lookups for the service, backed by UserStore
+│   ├── types.ts             # Alias-free contract (HitlApi, CreateTaskInput, TaskRecord), re-exported via @ext/types
+│   └── index.ts             # Re-exports
 ├── skills/
 │   ├── skills.ts            # Skill directory loading and system prompt building
 │   ├── frontmatter.ts       # YAML frontmatter parsing for skill markdown
@@ -181,6 +192,7 @@ shared/                      # Types + pure helpers shared between backend and f
 ├── i18n.ts                  # Pure i18n runtime: SUPPORTED_LOCALES, createTranslator (fallback, {param}, plurals), createFormatters, resolveLocale
 ├── jobs.ts                  # JobEntry, LogEntry
 ├── models.ts                # AvailableModel, ModelIntent, SelectedModelResponse, MODEL_INTENTS
+├── portal.ts                # Portal wire types: HumanTask, HumanTaskDetail, HumanTaskCounts, outcomes, statuses
 ├── schedules.ts             # ScheduleEntry
 ├── variables.ts             # GlobalVariableEntry
 ├── websocket.ts             # WebSocketMessage, ApprovalRequestEvent, PushMessageEvent
@@ -236,6 +248,16 @@ frontend/                    # Svelte 5 web UI (page-based routing)
         ├── utils.ts
         └── components/      # Reusable UI (shadcn-style primitives)
 
+portal/                      # End-user portal (Svelte 5 + Vite + Tailwind 4), separate package
+└── src/
+    ├── App.svelte           # Shell: session gate, module navigation, shared SSE stream, routing
+    ├── lib/                 # `$app/*`: config (runtime config.json), api, auth, sse, router, i18n, form
+    ├── modules/             # Portal modules (registry in index.ts); tasks/ = human task inbox + task page
+    ├── pages/               # Login, settings, no-access, not-found
+    └── locales/             # Portal catalogs (en, de) + parity test
+                             # `$lib` = frontend/src/lib (reused `@palim/ui` kit), `$shared` = shared/
+                             # Built to portal/dist; Palim serves it at /portal/ when present
+
 WORK_DIR/                       # AGENT_WORK_DIR - the agent's workspace (real directory mounted into sandbox)
 ├── inbox/                   # Drop files here for auto-processing (OCR)
 ├── outbox/                  # Processed file output
@@ -288,6 +310,8 @@ Job logs are persisted to SQLite (`src/queue/logStore.ts`) so they survive resta
 Workflows (`src/extensions/core/workflows/`) are directed acyclic graphs: a `steps` map (keyed by slug) plus an `edges` array (`from`, `to`, optional `branch`). The engine dispatches all root steps in parallel, then dispatches each successor once all its incoming edges are resolved (`satisfied` or `dead`, at least one `satisfied` — the join barrier). Control-flow nodes (`if`/`case`) are evaluated inline and mark their branch edges satisfied/dead; dead edges propagate to skip unreachable steps. Any step failure fails the whole run (fail-fast) and cancels in-flight jobs. Per-run edge states, step statuses, and results are persisted in SQLite.
 
 `waitFor` nodes park their branch on a signal record (`workflow_signals`), one per waiting step of a run, so a signal ID is an instance-scoped address. All delivery paths (`POST /ext/workflows/runs/:runId/steps/:slug/signal`, `/signals/:signalId`, the legacy `/runs/:runId/signal/:event`, and the `emit` step) go through `deliverSignal` (`signalDelivery.ts`): run-active check, source check, `inputSchema` validation (`src/utils/jsonSchema.ts`), atomic claim, timer cancel, resume. `emit` only reaches waits with `scope: "broadcast"` (default is `instance`) and is narrowed by `correlate` (correlation key) and `targetRun`. Timeouts are re-armed at boot from `createdAt + timeoutMs`.
+
+`humanTask` nodes (experimental, only with `HITL_ENABLED=true`; otherwise boot creates no HITL service, the portal API answers 503, `/portal/` is not served, the step fails validation, and the editor hides it) (`humanTask.ts`, registered in the coordinator like `waitFor`) create a portal task through `ctx.internal.hitl` (the `src/hitl/` service) and park on an instance-scoped signal with `source: "humanTask"`, which only `deliverSignal(..., { via: "hitl" })` may deliver. `humanTaskSource.ts` registers the `workflow` task source: answers resume the run, a manager cancel fails it, and the signal timeout hook expires the task (resuming with `outcome: "expired"` when `onTimeout: "expire"`). Any `workflow_failed` broadcast and run deletion cancel the run's open tasks. The step's output schema is built in (`humanTaskOutputSchema`).
 
 The `http-request`, `fail`, `noop`, `chunk`, `set-variables`, and `start-workflow` step types are provided by the `core-wf-steps` extension.
 
@@ -385,10 +409,10 @@ Elysia serves the built frontend as static files and exposes:
 - `GET /api/jobs/:jobId/logs` - Retrieve job logs
 - `POST /api/auth/login` - Exchange username/password for a bearer token
 - `POST /api/auth/logout` - Revoke the presented token
-- `GET /api/auth/me` - Current user (incl. `locale`) and serialized ability
+- `GET /api/auth/me` - Current user (incl. `locale`, `kind`), serialized ability, and `portalUrl`
 - `PUT /api/auth/me/locale` - Set or clear (`null`) the caller's UI language
 - `GET /api/i18n/:locale` - Translation catalogs of loaded extensions for a locale, plus their English fallbacks
-- `GET/POST/PATCH/DELETE /api/users` - User management (admin; create/update accept `locale`; delete also removes the user's chat sessions and is refused while they still own webhooks, file watchers, or schedules)
+- `GET/POST/PATCH/DELETE /api/users` - User management (admin; create/update accept `locale` and `kind`; delete also removes the user's chat sessions and is refused while they still own webhooks, file watchers, or schedules)
 - `GET/POST /api/roles`, `PATCH/DELETE /api/roles/:id`, `PUT /api/roles/:id/permissions` - Role management (admin; delete only for unassigned custom roles)
 - `GET /api/extensions` - List loaded extensions
 - `PUT /api/extensions/:name` - Enable/disable an extension
@@ -406,6 +430,13 @@ Elysia serves the built frontend as static files and exposes:
 - `POST /api/variables` - Create global variables (409 if a key already exists)
 - `PUT /api/variables` - Upsert global variables with optional descriptions
 - `DELETE /api/variables/:key` - Remove a global variable (workflow-reference check; `confirm=true` to force)
+- `GET /api/portal/tasks` - Human tasks visible to the caller (`scope=mine|completed|all`, `status`, `limit`, `cursor`; `hitl:respond`)
+- `GET /api/portal/tasks/counts` - Open / due-soon counts of the caller's tasks
+- `GET /api/portal/tasks/:id` - Task detail with history (404 when not visible)
+- `POST /api/portal/tasks/:id/complete` - Answer a task (`outcome`, `data`, `comment`, `version`; 409 when already answered or changed, 422 invalid answer)
+- `POST /api/portal/tasks/:id/cancel` - Cancel a task (`hitl:manage`)
+- `PATCH /api/portal/tasks/:id/assignees` - Reassign a task (`hitl:manage`)
+- `GET /api/portal/events` - Server-sent events: `ready`, `task_created`, `task_updated`, `task_removed` (per-user, with badge counts)
 - `GET /api/models` - List available LLM models
 - `GET /api/models/selected` - Get currently selected model
 - `PUT /api/models/selected` - Change selected model
@@ -417,7 +448,7 @@ Elysia serves the built frontend as static files and exposes:
 
 Rate limiting: authenticated requests are limited per token (1000/min), so a user's browser session and the internal token their agent jobs use get separate buckets; everything else is limited per client IP (60/min). Failed logins are additionally throttled per IP and per username with exponential lockouts (`src/web/loginThrottle.ts`). Behind a reverse proxy, set `TRUSTED_PROXIES` so the client IP is taken from `X-Forwarded-For`.
 
-Auth is always on: all `/api/` and `/ext/` routes (except login, health, and extension routes registered with `{ public: true }`, such as webhook receive) and the WebSocket require a per-user bearer token. Every user can read everything except other users' chat sessions; roles map to write/management permissions (RBAC). See `docs/api-security-model.md`.
+Auth is always on: all `/api/` and `/ext/` routes (except login, health, and extension routes registered with `{ public: true }`, such as webhook receive) and the WebSocket require a per-user bearer token. Every user can read everything except other users' chat sessions; roles map to write/management permissions (RBAC). Accounts have a `kind` (`users.kind`, migration `0017`): `operator` (default) or `portal`. Portal accounts are fenced in `authCheck` to `PORTAL_PATH_PREFIXES` (`/api/auth/`, `/api/portal/`, `/api/i18n/`, `shared/auth.ts`), get no implicit reads in the ability, are refused the WebSocket (close `4003`), and may only hold roles whose permissions are all portal-safe (`hitl:*`; built-in role `portal-user`), enforced by the guards in `src/auth/guards.ts`. See `docs/api-security-model.md`.
 
 ### Secrets Management
 
@@ -473,4 +504,5 @@ bun run cli              # Launch sandbox CLI (interactive shell)
 bun run test             # Run tests
 bun run reset-admin [username]   # Break-glass: re-enable user, grant admin, print new password
 cd frontend && bun run build  # Build frontend
+cd portal && bun install && bun run build  # Build the portal (served at /portal/; dev: bun run dev on :5174)
 ```

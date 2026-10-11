@@ -5,6 +5,7 @@
 import type { OutputSchemaShorthand, WorkflowWebSocketEvent } from "$shared/workflows";
 import type { OutputSchemas } from "./templateScope";
 import { nextStepId } from "./workflowDraft";
+import { isStaleStepStart, isTerminalRunStatus, settleOpenSteps } from "./workflowRunStatus";
 
 export interface StepDef {
   /**
@@ -115,20 +116,28 @@ export function normalizeWorkflow(raw: Record<string, unknown>): WorkflowDetail 
 function updateRun(
   workflow: WorkflowDetail,
   runId: string,
-  runPatch: Partial<WorkflowRunSummary>,
+  runPatch: Partial<WorkflowRunSummary> | ((run: WorkflowRunSummary) => Partial<WorkflowRunSummary>),
   step?: { slug: string; patch: Partial<WorkflowRunSummary["steps"][number]> },
 ): WorkflowDetail {
   return {
     ...workflow,
     runs: workflow.runs.map((r) => {
       if (r.runId !== runId) return r;
-      const updated = { ...r, ...runPatch };
+      const updated = { ...r, ...(typeof runPatch === "function" ? runPatch(r) : runPatch) };
       if (step) {
-        updated.steps = r.steps.map((s) => (s.slug === step.slug ? { ...s, ...step.patch } : s));
+        updated.steps = updated.steps.map((s) => (s.slug === step.slug ? { ...s, ...step.patch } : s));
       }
       return updated;
     }),
   };
+}
+
+/**
+ * Run status patch for a step event of a still-active run: a finished run
+ * keeps its terminal status even if a late step event arrives.
+ */
+function activeStatus(status: string): (run: WorkflowRunSummary) => Partial<WorkflowRunSummary> {
+  return (run) => (isTerminalRunStatus(run.status) ? {} : { status });
 }
 
 /**
@@ -156,30 +165,37 @@ export function applyWorkflowEvent(
       };
       return { ...workflow, runs: [newRun, ...workflow.runs] };
     }
-    case "workflow_step_started":
-      return updateRun(
-        workflow,
-        msg.workflowRunId,
-        { status: "running" },
-        { slug: msg.stepSlug, patch: { status: "active", jobId: msg.jobId } },
-      );
+    case "workflow_step_started": {
+      const step = workflow.runs.find((r) => r.runId === msg.workflowRunId)?.steps.find((s) => s.slug === msg.stepSlug);
+      if (isStaleStepStart(step, msg.jobId)) return workflow;
+      return updateRun(workflow, msg.workflowRunId, activeStatus("running"), {
+        slug: msg.stepSlug,
+        patch: { status: "active", jobId: msg.jobId },
+      });
+    }
     case "workflow_step_completed":
       return updateRun(workflow, msg.workflowRunId, {}, { slug: msg.stepSlug, patch: { status: "completed" } });
     case "workflow_step_dead":
       // Not-taken branch (or a step swept when the run failed).
       return updateRun(workflow, msg.workflowRunId, {}, { slug: msg.stepSlug, patch: { status: "dead" } });
     case "workflow_step_waiting":
-      return updateRun(
-        workflow,
-        msg.workflowRunId,
-        { status: "waiting-signal" },
-        { slug: msg.stepSlug, patch: { status: "waiting-signal" } },
-      );
+      return updateRun(workflow, msg.workflowRunId, activeStatus("waiting-signal"), {
+        slug: msg.stepSlug,
+        patch: { status: "waiting-signal" },
+      });
     case "workflow_step_resumed":
+      // The run keeps waiting while another step is still paused on a signal.
       return updateRun(
         workflow,
         msg.workflowRunId,
-        { status: "running" },
+        (run) =>
+          isTerminalRunStatus(run.status)
+            ? {}
+            : {
+                status: run.steps.some((s) => s.slug !== msg.stepSlug && s.status === "waiting-signal")
+                  ? "waiting-signal"
+                  : "running",
+              },
         { slug: msg.stepSlug, patch: { status: "completed" } },
       );
     case "workflow_step_failed":
@@ -190,9 +206,18 @@ export function applyWorkflowEvent(
         { slug: msg.stepSlug, patch: { status: "failed" } },
       );
     case "workflow_completed":
-      return updateRun(workflow, msg.workflowRunId, { status: "completed", completedAt: Date.now() });
+      // Settle steps whose completion event was missed.
+      return updateRun(workflow, msg.workflowRunId, (run) => ({
+        status: "completed",
+        completedAt: Date.now(),
+        steps: settleOpenSteps(run.steps, "completed"),
+      }));
     case "workflow_failed":
-      return updateRun(workflow, msg.workflowRunId, { status: "failed", completedAt: Date.now() });
+      return updateRun(workflow, msg.workflowRunId, (run) => ({
+        status: "failed",
+        completedAt: Date.now(),
+        steps: settleOpenSteps(run.steps, "dead", msg.failedStep),
+      }));
     case "workflow_run_removed":
       // The run was cancelled or cleaned (its record is gone from the run store).
       // Drop it from the list so the "Runs (N)" count and failed-run entries stay

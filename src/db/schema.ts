@@ -152,6 +152,7 @@ export {
 //export { toolUsage as extIntrospectionToolUsage } from "@src/extensions/introspection/schema";
 export { mcpServers as extMcpServers } from "@src/extensions/mcp/schema";
 export { wikiEmbeddings as extWikiEmbeddings } from "@src/extensions/wiki/schema";
+export { hitlTaskAssignees, hitlTaskEvents, hitlTasks } from "@src/hitl/hitlSchema";
 // Re-export extension-owned tables so drizzle-kit sees the complete schema.
 export { secretAuditLog } from "@src/secrets/audit";
 export { secretsVault } from "@src/secrets/vaultSchema";

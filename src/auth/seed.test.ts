@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { BUILT_IN_ROLES, PERMISSIONS, ROLE_ADMIN, ROLE_SYSTEM, ROLE_USER } from "@shared/auth";
+import { BUILT_IN_ROLES, PERMISSIONS, ROLE_ADMIN, ROLE_PORTAL_USER, ROLE_SYSTEM, ROLE_USER } from "@shared/auth";
 import { sessions } from "@src/db/schema";
 import { fileWatchers } from "@src/extensions/core/filewatcher/schema";
 import { webhooks } from "@src/extensions/core/webhooks/schema";
@@ -55,6 +55,8 @@ describe("seedAuth", () => {
     expect(store.getRoleByName(ROLE_ADMIN)?.builtIn).toBe(true);
     expect(store.getRoleByName(ROLE_USER)).not.toBeUndefined();
     expect(store.getRoleByName(ROLE_SYSTEM)).not.toBeUndefined();
+    const portalRoleId = store.getRoleByName(ROLE_PORTAL_USER)?.id ?? "";
+    expect(store.getRolePermissions(portalRoleId)).toEqual([PERMISSIONS.HITL_RESPOND]);
 
     // The user role has the expected scoped permissions; system lacks users:manage.
     const userRoleId = store.getRoleByName(ROLE_USER)?.id ?? "";

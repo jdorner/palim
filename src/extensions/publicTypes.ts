@@ -30,6 +30,13 @@
 export type { StepIconName, StepTypeInfo } from "../../shared/extensions";
 export type { ModelIntent } from "../../shared/models";
 export type { WebSocketMessage } from "../../shared/websocket";
+// Human task (HITL) contract for core task sources (self-contained module).
+export type {
+  CreateTaskInput as HitlCreateTaskInput,
+  HitlApi,
+  HitlSourceHandler,
+  TaskRecord as HitlTaskRecord,
+} from "../hitl/types";
 // Push message value types (extracted from the value-heavy push service).
 export type { PushMessageOptions, PushMessageResult } from "../push/types";
 // Core queue contract.

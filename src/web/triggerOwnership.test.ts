@@ -9,7 +9,7 @@ describe("triggerOwnership", () => {
   /** Builds a request with a principal (built from the given identity) attached. */
   function reqWith(userId: string, isAdmin: boolean, permissions: string[]): Request {
     const principal: ResolvedPrincipal = {
-      user: { id: userId, username: userId, roles: [] },
+      user: { id: userId, username: userId, roles: [], kind: "operator" },
       isAdmin,
       permissions: permissions as Permission[],
       ability: buildAbility({ userId, isAdmin, permissions: permissions as Permission[] }),

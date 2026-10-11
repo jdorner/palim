@@ -63,12 +63,32 @@ The `http-request` step type supports additional options: custom `headers`, `tim
 ### Control Flow Steps
 
 - `if` - conditional branching; branches are expressed as edges with `branch: "then"` / `branch: "else"`
-- `case` - multi-way branching; `paths` is an array of branch key strings (optional `default`), branches connected via `branch` edges
+- `case` - multi-way branching; `paths` is an array of branch key strings, branches connected via `branch` edges. When nothing matches, the run takes the branch named by `default` (a path key or a key of its own), or else an edge with `branch: "default"`; without either, the run fails
 - `waitFor` - pauses its own branch until an external signal arrives (blocks only its successors, not the whole run)
+- `humanTask` - asks a person in the portal and pauses its own branch until they answer (see [Human Tasks](#human-tasks)) - experimental, requires `HITL_ENABLED=true`
 - `emit` - broadcasts a signal to workflows waiting on that event (fire-and-forget)
 - `fail` - aborts the run with a message (provided by `core-wf-steps`)
 
-`if` and `case` nodes are evaluated inline by the engine rather than dispatched as jobs. See the `workflows` agent skill for detailed control-flow examples.
+`if` and `case` nodes are evaluated inline by the engine rather than dispatched as jobs, so they have no logs. Their step result records the resolved value (`if`: `{ condition, chosenBranch, value }`, `case`: `{ matched, value, fallback }`), and the run page shows the expression, value, and branch taken when you select the node. See the `workflows` agent skill for detailed control-flow examples.
+
+### Human Tasks
+
+A `humanTask` step asks a person: it creates a task in the [portal](../portal.md) (see [the API security model](../api-security-model.md#portal-accounts) for portal accounts) and pauses its branch until someone assigned to it answers. The answer becomes the step result: `outcome` (the chosen button), `data` (form data), `comment`, `respondedBy`, `respondedAt`, `taskId`.
+
+```json5
+"review": {
+  "type": "humanTask",
+  "title": "Approve invoice {{trigger.payload.number}}",
+  "body": "Amount: {{steps.extract.result.amount}}",
+  "assignees": { "roles": ["accounting"] },
+  "outcomes": [{ "id": "approve", "label": "Approve" }, { "id": "reject", "label": "Reject" }],
+  "form": { "type": "object", "properties": { "costCenter": { "type": "string" } } },
+  "timeout": 172800000,
+  "onTimeout": "expire"
+}
+```
+
+`title`, `body`, `context` values and assignee entries support `{{template}}` expressions. Without `outcomes`, the task offers approve / reject. On timeout the run fails, or with `onTimeout: "expire"` it continues with `outcome: "expired"`. A task cancelled by a manager fails the run, and a run that fails or is deleted cancels its open tasks. The run page shows the waiting task and, with `hitl:manage`, lets you cancel it.
 
 ### Signals
 
@@ -150,7 +170,7 @@ Trigger a manual workflow run. Returns the run ID and per-step job IDs.
 
 ### GET /ext/workflows/runs/:runId
 
-Get run status with per-step states.
+Get run status with per-step states. `if`/`case` steps carry an `evaluation` (expression, resolved value, branch), and a step that failed without a job (e.g. a `case` with no matching path) carries the failure reason as `error`.
 
 ### GET /ext/workflows/runs/:runId/logs
 

@@ -153,6 +153,12 @@ export function toStepDraft(s: Record<string, unknown>): StepDraft {
     return { id, slug, type, iterator: raw.iterator as string };
   }
 
+  // Human task: flat fields, copied as-is (deep copy so edits don't touch the source)
+  if (type === "humanTask") {
+    const { id: _id, slug: _s, type: _t, ...fields } = raw;
+    return { id, slug, type, ...(JSON.parse(JSON.stringify(fields)) as Record<string, unknown>) };
+  }
+
   // Custom extension step types: rebuild config from non-standard fields.
   // Only `id` (synthetic frontend id), `slug`, and `type` are non-config; every
   // other top-level field is part of the step's config (which is stored
@@ -191,6 +197,8 @@ export function stepTemplate(type: string, customStepTypes: CustomStepTypeSchema
       return { id, slug: "", type: "case", match: "", paths: [] };
     case "waitFor":
       return { id, slug: "", type: "waitFor", event: "" };
+    case "humanTask":
+      return { id, slug: "", type: "humanTask", title: "", assignees: { users: [], roles: [] } };
     case "emit":
       return { id, slug: "", type: "emit", event: "" };
     case "iterator":

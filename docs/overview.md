@@ -38,6 +38,7 @@ Everything runs through a job queue system. Whether it's a chat message, a sched
 | Document processing | PDF/image to markdown conversion via vision LLM |
 | File watching | Automatically react when files appear in monitored folders |
 | Webhooks | Receive events from external services (GitHub, CI, monitoring, etc.) |
+| [Portal](portal.md) | Workflows ask people for approvals or input, answered in a mobile-friendly end-user app |
 | Wiki | A knowledge base the agent can read and write |
 | Telegram | Chat with the agent from your phone |
 | MCP bridging | Connect any Model Context Protocol server |

@@ -126,3 +126,35 @@ export const AUTH_SESSION_TTL_MS: number = (() => {
   );
   return ttl;
 })();
+
+// ---------------------------------------------------------------------------
+// Portal (end-user frontend)
+// ---------------------------------------------------------------------------
+
+/**
+ * Public base URL of the portal (e.g. "https://tasks.example.com"), used for
+ * deep links in notifications and for the hint shown to portal accounts that
+ * sign in to the operator UI. Empty when not configured. A trailing slash is
+ * removed.
+ */
+export const PORTAL_PUBLIC_URL: string = (() => {
+  const raw = process.env.PORTAL_PUBLIC_URL?.trim() ?? "";
+  if (!raw) return "";
+  assert(/^https?:\/\/[^\s]+$/.test(raw), `Invalid PORTAL_PUBLIC_URL: "${raw}" (must be an http(s) URL)`);
+  return raw.replace(/\/+$/, "");
+})();
+
+/**
+ * Whether human tasks (HITL) are enabled: the `humanTask` workflow step, the
+ * portal API and the bundled portal app. Experimental, so off by default; set
+ * `HITL_ENABLED=true` to turn it on. Stored tasks and portal accounts are kept
+ * while it is off, but nothing can create or answer tasks.
+ */
+export const HITL_ENABLED: boolean = (() => {
+  const raw = process.env.HITL_ENABLED?.trim().toLowerCase() ?? "";
+  assert(
+    ["", "true", "false", "1", "0"].includes(raw),
+    `Invalid HITL_ENABLED: "${process.env.HITL_ENABLED}" (must be "true" or "false")`,
+  );
+  return raw === "true" || raw === "1";
+})();

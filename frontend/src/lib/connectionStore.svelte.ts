@@ -74,6 +74,10 @@ class ConnectionManager {
         forceLogout();
         return;
       }
+      // Portal accounts may not use this socket; the app shows a notice instead.
+      if (event.code === 4003) {
+        return;
+      }
 
       if (!this.intentionalDisconnect) {
         this.scheduleReconnect();

@@ -506,7 +506,7 @@ The file metadata is available as `{{trigger.payload.filename}}` (path relative 
 - Each step reads any ancestor's result via `{{steps.<slug>.result}}` (resolved from the run store, not just the direct predecessor).
 - Fail-fast: any step failure fails the run, cancels in-flight jobs, and marks remaining steps dead.
 - `waitFor` releases its worker slot while waiting (blocks only its successors); `emit` is fire-and-forget.
-- A run completes when all terminal steps are completed or dead, with at least one completed. All run state is persisted in SQLite and survives restarts.
+- A run completes when all terminal steps are completed or dead. A branch without edges (an `if`/`case` path you leave unconnected) just ends the run. All run state is persisted in SQLite and survives restarts.
 
 ## Notes
 

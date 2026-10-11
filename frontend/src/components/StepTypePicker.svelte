@@ -5,6 +5,7 @@
  * Used by both AddStepNode (the dashed circle menu) and the edge insert popup.
  */
 import { t } from "$lib/i18n.svelte";
+import { identity } from "$lib/identity.svelte";
 import { visualForStepType } from "$lib/nodeVisuals";
 
 interface StepTypeEntry {
@@ -31,13 +32,17 @@ const builtinTypes = $derived([
   { type: "if", label: t("stepType.ifCondition"), category: "control-flow" },
   { type: "case", label: t("stepType.caseSwitch"), category: "control-flow" },
   { type: "waitFor", label: t("stepType.waitForSignal"), category: "control-flow" },
+  { type: "humanTask", label: t("stepType.humanTask"), category: "control-flow" },
   { type: "emit", label: t("stepType.emitSignal"), category: "control-flow" },
 ] as const);
 
-const builtinTypeSlugs = new Set<string>(["agent", "iterator", "if", "case", "waitFor", "emit"]);
+const builtinTypeSlugs = new Set<string>(["agent", "iterator", "if", "case", "waitFor", "humanTask", "emit"]);
 
 let controlFlowTypes = $derived(
-  builtinTypes.filter((t) => t.category === "control-flow").sort((a, b) => a.label.localeCompare(b.label)),
+  builtinTypes
+    // Human tasks are experimental and only offered when the server enables them.
+    .filter((t) => t.category === "control-flow" && (t.type !== "humanTask" || identity.hitlEnabled))
+    .sort((a, b) => a.label.localeCompare(b.label)),
 );
 let customTypes = $derived(customStepTypes.filter((t) => !builtinTypeSlugs.has(t.type)));
 let customActionTypes = $derived(

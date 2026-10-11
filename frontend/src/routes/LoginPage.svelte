@@ -23,6 +23,8 @@ async function handleSubmit() {
       const data = await res.json();
       setToken(data.token);
       identity.set(data.user, data.ability);
+      // The login response has no portal URL or feature flags; load them in the background.
+      void identity.refresh();
       navigate("/");
     } else if (res.status === 401) {
       error = t("login.invalid");

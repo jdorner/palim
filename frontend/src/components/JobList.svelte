@@ -17,6 +17,7 @@ import { t } from "$lib/i18n.svelte";
 import { statusLabel } from "$lib/i18nCore";
 import { aggregateStepStatus, automationStyle, formatTimestamp, isJobCancellable, isRunCancellable } from "$lib/utils";
 import type { JobEntry } from "../../../shared/types";
+import DeleteRunButton from "./DeleteRunButton.svelte";
 import JobLogs from "./JobLogs.svelte";
 import StatusDot from "./StatusDot.svelte";
 
@@ -423,6 +424,17 @@ function trackColumnWidths(container: HTMLElement) {
   </Button>
 {/snippet}
 
+<!-- Delete for a failed workflow run, Cancel for one still in flight -->
+{#snippet workflowRunAction(
+  item: WorkflowItem,
+)}
+  {#if item.aggregateStatus === "failed"}
+    <DeleteRunButton runId={item.workflowRunId} />
+  {:else if isRunCancellable(item.aggregateStatus)}
+    {@render workflowCancelButton(item)}
+  {/if}
+{/snippet}
+
 {#snippet workflowCancelButton(
   item: WorkflowItem,
 )}
@@ -514,9 +526,9 @@ function trackColumnWidths(container: HTMLElement) {
         </div>
         {@render cardTimestamps(workflowCreatedAt(item.jobs), workflowCompletedAt(item.jobs), "px-4 pb-3 -mt-1")}
 
-        {#if isRunCancellable(item.aggregateStatus)}
+        {#if isRunCancellable(item.aggregateStatus) || item.aggregateStatus === "failed"}
           <div class="flex flex-wrap items-center gap-2 px-4 pb-3">
-            {@render workflowCancelButton(item)}
+            {@render workflowRunAction(item)}
           </div>
         {/if}
 
@@ -631,9 +643,7 @@ function trackColumnWidths(container: HTMLElement) {
             </TableCell>
             <TableCell class="text-right w-1">
               <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                {#if isRunCancellable(item.aggregateStatus)}
-                  {@render workflowCancelButton(item)}
-                {/if}
+                {@render workflowRunAction(item)}
               </div>
             </TableCell>
           </TableRow>

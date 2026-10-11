@@ -3,11 +3,14 @@
  * WebSocket, and composes route modules from `./routes/`.
  */
 
+import path from "node:path";
 import { cors } from "@elysia/cors";
 import { staticPlugin } from "@elysiajs/static";
+import { isPortalPath } from "@shared/auth";
 import { type AuthService, hashToken, type UserStore } from "@src/auth";
-import { EXT_UI_DIR } from "@src/config";
+import { EXT_UI_DIR, PROJECT_DIR } from "@src/config";
 import type { ExtensionRegistry } from "@src/extensions";
+import type { HitlService } from "@src/hitl";
 import type { AgentJob, ChatJob } from "@src/jobs";
 import { createPushService } from "@src/push";
 import type { ManagedQueuePort } from "@src/queue";
@@ -23,7 +26,8 @@ import { compression } from "./compression";
 import { ExtensionRouter } from "./extensionRouter";
 import { serveExtensionUiAsset } from "./extensionUiAssets";
 import { LoginThrottle } from "./loginThrottle";
-import { QueueMonitor } from "./monitor";
+import { QueueMonitor, WS_CLOSE_PORTAL_ACCOUNT } from "./monitor";
+import { PortalEventHub } from "./portalEvents";
 import { authRoutes } from "./routes/auth";
 import { chatRoutes } from "./routes/chat";
 import { extensionRoutes } from "./routes/extensions";
@@ -32,6 +36,7 @@ import { globalVariableRoutes } from "./routes/globalVariables";
 import { i18nRoutes } from "./routes/i18n";
 import { jobRoutes } from "./routes/jobs";
 import { modelRoutes } from "./routes/models";
+import { portalRoutes } from "./routes/portal";
 import { pushRoutes } from "./routes/push";
 import { secretRoutes } from "./routes/secrets";
 import { sessionRoutes } from "./routes/sessions";
@@ -67,6 +72,8 @@ interface WebServerDeps {
   authService?: AuthService;
   /** User store for account/role lookups (used by admin routes). */
   userStore?: UserStore;
+  /** Human task (HITL) service backing the portal API. Absent when HITL is disabled. */
+  hitlService?: HitlService;
 }
 
 /** Options for starting the web server. */
@@ -104,9 +111,14 @@ export async function createWebServer(deps: WebServerDeps) {
 
   // Create the push service with broadcast wired to the monitor
   const pushService = createPushService({ broadcastFn: (msg) => monitor.broadcast(msg) });
+  // Live task updates for the portal (portal accounts cannot use the WebSocket).
+  const portalEventHub =
+    deps.hitlService && authService ? new PortalEventHub(deps.hitlService, authService) : undefined;
   const app = new Elysia()
     .get("/health", () => "OK")
     .use(compression())
+    // The portal (end-user app), when built and HITL is enabled, at /portal/ (before the operator UI's catch-all).
+    .use(deps.hitlService ? await portalStatic() : new Elysia({ name: "portal-static" }))
     .use(
       await staticPlugin({
         assets: "./frontend/dist",
@@ -155,6 +167,12 @@ export async function createWebServer(deps: WebServerDeps) {
     .use(globalSecretRoutes(() => deps.secretVault))
     .use(globalVariableRoutes(() => deps.variableStore))
     .use(
+      portalRoutes(
+        () => deps.hitlService,
+        () => portalEventHub,
+      ),
+    )
+    .use(
       userRoutes(
         () => deps.userStore,
         () => authService,
@@ -180,6 +198,11 @@ export async function createWebServer(deps: WebServerDeps) {
           ws.close(4001, "Unauthorized");
           return;
         }
+        // Portal accounts use the portal's own event stream, never the operator socket.
+        if (principal.user.kind === "portal") {
+          ws.close(WS_CLOSE_PORTAL_ACCOUNT, "Portal accounts cannot use the operator WebSocket");
+          return;
+        }
         // Keep the token so the monitor can revalidate this connection later.
         monitor.addClient(ws, principal, token);
       },
@@ -188,7 +211,7 @@ export async function createWebServer(deps: WebServerDeps) {
       },
     });
 
-  return { app, monitor, pushMessage: pushService.pushMessage, extensionRouter };
+  return { app, monitor, pushMessage: pushService.pushMessage, extensionRouter, portalEventHub };
 }
 
 /**
@@ -204,13 +227,35 @@ export function startWebServer(app: AnyElysia, opts: WebServerListenOptions) {
 }
 
 /**
+ * Serves the built portal (`portal/dist`) at `/portal/`, when it exists.
+ * Its assets use relative URLs, so `/portal` redirects to `/portal/`.
+ *
+ * @returns An Elysia plugin (empty when the portal is not built)
+ */
+async function portalStatic(): Promise<Elysia> {
+  const dir = path.join(PROJECT_DIR, "portal", "dist");
+  const plugin = new Elysia({ name: "portal-static" });
+  if (!(await Bun.file(path.join(dir, "index.html")).exists())) return plugin;
+  log.info(`Serving the portal from ${dir} at /portal/`);
+  // Typed as a plain Elysia instance so the server's route chain keeps its inference.
+  return plugin
+    .onRequest(({ request }) => {
+      // Before routing: the static plugin would otherwise answer /portal itself.
+      const url = new URL(request.url);
+      if (url.pathname === "/portal") return Response.redirect(new URL(`/portal/${url.search}`, url).toString(), 302);
+    })
+    .use(await staticPlugin({ assets: dir, prefix: "/portal" })) as unknown as Elysia;
+}
+
+/**
  * HTTP request middleware: authenticates the bearer token to a per-user
  * principal, attaches it to the request, and enforces coarse route
  * authorization via the central rule table.
  *
  * Public paths (static assets, `/api/auth/login`, extension routes registered
  * with `{ public: true }` such as webhook receive) are exempt. Protected paths require a resolvable token (else 401) and must pass
- * the authorization rules for the method+path (else 403). Fine-grained
+ * the authorization rules for the method+path (else 403). Portal accounts may
+ * only reach the portal path prefixes (else 403). Fine-grained
  * ownership checks live in the individual route handlers.
  *
  * @param params - Elysia handler parameters (request + status helper).
@@ -246,6 +291,11 @@ export function authCheck(
 
   // Attach identity for downstream handlers (ownership checks, admin routes).
   setPrincipal(params.request, principal);
+
+  // Portal accounts are fenced to the portal API, whatever their roles grant.
+  if (principal.user.kind === "portal" && !isPortalPath(path)) {
+    return params.status(403, { error: "Portal accounts can only use the portal" });
+  }
 
   // Coarse, feature-level authorization from the central rule table.
   const decision = authorizeRequest(params.request.method, path, principal.ability);

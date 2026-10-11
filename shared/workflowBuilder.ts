@@ -105,6 +105,7 @@ export const BUILTIN_STEP_TYPES: StepTypeDescriptor[] = [
   },
   { type: "aggregator", branches: [] },
   { type: "waitFor", branches: [] },
+  { type: "humanTask", branches: [] },
   { type: "emit", branches: [] },
   { type: "fail", branches: [], terminal: true },
 ];
@@ -169,6 +170,10 @@ function createStep(type: string, config: BuilderConfig): StepDraft {
       break;
     case "waitFor":
       step.event = "";
+      break;
+    case "humanTask":
+      step.title = "";
+      step.assignees = { users: [], roles: [] };
       break;
     case "emit":
       step.event = "";

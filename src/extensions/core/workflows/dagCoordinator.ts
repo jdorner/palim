@@ -12,18 +12,26 @@
  * @module
  */
 
-import type { Logger } from "@ext/types";
+import type { HitlApi, Logger } from "@ext/types";
 import type { WorkflowWebSocketEvent } from "@shared/workflows";
 import type { FlowProducer } from "bunqueue/client";
 import { evaluateCondition } from "./condition";
+import { type CaseStepResult, describeControlFlowStep, type IfStepResult } from "./controlFlowEvaluation";
 import { buildDagStepJob, buildIncomingEdgeMap, buildOutgoingEdgeMap, type SessionFactory } from "./dagEngine";
 import * as dagRunStore from "./dagRunStore";
 import { type DagWorkflowRun, edgeId } from "./dagRunStore";
 import { computeTerminalSteps } from "./dagValidation";
+import {
+  HUMAN_TASK_SIGNAL_EVENT,
+  type ResolvedHumanTaskFields,
+  resolveHumanTaskFields,
+  WORKFLOW_TASK_SOURCE,
+} from "./humanTask";
 import type {
   ConditionDef,
   DagAggregatorStep,
   DagCaseStep,
+  DagHumanTaskStep,
   DagIfStep,
   DagIteratorStep,
   DagStep,
@@ -59,6 +67,8 @@ export interface DagCoordinatorDeps {
   getWorkflowDefinition: (name: string) => DagWorkflowDefinition | undefined;
   /** Cancels a running job by ID (best-effort). */
   cancelJob?: (jobId: string) => Promise<void>;
+  /** Human task service for `humanTask` nodes (absent when HITL is not configured). */
+  hitl?: HitlApi;
 }
 
 /**
@@ -252,7 +262,11 @@ async function evaluateIfNode(
   const chosenBranch = conditionResult ? "then" : "else";
 
   // Mark step completed with result
-  const ifResult = { condition: conditionResult, chosenBranch };
+  const ifResult: IfStepResult = {
+    condition: conditionResult,
+    chosenBranch,
+    value: typeof resolvedValue === "string" ? resolvedValue : null,
+  };
   dagRunStore.updateStepResult(runId, stepSlug, ifResult);
   dagRunStore.updateStepStatus(runId, stepSlug, "completed");
 
@@ -274,6 +288,7 @@ async function evaluateIfNode(
     stepSlug,
     jobId: runId,
     chosenBranch,
+    evaluation: describeControlFlowStep(stepDef, ifResult),
   });
 
   log.info(`DAG if node "${stepSlug}" in run ${runId}: condition=${conditionResult}, branch="${chosenBranch}"`);
@@ -281,6 +296,25 @@ async function evaluateIfNode(
   // Re-read run state and check successors
   const updatedRun = dagRunStore.get(runId)!;
   await checkSuccessors(runId, outEdges, updatedRun, definition, topology, deps);
+}
+
+/**
+ * Picks the branch a `case` node takes when no path matched.
+ *
+ * `default` names the fallback branch key (a path key or a key of its own).
+ * An edge with the literal branch `"default"` is the fallback when the named
+ * key has no edge or no `default` is declared, so definitions written for the
+ * earlier engine (which always routed to `"default"`) keep working.
+ *
+ * @param stepDef - The case step definition
+ * @param outEdges - The case node's outgoing edges
+ * @returns The fallback branch key, or null when the node has no fallback
+ */
+export function caseFallbackBranch(stepDef: DagCaseStep, outEdges: readonly Edge[]): string | null {
+  const hasEdge = (branch: string) => outEdges.some((e) => e.branch === branch);
+  if (stepDef.default && hasEdge(stepDef.default)) return stepDef.default;
+  if (hasEdge("default")) return "default";
+  return stepDef.default ?? null;
 }
 
 /**
@@ -325,9 +359,12 @@ async function evaluateCaseNode(
     }
   }
 
-  // Fall back to default
-  if (matchedBranch === null && stepDef.default) {
-    matchedBranch = "default";
+  const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
+
+  // Fall back to the default branch
+  const fallback = matchedBranch === null;
+  if (fallback) {
+    matchedBranch = caseFallbackBranch(stepDef, outEdges);
   }
 
   if (matchedBranch === null) {
@@ -341,12 +378,11 @@ async function evaluateCaseNode(
   }
 
   // Mark step completed with result
-  const caseResult = { matched: matchedBranch };
+  const caseResult: CaseStepResult = { matched: matchedBranch, value: resolvedMatch, fallback };
   dagRunStore.updateStepResult(runId, stepSlug, caseResult);
   dagRunStore.updateStepStatus(runId, stepSlug, "completed");
 
   // Mark edges: matched branch = satisfied, others = dead
-  const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
   for (const edge of outEdges) {
     const eid = edgeId(edge.from, edge.to, edge.branch);
     if (edge.branch === matchedBranch) {
@@ -363,6 +399,7 @@ async function evaluateCaseNode(
     stepSlug,
     jobId: runId,
     chosenBranch: matchedBranch,
+    evaluation: describeControlFlowStep(stepDef, caseResult),
   });
 
   log.info(`DAG case node "${stepSlug}" in run ${runId}: matched="${matchedBranch}"`);
@@ -839,6 +876,9 @@ async function activateReadyStep(
   } else if (stepDef.type === "waitFor") {
     // WaitFor node: register a signal and pause this branch (no queue job)
     await registerWaitForNode(runId, slug, stepDef as DagWaitForStep, definition, deps);
+  } else if (stepDef.type === "humanTask") {
+    // Human task node: create a portal task and pause this branch (no queue job)
+    await registerHumanTaskNode(runId, slug, stepDef as DagHumanTaskStep, definition, deps);
   } else if (stepDef.type === "aggregator") {
     // Aggregator node: evaluate inline (collect results, advance iteration or complete)
     dagRunStore.updateStepStatus(runId, slug, "running");
@@ -908,16 +948,24 @@ async function dispatchStep(
     ...(run.createdByUserId ? { initiatorUserId: run.createdByUserId } : {}),
   });
 
+  // Mark the step running before enqueueing: the in-process worker can pick up
+  // and finish a fast job before add() resolves, and a status write after the
+  // await would clobber its "completed" (or "failed") state.
+  dagRunStore.updateStepStatus(runId, slug, "running");
+
   try {
     const result = await flowProducer.add(job);
-    dagRunStore.updateStepStatus(runId, slug, "running");
 
-    broadcast({
-      type: "workflow_step_started",
-      workflowRunId: runId,
-      stepSlug: slug,
-      jobId: result.job.id,
-    });
+    // Only announce the start while the step is still running; a late
+    // started event after its completion would show it active again.
+    if (dagRunStore.get(runId)?.stepStatuses[slug] === "running") {
+      broadcast({
+        type: "workflow_step_started",
+        workflowRunId: runId,
+        stepSlug: slug,
+        jobId: result.job.id,
+      });
+    }
 
     log.debug(`DAG coordinator: dispatched step "${slug}" for run ${runId} (job ${result.job.id})`);
   } catch (err) {
@@ -1004,7 +1052,9 @@ async function propagateDead(
  * Checks if the workflow run is complete.
  *
  * A run is complete when all terminal steps (no outgoing edges) are in a
- * terminal state (completed or dead), with at least one completed.
+ * terminal state (completed or dead). Every other step leads to a terminal, so
+ * nothing is left pending or running then. All terminals may be dead: a control
+ * flow node that took a branch without edges ends the run normally.
  */
 async function checkRunCompletion(runId: string, topology: DagGraphTopology, deps: DagCoordinatorDeps): Promise<void> {
   const { log, broadcast } = deps;
@@ -1012,22 +1062,12 @@ async function checkRunCompletion(runId: string, topology: DagGraphTopology, dep
   const run = dagRunStore.get(runId);
   if (!run || !dagRunStore.isActiveRunStatus(run.status)) return;
 
-  let allTerminalsDone = true;
-  let hasCompleted = false;
-
-  for (const slug of topology.terminalSteps) {
+  const allTerminalsDone = [...topology.terminalSteps].every((slug) => {
     const status = run.stepStatuses[slug];
-    if (status === "completed") {
-      hasCompleted = true;
-    } else if (status === "dead") {
-      // Dead terminal doesn't block completion
-    } else {
-      allTerminalsDone = false;
-      break;
-    }
-  }
+    return status === "completed" || status === "dead";
+  });
 
-  if (allTerminalsDone && hasCompleted) {
+  if (allTerminalsDone) {
     dagRunStore.updateStatus(runId, "completed");
     broadcast({ type: "workflow_completed", workflowRunId: runId });
     log.info(`DAG workflow run ${runId} completed`);
@@ -1071,6 +1111,8 @@ export async function evaluateInlineRoot(runId: string, slug: string, deps: DagC
     await evaluateCfNode(runId, slug, dagRunStore.get(runId)!, definition, topology, deps);
   } else if (stepDef.type === "waitFor") {
     await registerWaitForNode(runId, slug, stepDef as DagWaitForStep, definition, deps);
+  } else if (stepDef.type === "humanTask") {
+    await registerHumanTaskNode(runId, slug, stepDef as DagHumanTaskStep, definition, deps);
   } else {
     log.warn(`DAG coordinator: evaluateInlineRoot called for non-inline step "${slug}" (type: ${stepDef.type})`);
   }
@@ -1178,6 +1220,117 @@ async function registerWaitForNode(
   );
 
   // Arm timeout timer if configured
+  if (stepDef.timeout != null && stepDef.timeout > 0) {
+    signalTimers.arm(signalRecord, stepDef.timeout, { log, broadcast });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Human Task Registration
+// ---------------------------------------------------------------------------
+
+/**
+ * Registers a `humanTask` node: resolves its templated fields, creates an
+ * instance-scoped signal that only the HITL service may deliver, creates the
+ * portal task pointing at that signal, and pauses the branch like `waitFor`.
+ *
+ * The task's answer arrives through the workflow source handler (see the
+ * workflows extension), which delivers it to the signal and resumes the run.
+ *
+ * @param runId - The workflow run ID
+ * @param slug - The humanTask node slug
+ * @param stepDef - The humanTask step definition
+ * @param definition - The workflow definition (for template step configs)
+ * @param deps - Injected dependencies
+ */
+async function registerHumanTaskNode(
+  runId: string,
+  slug: string,
+  stepDef: DagHumanTaskStep,
+  definition: DagWorkflowDefinition,
+  deps: DagCoordinatorDeps,
+): Promise<void> {
+  const { log, broadcast, hitl } = deps;
+  if (!hitl) {
+    failRun(runId, slug, "Human tasks are disabled (set HITL_ENABLED=true)", deps);
+    return;
+  }
+
+  const run = dagRunStore.get(runId);
+  if (!run) return;
+
+  let fields: ResolvedHumanTaskFields;
+  try {
+    fields = await resolveHumanTaskFields(stepDef, {
+      triggerPayload: run.triggerPayload ?? undefined,
+      stepResults: run.stepResults,
+      stepConfigs: buildStepConfigs(definition),
+      run: dagRunStore.toRunTemplateInfo(run),
+    });
+  } catch (err) {
+    failRun(runId, slug, `Human task could not be prepared: ${err instanceof Error ? err.message : String(err)}`, deps);
+    return;
+  }
+
+  let signalRecord: signalStore.SignalRecord;
+  try {
+    signalRecord = signalStore.create({
+      runId,
+      stepSlug: slug,
+      event: HUMAN_TASK_SIGNAL_EVENT,
+      timeoutMs: stepDef.timeout ?? null,
+      inputSchema: null,
+      scope: "instance",
+      source: "humanTask",
+    });
+  } catch (err) {
+    log.error(`DAG coordinator: signal store error for humanTask "${slug}" in run ${runId}:`, err);
+    failRun(runId, slug, `Signal Store unavailable: ${err instanceof Error ? err.message : String(err)}`, deps);
+    return;
+  }
+
+  let taskId: string;
+  try {
+    const task = hitl.createTask({
+      source: {
+        kind: WORKFLOW_TASK_SOURCE,
+        id: runId,
+        ref: { runId, stepSlug: slug, signalId: signalRecord.id, workflow: run.workflowName },
+      },
+      title: fields.title,
+      body: fields.body,
+      context: fields.context,
+      ...(stepDef.outcomes ? { outcomes: stepDef.outcomes } : {}),
+      form: stepDef.form ?? null,
+      requireComment: stepDef.requireComment ?? false,
+      priority: stepDef.priority ?? "normal",
+      dueAt: stepDef.timeout ? signalRecord.createdAt + stepDef.timeout : null,
+      assignees: fields.assignees,
+      createdBy: run.createdByUserId,
+    });
+    taskId = task.id;
+  } catch (err) {
+    // The signal must not linger as deliverable without a task behind it.
+    signalStore.markCancelled(signalRecord.id);
+    failRun(runId, slug, `Human task could not be created: ${err instanceof Error ? err.message : String(err)}`, deps);
+    return;
+  }
+
+  dagRunStore.updateStepStatus(runId, slug, "waiting-signal");
+  dagRunStore.updateStatus(runId, "waiting-signal");
+
+  broadcast({
+    type: "workflow_step_waiting",
+    workflowRunId: runId,
+    stepSlug: slug,
+    event: HUMAN_TASK_SIGNAL_EVENT,
+    inputSchema: null,
+  });
+
+  log.info(
+    `DAG humanTask node "${slug}" in run ${runId}: waiting for task ${taskId}${stepDef.timeout ? ` (timeout: ${stepDef.timeout}ms)` : ""}`,
+  );
+
   if (stepDef.timeout != null && stepDef.timeout > 0) {
     signalTimers.arm(signalRecord, stepDef.timeout, { log, broadcast });
   }

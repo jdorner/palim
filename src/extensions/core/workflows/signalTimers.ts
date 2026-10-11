@@ -29,6 +29,28 @@ export interface SignalTimeoutDeps {
 /** Module-level map of signal ID -> armed timeout timer. */
 const timers = new Map<string, ReturnType<typeof setTimeout>>();
 
+/**
+ * Source-specific timeout behavior. Return `"handled"` when the hook took care
+ * of the timeout (e.g. resumed the run), or `"default"` to continue with the
+ * default path (mark timed out, fail the run).
+ */
+export type TimeoutHook = (signal: signalStore.SignalRecord) => "handled" | "default";
+
+/** Timeout hooks by signal source. */
+const timeoutHooks = new Map<signalStore.SignalSource, TimeoutHook>();
+
+/**
+ * Registers the timeout behavior for signals of a source (replacing any
+ * earlier hook). Hooks run when a timer fires, before the default path.
+ *
+ * @param source - The signal source (e.g. `humanTask`)
+ * @param hook - The hook, or null to remove it
+ */
+export function setTimeoutHook(source: signalStore.SignalSource, hook: TimeoutHook | null): void {
+  if (hook) timeoutHooks.set(source, hook);
+  else timeoutHooks.delete(source);
+}
+
 /** The signal fields a timeout timer needs. */
 export type TimedSignal = Pick<signalStore.SignalRecord, "id" | "runId" | "stepSlug" | "event">;
 
@@ -52,6 +74,18 @@ export function arm(signal: TimedSignal, timeoutMs: number, deps: SignalTimeoutD
   const timer = setTimeout(() => {
     // Remove from registry since the timer has fired
     timers.delete(signalId);
+
+    // Source-specific behavior first (e.g. human tasks resume as "expired").
+    const current = signalStore.getById(signalId);
+    if (current?.status !== "waiting") return;
+    const hook = timeoutHooks.get(current.source);
+    if (hook) {
+      try {
+        if (hook(current) === "handled") return;
+      } catch (err) {
+        deps.log.error(`Signal timeout hook for "${current.source}" failed (signal ${signalId}):`, err);
+      }
+    }
 
     // Claim the signal. Losing the claim means it was delivered (or timed out)
     // by another path in the meantime.

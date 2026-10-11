@@ -134,3 +134,29 @@ describe("abilityFromSerialized", () => {
     expect(ability.can("manage", "all")).toBe(true);
   });
 });
+
+describe("portal accounts and hitl permissions", () => {
+  test("a portal account gets no implicit reads, only its permission grants", () => {
+    const ability = buildAbility({
+      userId: "p",
+      isAdmin: false,
+      permissions: [PERMISSIONS.HITL_RESPOND],
+      kind: "portal",
+    });
+    expect(ability.can("read", "Workflow")).toBe(false);
+    expect(ability.can("read", "Job")).toBe(false);
+    expect(ability.can("update", "HumanTask")).toBe(true);
+    expect(ability.can("delete", "HumanTask")).toBe(false);
+  });
+
+  test("hitl:manage grants manage on human tasks; operators keep implicit reads", () => {
+    const ability = buildAbility({ userId: "o", isAdmin: false, permissions: [PERMISSIONS.HITL_MANAGE] });
+    expect(ability.can("delete", "HumanTask")).toBe(true);
+    expect(ability.can("read", "Workflow")).toBe(true);
+  });
+
+  test("abilityFromSerialized keeps the portal kind", () => {
+    const ability = abilityFromSerialized({ userId: "p", isAdmin: false, permissions: [], kind: "portal" });
+    expect(ability.can("read", "Workflow")).toBe(false);
+  });
+});

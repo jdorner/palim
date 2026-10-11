@@ -1,0 +1,97 @@
+{
+  "app": {
+    "title": "Palim-Portal",
+    "loading": "Wird geladen…",
+    "offline": "Live-Aktualisierung pausiert, verbinde neu…"
+  },
+  "nav": {
+    "tasks": "Aufgaben",
+    "settings": "Einstellungen"
+  },
+  "login": {
+    "title": "Anmelden",
+    "subtitle": "Melde dich an, um die dir zugewiesenen Aufgaben zu sehen.",
+    "username": "Benutzername",
+    "password": "Passwort",
+    "submit": "Anmelden",
+    "submitting": "Anmeldung läuft…",
+    "invalid": "Benutzername oder Passwort ist falsch.",
+    "locked": "Zu viele Versuche. Versuche es gleich noch einmal.",
+    "failed": "Anmeldung fehlgeschlagen: {message}"
+  },
+  "noAccess": {
+    "title": "Hier gibt es nichts zu tun",
+    "description": "Dein Konto {username} hat keinen Zugriff auf das Portal. Bitte eine Administratorin oder einen Administrator um die Rolle portal-user."
+  },
+  "notFound": {
+    "title": "Seite nicht gefunden",
+    "back": "Zurück zum Anfang"
+  },
+  "settings": {
+    "title": "Einstellungen",
+    "account": "Angemeldet als {username}",
+    "language": "Sprache",
+    "browserDefault": "Browser-Standard",
+    "theme": "Darstellung",
+    "themeSystem": "System",
+    "themeLight": "Hell",
+    "themeDark": "Dunkel",
+    "logout": "Abmelden",
+    "saveFailed": "Speichern fehlgeschlagen: {message}"
+  },
+  "tasks": {
+    "title": "Aufgaben",
+    "tabOpen": "Offen",
+    "tabDone": "Von mir erledigt",
+    "emptyOpen": "Keine offenen Aufgaben. Neue Aufgaben erscheinen hier automatisch.",
+    "emptyDone": "Du hast noch keine Aufgaben beantwortet.",
+    "loadMore": "Mehr laden",
+    "loadFailed": "Aufgaben konnten nicht geladen werden: {message}",
+    "retry": "Erneut versuchen",
+    "due": "Fällig {time}",
+    "overdue": "Überfällig seit {time}",
+    "created": "{time}",
+    "priorityHigh": "Hohe Priorität",
+    "priorityLow": "Niedrige Priorität",
+    "status": {
+      "open": "Offen",
+      "completed": "Erledigt",
+      "expired": "Abgelaufen",
+      "cancelled": "Abgebrochen"
+    },
+    "assignedTo": "Zugewiesen an",
+    "role": "Rolle {role}",
+    "back": "Alle Aufgaben",
+    "details": "Details",
+    "form": "Deine Angaben",
+    "comment": "Kommentar",
+    "commentRequired": "Kommentar (erforderlich)",
+    "commentPlaceholder": "Optionale Notiz für die Akte",
+    "required": "Erforderlich",
+    "missingFields": "Bitte ausfüllen: {fields}",
+    "commentMissing": "Bitte einen Kommentar angeben.",
+    "submitting": "Wird gesendet…",
+    "answered": "Antwort gesendet.",
+    "alreadyHandled": "Diese Aufgabe wurde bereits bearbeitet.",
+    "changed": "Diese Aufgabe hat sich inzwischen geändert. Bitte prüfe sie noch einmal.",
+    "notAvailable": "Diese Aufgabe existiert nicht oder ist für dich nicht verfügbar.",
+    "submitFailed": "Antwort konnte nicht gesendet werden: {message}",
+    "answer": "Antwort",
+    "answeredBy": "{outcome} von {user}, {time}",
+    "unknownUser": "unbekanntem Benutzer",
+    "noLongerOpen": "Diese Aufgabe ist {status} und kann nicht mehr beantwortet werden.",
+    "history": "Verlauf",
+    "unsupportedField": "Dieses Feld kann hier nicht bearbeitet werden.",
+    "yes": "Ja",
+    "no": "Nein",
+    "choose": "Auswählen…",
+    "event": {
+      "created": "Erstellt",
+      "viewed": "Angesehen von {user}",
+      "completed": "Beantwortet von {user}",
+      "cancelled": "Abgebrochen",
+      "expired": "Abgelaufen",
+      "reassigned": "Neu zugewiesen"
+    }
+  }
+}

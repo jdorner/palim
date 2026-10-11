@@ -1,5 +1,5 @@
 {
-  "exclude": ["frontend", "node_modules"],
+  "exclude": ["frontend", "portal", "node_modules"],
   "compilerOptions": {
     // Environment setup & latest features
     "lib": ["ESNext"],

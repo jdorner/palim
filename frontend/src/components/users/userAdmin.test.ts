@@ -4,6 +4,7 @@ import {
   disableLockReason,
   generatePassword,
   groupPermissions,
+  isPortalRole,
   type RoleRow,
   roleDeleteLockReason,
   roleIdsForNames,
@@ -21,7 +22,13 @@ const role = (name: string, extra: Partial<RoleRow> = {}): RoleRow => ({
   ...extra,
 });
 
-const user = (id: string, roles: string[], disabled = false): UserRow => ({ id, username: id, disabled, roles });
+const user = (id: string, roles: string[], disabled = false): UserRow => ({
+  id,
+  username: id,
+  disabled,
+  kind: "operator",
+  roles,
+});
 
 describe("user admin guards", () => {
   const root = user("root", ["admin"]);
@@ -97,5 +104,14 @@ describe("passwords", () => {
     const pw = generatePassword();
     expect(pw).toHaveLength(16);
     expect(validatePassword(pw, pw)).toBeNull();
+  });
+});
+
+describe("isPortalRole", () => {
+  test("only roles with hitl permissions, never admin", () => {
+    expect(isPortalRole(role("portal-user", { permissions: ["hitl:respond"] }))).toBe(true);
+    expect(isPortalRole(role("reviewers", { permissions: ["hitl:respond", "hitl:manage"] }))).toBe(true);
+    expect(isPortalRole(role("user", { permissions: ["chat:write", "hitl:respond"] }))).toBe(false);
+    expect(isPortalRole(role("admin"))).toBe(false);
   });
 });

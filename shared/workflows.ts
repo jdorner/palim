@@ -52,7 +52,13 @@ export interface OutputSchemas {
  * in. This is the single source of truth shared by the backend template engine,
  * the backend DAG validator, and the frontend template scope.
  */
-export const DEFAULT_ENV_ALLOWLIST: readonly string[] = ["WEB_HOST", "WEB_PORT", "AGENT_WORK_DIR", "NODE_ENV"];
+export const DEFAULT_ENV_ALLOWLIST: readonly string[] = [
+  "WEB_SCHEME",
+  "WEB_HOST",
+  "WEB_PORT",
+  "AGENT_WORK_DIR",
+  "NODE_ENV",
+];
 
 /**
  * Fields of the `run` template namespace (`{{run.id}}`, ...), describing the
@@ -307,6 +313,28 @@ export function resolveIteratorItemSchema(
   return unwrapArrayItems(arraySchema);
 }
 
+/**
+ * How a control-flow node (`if` / `case`) decided, shown on the run page in
+ * place of job logs (these nodes are evaluated inline, not as jobs).
+ */
+export interface ControlFlowEvaluation {
+  /** The evaluated template (`if`: `condition.ref`, `case`: `match`). */
+  expression: string;
+  /**
+   * The resolved value; null when the expression could not be resolved,
+   * absent for runs recorded before values were kept.
+   */
+  value?: string | null;
+  /** The branch taken. */
+  branch: string;
+  /** `if`: the comparison operator (`eq`, `in`, ...). */
+  operator?: string;
+  /** `if`: the operand the value was compared against. */
+  operand?: unknown;
+  /** `case`: true when no path matched and the fallback branch was taken. */
+  fallback?: boolean;
+}
+
 /** Step summary included in workflow WebSocket events. */
 export interface WorkflowStepSummary {
   slug: string;
@@ -319,7 +347,15 @@ export type WorkflowWebSocketEvent =
   | { type: "workflow_reload" }
   | { type: "workflow_started"; workflowRunId: string; workflowName: string; steps: WorkflowStepSummary[] }
   | { type: "workflow_step_started"; workflowRunId: string; stepSlug: string; jobId: string }
-  | { type: "workflow_step_completed"; workflowRunId: string; stepSlug: string; jobId: string; chosenBranch?: string }
+  | {
+      type: "workflow_step_completed";
+      workflowRunId: string;
+      stepSlug: string;
+      jobId: string;
+      chosenBranch?: string;
+      /** Set for control-flow nodes (`if` / `case`). */
+      evaluation?: ControlFlowEvaluation;
+    }
   | { type: "workflow_step_dead"; workflowRunId: string; stepSlug: string }
   | { type: "workflow_step_failed"; workflowRunId: string; stepSlug: string; jobId: string; error: string }
   | {

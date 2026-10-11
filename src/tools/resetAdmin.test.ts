@@ -35,6 +35,15 @@ describe("resetAdmin", () => {
     expect(await auth.login("root", "old-password")).toBeNull();
   });
 
+  test("turns a portal account back into an operator", async () => {
+    const user = store.createUser({ username: "pat", passwordHash: "x", kind: "portal" });
+
+    await resetAdmin(store, auth, "pat");
+
+    expect(store.getUserById(user.id)?.kind).toBe("operator");
+    expect(store.getUserRoleNames(user.id)).toEqual([ROLE_ADMIN]);
+  });
+
   test("creates the user when missing", async () => {
     const result = await resetAdmin(store, auth, "newadmin");
     expect(result.created).toBe(true);

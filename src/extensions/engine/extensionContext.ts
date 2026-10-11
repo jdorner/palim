@@ -10,6 +10,7 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ModelIntent } from "@shared/models";
 import type { StepTypeInfo, WebSocketMessage } from "@shared/types";
 import { serverOrigin } from "@src/config";
+import type { HitlService } from "@src/hitl";
 import type { PushMessageFn } from "@src/push";
 import type { JobInfo, JobProcessor, ManagedQueueOptions, ManagedQueuePort, QueueJob, QueueJobLogs } from "@src/queue";
 import { ManagedQueue } from "@src/queue";
@@ -185,6 +186,8 @@ export interface ExtensionContextDeps
    * extensions via `ctx.internal.variables` for workflow template resolution.
    */
   variableStore?: TemplateVariableResolver;
+  /** The human task service (optional). Exposed to core extensions via `ctx.internal.hitl`. */
+  hitlService?: HitlService;
   /** The extension's settingsSchema (TypeBox TObject), if declared. */
   settingsSchema?: Record<string, unknown>;
 }
@@ -221,6 +224,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     isExtensionEnabledFn,
     secretVault,
     variableStore,
+    hitlService,
     rescanSkillsFn,
     getSkillNamesFn,
     settingsSchema,
@@ -736,6 +740,17 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
         resolve: resolveVariable,
         has: hasVariable,
       },
+      hitl: hitlService
+        ? {
+            createTask: (input) => hitlService.createTask(input),
+            cancelBySource: (kind, sourceId, reason) => hitlService.cancelBySource(kind, sourceId, reason),
+            expireTask: (id) => hitlService.expireTask(id),
+            listOpenBySource: (kind, sourceId) => hitlService.listOpenBySource(kind, sourceId),
+            registerSourceHandler: (kind, handler) => hitlService.registerSourceHandler(kind, handler),
+            getRecord: (id) => hitlService.getRecord(id),
+            describeUser: (id) => hitlService.describeUser(id),
+          }
+        : undefined,
     },
   };
 

@@ -1,6 +1,8 @@
 node_modules
 frontend/node_modules
 frontend/dist
+portal/node_modules
+portal/dist
 .db
 .work
 .git
