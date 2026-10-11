@@ -1,13 +1,16 @@
 import { describe, expect, test } from "bun:test";
 import {
   branchFromHandle,
+  draftErrorNodeIds,
   errorsAfterStepRemoval,
   graphEdgesToDraftEdges,
   nextStepId,
   parseSaveErrorDetails,
   reconcileConnectivityErrors,
+  slugErrorsAfterEdit,
   stepTemplate,
   toStepDraft,
+  uniqueStepSlug,
   withConfigDefaults,
 } from "./workflowDraft";
 import { disconnectedStepError, serializeStep, serializeWorkflowDraft, type WorkflowDraft } from "./workflowValidation";
@@ -265,5 +268,60 @@ describe("signal scoping round-trip", () => {
       correlate: "A-1",
       targetRun: "{{steps.child.result.workflowRunId}}",
     });
+  });
+});
+
+describe("uniqueStepSlug", () => {
+  test("starts at size + 1 and skips taken slugs", () => {
+    expect(uniqueStepSlug(new Set())).toBe("step-1");
+    expect(uniqueStepSlug(new Set(["fetch"]))).toBe("step-2");
+    expect(uniqueStepSlug(new Set(["a", "step-3", "step-4"]))).toBe("step-5");
+  });
+});
+
+describe("slugErrorsAfterEdit", () => {
+  const steps = (...slugs: string[]) => slugs.map((slug) => ({ slug, type: "agent" }));
+
+  test("sets a format error for an invalid slug", () => {
+    const next = slugErrorsAfterEdit(new Map(), steps("Bad Slug"), 0, "Bad Slug");
+    expect(next.has("steps[0].slug")).toBe(true);
+  });
+
+  test("marks every step sharing a duplicated slug", () => {
+    const next = slugErrorsAfterEdit(new Map(), steps("a", "b", "a"), 2, "a");
+    expect([...next.keys()].sort()).toEqual(["steps[0].slug", "steps[2].slug"]);
+  });
+
+  test("clears duplicate errors once resolved", () => {
+    const duplicate = slugErrorsAfterEdit(new Map(), steps("a", "a"), 1, "a");
+    const resolved = slugErrorsAfterEdit(duplicate, steps("a", "b"), 1, "b");
+    expect(resolved.size).toBe(0);
+  });
+});
+
+describe("draftErrorNodeIds", () => {
+  const draft: WorkflowDraft = {
+    name: "wf",
+    description: "",
+    trigger: { type: "manual", ref: "" },
+    enabled: true,
+    steps: [
+      { id: "n1", slug: "a", type: "agent" },
+      { id: "n2", slug: "b", type: "agent" },
+      { id: "n3", slug: "c", type: "agent" },
+    ],
+    edges: [],
+  };
+
+  test("combines index-keyed errors and slug-keyed warnings", () => {
+    const errors = new Map([
+      ["steps[0].prompt", "x"],
+      ["trigger.ref", "ignored"],
+    ]);
+    const warnings = [
+      { stepSlug: "c", field: "prompt", message: "w" },
+      { stepSlug: "unknown", field: "prompt", message: "dropped" },
+    ];
+    expect([...draftErrorNodeIds(draft, errors, warnings)].sort()).toEqual(["n1", "n3"]);
   });
 });

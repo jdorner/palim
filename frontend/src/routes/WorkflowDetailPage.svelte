@@ -2,7 +2,6 @@
 import type { Edge } from "@xyflow/svelte";
 import { Tabs } from "bits-ui";
 import { onDestroy, onMount } from "svelte";
-import { slide } from "svelte/transition";
 import { onReconnect } from "$lib/appStore";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
@@ -13,13 +12,16 @@ import { localizeStepType } from "$lib/stepTypes";
 import { UndoHistory } from "$lib/undoHistory";
 import { applyWorkflowEvent, normalizeWorkflow, type StepDef, type WorkflowDetail } from "$lib/workflowDetail";
 import {
+  draftErrorNodeIds,
+  draftFromWorkflow,
   errorsAfterStepRemoval,
   graphEdgesToDraftEdges,
   nextStepId,
   parseSaveErrorDetails,
   reconcileConnectivityErrors,
+  slugErrorsAfterEdit,
   stepTemplate,
-  toStepDraft,
+  uniqueStepSlug,
   withConfigDefaults,
 } from "$lib/workflowDraft";
 import {
@@ -36,17 +38,17 @@ import {
   type EdgeDraft,
   type StepDraft,
   serializeWorkflowDraft,
-  validateSlug,
-  validateStepSlugsUnique,
   validateWorkflowDraft,
   type WorkflowDraft,
 } from "$lib/workflowValidation";
 import { BUILTIN_STEP_TYPES, type StepTypeDescriptor, WorkflowBuilder } from "$shared/workflowBuilder";
 import DetailPanelModeToggle from "../components/DetailPanelModeToggle.svelte";
 import StepTypePickerPopover from "../components/StepTypePickerPopover.svelte";
+import WorkflowDescriptionField from "../components/WorkflowDescriptionField.svelte";
 import WorkflowDetailToolbar from "../components/WorkflowDetailToolbar.svelte";
 import WorkflowGraph from "../components/WorkflowGraph.svelte";
 import WorkflowRunsTab from "../components/WorkflowRunsTab.svelte";
+import WorkflowSaveError from "../components/WorkflowSaveError.svelte";
 import WorkflowStepSidebar from "../components/WorkflowStepSidebar.svelte";
 import WorkflowTriggerPanel from "../components/WorkflowTriggerPanel.svelte";
 import WorkflowWarningsBanner from "../components/WorkflowWarningsBanner.svelte";
@@ -132,20 +134,7 @@ async function loadEditorMeta() {
 /** Enter edit mode with a deep copy of the current workflow data. */
 function enterEditMode() {
   if (!workflow) return;
-  editDraft = {
-    name: workflow.name,
-    description: workflow.description ?? "",
-    trigger: {
-      type: workflow.trigger.type,
-      ref: workflow.trigger.ref ?? "",
-      ...(workflow.trigger.outputSchema
-        ? { outputSchema: JSON.parse(JSON.stringify(workflow.trigger.outputSchema)) }
-        : {}),
-    },
-    enabled: workflow.enabled ?? true,
-    steps: workflow.steps.map((s) => toStepDraft({ ...s })),
-    edges: (workflow.edges ?? []).map((e) => ({ ...e })),
-  };
+  editDraft = draftFromWorkflow(workflow);
   saveError = null;
   saveErrorDetails = [];
   validationErrors = new Map();
@@ -329,12 +318,7 @@ function nextStepSlug(): string {
   // paired aggregator), slugFactory() is called several times before editDraft
   // is reassigned, so the draft snapshot alone would return the same slug twice.
   for (const s of pendingSlugs) existing.add(s);
-  let n = existing.size + 1;
-  let candidate = `step-${n}`;
-  while (existing.has(candidate)) {
-    n++;
-    candidate = `step-${n}`;
-  }
+  const candidate = uniqueStepSlug(existing);
   pendingSlugs.add(candidate);
   return candidate;
 }
@@ -564,37 +548,7 @@ function onStepSlugInput(index: number, value: string) {
   stepSlugTimeouts.set(
     index,
     setTimeout(() => {
-      const newErrors = new Map(validationErrors);
-      const slugResult = validateSlug(value);
-      if (!slugResult.valid && slugResult.error) {
-        newErrors.set(`steps[${index}].slug`, slugResult.error);
-      } else {
-        newErrors.delete(`steps[${index}].slug`);
-        // Check for duplicates
-        const allSlugs = editDraft!.steps.map((s) => s.slug);
-        const duplicateCheck = validateStepSlugsUnique(allSlugs);
-        if (!duplicateCheck.valid && duplicateCheck.error) {
-          // Find which indexes are duplicates of this slug
-          const dupeIndexes = editDraft!.steps.map((s, i) => (s.slug === value ? i : -1)).filter((i) => i >= 0);
-          if (dupeIndexes.length > 1) {
-            for (const di of dupeIndexes) {
-              newErrors.set(`steps[${di}].slug`, t("workflows.slugUnique"));
-            }
-          }
-        } else {
-          // Clear duplicate errors for all steps with this slug if resolved
-          for (let i = 0; i < editDraft!.steps.length; i++) {
-            if (newErrors.get(`steps[${i}].slug`) === t("workflows.slugUnique")) {
-              // Re-validate: is this slug still duplicated?
-              const otherSlugs = editDraft!.steps.map((s, j) => (j !== i ? s.slug : null)).filter(Boolean);
-              if (!otherSlugs.includes(editDraft!.steps[i].slug)) {
-                newErrors.delete(`steps[${i}].slug`);
-              }
-            }
-          }
-        }
-      }
-      validationErrors = newErrors;
+      if (editDraft) validationErrors = slugErrorsAfterEdit(validationErrors, editDraft.steps, index, value);
     }, 300),
   );
 }
@@ -686,42 +640,12 @@ let activeOutputSchemas = $derived(editMode && draftAnalysis ? draftAnalysis.out
 let errorSlugs = $derived(new Set((workflow?.warnings ?? []).map((w) => w.stepSlug)));
 
 /**
- * Synthetic node ids of draft steps that should render an error badge in edit
- * mode. Combines two sources:
- *
- *  1. Live draft `validationErrors` (keys like `steps[2].slug` or
- *     `steps[2].config.url`); the `steps[<index>]` segment maps to that step's
- *     synthetic id. These update as the user types.
- *  2. The backend template `warnings` for the draft ({@link activeWarnings}:
- *     the live draft analysis, or the loaded workflow's until it arrives),
- *     mapped from their `stepSlug` to the matching draft step's synthetic id.
- *     A warning whose slug matches no draft step is simply dropped.
- *
- * Matching on the id (not the slug) keeps the badge on the right node even when
- * a slug is temporarily empty or duplicated mid-edit. Empty outside edit mode.
+ * Synthetic node ids of draft steps that render an error badge in edit mode
+ * (live validation errors plus {@link activeWarnings}). Empty outside edit mode.
  */
-let errorNodeIds = $derived.by(() => {
-  if (!editMode || !editDraft) return new Set<string>();
-  const ids = new Set<string>();
-
-  // 1. Live draft validation errors, keyed by step index -> synthetic id.
-  for (const key of validationErrors.keys()) {
-    const match = key.match(/^steps\[(\d+)\]\./);
-    if (!match) continue;
-    const index = Number.parseInt(match[1]!, 10);
-    const id = editDraft.steps[index]?.id;
-    if (id) ids.add(id);
-  }
-
-  // 2. Backend template warnings, mapped slug -> synthetic id.
-  const slugToId = new Map(editDraft.steps.map((s) => [s.slug, s.id]));
-  for (const w of activeWarnings) {
-    const id = slugToId.get(w.stepSlug);
-    if (id) ids.add(id);
-  }
-
-  return ids;
-});
+let errorNodeIds = $derived(
+  editMode && editDraft ? draftErrorNodeIds(editDraft, validationErrors, activeWarnings) : new Set<string>(),
+);
 
 /**
  * Whether the trigger node should render an error badge. In edit mode this
@@ -934,44 +858,17 @@ onDestroy(() => {
     />
 
     {#if saveError}
-      <div
-        class="mb-4 px-3 py-2 rounded-md border border-destructive bg-destructive/10 text-sm text-destructive shrink-0"
-      >
-        <div class="font-medium">{saveError}</div>
-        {#if saveErrorDetails.length > 0}
-          <ul class="list-disc list-inside mt-1 space-y-0.5 text-xs text-destructive/90">
-            {#each saveErrorDetails as detail}
-              <li>{detail}</li>
-            {/each}
-          </ul>
-        {/if}
-      </div>
+      <WorkflowSaveError error={saveError} details={saveErrorDetails} />
     {/if}
 
     <WorkflowWarningsBanner warnings={activeWarnings} />
 
     {#if editMode && editDraft}
-      <div class="mb-4 shrink-0 p-4 border border-border rounded-md bg-muted/30" transition:slide={{ duration: 100 }}>
-        <div class="flex flex-col gap-1">
-          <label for="edit-description" class="text-xs font-medium text-muted-foreground"
-            >{t("common.description")}</label
-          >
-          <input
-            id="edit-description"
-            type="text"
-            class="px-2 py-1.5 text-sm border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-            value={editDraft.description}
-            maxlength={256}
-            oninput={(e) => {
-              commitDraft({ ...editDraft!, description: (e.target as HTMLInputElement).value }, "description");
-            }}
-            placeholder={t("workflows.descriptionPlaceholder")}
-          >
-          {#if validationErrors.get("description")}
-            <span class="text-xs text-destructive">{validationErrors.get("description")}</span>
-          {/if}
-        </div>
-      </div>
+      <WorkflowDescriptionField
+        value={editDraft.description}
+        error={validationErrors.get("description")}
+        oninput={(description) => commitDraft({ ...editDraft!, description }, "description")}
+      />
     {/if}
 
     <Tabs.Root bind:value={activeTab} class="flex flex-col flex-1 min-h-0">
