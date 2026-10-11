@@ -138,12 +138,7 @@ async function cancelTask() {
             >
             <Button size="sm" variant="ghost" onclick={() => (confirmingCancel = false)}>{t("common.keep")}</Button>
           {:else}
-            <Button
-              size="sm"
-              variant="ghost"
-              class="text-destructive hover:text-destructive"
-              onclick={() => (confirmingCancel = true)}
-            >
+            <Button size="sm" variant="destructive" onclick={() => (confirmingCancel = true)}>
               {t("humanTask.cancel")}
             </Button>
           {/if}
