@@ -16,6 +16,7 @@ import { formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import { buildStatusMap, type GraphStepStatus } from "$lib/workflowRunStatus";
 import { type RunStep, workflowStore } from "$lib/workflowRunStore.svelte";
 import ChatMarkdown from "../components/ChatMarkdown.svelte";
+import DeleteRunButton from "../components/DeleteRunButton.svelte";
 import DetailPanelModeToggle from "../components/DetailPanelModeToggle.svelte";
 import HumanTaskCard from "../components/HumanTaskCard.svelte";
 import SignalDeliveryForm from "../components/SignalDeliveryForm.svelte";
@@ -242,6 +243,12 @@ onDestroy(() => {
         <span class="text-xs text-muted-foreground font-mono">{t("runs.runId", { id: run.runId.slice(0, 8) })}</span>
       </div>
       <div class="flex items-center gap-2">
+        {#if run.status === "failed"}
+          <DeleteRunButton
+            runId={run.runId}
+            onDeleted={() => navigate("/workflows/:name", { params: { name: `${workflowName}` } })}
+          />
+        {/if}
         {#if isRunCancellable(run.status)}
           <Button size="sm" variant="destructive" onclick={cancelRun} disabled={cancelling}>
             <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>

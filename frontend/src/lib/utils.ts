@@ -152,8 +152,7 @@ export function isRunCancellable(status: string): boolean {
     status === "running" ||
     status === "waiting" ||
     status === "waiting-signal" ||
-    status === "queued" ||
-    status === "failed"
+    status === "queued"
   );
 }
 

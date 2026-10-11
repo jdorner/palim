@@ -485,6 +485,8 @@
     "colRunId": "Ausführungs-ID",
     "colStarted": "Gestartet",
     "completed": "Abgeschlossen: {time}",
+    "deleteConfirm": "Die Ausführung {id} wird inklusive ihrer Step-Logs endgültig gelöscht.",
+    "deleteTitle": "Ausführung löschen?",
     "empty": "Noch keine Ausführungen. Klicke auf „Workflow ausführen“, um eine zu starten.",
     "evaluation": {
       "expression": "Ausdruck",
@@ -498,7 +500,7 @@
     "noLogs": "Keine Logs verfügbar",
     "rerun": "Erneut ausführen",
     "rerunFailed": "Erneute Ausführung fehlgeschlagen",
-    "rerunHint": "Startet einen neuen Lauf mit demselben Trigger-Payload. Dieser Lauf bleibt unverändert.",
+    "rerunHint": "Startet eine neue Ausführung mit demselben Trigger-Payload. Diese Ausführung bleibt unverändert.",
     "rerunning": "Wird gestartet...",
     "runId": "Ausführung: {id}",
     "started": "Gestartet: {time}",

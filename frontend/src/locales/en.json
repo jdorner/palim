@@ -485,6 +485,8 @@
     "colRunId": "Run ID",
     "colStarted": "Started",
     "completed": "Completed: {time}",
+    "deleteConfirm": "Run {id} will be deleted permanently, including its step logs.",
+    "deleteTitle": "Delete run?",
     "empty": "No runs yet. Click \"Run Workflow\" to start one.",
     "evaluation": {
       "expression": "Expression",

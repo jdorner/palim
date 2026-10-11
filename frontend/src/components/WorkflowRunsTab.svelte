@@ -9,11 +9,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$
 import { t } from "$lib/i18n.svelte";
 /**
  * Paginated run history for a workflow: cards on small screens, a table on
- * desktop, with Run again (failed runs) and Cancel (in-flight runs) actions.
+ * desktop, with Run again and Delete (failed runs) and Cancel (in-flight runs) actions.
  */
 import { statusLabel } from "$lib/i18nCore";
 import { aggregateStepStatus, formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
 import type { WorkflowRunSummary } from "$lib/workflowDetail";
+import DeleteRunButton from "./DeleteRunButton.svelte";
 import StatusDot from "./StatusDot.svelte";
 
 interface Props {
@@ -21,7 +22,7 @@ interface Props {
   workflowName: string;
   /** Runs, newest first. */
   runs: WorkflowRunSummary[];
-  /** Called after a run was cancelled, so the parent can refresh. */
+  /** Called after a run was cancelled or deleted, so the parent can refresh. */
   onRunCancelled: () => void | Promise<void>;
 }
 
@@ -131,6 +132,7 @@ async function cancelRun(runId: string) {
           <div class="flex flex-wrap items-center gap-2">
             {#if run.status === "failed"}
               {@render rerunButton(run.runId, "xs")}
+              <DeleteRunButton runId={run.runId} size="xs" onDeleted={onRunCancelled} />
             {/if}
             {#if isRunCancellable(run.status)}
               <Button
@@ -183,6 +185,7 @@ async function cancelRun(runId: string) {
               <div class="inline-flex items-center justify-end gap-2 flex-wrap xl:flex-nowrap">
                 {#if run.status === "failed"}
                   {@render rerunButton(run.runId, "sm")}
+                  <DeleteRunButton runId={run.runId} onDeleted={onRunCancelled} />
                 {/if}
                 {#if isRunCancellable(run.status)}
                   <Button
