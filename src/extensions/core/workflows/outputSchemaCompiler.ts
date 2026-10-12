@@ -12,8 +12,9 @@
  * (`OutputSchema = Record<string, unknown>`), NOT a TypeBox schema.
  */
 
-import type { OutputSchema } from "@shared/workflows";
-import type { OutputSchemaShorthand, OutputSchemaShorthandValue } from "./schemas";
+// Relative, alias-free imports: this module is re-exported through `@ext/sdk`,
+// whose closure must resolve without `@src`/`@shared` aliases (see ../../sdk).
+import type { OutputSchema, OutputSchemaShorthand, OutputSchemaShorthandValue } from "../../../../shared/workflows";
 import { BUILTIN_TRIGGER_SCHEMAS } from "./triggerSchemas";
 
 /**
