@@ -70,8 +70,17 @@ $effect(() => {
     if (!(el instanceof Element) || panelElement?.contains(el)) return;
     variablePicker.noteFocus(el);
   };
+  const onFocusOut = (e: FocusEvent) => {
+    const next = e.relatedTarget instanceof Element ? e.relatedTarget : null;
+    if (next && panelElement?.contains(next)) return;
+    variablePicker.noteBlur(next);
+  };
   document.addEventListener("focusin", onFocusIn);
-  return () => document.removeEventListener("focusin", onFocusIn);
+  document.addEventListener("focusout", onFocusOut);
+  return () => {
+    document.removeEventListener("focusin", onFocusIn);
+    document.removeEventListener("focusout", onFocusOut);
+  };
 });
 
 function keyOf(node: ScopeTreeNode): string {

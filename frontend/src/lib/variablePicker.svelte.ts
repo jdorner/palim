@@ -10,6 +10,12 @@
 import { insertReference } from "./autocompleteEngine";
 import type { ScopeConfig } from "./templateScope";
 
+/** Whether an element is a form field (buttons excluded). */
+function isPlainFormField(element: Element): boolean {
+  if (!element.matches("input, textarea, select, [contenteditable='true']")) return false;
+  return !(element instanceof HTMLInputElement && ["button", "submit", "reset"].includes(element.type));
+}
+
 /** A field the picker can insert into. */
 export interface PickerTarget {
   /** The input or textarea. */
@@ -20,9 +26,28 @@ export interface PickerTarget {
   onChange: (value: string) => void;
 }
 
+/** localStorage key of the panel's on/off state. */
+const OPEN_KEY = "palim.variablePicker.open";
+
+function readOpen(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeOpen(open: boolean): void {
+  try {
+    globalThis.localStorage?.setItem(OPEN_KEY, open ? "1" : "0");
+  } catch {
+    // Storage unavailable (private mode, blocked): the state just isn't remembered.
+  }
+}
+
 class VariablePickerState {
-  /** Whether the panel is shown. */
-  open = $state(false);
+  /** Whether the panel is switched on (remembered across nodes and reloads). */
+  #open = $state(readOpen());
   /** The field references are inserted into (null = none focused yet). */
   target = $state<PickerTarget | null>(null);
   /** Whether a field without template support has focus (hides the panel). */
@@ -48,9 +73,7 @@ class VariablePickerState {
    * @param element - The focused element
    */
   noteFocus(element: Element): void {
-    if (this.target?.element === element) return;
-    if (!element.matches("input, textarea, select, [contenteditable='true']")) return;
-    if (element instanceof HTMLInputElement && ["button", "submit", "reset"].includes(element.type)) return;
+    if (this.target?.element === element || !isPlainFormField(element)) return;
     this.target = null;
     this.suppressed = true;
   }
@@ -74,10 +97,33 @@ class VariablePickerState {
     this.#selection = { start: element.selectionStart ?? 0, end: element.selectionEnd ?? 0 };
   }
 
-  /** Opens or closes the panel (opening also shows it while a plain field has focus). */
+  /** Whether the panel is switched on. */
+  get open(): boolean {
+    return this.#open;
+  }
+
+  set open(value: boolean) {
+    this.#open = value;
+    writeOpen(value);
+    if (value) this.suppressed = false;
+  }
+
+  /** Switches the panel on or off (switching on also shows it while a plain field has focus). */
   toggle(): void {
     this.open = !this.open;
-    if (this.open) this.suppressed = false;
+  }
+
+  /**
+   * Notes that an element lost focus: once a field without template support
+   * is left (and focus does not move to another such field), the panel shows
+   * again, e.g. after switching to another node.
+   *
+   * @param next - The element receiving focus, if any
+   */
+  noteBlur(next: Element | null): void {
+    if (!this.suppressed) return;
+    if (next && isPlainFormField(next)) return;
+    this.suppressed = false;
   }
 
   /**
