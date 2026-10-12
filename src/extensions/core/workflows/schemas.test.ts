@@ -249,6 +249,18 @@ describe("schemas", () => {
     }
   });
 
+  describe("workflow group", () => {
+    test("accepts a free-text group", () => {
+      expect(Value.Check(DagWorkflowDefinitionSchema, { ...workflowWithSlug("a"), group: "Mail & Inbox" })).toBe(true);
+    });
+
+    for (const group of ["", " finance", "finance ", "x".repeat(65)]) {
+      test(`rejects group ${JSON.stringify(group.length > 10 ? `${group.slice(0, 5)}…` : group)}`, () => {
+        expect(Value.Check(DagWorkflowDefinitionSchema, { ...workflowWithSlug("a"), group })).toBe(false);
+      });
+    }
+  });
+
   describe("property tests", () => {
     test("valid waitFor steps pass DagWaitForStepSchema", () => {
       fc.assert(

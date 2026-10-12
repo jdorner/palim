@@ -32,6 +32,15 @@ export function registerMetaRoutes(deps: WorkflowRouteDeps): void {
     return Response.json(ctx.skills.names().sort());
   });
 
+  /** Returns the distinct `group` names of all loaded workflows, sorted (editor suggestions). */
+  ctx.routes.register("GET", "/meta/groups", async () => {
+    const groups = new Set<string>();
+    for (const wf of store.values()) {
+      if (wf.group) groups.add(wf.group);
+    }
+    return Response.json([...groups].sort((a, b) => a.localeCompare(b)));
+  });
+
   /**
    * Returns read-only metadata for every custom (extension-registered)
    * workflow step type, sorted by type. Backs the `workflow step-types`

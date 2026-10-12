@@ -30,6 +30,7 @@ import {
   fetchVariableKeys,
   fetchWorkflowAnalysis,
   fetchWorkflowEditorMeta,
+  fetchWorkflowGroups,
   type TriggerRefs,
   type WorkflowAnalysis,
 } from "$lib/workflowEditorMeta";
@@ -44,9 +45,9 @@ import {
 import { BUILTIN_STEP_TYPES, type StepTypeDescriptor, WorkflowBuilder } from "$shared/workflowBuilder";
 import DetailPanelModeToggle from "../components/DetailPanelModeToggle.svelte";
 import StepTypePickerPopover from "../components/StepTypePickerPopover.svelte";
-import WorkflowDescriptionField from "../components/WorkflowDescriptionField.svelte";
 import WorkflowDetailToolbar from "../components/WorkflowDetailToolbar.svelte";
 import WorkflowGraph from "../components/WorkflowGraph.svelte";
+import WorkflowMetaFields from "../components/WorkflowMetaFields.svelte";
 import WorkflowRunsTab from "../components/WorkflowRunsTab.svelte";
 import WorkflowSaveError from "../components/WorkflowSaveError.svelte";
 import WorkflowStepSidebar from "../components/WorkflowStepSidebar.svelte";
@@ -87,6 +88,7 @@ let metaLoading = $state(false);
 // Cached secret/variable keys for template autocomplete
 let cachedSecretKeys = $state<string[]>([]);
 let cachedVariableKeys = $state<string[]>([]);
+let knownGroups = $state<string[]>([]);
 
 /** Custom step types registered by extensions, derived from the extension store. */
 let customStepTypes = $derived(
@@ -123,6 +125,9 @@ async function loadEditorMeta() {
   });
   fetchVariableKeys().then((keys) => {
     cachedVariableKeys = keys;
+  });
+  fetchWorkflowGroups().then((groups) => {
+    knownGroups = groups;
   });
   const meta = await fetchWorkflowEditorMeta();
   availableTools = meta.tools;
@@ -842,6 +847,7 @@ onDestroy(() => {
     <WorkflowDetailToolbar
       name={workflow.name}
       description={workflow.description}
+      group={workflow.group}
       {editMode}
       {saving}
       {saveDisabled}
@@ -863,10 +869,14 @@ onDestroy(() => {
     <WorkflowWarningsBanner warnings={activeWarnings} />
 
     {#if editMode && editDraft}
-      <WorkflowDescriptionField
-        value={editDraft.description}
-        error={validationErrors.get("description")}
-        oninput={(description) => commitDraft({ ...editDraft!, description }, "description")}
+      <WorkflowMetaFields
+        description={editDraft.description}
+        descriptionError={validationErrors.get("description")}
+        ondescription={(description) => commitDraft({ ...editDraft!, description }, "description")}
+        group={editDraft.group}
+        groupError={validationErrors.get("group")}
+        {knownGroups}
+        ongroup={(group) => commitDraft({ ...editDraft!, group }, "group")}
       />
     {/if}
 

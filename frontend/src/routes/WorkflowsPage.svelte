@@ -1,5 +1,6 @@
 <script lang="ts">
 import CameraIcon from "phosphor-svelte/lib/CameraIcon";
+import CaretRightIcon from "phosphor-svelte/lib/CaretRightIcon";
 import CursorClickIcon from "phosphor-svelte/lib/CursorClickIcon";
 import EyeIcon from "phosphor-svelte/lib/EyeIcon";
 import LinkSimpleIcon from "phosphor-svelte/lib/LinkSimpleIcon";
@@ -16,12 +17,14 @@ import { t } from "$lib/i18n.svelte";
 import { type CoreKey, translateCore } from "$lib/i18nCore";
 import { automationStyle } from "$lib/utils";
 import { warningLocation } from "$lib/workflowDetail";
+import { groupWorkflows, readCollapsedGroups, sectionKey, writeCollapsedGroups } from "$lib/workflowGroups";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import { navigate } from "../router";
 
 interface WorkflowSummary {
   name: string;
   description?: string;
+  group?: string;
   trigger: { type: string; ref?: string };
   stepCount: number;
   enabled: boolean;
@@ -37,6 +40,24 @@ let loading = $state(true);
 let error = $state<string | null>(null);
 let errorDetail = $state<string | null>(null);
 let confirmingDelete = $state<string | null>(null);
+let collapsedGroups = $state(readCollapsedGroups());
+
+const sections = $derived(groupWorkflows(workflows));
+/** Without any named group the list renders flat, as before grouping existed. */
+const showGroupHeaders = $derived(sections.some((s) => s.group !== null));
+
+function isCollapsed(group: string | null): boolean {
+  return showGroupHeaders && collapsedGroups.has(sectionKey(group));
+}
+
+function toggleGroup(group: string | null) {
+  const key = sectionKey(group);
+  const next = new Set(collapsedGroups);
+  if (next.has(key)) next.delete(key);
+  else next.add(key);
+  collapsedGroups = next;
+  writeCollapsedGroups(next);
+}
 
 async function fetchWorkflows(showLoading = true) {
   if (showLoading) loading = true;
@@ -117,6 +138,26 @@ $effect(() => {
 });
 </script>
 
+{#snippet groupHeader(
+  group: string | null,
+  count: number,
+)}
+  <button
+    type="button"
+    class="flex w-full items-center gap-2 text-left text-sm font-semibold"
+    aria-expanded={!isCollapsed(group)}
+    onclick={() => toggleGroup(group)}
+  >
+    <CaretRightIcon
+      size={14}
+      class="shrink-0 text-muted-foreground transition-transform {isCollapsed(group) ? "" : "rotate-90"}"
+      aria-hidden="true"
+    />
+    <span class="truncate {group === null ? "text-muted-foreground" : ""}">{group ?? t("workflows.ungrouped")}</span>
+    <span class="text-xs font-normal text-muted-foreground">{count}</span>
+  </button>
+{/snippet}
+
 <div class="space-y-4">
   {#if loading}
     <LoadingIndicator />
@@ -135,116 +176,123 @@ $effect(() => {
   {:else}
     <!-- Mobile & Tablet: Card layout -->
     <div class="responsive-cards">
-      {#each workflows as wf (wf.name)}
-        {@const style = automationStyle(wf.trigger.type)}
-        <div class="rounded-md border border-border p-4 space-y-3">
-          <!-- Header: Name + Trigger -->
-          <div class="flex items-start justify-between gap-2">
-            <div class="min-w-0 flex-1">
-              <a href="#/workflows/{wf.name}" class="block overflow-hidden">
-                <span class="font-medium block truncate">{wf.name}</span>
-              </a>
-              {#if wf.description}
-                <p class="text-xs text-muted-foreground mt-0.5 line-clamp-2">{wf.description}</p>
-              {/if}
-              {#if wf.warnings.length > 0}
-                <span
-                  class="inline-flex items-center gap-1 text-xs text-amber-500 mt-1"
-                  title={wf.warnings.map((w) => `[${warningLocation(w)}] ${w.message}`).join("\n")}
-                >
-                  <WarningIcon size={12} aria-hidden="true" />
-                  {t("workflows.templateIssues", { count: wf.warnings.length })}
+      {#each sections as section (sectionKey(section.group))}
+        {#if showGroupHeaders}
+          <div class="pt-2">{@render groupHeader(section.group, section.items.length)}</div>
+        {/if}
+        {#if !isCollapsed(section.group)}
+          {#each section.items as wf (wf.name)}
+            {@const style = automationStyle(wf.trigger.type)}
+            <div class="rounded-md border border-border p-4 space-y-3">
+              <!-- Header: Name + Trigger -->
+              <div class="flex items-start justify-between gap-2">
+                <div class="min-w-0 flex-1">
+                  <a href="#/workflows/{wf.name}" class="block overflow-hidden">
+                    <span class="font-medium block truncate">{wf.name}</span>
+                  </a>
+                  {#if wf.description}
+                    <p class="text-xs text-muted-foreground mt-0.5 line-clamp-2">{wf.description}</p>
+                  {/if}
+                  {#if wf.warnings.length > 0}
+                    <span
+                      class="inline-flex items-center gap-1 text-xs text-amber-500 mt-1"
+                      title={wf.warnings.map((w) => `[${warningLocation(w)}] ${w.message}`).join("\n")}
+                    >
+                      <WarningIcon size={12} aria-hidden="true" />
+                      {t("workflows.templateIssues", { count: wf.warnings.length })}
+                    </span>
+                  {/if}
+                </div>
+                <div class="shrink-0 text-right">
+                  <span class="inline-flex items-center gap-1.5">
+                    {#if style.icon === "timer"}
+                      <TimerIcon size={14} class={style.color} aria-hidden="true" />
+                    {:else if style.icon === "eye"}
+                      <EyeIcon size={14} class={style.color} aria-hidden="true" />
+                    {:else if style.icon === "link"}
+                      <LinkSimpleIcon size={14} class={style.color} aria-hidden="true" />
+                    {:else if style.icon === "cursor"}
+                      <CursorClickIcon size={14} class={style.color} aria-hidden="true" />
+                    {:else if style.icon === "camera"}
+                      <CameraIcon size={14} class={style.color} aria-hidden="true" />
+                    {/if}
+                    <span class="text-sm {style.color} font-medium"
+                      >{translateCore(`triggerTypes.${wf.trigger.type}` as CoreKey, { default: wf.trigger.type })}</span
+                    >
+                  </span>
+                  {#if wf.trigger.ref && triggerRoute(wf.trigger.type)}
+                    <a href="#/{triggerRoute(wf.trigger.type)}" class="block">
+                      <span class="text-muted-foreground text-xs font-mono mt-0.5 truncate max-w-48 block"
+                        >{wf.trigger.ref}</span
+                      >
+                    </a>
+                  {:else if wf.trigger.ref}
+                    <span class="block text-muted-foreground text-xs font-mono mt-0.5 truncate max-w-32"
+                      >{wf.trigger.ref}</span
+                    >
+                  {/if}
+                </div>
+              </div>
+
+              <!-- Stats row -->
+              <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+                <span class="text-muted-foreground"
+                  >{t("workflows.activeLabel")}
+                  {#if wf.activeRuns > 0}
+                    <span class="font-medium text-blue-500">{wf.activeRuns}</span>
+                  {:else}
+                    <span>0</span>
+                  {/if}
                 </span>
-              {/if}
-            </div>
-            <div class="shrink-0 text-right">
-              <span class="inline-flex items-center gap-1.5">
-                {#if style.icon === "timer"}
-                  <TimerIcon size={14} class={style.color} aria-hidden="true" />
-                {:else if style.icon === "eye"}
-                  <EyeIcon size={14} class={style.color} aria-hidden="true" />
-                {:else if style.icon === "link"}
-                  <LinkSimpleIcon size={14} class={style.color} aria-hidden="true" />
-                {:else if style.icon === "cursor"}
-                  <CursorClickIcon size={14} class={style.color} aria-hidden="true" />
-                {:else if style.icon === "camera"}
-                  <CameraIcon size={14} class={style.color} aria-hidden="true" />
-                {/if}
-                <span class="text-sm {style.color} font-medium"
-                  >{translateCore(`triggerTypes.${wf.trigger.type}` as CoreKey, { default: wf.trigger.type })}</span
-                >
-              </span>
-              {#if wf.trigger.ref && triggerRoute(wf.trigger.type)}
-                <a href="#/{triggerRoute(wf.trigger.type)}" class="block">
-                  <span class="text-muted-foreground text-xs font-mono mt-0.5 truncate max-w-48 block"
-                    >{wf.trigger.ref}</span
+                <span class="text-muted-foreground"
+                  >{t("workflows.failedLabel")}
+                  {#if wf.failedRuns > 0}
+                    <span class="font-medium text-red-500">{wf.failedRuns}</span>
+                  {:else}
+                    <span>0</span>
+                  {/if}
+                </span>
+                <span class="text-muted-foreground">{t("workflows.completedLabel", { count: wf.completedRuns })}</span>
+              </div>
+
+              <hr>
+
+              <!-- Actions -->
+              {#if confirmingDelete === wf.name}
+                <div class="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="destructive" onclick={() => deleteWorkflow(wf.name)}
+                    >{t("common.confirm")}</Button
                   >
-                </a>
-              {:else if wf.trigger.ref}
-                <span class="block text-muted-foreground text-xs font-mono mt-0.5 truncate max-w-32"
-                  >{wf.trigger.ref}</span
-                >
-              {/if}
-            </div>
-          </div>
-
-          <!-- Stats row -->
-          <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-            <span class="text-muted-foreground"
-              >{t("workflows.activeLabel")}
-              {#if wf.activeRuns > 0}
-                <span class="font-medium text-blue-500">{wf.activeRuns}</span>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onclick={() => {
+                      confirmingDelete = null;
+                    }}
+                    >{t("common.cancel")}</Button
+                  >
+                </div>
               {:else}
-                <span>0</span>
+                <div class="flex flex-wrap items-center gap-2">
+                  <Button size="sm" variant="default" onclick={() => triggerRun(wf.name)}>
+                    <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
+                    {t("workflows.run")}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    onclick={() => {
+                      confirmingDelete = wf.name;
+                    }}
+                  >
+                    <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
+                    {t("common.delete")}
+                  </Button>
+                </div>
               {/if}
-            </span>
-            <span class="text-muted-foreground"
-              >{t("workflows.failedLabel")}
-              {#if wf.failedRuns > 0}
-                <span class="font-medium text-red-500">{wf.failedRuns}</span>
-              {:else}
-                <span>0</span>
-              {/if}
-            </span>
-            <span class="text-muted-foreground">{t("workflows.completedLabel", { count: wf.completedRuns })}</span>
-          </div>
-
-          <hr>
-
-          <!-- Actions -->
-          {#if confirmingDelete === wf.name}
-            <div class="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="destructive" onclick={() => deleteWorkflow(wf.name)}
-                >{t("common.confirm")}</Button
-              >
-              <Button
-                size="sm"
-                variant="outline"
-                onclick={() => {
-                  confirmingDelete = null;
-                }}
-                >{t("common.cancel")}</Button
-              >
             </div>
-          {:else}
-            <div class="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="default" onclick={() => triggerRun(wf.name)}>
-                <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-                {t("workflows.run")}
-              </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                onclick={() => {
-                  confirmingDelete = wf.name;
-                }}
-              >
-                <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                {t("common.delete")}
-              </Button>
-            </div>
-          {/if}
-        </div>
+          {/each}
+        {/if}
       {/each}
     </div>
 
@@ -262,105 +310,116 @@ $effect(() => {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {#each workflows as wf (wf.name)}
-            <TableRow>
-              <TableCell>
-                <a href="#/workflows/{wf.name}" class="text-left w-full">
-                  <span class="font-medium">{wf.name}</span></a
-                >
-                {#if wf.description}
-                  <p class="text-xs text-muted-foreground mt-0.5">{wf.description}</p>
-                {/if}
-                {#if wf.warnings.length > 0}
-                  <span
-                    class="flex items-center gap-1 text-xs text-amber-500 mt-0.5"
-                    title={wf.warnings.map((w) => `[${warningLocation(w)}] ${w.message}`).join("\n")}
-                  >
-                    <WarningIcon size={12} aria-hidden="true" />
-                    {t("workflows.templateIssues", { count: wf.warnings.length })}
-                  </span>
-                {/if}
-              </TableCell>
-              <TableCell>
-                {@const style = automationStyle(wf.trigger.type)}
+          {#each sections as section (sectionKey(section.group))}
+            {#if showGroupHeaders}
+              <TableRow class="bg-muted/20 hover:bg-muted/30">
+                <TableCell colspan={6}>{@render groupHeader(section.group, section.items.length)}</TableCell>
+              </TableRow>
+            {/if}
+            {#if !isCollapsed(section.group)}
+              {#each section.items as wf (wf.name)}
+                <TableRow>
+                  <TableCell>
+                    <a href="#/workflows/{wf.name}" class="text-left w-full">
+                      <span class="font-medium">{wf.name}</span></a
+                    >
+                    {#if wf.description}
+                      <p class="text-xs text-muted-foreground mt-0.5">{wf.description}</p>
+                    {/if}
+                    {#if wf.warnings.length > 0}
+                      <span
+                        class="flex items-center gap-1 text-xs text-amber-500 mt-0.5"
+                        title={wf.warnings.map((w) => `[${warningLocation(w)}] ${w.message}`).join("\n")}
+                      >
+                        <WarningIcon size={12} aria-hidden="true" />
+                        {t("workflows.templateIssues", { count: wf.warnings.length })}
+                      </span>
+                    {/if}
+                  </TableCell>
+                  <TableCell>
+                    {@const style = automationStyle(wf.trigger.type)}
 
-                <span class="inline-flex items-center gap-1.5">
-                  {#if style.icon === "timer"}
-                    <TimerIcon size={14} class={style.color} aria-hidden="true" />
-                  {:else if style.icon === "eye"}
-                    <EyeIcon size={14} class={style.color} aria-hidden="true" />
-                  {:else if style.icon === "link"}
-                    <LinkSimpleIcon size={14} class={style.color} aria-hidden="true" />
-                  {:else if style.icon === "cursor"}
-                    <CursorClickIcon size={14} class={style.color} aria-hidden="true" />
-                  {:else if style.icon === "camera"}
-                    <CameraIcon size={14} class={style.color} aria-hidden="true" />
-                  {/if}
-                  <span class="text-sm {style.color} font-medium"
-                    >{translateCore(`triggerTypes.${wf.trigger.type}` as CoreKey, { default: wf.trigger.type })}</span
-                  >
-                </span>
-                {#if wf.trigger.ref && triggerRoute(wf.trigger.type)}
-                  <a href="#/{triggerRoute(wf.trigger.type)}" class="text-left">
-                    <span class="block text-muted-foreground text-xs font-mono mt-0.5">{wf.trigger.ref}</span>
-                  </a>
-                {:else if wf.trigger.ref}
-                  <span class="block text-muted-foreground text-xs font-mono mt-0.5">{wf.trigger.ref}</span>
-                {/if}
-              </TableCell>
-              <TableCell class="text-center">
-                {#if wf.activeRuns > 0}
-                  <span class="text-sm font-medium text-blue-500">{wf.activeRuns}</span>
-                {:else}
-                  <span class="text-sm text-muted-foreground">0</span>
-                {/if}
-              </TableCell>
-              <TableCell class="text-center">
-                {#if wf.failedRuns > 0}
-                  <span class="text-sm font-medium text-red-500">{wf.failedRuns}</span>
-                {:else}
-                  <span class="text-sm text-muted-foreground">0</span>
-                {/if}
-              </TableCell>
-              <TableCell class="text-center">
-                <span class="text-sm text-muted-foreground">{wf.completedRuns}</span>
-              </TableCell>
-              <TableCell class="text-right">
-                {#if confirmingDelete === wf.name}
-                  <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                    <Button size="sm" variant="destructive" onclick={() => deleteWorkflow(wf.name)}
-                      >{t("common.confirm")}</Button
-                    >
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onclick={() => {
-                        confirmingDelete = null;
-                      }}
-                    >
-                      {t("common.cancel")}
-                    </Button>
-                  </div>
-                {:else}
-                  <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                    <Button size="sm" variant="default" onclick={() => triggerRun(wf.name)}>
-                      <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      {t("workflows.run")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onclick={() => {
-                        confirmingDelete = wf.name;
-                      }}
-                    >
-                      <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      {t("common.delete")}
-                    </Button>
-                  </div>
-                {/if}
-              </TableCell>
-            </TableRow>
+                    <span class="inline-flex items-center gap-1.5">
+                      {#if style.icon === "timer"}
+                        <TimerIcon size={14} class={style.color} aria-hidden="true" />
+                      {:else if style.icon === "eye"}
+                        <EyeIcon size={14} class={style.color} aria-hidden="true" />
+                      {:else if style.icon === "link"}
+                        <LinkSimpleIcon size={14} class={style.color} aria-hidden="true" />
+                      {:else if style.icon === "cursor"}
+                        <CursorClickIcon size={14} class={style.color} aria-hidden="true" />
+                      {:else if style.icon === "camera"}
+                        <CameraIcon size={14} class={style.color} aria-hidden="true" />
+                      {/if}
+                      <span class="text-sm {style.color} font-medium"
+                        >{translateCore(`triggerTypes.${wf.trigger.type}` as CoreKey, {
+                          default: wf.trigger.type,
+                        })}</span
+                      >
+                    </span>
+                    {#if wf.trigger.ref && triggerRoute(wf.trigger.type)}
+                      <a href="#/{triggerRoute(wf.trigger.type)}" class="text-left">
+                        <span class="block text-muted-foreground text-xs font-mono mt-0.5">{wf.trigger.ref}</span>
+                      </a>
+                    {:else if wf.trigger.ref}
+                      <span class="block text-muted-foreground text-xs font-mono mt-0.5">{wf.trigger.ref}</span>
+                    {/if}
+                  </TableCell>
+                  <TableCell class="text-center">
+                    {#if wf.activeRuns > 0}
+                      <span class="text-sm font-medium text-blue-500">{wf.activeRuns}</span>
+                    {:else}
+                      <span class="text-sm text-muted-foreground">0</span>
+                    {/if}
+                  </TableCell>
+                  <TableCell class="text-center">
+                    {#if wf.failedRuns > 0}
+                      <span class="text-sm font-medium text-red-500">{wf.failedRuns}</span>
+                    {:else}
+                      <span class="text-sm text-muted-foreground">0</span>
+                    {/if}
+                  </TableCell>
+                  <TableCell class="text-center">
+                    <span class="text-sm text-muted-foreground">{wf.completedRuns}</span>
+                  </TableCell>
+                  <TableCell class="text-right">
+                    {#if confirmingDelete === wf.name}
+                      <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
+                        <Button size="sm" variant="destructive" onclick={() => deleteWorkflow(wf.name)}
+                          >{t("common.confirm")}</Button
+                        >
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onclick={() => {
+                            confirmingDelete = null;
+                          }}
+                        >
+                          {t("common.cancel")}
+                        </Button>
+                      </div>
+                    {:else}
+                      <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
+                        <Button size="sm" variant="default" onclick={() => triggerRun(wf.name)}>
+                          <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
+                          {t("workflows.run")}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onclick={() => {
+                            confirmingDelete = wf.name;
+                          }}
+                        >
+                          <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
+                          {t("common.delete")}
+                        </Button>
+                      </div>
+                    {/if}
+                  </TableCell>
+                </TableRow>
+              {/each}
+            {/if}
           {/each}
         </TableBody>
       </Table>

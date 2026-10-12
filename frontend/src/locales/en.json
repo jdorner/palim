@@ -905,6 +905,7 @@
     "edgeUnknownStep": "Edge references unknown step \"{step}\"",
     "eventRequired": "Event name is required",
     "fieldRequired": "{label} is required",
+    "groupTooLong": "Group must not exceed {max} characters",
     "itemsRequired": "Items expression is required",
     "iteratorRequired": "Iterator reference is required",
     "manualNoRef": "Manual triggers do not support a ref value",
@@ -1013,6 +1014,8 @@
     "emptyAfter": "or ask Palim to create one for you.",
     "emptyBefore": "No workflows defined. Add JSON5 files to",
     "failedLabel": "Failed:",
+    "group": "Group",
+    "groupPlaceholder": "Optional group, e.g. Finance",
     "loadFailed": "Failed to load workflows. Please try again later.",
     "loadWorkflowFailed": "Failed to load workflow",
     "modeFloating": "Floating",
@@ -1031,6 +1034,7 @@
     "templateIssues_one": "{count} template issue",
     "templateIssues_other": "{count} template issues",
     "undo": "Undo",
-    "undoTitle": "Undo (Ctrl+Z)"
+    "undoTitle": "Undo (Ctrl+Z)",
+    "ungrouped": "Ungrouped"
   }
 }

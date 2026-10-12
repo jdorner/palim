@@ -4,6 +4,7 @@
  * Exposes:
  * - `GET    /ext/workflows`              - list loaded workflow definitions
  * - `GET    /ext/workflows/:name`        - get a single workflow definition
+ * - `GET    /ext/workflows/meta/groups`  - distinct workflow group names (editor suggestions)
  * - `PUT    /ext/workflows/:name`        - update an existing workflow definition
  * - `POST   /ext/workflows/run/:name`    - trigger a workflow run
  * - `GET    /ext/workflows/runs/:runId`  - get run status with per-step states
@@ -56,7 +57,7 @@ import { createWorkflowAnalyzer } from "./workflowAnalysis";
 
 const manifest = {
   name: "workflows",
-  version: "2.1.0",
+  version: "2.2.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
