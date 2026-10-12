@@ -246,9 +246,6 @@ let shapeViewRows = $derived(viewRows?.ok && mode === "shape" ? (viewRows.rows a
     {:else}
       <ShapeFieldRows bind:rows={shapeRows} onchange={emitRows} />
     {/if}
-    {#if !jsonMode && (mode === "form" ? formRows : shapeRows).length === 0}
-      <span class="text-xs text-muted-foreground">{t("fieldBuilder.empty")}</span>
-    {/if}
 
     <div class="flex items-center justify-between gap-2">
       {#if jsonMode}

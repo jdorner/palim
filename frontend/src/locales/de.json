@@ -283,7 +283,6 @@
     "details": "Felddetails",
     "editAsJson": "Als JSON bearbeiten",
     "editAsRows": "Als Felder bearbeiten",
-    "empty": "Noch keine Felder.",
     "errors": {
       "badDefault": "„{key}“: Der Standardwert passt nicht zum Feldtyp oder zu den Optionen",
       "duplicateKey": "„{key}“ wird mehrfach verwendet",
@@ -927,6 +926,21 @@
     "unnamed": "(unbenannt)",
     "titleRequired": "Ein Titel ist erforderlich",
     "assigneeRequired": "Mindestens ein Benutzer oder eine Rolle ist erforderlich"
+  },
+  "variablePicker": {
+    "collapseAll": "Alle einklappen",
+    "empty": "Hier ist nichts verfügbar.",
+    "hint": "Klicke auf einen Wert, um ihn an der Cursorposition einzufügen.",
+    "noMatches": "Keine Treffer.",
+    "search": "Suchen",
+    "tabs": {
+      "data": "Daten",
+      "functions": "Funktionen",
+      "variables": "Variablen"
+    },
+    "title": "Verfügbare Daten",
+    "toggle": "Verfügbare Daten",
+    "toggleTitle": "Beim Bearbeiten eines Felds mit {{ }}-Ausdrücken die Daten anzeigen, die dieser Schritt verwenden kann (Strg+Umschalt+Leertaste)"
   },
   "variables": {
     "add": "Variable hinzufügen",

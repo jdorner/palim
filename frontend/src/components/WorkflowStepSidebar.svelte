@@ -5,6 +5,7 @@ import { builtinConfigSchema } from "$lib/builtinStepSchemas";
 import { t } from "$lib/i18n.svelte";
 import { CF_TYPES, type PanelStep, type PanelStepType, type StepTemplateContext } from "$lib/stepConfig";
 import type { OutputSchemas } from "$lib/templateScope";
+import { variablePicker } from "$lib/variablePicker.svelte";
 import type { StepDraft, WorkflowDraft } from "$lib/workflowValidation";
 import { edgesToSlugEdges } from "$lib/workflowValidation";
 import OutputSchemaEditor from "./OutputSchemaEditor.svelte";
@@ -14,6 +15,7 @@ import StepAgentView from "./stepPanel/StepAgentView.svelte";
 import StepConfigView from "./stepPanel/StepConfigView.svelte";
 import StepControlFlowEditor from "./stepPanel/StepControlFlowEditor.svelte";
 import StepCustomEditor from "./stepPanel/StepCustomEditor.svelte";
+import VariablePickerPanel from "./VariablePickerPanel.svelte";
 
 interface Props {
   /** Saved workflow name (for inferring the result schema from past runs). */
@@ -125,16 +127,24 @@ let template = $derived<StepTemplateContext>({
  * Whether the edited step has successors. Only descendants can reference a
  * step's result, so a terminal step needs no output schema.
  */
+/** The panel's root element (the variable picker docks beside it). */
+let panelElement = $state<HTMLElement | null>(null);
+
 let hasSuccessors = $derived(
   !!editDraft && !!editDraftStep && editDraft.edges.some((e) => e.from === (editDraftStep.id ?? editDraftStep.slug)),
 );
 </script>
 
-<div class="w-95 h-full flex flex-col">
+<div class="w-95 h-full flex flex-col" bind:this={panelElement}>
+  {#if editMode}
+    <VariablePickerPanel anchor={panelElement} />
+  {/if}
   <StepPanelHeader
     type={currentType}
     subtitle={editMode ? undefined : selectedStep.slug}
     jsonView={jsonActive}
+    variablesOpen={variablePicker.open}
+    onToggleVariables={editMode ? () => variablePicker.toggle() : undefined}
     onToggleJson={hasForm
       ? () => (editMode ? onEditAsJsonChange(!editAsJson) : onViewAsJsonChange(!viewAsJson))
       : undefined}

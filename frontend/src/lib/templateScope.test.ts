@@ -3,6 +3,8 @@ import * as fc from "fast-check";
 import { TEMPLATE_FUNCTION_NAME_LIST } from "../../../shared/templateFunctionMeta";
 import { getEnumOptions, isEnum } from "./schemaForm";
 import {
+  buildScopeTree,
+  filterScopeTree,
   getConfigSuggestions,
   getEnvSuggestions,
   getFunctionSuggestions,
@@ -1562,5 +1564,102 @@ describe("run namespace suggestions", () => {
     };
     expect(getSuggestions(config, ["run"], "").map((s) => s.label)).toEqual(["id", "workflow", "createdBy"]);
     expect(getSuggestions(config, [], "ru").some((s) => s.label === "run")).toBe(true);
+  });
+});
+
+describe("buildScopeTree", () => {
+  const config: ScopeConfig = {
+    steps: [
+      { slug: "fetch", type: "http-request" },
+      { slug: "side", type: "agent" },
+      { slug: "notify", type: "agent" },
+    ],
+    currentStepIndex: 2,
+    // fetch -> notify, side runs in parallel (not before notify).
+    edges: [{ from: "fetch", to: "notify" }],
+    secretKeys: ["API_KEY"],
+    variableKeys: [],
+    outputSchemas: {
+      trigger: { type: "object", properties: { name: { type: "string" } } },
+      steps: {
+        fetch: {
+          type: "object",
+          properties: { status: { type: "object", properties: { code: { type: "number" } } } },
+        },
+      },
+    },
+  };
+
+  const byId = (id: string) => buildScopeTree(config).find((g) => g.id === id)!.nodes;
+
+  test("data offers the trigger payload and only steps that run before", () => {
+    const data = byId("data");
+    expect(data.map((n) => n.label)).toEqual(["trigger", "fetch"]);
+    const payload = data[0]!.children![0]!;
+    expect(payload.path).toEqual(["trigger", "payload"]);
+    expect(payload.children!.map((n) => n.path.join("."))).toEqual(["trigger.payload.name"]);
+    const fetch = data[1]!;
+    expect(fetch.stepType).toBe("http-request");
+    expect(fetch.path).toEqual(["steps", "fetch", "result"]);
+    const code = fetch.children![0]!.children![0]!;
+    expect(code.path.join(".")).toBe("steps.fetch.result.status.code");
+    expect(code.schemaType).toBe("number");
+    expect(code.children).toBeUndefined();
+  });
+
+  test("steps are listed in execution order, not draft order", () => {
+    const chain: ScopeConfig = {
+      ...config,
+      steps: [
+        { slug: "c", type: "agent" },
+        { slug: "a", type: "agent" },
+        { slug: "b", type: "agent" },
+        { slug: "end", type: "agent" },
+      ],
+      currentStepIndex: 3,
+      edges: [
+        { from: "a", to: "b" },
+        { from: "b", to: "c" },
+        { from: "c", to: "end" },
+      ],
+    };
+    expect(buildScopeTree(chain)[0]!.nodes.map((n) => n.label)).toEqual(["trigger", "a", "b", "c"]);
+  });
+
+  test("variables leave out empty namespaces; functions come from the shared table", () => {
+    expect(byId("variables").map((n) => n.label)).toEqual(["secret", "env", "run"]);
+    expect(byId("variables")[0]!.children!.map((n) => n.path.join("."))).toEqual(["secret.API_KEY"]);
+    const functions = byId("functions");
+    expect(functions.map((n) => n.label)).toEqual([...TEMPLATE_FUNCTION_NAME_LIST]);
+    expect(functions.every((n) => n.kind === "function")).toBe(true);
+  });
+
+  test("inside an iterator body the loop variable is offered", () => {
+    const iter: ScopeConfig = {
+      ...config,
+      steps: [
+        { slug: "loop", type: "iterator", items: "{{trigger.payload.rows}}", as: "row" },
+        { slug: "body", type: "agent" },
+        { slug: "done", type: "aggregator", iterator: "loop" },
+      ],
+      currentStepIndex: 1,
+      edges: [
+        { from: "loop", to: "body", branch: "each" },
+        { from: "body", to: "done" },
+      ],
+    };
+    const labels = buildScopeTree(iter)[0]!.nodes.map((n) => n.label);
+    expect(labels).toContain("row");
+    expect(labels).toContain("itemIndex");
+  });
+
+  test("filterScopeTree keeps matches with their ancestors and subtrees", () => {
+    const data = byId("data");
+    expect(filterScopeTree(data, "")).toBe(data);
+    const filtered = filterScopeTree(data, "CODE");
+    expect(filtered.map((n) => n.label)).toEqual(["fetch"]);
+    expect(filtered[0]!.children![0]!.children!.map((n) => n.label)).toEqual(["code"]);
+    expect(filterScopeTree(data, "status")[0]!.children![0]!.children!.map((n) => n.label)).toEqual(["code"]);
+    expect(filterScopeTree(data, "nothing-like-this")).toEqual([]);
   });
 });

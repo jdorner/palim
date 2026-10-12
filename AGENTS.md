@@ -230,7 +230,7 @@ frontend/                    # Svelte 5 web UI (page-based routing)
     │   ├── ChatInput, ChatView, ContextGauge, ConversationList, MessageArea
     │   ├── JobList, JobLogs, JobFilters
     │   ├── ScheduleList, SettingsForm, WorkflowGraph, WorkflowStepNode, FitViewOnInit
-    │   ├── StepConfigForm, TemplateAutocomplete, MultiSelect
+    │   ├── StepConfigForm, TemplateAutocomplete, VariablePickerPanel, MultiSelect
     │   ├── FieldListEditor (+ fieldBuilder/)  # Field builder for portal fields, humanTask form, output schemas
     │   ├── WebhookList, FileWatcherList
     │   ├── ModelSelector, IntentModelSelector, Sidebar
@@ -248,7 +248,7 @@ frontend/                    # Svelte 5 web UI (page-based routing)
         ├── chatStreamStore.svelte.ts, connectionStore.svelte.ts
         ├── modelStore.svelte.ts, readState.svelte.ts, settingsStore.svelte.ts
         ├── workflowRunStore.svelte.ts, workflowValidation.ts
-        ├── autocompleteEngine.ts, schemaForm.ts, templateScope.ts, stepTypes.ts
+        ├── autocompleteEngine.ts, schemaForm.ts, templateScope.ts, stepTypes.ts, variablePicker.svelte.ts
         ├── fieldBuilder.ts  # Field rows <-> form JSON Schema / outputSchema shorthand (lossless or JSON fallback)
         ├── utils.ts
         └── components/      # Reusable UI (shadcn-style primitives)
@@ -331,6 +331,7 @@ Workflow string fields, agent prompts, and `if`/`case`/`iterator` expressions su
 - **Load-time validation** (`dagTemplateValidation.ts`): parses function-call syntax and validates argument paths under the same namespace rules, sharing the function-name allowlist so validation cannot diverge from evaluation. Warnings are advisory (surfaced non-blocking on the workflow list/detail API).
 - **Output schemas**: path checks and autocomplete for `trigger.payload.*` / `steps.<slug>.result.*` use each node's schema, which comes from a hand-authored `outputSchema` shorthand (edited in the field builder, `FieldListEditor` shape mode) on the trigger or step (leaves `string`/`number`/`boolean`/`object`/`any`, nested maps, `[item]` arrays; compiled by `outputSchemaCompiler.ts`) or else from the built-in trigger / step-handler schema. The editor's *Output schema* panel can fill the shorthand from the newest run via `GET /ext/workflows/meta/infer-schema/:name` (`schemaSample.ts` + `shared/schemaInference.ts`).
 - **Frontend autocomplete** (`frontend/src/lib/autocompleteEngine.ts`, `templateScope.ts`): the `{{...}}` editor offers namespaces and built-in functions (sourced from the shared metadata) in value positions, classifies path vs function-argument cursor context, and closes open call parentheses when completing a value inside a call.
+- **Variable picker** (`VariablePickerPanel.svelte`, `lib/variablePicker.svelte.ts`): the "Available data" panel docked beside the step panel (header toggle, Ctrl+Shift+Space). The on/off state is kept in localStorage; the panel shows only while it has a target. Every field with `TemplateAutocomplete` registers itself as the insertion target on focus, and focus moving anywhere else outside the panel (except its header toggle) drops the target; the tree comes from `buildScopeTree` (`templateScope.ts`, walks `getSuggestions`, so it offers exactly what autocomplete offers, steps in execution order) and entries are inserted with `insertReference` (`autocompleteEngine.ts`).
 
 ### Extension System
 

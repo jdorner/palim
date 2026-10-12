@@ -9,6 +9,7 @@ import {
   type SlugEdge,
   type Suggestion,
 } from "../lib/templateScope";
+import { variablePicker } from "../lib/variablePicker.svelte";
 
 interface Props {
   /** Reference to the target input/textarea element */
@@ -59,7 +60,13 @@ let context = $state<TriggerContext | null>(null);
 let listElement = $state<HTMLDivElement | null>(null);
 
 /** Unique ID for the popup element (for aria-activedescendant linking) */
-const popupId = "template-autocomplete-popup";
+const uid = $props.id();
+const popupId = `template-autocomplete-${uid}`;
+
+/** The scope of this field, from the current props. */
+function scopeConfig(): ScopeConfig {
+  return { steps, currentStepIndex, secretKeys, variableKeys, envAllowlist, outputSchemas, edges, allowsSelfReference };
+}
 
 /**
  * Computes the pixel position of a character offset within the target element
@@ -271,17 +278,7 @@ function acceptSuggestion(index?: number): void {
     // Non-terminal: re-detect trigger and query next-segment suggestions
     const newTrigger = detectTrigger(result.newText, result.newCursorPos);
     if (newTrigger.active) {
-      const config: ScopeConfig = {
-        steps,
-        currentStepIndex,
-        secretKeys,
-        variableKeys,
-        envAllowlist,
-        outputSchemas,
-        edges,
-        allowsSelfReference,
-      };
-      const newSuggestions = querySuggestions(config, newTrigger.path, newTrigger.prefix);
+      const newSuggestions = querySuggestions(scopeConfig(), newTrigger.path, newTrigger.prefix);
       if (newSuggestions.length > 0) {
         show(newSuggestions, newTrigger);
       } else {
@@ -306,17 +303,7 @@ function handleInput(): void {
   const trigger = detectTrigger(text, cursorPos);
 
   if (trigger.active) {
-    const config: ScopeConfig = {
-      steps,
-      currentStepIndex,
-      secretKeys,
-      variableKeys,
-      envAllowlist,
-      outputSchemas,
-      edges,
-      allowsSelfReference,
-    };
-    const newSuggestions = querySuggestions(config, trigger.path, trigger.prefix);
+    const newSuggestions = querySuggestions(scopeConfig(), trigger.path, trigger.prefix);
     if (newSuggestions.length > 0) {
       show(newSuggestions, trigger);
     } else {
@@ -333,6 +320,15 @@ function handleInput(): void {
  * Also handles Ctrl+Space to force-open the popup.
  */
 function handleKeydown(event: KeyboardEvent): void {
+  // Ctrl+Shift+Space: open/close the variable picker panel for this field
+  if (event.code === "Space" && event.ctrlKey && event.shiftKey) {
+    event.preventDefault();
+    event.stopPropagation();
+    handleFocus();
+    variablePicker.toggle();
+    return;
+  }
+
   // Ctrl+Space: force-open autocomplete regardless of popup state
   if (event.code === "Space" && event.ctrlKey) {
     event.preventDefault();
@@ -423,8 +419,15 @@ function handleKeydown(event: KeyboardEvent): void {
  * skipped entirely when the popup is not shown.
  */
 function handleBlur(): void {
+  if (targetElement) variablePicker.rememberSelection(targetElement);
   if (!visible) return;
   queueMicrotask(hide);
+}
+
+/** Makes this field the variable picker's insertion target. */
+function handleFocus(): void {
+  if (!targetElement) return;
+  variablePicker.setTarget({ element: targetElement, getConfig: scopeConfig, onChange });
 }
 
 /**
@@ -475,6 +478,7 @@ $effect(() => {
 
   el.addEventListener("input", handleInput);
   el.addEventListener("keydown", handleKeydown as EventListener);
+  el.addEventListener("focus", handleFocus);
   el.addEventListener("blur", handleBlur);
   el.addEventListener("scroll", handleScroll);
 
@@ -486,9 +490,11 @@ $effect(() => {
   return () => {
     el.removeEventListener("input", handleInput);
     el.removeEventListener("keydown", handleKeydown as EventListener);
+    el.removeEventListener("focus", handleFocus);
     el.removeEventListener("blur", handleBlur);
     el.removeEventListener("scroll", handleScroll);
     resizeObserver.disconnect();
+    variablePicker.release(el);
   };
 });
 </script>

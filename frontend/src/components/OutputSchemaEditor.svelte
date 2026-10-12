@@ -1,5 +1,6 @@
 <script lang="ts">
 import MagicWandIcon from "phosphor-svelte/lib/MagicWandIcon";
+import { untrack } from "svelte";
 import { Button } from "$lib/components/ui/button";
 /**
  * Edits a trigger's or step's `outputSchema` shorthand with the field builder
@@ -33,6 +34,14 @@ let { value, readonly = false, workflowName, source, onChange }: Props = $props(
 let inferStatus = $state<{ kind: "info" | "error"; message: string } | null>(null);
 let inferring = $state(false);
 let editorError = $state<string | null>(null);
+
+// "Inferred from run …" no longer applies once the schema is cleared (Clear, last field removed, undo).
+$effect(() => {
+  if (value !== undefined) return;
+  untrack(() => {
+    if (inferStatus?.kind === "info") inferStatus = null;
+  });
+});
 
 async function infer() {
   if (!workflowName) return;

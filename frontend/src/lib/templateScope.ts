@@ -746,3 +746,176 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
   // Unknown namespace
   return [];
 }
+
+/** A node of the variable picker tree: one referenceable value (or function). */
+export interface ScopeTreeNode {
+  /** Display label (the last path segment, or a step slug / function name). */
+  label: string;
+  /** Path segments of the expression this node inserts (e.g. ["steps", "fetch", "result", "id"]). */
+  path: string[];
+  /** `"function"` for built-in functions (inserted as a call). */
+  kind: "value" | "function";
+  /** Step type, for step nodes (`steps.<slug>.result`). */
+  stepType?: string;
+  /** JSON Schema `type`, when declared. */
+  schemaType?: string;
+  /** Description (schema description or function documentation). */
+  description?: string;
+  /** Function signature, for function nodes. */
+  signature?: string;
+  /** Child nodes (absent for leaves). */
+  children?: ScopeTreeNode[];
+}
+
+/** Tabs of the variable picker. */
+export type ScopeTreeGroupId = "data" | "variables" | "functions";
+
+/** One tab of the variable picker tree. */
+export interface ScopeTreeGroup {
+  id: ScopeTreeGroupId;
+  nodes: ScopeTreeNode[];
+}
+
+/** Depth limit when expanding schemas, guarding against recursive schemas. */
+const SCOPE_TREE_MAX_DEPTH = 8;
+
+/**
+ * Expands the children of a path by querying {@link getSuggestions} level by
+ * level, so the tree offers exactly what autocomplete offers.
+ */
+function expandChildren(config: ScopeConfig, path: string[], depth: number): ScopeTreeNode[] | undefined {
+  if (depth >= SCOPE_TREE_MAX_DEPTH) return undefined;
+  const suggestions = getSuggestions(config, path, "");
+  if (suggestions.length === 0) return undefined;
+  return suggestions.map((s) => suggestionToNode(config, path, s, depth + 1));
+}
+
+function suggestionToNode(config: ScopeConfig, parent: string[], s: Suggestion, depth: number): ScopeTreeNode {
+  const path = [...parent, s.label];
+  const node: ScopeTreeNode = { label: s.label, path, kind: "value" };
+  if (s.schemaType) node.schemaType = s.schemaType;
+  if (s.description) node.description = s.description;
+  if (!s.terminal) {
+    const children = expandChildren(config, path, depth);
+    if (children) node.children = children;
+  }
+  return node;
+}
+
+/**
+ * Orders steps by execution (topological order of the DAG, draft order among
+ * steps that are ready at the same time). Steps on a cycle keep draft order at
+ * the end.
+ */
+function executionOrder<T extends { slug: string }>(steps: T[], edges: SlugEdge[] | undefined): T[] {
+  const indegree = new Map(steps.map((s) => [s.slug, 0]));
+  for (const e of edges ?? []) {
+    if (indegree.has(e.to) && indegree.has(e.from)) indegree.set(e.to, indegree.get(e.to)! + 1);
+  }
+  const ordered: T[] = [];
+  const done = new Set<string>();
+  let ready = steps.filter((s) => indegree.get(s.slug) === 0);
+  while (ready.length > 0) {
+    const next: T[] = [];
+    for (const step of ready) {
+      ordered.push(step);
+      done.add(step.slug);
+      for (const e of edges ?? []) {
+        if (e.from !== step.slug || !indegree.has(e.to)) continue;
+        const left = indegree.get(e.to)! - 1;
+        indegree.set(e.to, left);
+        if (left === 0) next.push(steps.find((s) => s.slug === e.to)!);
+      }
+    }
+    ready = steps.filter((s) => next.includes(s));
+  }
+  return [...ordered, ...steps.filter((s) => !done.has(s.slug))];
+}
+
+/**
+ * Builds the variable picker tree for the step being edited: everything a
+ * `{{...}}` expression in that step may reference, grouped into tabs.
+ *
+ * - **data**: the trigger payload, the result of every step guaranteed to run
+ *   before this one (same DAG rule as autocomplete) in execution order, and the
+ *   iterator loop variable inside an iterator body
+ * - **variables**: global variables, secrets, allowlisted env vars, run fields
+ * - **functions**: built-in template functions
+ *
+ * Empty namespaces are left out.
+ *
+ * @param config - The scope configuration (as for {@link getSuggestions})
+ * @returns The groups, always in the order data, variables, functions
+ */
+export function buildScopeTree(config: ScopeConfig): ScopeTreeGroup[] {
+  const top = getSuggestions(config, [], "");
+  const data: ScopeTreeNode[] = [];
+
+  const trigger: ScopeTreeNode = { label: "trigger", path: ["trigger"], kind: "value" };
+  const payload = expandChildren(config, ["trigger"], 0);
+  if (payload) trigger.children = payload;
+  data.push(trigger);
+
+  for (const step of executionOrder(config.steps, config.edges)) {
+    // `result` is offered only when the step's result is guaranteed available here.
+    const resultOffered = getSuggestions(config, ["steps", step.slug], "result").some((s) => s.label === "result");
+    if (!resultOffered) continue;
+    const path = ["steps", step.slug, "result"];
+    const node: ScopeTreeNode = { label: step.slug, path, kind: "value" };
+    if (typeof step.type === "string") node.stepType = step.type;
+    const children = expandChildren(config, path, 0);
+    if (children) node.children = children;
+    data.push(node);
+  }
+
+  const namespaceNames = new Set<string>(TOP_LEVEL_NAMESPACES);
+  for (const s of top) {
+    // Iterator loop variable and itemIndex: top-level values that are neither a namespace nor a function.
+    if (s.kind === "function" || namespaceNames.has(s.label)) continue;
+    data.push(suggestionToNode(config, [], s, 0));
+  }
+
+  const variables: ScopeTreeNode[] = [];
+  for (const ns of ["var", "secret", "env", "run"] as const) {
+    const children = expandChildren(config, [ns], 0);
+    if (children) variables.push({ label: ns, path: [ns], kind: "value", children });
+  }
+
+  const functions: ScopeTreeNode[] = getFunctionSuggestions("").map((s) => ({
+    label: s.label,
+    path: [s.label],
+    kind: "function",
+    ...(s.signature ? { signature: s.signature } : {}),
+    ...(s.description ? { description: s.description } : {}),
+  }));
+
+  return [
+    { id: "data", nodes: data },
+    { id: "variables", nodes: variables },
+    { id: "functions", nodes: functions },
+  ];
+}
+
+/**
+ * Filters a picker tree by a search query (case-insensitive substring of the
+ * label or the dotted path). A matching node keeps its whole subtree; a
+ * non-matching node is kept only when a descendant matches.
+ *
+ * @param nodes - The nodes to filter
+ * @param query - The search text ("" keeps everything)
+ * @returns The filtered nodes
+ */
+export function filterScopeTree(nodes: ScopeTreeNode[], query: string): ScopeTreeNode[] {
+  const q = query.trim().toLowerCase();
+  if (!q) return nodes;
+  const result: ScopeTreeNode[] = [];
+  for (const node of nodes) {
+    if (node.label.toLowerCase().includes(q) || node.path.join(".").toLowerCase().includes(q)) {
+      result.push(node);
+      continue;
+    }
+    const children = node.children ? filterScopeTree(node.children, q) : [];
+    if (children.length > 0) result.push({ ...node, children });
+  }
+  return result;
+}
