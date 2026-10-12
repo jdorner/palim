@@ -191,6 +191,8 @@ export interface ExtensionInfo {
   secretsSchema: SecretSchemaEntry[] | null;
   /** Error message from the last failed initialization attempt, or null if healthy. */
   error: string | null;
+  /** Runtime warnings the active extension reported via `ctx.status.setWarnings()` (empty when none). */
+  warnings: string[];
   /** UI contributions declared in the manifest, or null if none declared. */
   ui: ExtensionUiContribution | null;
 }

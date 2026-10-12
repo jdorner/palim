@@ -187,3 +187,26 @@ describe("ctx.dynamicItems.invalidate", () => {
     expect(messages).toEqual([{ type: "extension_schemas_changed", name: "test-extension" }]);
   });
 });
+
+describe("ctx.status.setWarnings", () => {
+  test("forwards trimmed, de-duplicated, non-blank warnings for the extension", () => {
+    const calls: Array<{ name: string; warnings: string[] }> = [];
+    const { context } = createExtensionContext({
+      ...createMinimalDeps(),
+      setWarningsFn: (name, warnings) => calls.push({ name, warnings }),
+    });
+
+    context.status.setWarnings([" Workflow missing ", "", "Workflow missing", "  ", "Other"]);
+    context.status.setWarnings([]);
+
+    expect(calls).toEqual([
+      { name: "test-extension", warnings: ["Workflow missing", "Other"] },
+      { name: "test-extension", warnings: [] },
+    ]);
+  });
+
+  test("is a no-op without a registry callback", () => {
+    const { context } = createExtensionContext(createMinimalDeps());
+    expect(() => context.status.setWarnings(["x"])).not.toThrow();
+  });
+});

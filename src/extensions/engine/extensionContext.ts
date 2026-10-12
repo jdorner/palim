@@ -170,6 +170,8 @@ export interface ExtContextLifecycle {
   getStepHandlerFn?: (type: string) => import("../types").StepTypeHandler | undefined;
   /** List read-only serialized metadata for all registered step types. */
   listStepTypesFn?: () => import("@shared/extensions").StepTypeInfo[];
+  /** Replaces the runtime warnings of the given extension. */
+  setWarningsFn?: (name: string, warnings: string[]) => void;
 }
 
 /** Full dependency set for creating an extension context. */
@@ -237,6 +239,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     stepTypeNameSet,
     getStepHandlerFn,
     listStepTypesFn,
+    setWarningsFn,
   } = deps;
 
   const tools: AgentTool[] = [];
@@ -736,6 +739,12 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
       register: registerProviderFn,
       registerDefault: registerDefaultProviderFn,
       invalidate: () => broadcast({ type: "extension_schemas_changed", name: extensionName }),
+    },
+    status: {
+      setWarnings(warnings: string[]): void {
+        const normalized = [...new Set(warnings.map((w) => String(w).trim()).filter((w) => w.length > 0))];
+        setWarningsFn?.(extensionName, normalized);
+      },
     },
     internal: {
       secrets: {

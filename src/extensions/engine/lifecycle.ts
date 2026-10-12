@@ -131,6 +131,7 @@ export async function activateExtension(
     // Partial registration cleanup on failed initialize
     await cleanupPartialRegistrations(loaded, state, name);
     entry.error = err instanceof Error ? err.message : String(err);
+    entry.warnings = [];
     throw err;
   }
 
@@ -211,6 +212,7 @@ export async function deactivateExtension(
   entry.queues = [];
   entry.stepTypes = [];
   entry.state = "suspended";
+  entry.warnings = [];
 
   // Broadcast lifecycle event
   if (broadcastFn) {

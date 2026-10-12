@@ -343,7 +343,7 @@ Extensions live in `src/extensions/<name>/index.ts` (or `src/extensions/core/<na
 3. Resolves dependencies (topological sort)
 4. Initializes in dependency order with a scoped `ExtensionContext`
 
-Extensions can register: tools, HTTP routes (auto-prefixed `/ext/<name>/`; pass `{ public: true }` for self-authenticating callbacks), job queues, agent event listeners, skills, UI contributions (sidebar navigation entries and Svelte pages, see below), custom workflow step types (with optional input validation), and dynamic item providers for settings schema enrichment. Extension config is read from `EXT_<NAME>_<KEY>` env vars.
+Extensions can register: tools, HTTP routes (auto-prefixed `/ext/<name>/`; pass `{ public: true }` for self-authenticating callbacks), job queues, agent event listeners, skills, UI contributions (sidebar navigation entries and Svelte pages, see below), custom workflow step types (with optional input validation), and dynamic item providers for settings schema enrichment. Extension config is read from `EXT_<NAME>_<KEY>` env vars. At runtime an extension can report warnings with `ctx.status.setWarnings([...])` (in memory, cleared on deactivate, `[]` clears): they are returned as `ExtensionInfo.warnings`, broadcast via `extension_schemas_changed`, and shown in the settings as a banner plus an amber icon in the extension list.
 
 #### Extension UI Pages
 

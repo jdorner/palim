@@ -626,6 +626,8 @@
     "expandThinkingHint": "Show the model's reasoning process expanded in chat messages",
     "extensionDisabled": "{name} disabled",
     "extensionEnabled": "{name} enabled",
+    "extensionWarnings_one": "{count} warning",
+    "extensionWarnings_other": "{count} warnings",
     "initError": "Initialization error: {error}",
     "intentEmbedding": "Embedding",
     "intentEmbeddingHint": "Used for text embeddings and semantic search",
