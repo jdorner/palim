@@ -278,4 +278,45 @@ describe("buildOutputSchemas", () => {
       expect(schemaValue("b")).toEqual({});
     });
   });
+
+  describe("aggregator", () => {
+    test("emits the counts and per-iteration results keyed by the body's terminal steps", () => {
+      const definition = {
+        name: "fixture-workflow",
+        trigger: { type: "manual" },
+        steps: {
+          each: { type: "iterator", items: "{{trigger.payload.items}}" },
+          fetch: { type: "fetch" },
+          store: { type: "store" },
+          done: { type: "aggregator", iterator: "each" },
+        },
+        edges: [
+          { from: "each", to: "fetch", branch: "each" },
+          { from: "fetch", to: "store" },
+          { from: "store", to: "done" },
+        ],
+      } as unknown as DagWorkflowDefinition;
+      const resolver = (type: string): TSchema | undefined =>
+        type === "store" ? Type.Object({ id: Type.String() }) : undefined;
+
+      const { outputSchemas } = buildOutputSchemas(definition, resolver);
+      const props = (outputSchemas.steps.done as { properties: Record<string, unknown> }).properties;
+      expect(props.totalItems).toEqual({ type: "number" });
+      expect(props.succeeded).toEqual({ type: "number" });
+      expect(props.failed).toEqual({ type: "number" });
+      expect(props.results).toEqual({
+        type: "array",
+        items: { type: "object", properties: { store: outputSchemas.steps.store } },
+      });
+    });
+
+    test("a hand-authored outputSchema still wins over the built-in schema", () => {
+      const definition = makeDefinition({
+        each: { type: "iterator" },
+        done: { type: "aggregator", outputSchema: { count: "number" } },
+      });
+      const { outputSchemas } = buildOutputSchemas(definition, noHandler);
+      expect(outputSchemas.steps.done).toEqual(compileOutputSchema({ count: "number" }));
+    });
+  });
 });

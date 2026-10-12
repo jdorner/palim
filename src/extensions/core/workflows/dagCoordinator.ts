@@ -642,6 +642,23 @@ export function computeBodySubgraph(
 }
 
 /**
+ * Returns the terminal steps of an iterator body: body steps with no outgoing
+ * edge to another body step (only to the aggregator). The aggregator collects
+ * their results, keyed by slug, once per iteration.
+ *
+ * @param definition - The workflow definition
+ * @param bodySlugs - The body step slugs (from {@link computeBodySubgraph})
+ * @returns Terminal body step slugs
+ */
+export function computeBodyTerminalSlugs(definition: DagWorkflowDefinition, bodySlugs: Set<string>): string[] {
+  const hasBodySuccessor = new Set<string>();
+  for (const edge of definition.edges) {
+    if (bodySlugs.has(edge.from) && bodySlugs.has(edge.to)) hasBodySuccessor.add(edge.from);
+  }
+  return [...bodySlugs].filter((slug) => !hasBodySuccessor.has(slug));
+}
+
+/**
  * Resets all body step statuses and body edges to `pending`.
  * Called by the aggregator between iterations to allow re-execution.
  *
@@ -689,27 +706,9 @@ export async function evaluateAggregatorNode(
   // Compute body subgraph
   const { bodySlugs, bodyEdgeIds } = computeBodySubgraph(definition, iterSlug, stepSlug);
 
-  // Collect the body's terminal step results for this iteration
-  // Terminal body steps = body steps with no outgoing edge to another body step (only to aggregator)
-  const bodyTerminalSlugs: string[] = [];
-  const bodyOutgoing = new Map<string, string[]>();
-  for (const slug of bodySlugs) {
-    bodyOutgoing.set(slug, []);
-  }
-  for (const edge of definition.edges) {
-    if (bodySlugs.has(edge.from) && bodySlugs.has(edge.to)) {
-      bodyOutgoing.get(edge.from)!.push(edge.to);
-    }
-  }
-  for (const slug of bodySlugs) {
-    if ((bodyOutgoing.get(slug) ?? []).length === 0) {
-      bodyTerminalSlugs.push(slug);
-    }
-  }
-
-  // Collect results from body terminal steps
+  // Collect results from the body's terminal steps for this iteration
   const iterationResult: Record<string, unknown> = {};
-  for (const slug of bodyTerminalSlugs) {
+  for (const slug of computeBodyTerminalSlugs(definition, bodySlugs)) {
     iterationResult[slug] = run.stepResults[slug];
   }
 

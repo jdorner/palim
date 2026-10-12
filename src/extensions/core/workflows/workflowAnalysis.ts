@@ -13,12 +13,13 @@ import { Value } from "@sinclair/typebox/value";
 import { resolveHandlerOutputSchema } from "@src/extensions/engine/stepTypeSerialization";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { TemplateVariableResolver } from "@src/variables";
+import { computeBodySubgraph, computeBodyTerminalSlugs } from "./dagCoordinator";
 import { type TemplateWarning, validateDagWorkflowTemplates } from "./dagTemplateValidation";
 import { validateIteratorPairing } from "./dagValidation";
 import { humanTaskOutputSchema } from "./humanTask";
 import { compileOutputSchema, resolveTriggerOutputSchemaJson } from "./outputSchemaCompiler";
 import { getPortalRunAs } from "./portalRunAs";
-import type { DagHumanTaskStep, DagWorkflowDefinition, OutputSchemaShorthand } from "./schemas";
+import type { DagAggregatorStep, DagHumanTaskStep, DagWorkflowDefinition, OutputSchemaShorthand } from "./schemas";
 import { DagHumanTaskStepSchema } from "./schemas";
 import type { TemplateSecretResolver } from "./template";
 import { getTriggerRefWarnings, type TriggerRefLookup } from "./triggerRefs";
@@ -50,6 +51,42 @@ interface BuildOutputSchemasResult {
  */
 function serializeHandlerSchema(schema: TSchema): OutputSchema {
   return JSON.parse(JSON.stringify(schema)) as OutputSchema;
+}
+
+/**
+ * The built-in output schema of an `aggregator` step, mirroring the result
+ * written by the coordinator: `totalItems`/`succeeded`/`failed` counts and
+ * `results`, one object per iteration keyed by the body's terminal steps
+ * (each typed with that step's own schema when it has one).
+ *
+ * @param definition - The workflow definition
+ * @param slug - The aggregator step slug
+ * @param step - The aggregator step definition
+ * @param resolveStepSchema - Resolves another step's output schema (`null` when unknown)
+ * @returns The JSON Schema of the step result
+ */
+function aggregatorOutputSchema(
+  definition: DagWorkflowDefinition,
+  slug: string,
+  step: DagAggregatorStep,
+  resolveStepSchema: (slug: string) => OutputSchema | null,
+): OutputSchema {
+  const iterationProperties: Record<string, unknown> = {};
+  if (definition.steps[step.iterator]?.type === "iterator") {
+    const { bodySlugs } = computeBodySubgraph(definition, step.iterator, slug);
+    for (const terminal of computeBodyTerminalSlugs(definition, bodySlugs)) {
+      iterationProperties[terminal] = resolveStepSchema(terminal) ?? {};
+    }
+  }
+  return {
+    type: "object",
+    properties: {
+      results: { type: "array", items: { type: "object", properties: iterationProperties } },
+      totalItems: { type: "number" },
+      succeeded: { type: "number" },
+      failed: { type: "number" },
+    },
+  } as OutputSchema;
 }
 
 /**
@@ -161,6 +198,10 @@ export function buildOutputSchemas(
       } else if ((stepDef as { type: string }).type === "humanTask") {
         // Built-in node with a config-derived result shape (outcomes, form).
         schema = humanTaskOutputSchema(stepDef as DagHumanTaskStep);
+      } else if ((stepDef as { type: string }).type === "aggregator") {
+        // Built-in node: counts plus one entry per iteration, keyed by the
+        // body's terminal steps.
+        schema = aggregatorOutputSchema(definition, slug, stepDef as DagAggregatorStep, resolveStep);
       } else {
         // Precedence 2: handler-declared TypeBox schema (static or config-derived),
         // resolved for this instance and serialized to JSON Schema.
