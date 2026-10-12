@@ -76,6 +76,7 @@ Allowed imports:
 | --- | --- |
 | Extension API types (`Extension`, `ExtensionContext`, `QueueJob`, etc.) | `@ext/types` |
 | Skill script utilities (`createCommand`, `SkillScriptContext`, etc.) | `@ext/sdk` |
+| JSON / schema helpers (`extractJson`, `validateJsonOutput`, `validateJsonSchema`, `compileOutputSchema` for a step's `outputSchema` shorthand) | `@ext/sdk` |
 | Files within your own extension | `./store`, `./schema`, etc. |
 | External npm packages | `@sinclair/typebox`, `drizzle-orm`, etc. |
 | Node built-ins | `node:path`, `node:fs`, etc. |

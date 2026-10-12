@@ -12,6 +12,7 @@
  * ```
  */
 
+export type { OutputSchema, OutputSchemaShorthand, OutputSchemaShorthandValue } from "../../shared/workflows";
 // NOTE: imports here use RELATIVE paths into the core tree rather than the
 // `@src/*` alias. `@ext/sdk` maps to this real file, so an external extension
 // type-checking against it must resolve every re-exported module. Relative
@@ -29,5 +30,8 @@ export { createCommand, formatFetchError, formatHttpError, ParsedArgs } from "..
 export { FileWatcher } from "../utils/fileWatcher";
 export type { JsonValidationFailure, JsonValidationResult, JsonValidationSuccess } from "../utils/json";
 export { extractJson, validateJsonInput, validateJsonOutput } from "../utils/json";
+export type { JsonSchemaValidationError, JsonSchemaValidationResult } from "../utils/jsonSchema";
+export { validateJsonSchema } from "../utils/jsonSchema";
 export { formatValidationErrors } from "../utils/validation";
+export { compileOutputSchema } from "./core/workflows/outputSchemaCompiler";
 export type { SkillScriptContext } from "./types";

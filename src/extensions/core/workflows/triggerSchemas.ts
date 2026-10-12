@@ -8,7 +8,8 @@
  * trigger source (filewatcher, webhooks, scheduler, portal).
  */
 
-import type { OutputSchemaShorthand } from "./schemas";
+// Relative, alias-free import: reached from `@ext/sdk` via outputSchemaCompiler.
+import type { OutputSchemaShorthand } from "../../../../shared/workflows";
 
 /**
  * Output schema for filewatcher triggers.
