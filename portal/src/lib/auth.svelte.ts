@@ -43,6 +43,11 @@ class Session {
     return this.ability !== null && canPerform(this.ability, "manage", "HumanTask");
   }
 
+  /** Whether the user may start workflows from the portal. */
+  get canStartWorkflows(): boolean {
+    return this.ability !== null && canPerform(this.ability, "create", "PortalWorkflow");
+  }
+
   /** Restores the session from a stored token. */
   async restore(): Promise<void> {
     if (!getToken()) {

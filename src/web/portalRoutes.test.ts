@@ -31,6 +31,7 @@ describe("portal API", () => {
         portalRoutes(
           () => service,
           () => hub,
+          () => undefined,
         ),
       );
   }

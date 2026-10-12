@@ -17,6 +17,7 @@ import { type TemplateWarning, validateDagWorkflowTemplates } from "./dagTemplat
 import { validateIteratorPairing } from "./dagValidation";
 import { humanTaskOutputSchema } from "./humanTask";
 import { compileOutputSchema, resolveTriggerOutputSchemaJson } from "./outputSchemaCompiler";
+import { getPortalRunAs } from "./portalRunAs";
 import type { DagHumanTaskStep, DagWorkflowDefinition, OutputSchemaShorthand } from "./schemas";
 import { DagHumanTaskStepSchema } from "./schemas";
 import type { TemplateSecretResolver } from "./template";
@@ -108,6 +109,14 @@ export function buildOutputSchemas(
   } catch {
     // Trigger resolution is best-effort: fall back to null on any failure.
     trigger = null;
+  }
+
+  // A portal trigger's form fields describe `trigger.payload.data` (unless the
+  // author declared the whole payload schema).
+  const { trigger: triggerDef } = definition;
+  const fields = triggerDef.type === "portal" && !triggerDef.outputSchema ? triggerDef.portal?.fields : undefined;
+  if (trigger && fields && typeof trigger.properties === "object" && trigger.properties !== null) {
+    trigger = { ...trigger, properties: { ...(trigger.properties as Record<string, unknown>), data: fields } };
   }
 
   // Memoized per-step resolution. `null` marks a slug resolved to "no schema".
@@ -319,6 +328,15 @@ export function createWorkflowAnalyzer(
       }
     : undefined;
 
+  // Run-as accounts of portal triggers are only checkable while the portal exists.
+  const portal = ctx.internal?.portal;
+  const describeRunAs = portal
+    ? (workflowName: string) => {
+        const userId = getPortalRunAs(workflowName);
+        return userId ? portal.describeRunAs(userId) : null;
+      }
+    : undefined;
+
   return async function analyzeWorkflow(def, triggerRefs) {
     // Schemas are resolved BEFORE template validation so the validator and
     // the editor share one resolution.
@@ -341,7 +359,7 @@ export function createWorkflowAnalyzer(
     return {
       outputSchemas,
       warnings: [
-        ...getTriggerRefWarnings(def, triggerRefs),
+        ...getTriggerRefWarnings(def, triggerRefs, describeRunAs),
         ...templateWarnings,
         ...getDependencyWarnings(def, ctx),
         ...pairingWarnings,

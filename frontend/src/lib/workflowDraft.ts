@@ -409,6 +409,7 @@ export function draftFromWorkflow(workflow: WorkflowDetail): WorkflowDraft {
     trigger: {
       type: workflow.trigger.type,
       ref: workflow.trigger.ref ?? "",
+      ...(workflow.trigger.portal ? { portal: JSON.parse(JSON.stringify(workflow.trigger.portal)) } : {}),
       ...(workflow.trigger.outputSchema
         ? { outputSchema: JSON.parse(JSON.stringify(workflow.trigger.outputSchema)) }
         : {}),

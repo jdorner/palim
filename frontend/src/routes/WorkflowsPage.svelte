@@ -1,4 +1,5 @@
 <script lang="ts">
+import CameraIcon from "phosphor-svelte/lib/CameraIcon";
 import CursorClickIcon from "phosphor-svelte/lib/CursorClickIcon";
 import EyeIcon from "phosphor-svelte/lib/EyeIcon";
 import LinkSimpleIcon from "phosphor-svelte/lib/LinkSimpleIcon";
@@ -166,6 +167,8 @@ $effect(() => {
                   <LinkSimpleIcon size={14} class={style.color} aria-hidden="true" />
                 {:else if style.icon === "cursor"}
                   <CursorClickIcon size={14} class={style.color} aria-hidden="true" />
+                {:else if style.icon === "camera"}
+                  <CameraIcon size={14} class={style.color} aria-hidden="true" />
                 {/if}
                 <span class="text-sm {style.color} font-medium"
                   >{translateCore(`triggerTypes.${wf.trigger.type}` as CoreKey, { default: wf.trigger.type })}</span
@@ -290,6 +293,8 @@ $effect(() => {
                     <LinkSimpleIcon size={14} class={style.color} aria-hidden="true" />
                   {:else if style.icon === "cursor"}
                     <CursorClickIcon size={14} class={style.color} aria-hidden="true" />
+                  {:else if style.icon === "camera"}
+                    <CameraIcon size={14} class={style.color} aria-hidden="true" />
                   {/if}
                   <span class="text-sm {style.color} font-medium"
                     >{translateCore(`triggerTypes.${wf.trigger.type}` as CoreKey, { default: wf.trigger.type })}</span

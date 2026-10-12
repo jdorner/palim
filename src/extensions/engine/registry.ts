@@ -14,6 +14,7 @@ import type { AuthResolver, UserStore } from "@src/auth";
 import { PROJECT_DIR, serverOrigin } from "@src/config";
 import { getDb, schema } from "@src/db";
 import type { HitlService } from "@src/hitl";
+import type { PortalLauncherRegistry } from "@src/portal";
 import type { PushMessageFn } from "@src/push";
 import type { ManagedQueuePort, QueueJob } from "@src/queue";
 import type { SecretVault } from "@src/secrets/vault";
@@ -80,6 +81,8 @@ export interface RegistryInitDeps {
   variableStore?: TemplateVariableResolver;
   /** The human task service (optional in tests). */
   hitlService?: HitlService;
+  /** The portal workflow launcher registry (absent when the portal is disabled). */
+  portalLaunchers?: PortalLauncherRegistry;
   /** The authentication service resolving tokens to principals (optional in tests). */
   authService?: AuthResolver;
   /** The user store for account/role lookups (optional in tests). */
@@ -856,6 +859,7 @@ export class ExtensionRegistry {
         secretVault: deps.secretVault,
         variableStore: deps.variableStore,
         hitlService: deps.hitlService,
+        portalLaunchers: deps.portalLaunchers,
         routeRegistry: deps.routeRegistry,
         rescanSkillsFn: () => this.discoverAndLoadSkills(),
         getSkillNamesFn: () => this.getSkillNames(),

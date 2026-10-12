@@ -10,8 +10,9 @@ import { Value } from "@sinclair/typebox/value";
 import { requestUserId } from "@src/web/triggerOwnership";
 import * as dagRunStore from "../dagRunStore";
 import { validateCfEdges, validateDag } from "../dagValidation";
+import { clearPortalRunAs, getPortalRunAs, setPortalRunAs } from "../portalRunAs";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema } from "../schemas";
-import { fetchTriggerRefs } from "../triggerRefs";
+import { fetchTriggerRefs, isRefTriggerType } from "../triggerRefs";
 import type { WorkflowRouteDeps } from "./types";
 
 /**
@@ -97,11 +98,16 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
     const triggerRefs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin);
     const { outputSchemas, warnings } = await analyzeWorkflow(wf, triggerRefs);
 
+    // The account portal-started runs execute as (shown read-only in the editor).
+    const runAsUserId = wf.trigger.type === "portal" ? getPortalRunAs(wf.name) : null;
+    const portalRunAs = runAsUserId ? (ctx.internal?.portal?.describeRunAs(runAsUserId) ?? null) : null;
+
     return Response.json({
       ...wf,
       runs,
       warnings,
       outputSchemas,
+      portalRunAs,
     });
   });
 
@@ -146,21 +152,24 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
       );
     }
 
-    // Manual triggers must not include a ref
-    if (def.trigger.type === "manual" && def.trigger.ref) {
-      return Response.json({ error: "Manual triggers do not support a ref value" }, { status: 400 });
-    }
+    const triggerType = def.trigger.type;
 
-    // Non-manual triggers require a ref
-    if (def.trigger.type !== "manual" && !def.trigger.ref) {
-      return Response.json({ error: `Trigger type "${def.trigger.type}" requires a ref value` }, { status: 400 });
+    // Manual and portal triggers must not include a ref; the others require one.
+    if (!isRefTriggerType(triggerType) && def.trigger.ref) {
+      return Response.json({ error: `Trigger type "${triggerType}" does not support a ref value` }, { status: 400 });
+    }
+    if (isRefTriggerType(triggerType) && !def.trigger.ref) {
+      return Response.json({ error: `Trigger type "${triggerType}" requires a ref value` }, { status: 400 });
+    }
+    if (triggerType !== "portal" && def.trigger.portal) {
+      return Response.json({ error: "Only portal triggers support a portal configuration" }, { status: 400 });
     }
 
     // Reject a trigger ref that does not exist. A failed lookup (owning
     // extension disabled, unreachable, or access denied) cannot verify the ref,
     // so the save goes through, as the list and detail warnings treat it.
-    if (def.trigger.type !== "manual" && def.trigger.ref) {
-      const known = (await fetchTriggerRefs(reqCtx.request, ctx.urls.origin))[def.trigger.type];
+    if (isRefTriggerType(triggerType) && def.trigger.ref) {
+      const known = (await fetchTriggerRefs(reqCtx.request, ctx.urls.origin))[triggerType];
       if (known && !known.includes(def.trigger.ref)) {
         return Response.json(
           { error: `Trigger ref "${def.trigger.ref}" does not exist for type "${def.trigger.type}"` },
@@ -197,6 +206,11 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
 
     try {
       await Bun.write(targetFile, JSON.stringify(def, null, 2));
+      // Saving binds a portal workflow to the editor, like editing a webhook or
+      // schedule makes the editor its owner: portal runs execute as them.
+      const editorId = requestUserId(reqCtx.request);
+      if (triggerType === "portal" && editorId) setPortalRunAs(name!, editorId);
+      else if (triggerType !== "portal") clearPortalRunAs(name!);
     } catch (err) {
       logger.error(`Failed to write workflow file "${targetFile}":`, err);
       return Response.json({ error: "Failed to write workflow file" }, { status: 500 });
@@ -231,6 +245,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
 
     await unlink(targetFile);
     store.delete(name!);
+    clearPortalRunAs(name!);
     ctx.messaging.broadcast({ type: "workflow_deleted", workflowName: name! });
     logger.info(`Deleted workflow "${name}" (${targetFile})`);
     return Response.json({ ok: true });

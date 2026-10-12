@@ -49,6 +49,7 @@ import { createHitlService, createUserDirectory, TaskStore } from "@src/hitl";
 import type { AgentJob, AgentProcessorConfig, AgentProcessorResult, ChatJob } from "@src/jobs";
 import { runAgent as coreRunAgent } from "@src/jobs";
 import { buildModelConfig, detectAndSetProvider, fetchAvailableModels, getModelForIntent } from "@src/models";
+import { createPortalLauncherRegistry, describeRunAsUser } from "@src/portal";
 import type { ManagedQueuePort, QueueJob } from "@src/queue";
 import { closeLogStore, startLogPurgeTimer } from "@src/queue";
 import { SecretVault } from "@src/secrets/vault";
@@ -264,6 +265,10 @@ export class AppBootstrap {
         })
       : undefined;
     if (!HITL_ENABLED) log.info("Human tasks (HITL) are disabled (set HITL_ENABLED=true to enable)");
+    // Portal workflow launchers live in the portal, which only exists with HITL.
+    const portalLaunchers = HITL_ENABLED
+      ? createPortalLauncherRegistry({ describeRunAs: (userId) => describeRunAsUser(userStore, userId) })
+      : undefined;
     try {
       const seed = await seedAuth({
         userStore,
@@ -397,6 +402,7 @@ export class AppBootstrap {
       authService,
       userStore,
       hitlService,
+      portalLaunchers,
     });
 
     // Route registry backed by the runtime extension router (served via `/ext/*`),
@@ -429,6 +435,7 @@ export class AppBootstrap {
       authService,
       userStore,
       hitlService,
+      portalLaunchers,
     };
 
     return new AppBootstrap(registry, agentQueue, chatQueue, monitoring, elysiaApp, registryInitDeps, authService);

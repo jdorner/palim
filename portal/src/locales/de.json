@@ -6,11 +6,12 @@
   },
   "nav": {
     "tasks": "Aufgaben",
+    "start": "Starten",
     "settings": "Einstellungen"
   },
   "login": {
     "title": "Anmelden",
-    "subtitle": "Melde dich an, um die dir zugewiesenen Aufgaben zu sehen.",
+    "subtitle": "Melde dich an, um deine Aufgaben zu sehen und Abläufe zu starten.",
     "username": "Benutzername",
     "password": "Passwort",
     "submit": "Anmelden",
@@ -21,7 +22,7 @@
   },
   "noAccess": {
     "title": "Hier gibt es nichts zu tun",
-    "description": "Dein Konto {username} hat keinen Zugriff auf das Portal. Bitte eine Administratorin oder einen Administrator um die Rolle portal-user."
+    "description": "Dein Konto {username} hat keinen Zugriff auf das Portal. Bitte eine Administratorin oder einen Administrator um eine Portal-Rolle."
   },
   "notFound": {
     "title": "Seite nicht gefunden",
@@ -38,6 +39,12 @@
     "themeDark": "Dunkel",
     "logout": "Abmelden",
     "saveFailed": "Speichern fehlgeschlagen: {message}"
+  },
+  "form": {
+    "required": "Erforderlich",
+    "choose": "Auswählen…",
+    "unsupportedField": "Dieses Feld kann hier nicht bearbeitet werden.",
+    "missingFields": "Bitte ausfüllen: {fields}"
   },
   "tasks": {
     "title": "Aufgaben",
@@ -67,8 +74,6 @@
     "comment": "Kommentar",
     "commentRequired": "Kommentar (erforderlich)",
     "commentPlaceholder": "Optionale Notiz für die Akte",
-    "required": "Erforderlich",
-    "missingFields": "Bitte ausfüllen: {fields}",
     "commentMissing": "Bitte einen Kommentar angeben.",
     "submitting": "Wird gesendet…",
     "answered": "Antwort gesendet.",
@@ -81,10 +86,8 @@
     "unknownUser": "unbekanntem Benutzer",
     "noLongerOpen": "Diese Aufgabe ist {status} und kann nicht mehr beantwortet werden.",
     "history": "Verlauf",
-    "unsupportedField": "Dieses Feld kann hier nicht bearbeitet werden.",
     "yes": "Ja",
     "no": "Nein",
-    "choose": "Auswählen…",
     "event": {
       "created": "Erstellt",
       "viewed": "Angesehen von {user}",
@@ -93,5 +96,32 @@
       "expired": "Abgelaufen",
       "reassigned": "Neu zugewiesen"
     }
+  },
+  "launch": {
+    "title": "Starten",
+    "subtitle": "Lade ein Foto oder eine Datei hoch, um einen Ablauf zu starten.",
+    "empty": "Im Moment kannst du nichts starten.",
+    "loadFailed": "Konnte nicht geladen werden: {message}",
+    "notAvailable": "Dieser Ablauf ist nicht (mehr) verfügbar.",
+    "back": "Alle Abläufe",
+    "file": "Datei",
+    "photo": "Foto",
+    "takePhoto": "Foto aufnehmen",
+    "chooseFile": "Datei auswählen",
+    "replace": "Ersetzen",
+    "remove": "Entfernen",
+    "fileHint": "Bis {size} MB",
+    "fileMissing": "Bitte füge eine Datei hinzu.",
+    "fileTooLarge": "Die Datei ist größer als {size} MB.",
+    "fileType": "Dieser Dateityp wird nicht akzeptiert.",
+    "details": "Angaben",
+    "submit": "Senden",
+    "submitting": "Wird gesendet…",
+    "submitFailed": "Konnte nicht gesendet werden: {message}",
+    "notConfigured": "Dieser Ablauf ist noch nicht eingerichtet. Bitte wende dich an die Administration.",
+    "started": "Gesendet",
+    "startedDescription": "„{title}“ wurde gestartet.",
+    "again": "Weitere senden",
+    "retry": "Erneut versuchen"
   }
 }

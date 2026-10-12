@@ -12,6 +12,7 @@ import type { ModelIntent } from "@shared/models";
 import type { WebSocketMessage } from "@shared/websocket";
 import { serverOrigin } from "@src/config";
 import type { HitlService } from "@src/hitl";
+import type { PortalLauncherRegistry } from "@src/portal";
 import type { PushMessageFn } from "@src/push";
 import type { JobInfo, JobProcessor, ManagedQueueOptions, ManagedQueuePort, QueueJob, QueueJobLogs } from "@src/queue";
 import { ManagedQueue } from "@src/queue";
@@ -189,6 +190,8 @@ export interface ExtensionContextDeps
   variableStore?: TemplateVariableResolver;
   /** The human task service (optional). Exposed to core extensions via `ctx.internal.hitl`. */
   hitlService?: HitlService;
+  /** The portal workflow launcher registry (optional). Exposed to core extensions via `ctx.internal.portal`. */
+  portalLaunchers?: PortalLauncherRegistry;
   /** The extension's settingsSchema (TypeBox TObject), if declared. */
   settingsSchema?: Record<string, unknown>;
 }
@@ -226,6 +229,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     secretVault,
     variableStore,
     hitlService,
+    portalLaunchers,
     rescanSkillsFn,
     getSkillNamesFn,
     settingsSchema,
@@ -750,6 +754,12 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
             registerSourceHandler: (kind, handler) => hitlService.registerSourceHandler(kind, handler),
             getRecord: (id) => hitlService.getRecord(id),
             describeUser: (id) => hitlService.describeUser(id),
+          }
+        : undefined,
+      portal: portalLaunchers
+        ? {
+            registerLauncherProvider: (provider) => portalLaunchers.register(provider),
+            describeRunAs: (userId) => portalLaunchers.describeRunAs(userId),
           }
         : undefined,
     },

@@ -108,7 +108,7 @@ export function allowsSelfReference(type: string): boolean {
  * extension types. Icons are rendered separately via the icon registry.
  *
  * @param type - The step type identifier
- * @param triggerType - Optional trigger subtype (webhook, schedule, manual, filewatcher)
+ * @param triggerType - Optional trigger subtype (webhook, schedule, manual, filewatcher, portal)
  * @returns Plain-text label string (no icon prefix)
  */
 export function labelForStepType(type: string, triggerType?: string): string {
@@ -123,6 +123,8 @@ export function labelForStepType(type: string, triggerType?: string): string {
           return t("stepType.manualTrigger");
         case "filewatcher":
           return t("stepType.filewatcherTrigger");
+        case "portal":
+          return t("stepType.portalTrigger");
         default:
           return t("stepType.trigger");
       }

@@ -3,7 +3,7 @@
  * Pure TypeScript module with no Svelte dependencies.
  */
 
-import type { OutputSchemaShorthand } from "$shared/workflows";
+import type { OutputSchemaShorthand, PortalTriggerConfig } from "$shared/workflows";
 import { translateCore as t } from "./i18nCore";
 import type { SlugEdge } from "./templateScope";
 
@@ -31,6 +31,10 @@ export interface EdgeDraft {
 export interface DraftTrigger {
   type: string;
   ref: string;
+  /** Portal configuration (`type: "portal"` only). */
+  portal?: PortalTriggerConfig;
+  /** Editor-only: why the portal fields JSON being edited is invalid (blocks saving; never serialized). */
+  portalFieldsError?: string;
   /** Hand-authored payload shape for autocomplete/validation. */
   outputSchema?: OutputSchemaShorthand;
 }
@@ -108,7 +112,9 @@ export function edgesToSlugEdges(steps: Array<{ id?: string; slug: string }>, ed
 const SLUG_PATTERN = /^[a-z][a-z0-9-]*$/;
 const MAX_SLUG_LENGTH = 64;
 const MAX_DESCRIPTION_LENGTH = 256;
-const VALID_TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"];
+const VALID_TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher", "portal"];
+/** Trigger types that take no ref. */
+const REFLESS_TRIGGER_TYPES = ["manual", "portal"];
 
 /**
  * Validates a slug value against the required pattern, length, and presence rules.
@@ -314,14 +320,19 @@ export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: St
     errors.set("trigger.type", t("validation.triggerType"));
   }
 
-  // Manual triggers must not have a ref
-  if (draft.trigger.type === "manual" && draft.trigger.ref && draft.trigger.ref.trim().length > 0) {
+  // Manual and portal triggers must not have a ref
+  const refless = REFLESS_TRIGGER_TYPES.includes(draft.trigger.type);
+  if (refless && draft.trigger.ref && draft.trigger.ref.trim().length > 0) {
     errors.set("trigger.ref", t("validation.manualNoRef"));
   }
 
-  // Non-manual triggers require a ref
-  if (draft.trigger.type !== "manual" && (!draft.trigger.ref || draft.trigger.ref.trim().length === 0)) {
+  // All other triggers require a ref
+  if (!refless && (!draft.trigger.ref || draft.trigger.ref.trim().length === 0)) {
     errors.set("trigger.ref", t("validation.triggerNeedsRef", { type: draft.trigger.type }));
+  }
+
+  if (draft.trigger.type === "portal" && draft.trigger.portalFieldsError) {
+    errors.set("trigger.portal.fields", draft.trigger.portalFieldsError);
   }
 
   // Validate steps - at least one required
@@ -661,7 +672,8 @@ export function serializeWorkflowDraft(draft: WorkflowDraft): Record<string, unk
     name: draft.name,
     trigger: {
       type: draft.trigger.type,
-      ...(draft.trigger.ref && draft.trigger.type !== "manual" ? { ref: draft.trigger.ref } : {}),
+      ...(draft.trigger.ref && !REFLESS_TRIGGER_TYPES.includes(draft.trigger.type) ? { ref: draft.trigger.ref } : {}),
+      ...(draft.trigger.type === "portal" && draft.trigger.portal ? { portal: draft.trigger.portal } : {}),
       ...(draft.trigger.outputSchema ? { outputSchema: draft.trigger.outputSchema } : {}),
     },
     enabled: draft.enabled,

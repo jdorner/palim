@@ -1,4 +1,6 @@
 <script lang="ts">
+import { untrack } from "svelte";
+import { authFetch } from "$lib/auth";
 import { Badge } from "$lib/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/components/ui/select";
 import { t } from "$lib/i18n.svelte";
@@ -7,10 +9,14 @@ import { t } from "$lib/i18n.svelte";
  * view mode, and type/ref pickers when editing.
  */
 import { type CoreKey, translateCore } from "$lib/i18nCore";
+import { identity } from "$lib/identity.svelte";
 import { visualForStepType } from "$lib/nodeVisuals";
 import type { WorkflowTrigger } from "$lib/workflowDetail";
 import type { TriggerRefs } from "$lib/workflowEditorMeta";
 import type { DraftTrigger } from "$lib/workflowValidation";
+import { PORTAL_UPLOAD_DEFAULT_MB, PORTAL_UPLOAD_MAX_MB } from "$shared/portal";
+import type { PortalTriggerConfig } from "$shared/workflows";
+import MultiSelect from "./MultiSelect.svelte";
 import OutputSchemaEditor from "./OutputSchemaEditor.svelte";
 import StepPanelHeader from "./StepPanelHeader.svelte";
 
@@ -21,8 +27,10 @@ interface Props {
   workflowName?: string;
   /** The draft trigger when editing; null in view mode. */
   draftTrigger: DraftTrigger | null;
-  /** Validation errors map (reads `trigger.type` / `trigger.ref`). */
+  /** Validation errors map (reads `trigger.type` / `trigger.ref` / `trigger.portal.fields`). */
   validationErrors: Map<string, string>;
+  /** The account portal-started runs execute as (null when unbound). */
+  portalRunAs?: { username: string; usable: boolean } | null;
   /** Available refs per trigger type. */
   availableTriggerRefs: TriggerRefs;
   /** Whether the ref options are still loading. */
@@ -40,6 +48,7 @@ let {
   workflowName,
   draftTrigger,
   validationErrors,
+  portalRunAs = null,
   availableTriggerRefs,
   metaLoading,
   onclose,
@@ -48,7 +57,101 @@ let {
 }: Props = $props();
 
 /** Selectable workflow trigger types (subtypes of the built-in "trigger" node). */
-const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
+const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher", "portal"] as const;
+
+/** Trigger types without a ref. */
+const REFLESS = ["manual", "portal"];
+
+/** Accept presets for portal uploads (value "" = any file). */
+const ACCEPT_PRESETS = [
+  { value: "image/*", labelKey: "triggerPanel.portalAcceptImages" },
+  { value: "image/*,application/pdf", labelKey: "triggerPanel.portalAcceptImagesPdf" },
+  { value: "", labelKey: "triggerPanel.portalAcceptAny" },
+] as const;
+const CUSTOM_ACCEPT = "__custom__";
+
+const inputClass =
+  "px-2 py-1.5 text-xs border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring";
+
+/** Role names offered as suggestions (only readable with user management; free entry otherwise). */
+let roleNames = $state<string[]>([]);
+$effect(() => {
+  if (draftTrigger?.type !== "portal" || !identity.can("manage", "User") || roleNames.length > 0) return;
+  void authFetch("/api/roles")
+    .then((res) => (res.ok ? (res.json() as Promise<{ name: string }[]>) : []))
+    .then((roles) => {
+      roleNames = roles.map((r) => r.name).filter((n) => n !== "system");
+    })
+    .catch(() => {});
+});
+
+const portalConfig = $derived<PortalTriggerConfig>(draftTrigger?.portal ?? {});
+
+/** Whether the custom accept input is shown (set when picked, or when the value matches no preset). */
+let customAccept = $state(false);
+const acceptChoice = $derived(
+  customAccept || !ACCEPT_PRESETS.some((p) => p.value === (portalConfig.accept ?? ""))
+    ? CUSTOM_ACCEPT
+    : (portalConfig.accept ?? ""),
+);
+
+/** The fields JSON as edited (kept separately so invalid JSON can be typed). */
+let fieldsText = $state("");
+$effect(() => {
+  // Re-seed when the draft's fields change from outside (undo, type switch),
+  // not while the text being typed already says the same.
+  const fields = draftTrigger?.portal?.fields;
+  if (draftTrigger?.portalFieldsError) return;
+  if (
+    sameJson(
+      untrack(() => fieldsText),
+      fields,
+    )
+  )
+    return;
+  fieldsText = fields ? JSON.stringify(fields, null, 2) : "";
+});
+
+/** Whether a JSON text denotes the given value (blank text = no value). */
+function sameJson(text: string, value: unknown): boolean {
+  if (text.trim() === "") return value === undefined;
+  try {
+    return JSON.stringify(JSON.parse(text)) === JSON.stringify(value);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Applies a change to the portal configuration, dropping empty values.
+ *
+ * @param patch - The changed properties (undefined removes one)
+ * @param extra - Other draft trigger changes (e.g. the fields error)
+ */
+function updatePortal(patch: Partial<PortalTriggerConfig>, extra: Partial<DraftTrigger> = {}) {
+  if (!draftTrigger) return;
+  const next: Record<string, unknown> = { ...portalConfig, ...patch };
+  for (const [key, value] of Object.entries(next)) {
+    if (value === undefined || value === "" || (Array.isArray(value) && value.length === 0)) delete next[key];
+  }
+  const { portalFieldsError: _err, ...rest } = draftTrigger;
+  onTriggerChange({ ...rest, ...extra, portal: next as PortalTriggerConfig });
+}
+
+function onFieldsInput(text: string) {
+  fieldsText = text;
+  if (text.trim() === "") {
+    updatePortal({ fields: undefined });
+    return;
+  }
+  try {
+    const parsed = JSON.parse(text) as unknown;
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
+    updatePortal({ fields: parsed as Record<string, unknown> });
+  } catch {
+    updatePortal({}, { portalFieldsError: t("triggerPanel.portalFieldsInvalid") });
+  }
+}
 </script>
 
 <!--
@@ -64,6 +167,164 @@ const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
     <v.icon size={11} weight="bold" aria-hidden="true" />
   </span>
   {translateCore(`triggerTypes.${triggerType}` as CoreKey, { default: triggerType })}
+{/snippet}
+
+{#snippet runAsInfo(
+  editing: boolean,
+)}
+  <div class="flex flex-col gap-0.5">
+    <span class="text-xs font-medium text-muted-foreground">{t("triggerPanel.portalRunAs")}</span>
+    {#if portalRunAs}
+      <span class="text-xs {portalRunAs.usable ? "" : "text-destructive"}">
+        {portalRunAs.usable
+          ? portalRunAs.username
+          : t("triggerPanel.portalRunAsUnusable", { username: portalRunAs.username })}
+      </span>
+      {#if editing}
+        <span class="text-xs text-muted-foreground">{t("triggerPanel.portalRunAsRebind")}</span>
+      {/if}
+    {:else}
+      <span class="text-xs text-muted-foreground">{t("triggerPanel.portalRunAsUnbound")}</span>
+    {/if}
+  </div>
+{/snippet}
+
+{#snippet portalEditor()}
+  <p class="text-xs text-muted-foreground">{t("triggerPanel.portalHint")}</p>
+  <div class="flex flex-col gap-1">
+    <label for="portal-title" class="text-xs font-medium text-muted-foreground">{t("triggerPanel.portalTitle")}</label>
+    <input
+      id="portal-title"
+      class={inputClass}
+      maxlength="200"
+      placeholder={t("triggerPanel.portalTitlePlaceholder")}
+      value={portalConfig.title ?? ""}
+      oninput={(e) => updatePortal({ title: (e.target as HTMLInputElement).value })}
+    >
+  </div>
+  <div class="flex flex-col gap-1">
+    <label for="portal-description" class="text-xs font-medium text-muted-foreground"
+      >{t("triggerPanel.portalDescription")}</label
+    >
+    <textarea
+      id="portal-description"
+      rows="2"
+      class={inputClass}
+      maxlength="2000"
+      placeholder={t("triggerPanel.portalDescriptionPlaceholder")}
+      value={portalConfig.description ?? ""}
+      oninput={(e) => updatePortal({ description: (e.target as HTMLTextAreaElement).value })}
+    ></textarea>
+  </div>
+  <div class="flex flex-col gap-1">
+    <label for="portal-accept" class="text-xs font-medium text-muted-foreground"
+      >{t("triggerPanel.portalAccept")}</label
+    >
+    <select
+      id="portal-accept"
+      class={inputClass}
+      value={acceptChoice}
+      onchange={(e) => {
+        const value = (e.target as HTMLSelectElement).value;
+        customAccept = value === CUSTOM_ACCEPT;
+        if (!customAccept) updatePortal({ accept: value });
+      }}
+    >
+      {#each ACCEPT_PRESETS as preset (preset.value)}
+        <option value={preset.value}>{t(preset.labelKey)}</option>
+      {/each}
+      <option value={CUSTOM_ACCEPT}>{t("triggerPanel.portalAcceptCustom")}</option>
+    </select>
+    {#if acceptChoice === CUSTOM_ACCEPT}
+      <input
+        aria-label={t("triggerPanel.portalAccept")}
+        class="{inputClass} font-mono"
+        placeholder="image/*,application/pdf,.csv"
+        value={portalConfig.accept ?? ""}
+        oninput={(e) => updatePortal({ accept: (e.target as HTMLInputElement).value })}
+      >
+    {/if}
+  </div>
+  <div class="flex items-end gap-3">
+    <label class="flex items-center gap-2 text-xs pb-1.5">
+      <input
+        type="checkbox"
+        checked={portalConfig.fileRequired ?? true}
+        onchange={(e) => {
+          const checked = (e.target as HTMLInputElement).checked;
+          updatePortal({ fileRequired: checked ? undefined : false });
+        }}
+      >
+      {t("triggerPanel.portalFileRequired")}
+    </label>
+    <div class="flex flex-col gap-1 ml-auto w-28">
+      <label for="portal-max-size" class="text-xs font-medium text-muted-foreground"
+        >{t("triggerPanel.portalMaxSize")}</label
+      >
+      <input
+        id="portal-max-size"
+        type="number"
+        min="1"
+        max={PORTAL_UPLOAD_MAX_MB}
+        class={inputClass}
+        placeholder={String(PORTAL_UPLOAD_DEFAULT_MB)}
+        value={portalConfig.maxSizeMb ?? ""}
+        oninput={(e) => {
+          const n = Number((e.target as HTMLInputElement).value);
+          updatePortal({ maxSizeMb: n > 0 ? Math.min(n, PORTAL_UPLOAD_MAX_MB) : undefined });
+        }}
+      >
+    </div>
+  </div>
+  <div class="flex flex-col gap-1">
+    <label for="portal-roles" class="text-xs font-medium text-muted-foreground">{t("triggerPanel.portalRoles")}</label>
+    <MultiSelect
+      id="portal-roles"
+      size="xs"
+      items={roleNames}
+      selected={portalConfig.roles ?? []}
+      allowCustom
+      placeholder={t("triggerPanel.portalRolesPlaceholder")}
+      onchange={(roles) => updatePortal({ roles })}
+    />
+  </div>
+  <div class="flex flex-col gap-1">
+    <label for="portal-fields" class="text-xs font-medium text-muted-foreground"
+      >{t("triggerPanel.portalFields")}</label
+    >
+    <textarea
+      id="portal-fields"
+      rows="6"
+      class="{inputClass} font-mono"
+      spellcheck="false"
+      placeholder={'{ "type": "object", "properties": { "note": { "type": "string", "title": "Note" } } }'}
+      value={fieldsText}
+      oninput={(e) => onFieldsInput((e.target as HTMLTextAreaElement).value)}
+    ></textarea>
+    {#if validationErrors.get("trigger.portal.fields") || draftTrigger?.portalFieldsError}
+      <span class="text-xs text-destructive"
+        >{draftTrigger?.portalFieldsError ?? validationErrors.get("trigger.portal.fields")}</span
+      >
+    {:else}
+      <span class="text-xs text-muted-foreground">{t("triggerPanel.portalFieldsHint")}</span>
+    {/if}
+  </div>
+  {@render runAsInfo(true)}
+{/snippet}
+
+{#snippet portalSummary()}
+  {@const config = trigger.portal ?? {}}
+  <dl class="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-xs">
+    <dt class="text-muted-foreground">{t("triggerPanel.portalTitle")}</dt>
+    <dd class="min-w-0 break-words">{config.title || workflowName}</dd>
+    <dt class="text-muted-foreground">{t("triggerPanel.portalAccept")}</dt>
+    <dd class="font-mono">{config.accept || t("triggerPanel.portalAcceptAny")}</dd>
+    <dt class="text-muted-foreground">{t("triggerPanel.portalMaxSize")}</dt>
+    <dd>{config.maxSizeMb ?? PORTAL_UPLOAD_DEFAULT_MB}</dd>
+    <dt class="text-muted-foreground">{t("triggerPanel.portalRoles")}</dt>
+    <dd>{config.roles?.length ? config.roles.join(", ") : t("triggerPanel.portalRolesPlaceholder")}</dd>
+  </dl>
+  {@render runAsInfo(false)}
 {/snippet}
 
 <div class="w-95 h-full flex flex-col">
@@ -82,10 +343,12 @@ const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
           onValueChange={(newType) => {
             if (!newType || !draftTrigger) return;
             const oldType = draftTrigger.type;
+            const { portal, portalFieldsError: _err, ...rest } = draftTrigger;
             onTriggerChange({
-              ...draftTrigger,
+              ...rest,
               type: newType,
-              ref: newType === "manual" || newType !== oldType ? "" : draftTrigger.ref,
+              ref: REFLESS.includes(newType) || newType !== oldType ? "" : draftTrigger.ref,
+              ...(newType === "portal" ? { portal: portal ?? {} } : {}),
             });
           }}
         >
@@ -108,7 +371,9 @@ const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
           <span class="text-xs text-destructive">{validationErrors.get("trigger.type")}</span>
         {/if}
       </div>
-      {#if draftTrigger.type !== "manual"}
+      {#if draftTrigger.type === "portal"}
+        {@render portalEditor()}
+      {:else if draftTrigger.type !== "manual"}
         {@const refOptions = availableTriggerRefs[draftTrigger.type] ?? []}
         <div class="flex flex-col gap-1">
           <label for="sidebar-trigger-ref" class="text-xs font-medium text-muted-foreground"
@@ -159,6 +424,9 @@ const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher"] as const;
         }}
       />
     {:else}
+      {#if trigger.type === "portal"}
+        {@render portalSummary()}
+      {/if}
       {#if trigger.ref}
         <div class="flex items-center gap-2">
           <span class="text-xs font-medium text-muted-foreground">{t("triggerPanel.refLabel")}</span>

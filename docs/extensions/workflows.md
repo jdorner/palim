@@ -25,8 +25,9 @@ The extension registers a **Workflows** page in the sidebar where you can view w
 | `webhook` | Triggered by an incoming webhook | Webhooks extension |
 | `schedule` | Triggered by a cron/interval schedule | Scheduler extension |
 | `filewatcher` | Triggered by a file system event | File Watcher extension |
+| `portal` | Started by a person in the portal, usually with an uploaded photo or file | [Portal](../portal.md#starting-workflows) |
 
-For non-manual triggers, the `ref` field must match the slug/ID of the corresponding webhook, schedule, or file watcher.
+For webhook, schedule, and file watcher triggers, the `ref` field must match the slug/ID of the corresponding webhook, schedule, or file watcher. Manual and portal triggers take no ref; a portal trigger has a `portal` object instead (title, accepted files, roles, form fields).
 
 ## Step Types
 
@@ -114,8 +115,8 @@ The payload is validated against the `waitFor` step's `inputSchema` on every del
   "name": "my-workflow",           // required, kebab-case
   "description": "What it does.",  // optional
   "trigger": {
-    "type": "schedule",            // manual, webhook, schedule, filewatcher
-    "ref": "daily-8am"            // required for non-manual triggers
+    "type": "schedule",            // manual, webhook, schedule, filewatcher, portal
+    "ref": "daily-8am"            // required for webhook, schedule, filewatcher
   },
   "enabled": true,                 // optional, defaults to true
   "steps": {                       // required: map keyed by slug, at least one step
@@ -158,7 +159,7 @@ Create a new workflow definition (writes a JSON5 file).
 
 ### PUT /ext/workflows/:name
 
-Update an existing workflow definition.
+Update an existing workflow definition. Saving a workflow with a `portal` trigger binds its portal-started runs to the saving user.
 
 ### DELETE /ext/workflows/:name
 

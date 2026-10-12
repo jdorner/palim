@@ -2,7 +2,7 @@
  * Data model for the workflow detail page: the normalized workflow shape,
  * conversion from the API response, and applying live run events.
  */
-import type { OutputSchemaShorthand, WorkflowWebSocketEvent } from "$shared/workflows";
+import type { OutputSchemaShorthand, PortalTriggerConfig, WorkflowWebSocketEvent } from "$shared/workflows";
 import type { OutputSchemas } from "./templateScope";
 import { nextStepId } from "./workflowDraft";
 import { isStaleStepStart, isTerminalRunStatus, settleOpenSteps } from "./workflowRunStatus";
@@ -54,6 +54,8 @@ export interface WorkflowRunSummary {
 export interface WorkflowTrigger {
   type: string;
   ref?: string;
+  /** Portal configuration (`type: "portal"` only). */
+  portal?: PortalTriggerConfig;
   /** Hand-authored payload shape, when declared. */
   outputSchema?: OutputSchemaShorthand;
 }
@@ -73,6 +75,8 @@ export interface WorkflowDetail {
   edges: Array<{ from: string; to: string; branch?: string }>;
   warnings: WorkflowWarning[];
   outputSchemas?: OutputSchemas;
+  /** The account portal-started runs execute as (portal triggers; null when unbound). */
+  portalRunAs?: { username: string; usable: boolean } | null;
   runs: WorkflowRunSummary[];
 }
 

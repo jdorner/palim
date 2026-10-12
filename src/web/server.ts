@@ -12,6 +12,7 @@ import { EXT_UI_DIR, PROJECT_DIR } from "@src/config";
 import type { ExtensionRegistry } from "@src/extensions";
 import type { HitlService } from "@src/hitl";
 import type { AgentJob, ChatJob } from "@src/jobs";
+import type { PortalLauncherRegistry } from "@src/portal";
 import { createPushService } from "@src/push";
 import type { ManagedQueuePort } from "@src/queue";
 import type { SecretVault } from "@src/secrets/vault";
@@ -74,6 +75,8 @@ interface WebServerDeps {
   userStore?: UserStore;
   /** Human task (HITL) service backing the portal API. Absent when HITL is disabled. */
   hitlService?: HitlService;
+  /** Portal workflow launchers. Absent when HITL (and with it the portal) is disabled. */
+  portalLaunchers?: PortalLauncherRegistry;
 }
 
 /** Options for starting the web server. */
@@ -170,6 +173,7 @@ export async function createWebServer(deps: WebServerDeps) {
       portalRoutes(
         () => deps.hitlService,
         () => portalEventHub,
+        () => deps.portalLaunchers,
       ),
     )
     .use(

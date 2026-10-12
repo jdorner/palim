@@ -55,9 +55,11 @@ $effect(() => {
   if (router.path === "/" && available.length > 0) router.navigate(available[0]!.nav.path, true);
 });
 
-// One live event stream for all modules while signed in.
+// One live event stream while signed in, when a module consumes it (the
+// stream needs task access; launcher-only accounts would be refused).
+const wantsEvents = $derived(available.some((m) => m.onEvent));
 $effect(() => {
-  if (available.length === 0) return;
+  if (!wantsEvents) return;
   const close = openEventStream("/api/portal/events", {
     onMessage: (message) => {
       let event: PortalEvent;
@@ -132,12 +134,14 @@ const isActive = (path: string) => router.path === path || router.path.startsWit
       {/key}
     </main>
 
-    <!-- Bottom navigation on phones. -->
+    <!-- Bottom navigation on phones (h-14 per item; pages pin actions above it, see LauncherPage). -->
     <nav class="fixed inset-x-0 bottom-0 z-10 flex border-t bg-background pb-[env(safe-area-inset-bottom)] sm:hidden">
       {#each navItems as item (item.path)}
         <a
           href="#{item.path}"
-          class="relative flex flex-1 flex-col items-center gap-0.5 py-2 text-xs no-underline {isActive(item.path)
+          class="relative flex h-14 flex-1 flex-col items-center justify-center gap-0.5 text-xs no-underline {isActive(
+            item.path,
+          )
             ? "text-foreground"
             : "text-muted-foreground"}"
         >

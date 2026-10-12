@@ -4,12 +4,12 @@ import { Markdown } from "@comark/svelte";
 import { Badge, Button } from "@palim/ui";
 import ArrowLeftIcon from "phosphor-svelte/lib/ArrowLeftIcon";
 import { ApiError } from "$app/api";
+import FormFields from "$app/FormFields.svelte";
 import { collectData, formFields, initialValues } from "$app/form";
 import { i18n, t } from "$app/i18n.svelte";
 import type { HumanTaskDetail, HumanTaskOutcome } from "$shared/portal";
 import { dueText, isUrgent, outcomeLabel, userName } from "./labels";
 import { tasks } from "./store.svelte";
-import TaskForm from "./TaskForm.svelte";
 
 let { params }: { params: Record<string, string> } = $props();
 
@@ -61,8 +61,8 @@ async function answer(outcome: HumanTaskOutcome) {
   const { data, missing } = collectData(fields, values);
   if (missing.length > 0) {
     const labels = fields.filter((f) => missing.includes(f.key)).map((f) => f.label);
-    for (const key of missing) fieldErrors[key] = t("tasks.required");
-    message = { kind: "error", text: t("tasks.missingFields", { fields: labels.join(", ") }) };
+    for (const key of missing) fieldErrors[key] = t("form.required");
+    message = { kind: "error", text: t("form.missingFields", { fields: labels.join(", ") }) };
     return;
   }
   if (task.requireComment && comment.trim() === "") {
@@ -162,7 +162,7 @@ const outcomeVariant = (o: HumanTaskOutcome) =>
       <section class="space-y-4 rounded-lg border p-4">
         {#if fields.length > 0}
           <h3 class="text-sm font-semibold">{t("tasks.form")}</h3>
-          <TaskForm {fields} bind:values errors={fieldErrors} disabled={submitting} />
+          <FormFields {fields} bind:values errors={fieldErrors} disabled={submitting} />
         {/if}
         <div class="space-y-1">
           <label class="text-sm font-medium" for="task-comment">

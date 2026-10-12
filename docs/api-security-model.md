@@ -157,6 +157,7 @@ Writes need a permission. Permissions are `<domain>:<action>` strings. A role is
 | `users:manage` | Manage users, roles and role permissions |
 | `hitl:respond` | See and answer the human tasks assigned to you, directly or through one of your roles |
 | `hitl:manage` | See and answer all human tasks, cancel and reassign them |
+| `portal:start` | Start the workflows offered to you in the portal (workflows with a `portal` trigger, optionally limited to roles) |
 
 Four roles are built in:
 
@@ -184,11 +185,11 @@ A portal account is fenced in at the authentication layer, whatever its roles gr
 - It may only call `/api/auth/*`, `/api/portal/*` and `/api/i18n/*`. Every other `/api/` and `/ext/` request answers `403`, reads included.
 - It gets none of the open reads that operator accounts have.
 - It can't open the WebSocket (`4003`); the portal has its own event stream, `GET /api/portal/events`.
-- It may only hold roles whose permissions are all `hitl:*` (for example the built-in `portal-user` role), never `admin`. Assigning such a role, switching an account with other roles to the portal kind, or adding other permissions to a role that a portal account holds is refused with `409`.
+- It may only hold roles whose permissions are all portal-safe (`hitl:*`, `portal:start`; for example the built-in `portal-user` role), never `admin`. Assigning such a role, switching an account with other roles to the portal kind, or adding other permissions to a role that a portal account holds is refused with `409`.
 
 If a portal account signs in to the Palim web interface, it only sees a notice to use the portal, with a link when `PORTAL_PUBLIC_URL` is set.
 
-The portal API itself needs `hitl:respond` for everything (reads included) and `hitl:manage` to cancel or reassign tasks. Which tasks a caller sees is decided per task: tasks assigned to them directly or through one of their roles, tasks they answered, and with `hitl:manage` all tasks. A task the caller can't see answers `404`, like a missing one. The event stream only delivers changes of tasks the caller can see, and re-checks the caller's token on every event.
+The portal API itself needs `hitl:respond` for everything (reads included) and `hitl:manage` to cancel or reassign tasks, except the workflow launcher routes (`/api/portal/workflows*`), which need `portal:start`. A run started from the portal executes as the operator who last saved the workflow in the editor (recorded in the database, not in the workflow file), never as the portal account. Which tasks a caller sees is decided per task: tasks assigned to them directly or through one of their roles, tasks they answered, and with `hitl:manage` all tasks. A task the caller can't see answers `404`, like a missing one. The event stream only delivers changes of tasks the caller can see, and re-checks the caller's token on every event.
 
 ### Trigger ownership
 
@@ -202,7 +203,7 @@ User administration refuses changes that would lock everyone out (`409 Conflict`
 - You can't disable your own account or remove your own `admin` role. Another admin has to do it.
 - The `system` account can't be modified, and the `system` role can't be assigned to anyone.
 - Built-in roles' permissions can't be edited.
-- Portal accounts can only hold `hitl:*` roles (see [Portal accounts](#portal-accounts)), so an admin can't be turned into a portal account.
+- Portal accounts can only hold portal-safe roles (see [Portal accounts](#portal-accounts)), so an admin can't be turned into a portal account.
 
 If admin access is lost anyway (for example a forgotten password), run the break-glass command on the host:
 
@@ -265,4 +266,4 @@ Extension and workflow secrets are stored in the SecretVault (SQLite, AES-256-GC
 | Webhook forgery | Per-webhook HMAC or bearer validation, constant-time comparison |
 | Secret file compromise | Optional dotenvx encryption of `.env`; SecretVault encryption at rest |
 | Unauthorized secret reads by extensions | Per-secret ACL and audit log |
-| End users seeing operational data | Portal accounts are fenced to the portal API, get no open reads, no WebSocket, and only `hitl:*` roles |
+| End users seeing operational data | Portal accounts are fenced to the portal API, get no open reads, no WebSocket, and only portal-safe roles (`hitl:*`, `portal:start`) |

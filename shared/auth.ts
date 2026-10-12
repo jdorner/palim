@@ -59,6 +59,8 @@ export const PERMISSIONS = {
   HITL_RESPOND: "hitl:respond",
   /** See and answer all human tasks, cancel and reassign them. */
   HITL_MANAGE: "hitl:manage",
+  /** Start the workflows offered to you in the portal (portal triggers). */
+  PORTAL_START: "portal:start",
 } as const;
 
 /** A single permission string drawn from the {@link PERMISSIONS} catalog. */
@@ -74,7 +76,11 @@ export type PermissionSet = readonly Permission[];
  * Permissions a portal account may hold. Portal accounts only reach the
  * portal API, so their roles must not grant anything beyond these.
  */
-export const PORTAL_SAFE_PERMISSIONS: readonly Permission[] = [PERMISSIONS.HITL_RESPOND, PERMISSIONS.HITL_MANAGE];
+export const PORTAL_SAFE_PERMISSIONS: readonly Permission[] = [
+  PERMISSIONS.HITL_RESPOND,
+  PERMISSIONS.HITL_MANAGE,
+  PERMISSIONS.PORTAL_START,
+];
 
 /**
  * Whether a role's permission set may be held by a portal account.
@@ -218,6 +224,7 @@ export type AppSubject =
   | "Extension"
   | "DataTable"
   | "HumanTask"
+  | "PortalWorkflow"
   | "User"
   | "all";
 
@@ -311,6 +318,7 @@ const PERMISSION_GRANTS: Readonly<Record<Permission, ReadonlyArray<[AppAction, A
   [PERMISSIONS.USERS_MANAGE]: [["manage", "User"]],
   [PERMISSIONS.HITL_RESPOND]: [["update", "HumanTask"]],
   [PERMISSIONS.HITL_MANAGE]: [["manage", "HumanTask"]],
+  [PERMISSIONS.PORTAL_START]: [["create", "PortalWorkflow"]],
 };
 
 /**

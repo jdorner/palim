@@ -211,6 +211,22 @@ describe("getTriggerRefWarnings", () => {
   test("does not report refs whose lookup failed", () => {
     expect(getTriggerRefWarnings(wf({ type: "filewatcher", ref: "anything" }), refs)).toEqual([]);
   });
+
+  test("checks a portal trigger's run-as binding instead of a ref", () => {
+    const portal = wf({ type: "portal", portal: { title: "Receipts" } });
+    expect(getTriggerRefWarnings(portal, refs)).toEqual([]);
+    expect(getTriggerRefWarnings(portal, refs, () => ({ username: "joe", usable: true }))).toEqual([]);
+    expect(getTriggerRefWarnings(portal, refs, () => null)).toEqual([
+      {
+        stepSlug: "__trigger__",
+        field: "runAs",
+        message: "Portal trigger has no run-as account: save the workflow in the editor to bind it",
+      },
+    ]);
+    expect(getTriggerRefWarnings(portal, refs, () => ({ username: "joe", usable: false }))[0]?.message).toBe(
+      'Run-as account "joe" is disabled or not an operator account',
+    );
+  });
 });
 
 describe("getDependencyWarnings (humanTask)", () => {
