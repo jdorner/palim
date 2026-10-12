@@ -116,6 +116,7 @@ The payload is validated against the `waitFor` step's `inputSchema` on every del
 {
   "name": "my-workflow",           // required, kebab-case
   "description": "What it does.",  // optional
+  "group": "Finance",              // optional, organizes the workflow list
   "trigger": {
     "type": "schedule",            // manual, webhook, schedule, filewatcher, portal
     "ref": "daily-8am"            // required for webhook, schedule, filewatcher
@@ -135,6 +136,8 @@ Each edge has `from` and `to` (step slugs) and an optional `branch` (only on edg
 
 Definitions are stored as `.json5` files in `workflows/` within the work directory.
 
+`group` is free text (1-64 characters, no leading or trailing spaces). The workflow list shows one collapsible section per group, sorted by name, with ungrouped workflows last; the collapsed sections are remembered per browser. While no workflow has a group, the list stays flat. In the editor, the **Group** field next to the description suggests the existing groups.
+
 ## HTTP API
 
 ### GET /ext/workflows
@@ -144,6 +147,10 @@ List all loaded workflow definitions.
 ### GET /ext/workflows/:name
 
 Get a single workflow definition, with its resolved `outputSchemas` and `warnings`.
+
+### GET /ext/workflows/meta/groups
+
+List the distinct `group` names of all loaded workflows, sorted. The editor uses them as suggestions for the group field.
 
 ### POST /ext/workflows/meta/analyze
 

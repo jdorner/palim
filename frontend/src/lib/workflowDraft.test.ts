@@ -129,6 +129,7 @@ describe("reconcileConnectivityErrors", () => {
   const draft = (edges: WorkflowDraft["edges"]): WorkflowDraft => ({
     name: "w",
     description: "",
+    group: "",
     trigger: { type: "manual", ref: "" },
     enabled: true,
     steps: [
@@ -220,6 +221,7 @@ describe("outputSchema round-trip", () => {
     const out = serializeWorkflowDraft({
       name: "wf",
       description: "",
+      group: "",
       trigger: { type: "webhook", ref: "hook", outputSchema: { task: { id: "string" } } },
       enabled: true,
       steps: [],
@@ -303,6 +305,7 @@ describe("draftErrorNodeIds", () => {
   const draft: WorkflowDraft = {
     name: "wf",
     description: "",
+    group: "",
     trigger: { type: "manual", ref: "" },
     enabled: true,
     steps: [

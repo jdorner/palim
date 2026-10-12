@@ -39,6 +39,9 @@ Do not assume the only way to run a command or use a skill is inside an `agent` 
   "name": "my-workflow",
   // optional, human-readable
   "description": "What this workflow does.",
+  // optional, free-text group that organizes related workflows in the UI list
+  // (reuse an existing group name; max 64 chars, no leading/trailing spaces)
+  "group": "Finance",
   // required
   "trigger": {
     "type": "manual", // "manual", "webhook", "schedule", "filewatcher", or "portal"

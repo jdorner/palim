@@ -406,6 +406,7 @@ export function draftFromWorkflow(workflow: WorkflowDetail): WorkflowDraft {
   return {
     name: workflow.name,
     description: workflow.description ?? "",
+    group: workflow.group ?? "",
     trigger: {
       type: workflow.trigger.type,
       ref: workflow.trigger.ref ?? "",

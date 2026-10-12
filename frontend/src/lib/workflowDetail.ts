@@ -63,6 +63,7 @@ export interface WorkflowTrigger {
 export interface WorkflowDetail {
   name: string;
   description?: string;
+  group?: string;
   trigger: WorkflowTrigger;
   enabled?: boolean;
   /** DAG steps normalized to an array with slug + synthetic id (array editor). */

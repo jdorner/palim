@@ -73,6 +73,16 @@ export function fetchVariableKeys(): Promise<string[]> {
   return fetchKeys("/api/variables", "variables");
 }
 
+/** @returns Existing workflow group names, offered as suggestions for the group field. */
+export async function fetchWorkflowGroups(): Promise<string[]> {
+  try {
+    const res = await authFetch("/ext/workflows/meta/groups");
+    return res.ok ? ((await res.json()) as string[]) : [];
+  } catch {
+    return [];
+  }
+}
+
 /** Server analysis of an unsaved workflow draft (`POST /ext/workflows/meta/analyze`). */
 export interface WorkflowAnalysis {
   /** Whether the draft is a valid workflow definition. */

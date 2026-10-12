@@ -905,6 +905,7 @@
     "edgeUnknownStep": "Kante verweist auf unbekannten Schritt „{step}“",
     "eventRequired": "Ereignisname ist erforderlich",
     "fieldRequired": "{label} ist erforderlich",
+    "groupTooLong": "Gruppe darf höchstens {max} Zeichen lang sein",
     "itemsRequired": "Elementausdruck ist erforderlich",
     "iteratorRequired": "Iterator-Referenz ist erforderlich",
     "manualNoRef": "Manuelle Auslöser unterstützen keinen Ref-Wert",
@@ -1013,6 +1014,8 @@
     "emptyAfter": "ab oder bitte Palim, einen für dich anzulegen.",
     "emptyBefore": "Keine Workflows definiert. Lege JSON5-Dateien in",
     "failedLabel": "Fehlgeschlagen:",
+    "group": "Gruppe",
+    "groupPlaceholder": "Optionale Gruppe, z. B. Finanzen",
     "loadFailed": "Workflows konnten nicht geladen werden. Bitte versuche es später erneut.",
     "loadWorkflowFailed": "Workflow konnte nicht geladen werden",
     "modeFloating": "Schwebend",
@@ -1031,6 +1034,7 @@
     "templateIssues_one": "{count} Template-Problem",
     "templateIssues_other": "{count} Template-Probleme",
     "undo": "Rückgängig",
-    "undoTitle": "Rückgängig (Strg+Z)"
+    "undoTitle": "Rückgängig (Strg+Z)",
+    "ungrouped": "Ohne Gruppe"
   }
 }

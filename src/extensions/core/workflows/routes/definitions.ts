@@ -55,6 +55,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
         return {
           name: w.name,
           description: w.description,
+          group: w.group,
           trigger: w.trigger,
           stepCount: Object.keys(w.steps).length,
           enabled: w.enabled ?? true,

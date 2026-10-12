@@ -137,6 +137,7 @@ describe("workflowValidation", () => {
     const validDraft: WorkflowDraft = {
       name: "my-workflow",
       description: "A test workflow",
+      group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "Do something" }],
@@ -193,6 +194,12 @@ describe("workflowValidation", () => {
       expect(errors.has("steps.slugs")).toBe(true);
     });
 
+    test("catches group exceeding 64 characters", () => {
+      const draft: WorkflowDraft = { ...validDraft, group: "x".repeat(65) };
+      expect(validateWorkflowDraft(draft).has("group")).toBe(true);
+      expect(validateWorkflowDraft({ ...validDraft, group: ` ${"x".repeat(64)} ` }).has("group")).toBe(false);
+    });
+
     test("catches description exceeding 256 characters", () => {
       const draft: WorkflowDraft = { ...validDraft, description: "x".repeat(257) };
       const errors = validateWorkflowDraft(draft);
@@ -203,6 +210,7 @@ describe("workflowValidation", () => {
       const draft: WorkflowDraft = {
         name: "my-workflow",
         description: "",
+        group: "",
         trigger: { type: "manual", ref: "some-ref" },
         enabled: true,
         steps: [{ slug: "step-one", type: "agent", prompt: "Do something" }],
@@ -217,6 +225,7 @@ describe("workflowValidation", () => {
       const draft: WorkflowDraft = {
         name: "my-workflow",
         description: "",
+        group: "",
         trigger: { type: "manual", ref: "" },
         enabled: true,
         steps: [{ slug: "step-one", type: "agent", prompt: "Do something" }],
@@ -230,6 +239,7 @@ describe("workflowValidation", () => {
       const draft: WorkflowDraft = {
         name: "my-workflow",
         description: "",
+        group: "",
         trigger: { type: "portal", ref: "", portal: { accept: "image/*" } },
         enabled: true,
         steps: [{ slug: "step-one", type: "agent", prompt: "Do something" }],
@@ -244,6 +254,7 @@ describe("workflowValidation", () => {
       const draft: WorkflowDraft = {
         name: "my-workflow",
         description: "",
+        group: "",
         trigger: { type: "schedule", ref: "*/5 * * * *" },
         enabled: true,
         steps: [{ slug: "step-one", type: "agent", prompt: "Do something" }],
@@ -512,6 +523,7 @@ describe("serializeWorkflowDraft", () => {
     const draft = {
       name: "my-workflow",
       description: "",
+      group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "Do it" }],
@@ -527,6 +539,7 @@ describe("serializeWorkflowDraft", () => {
     const draft = {
       name: "my-workflow",
       description: "A useful workflow",
+      group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "Do it" }],
@@ -536,10 +549,24 @@ describe("serializeWorkflowDraft", () => {
     expect(result.description).toBe("A useful workflow");
   });
 
+  test("trims the group and omits it when blank", () => {
+    const base = {
+      name: "my-workflow",
+      description: "",
+      trigger: { type: "manual", ref: "" },
+      enabled: true,
+      steps: [{ slug: "step-one", type: "agent", prompt: "Do it" }],
+      edges: [],
+    };
+    expect(serializeWorkflowDraft({ ...base, group: "  Finance " }).group).toBe("Finance");
+    expect(serializeWorkflowDraft({ ...base, group: "   " })).not.toHaveProperty("group");
+  });
+
   test("omits empty trigger ref", () => {
     const draft = {
       name: "my-workflow",
       description: "",
+      group: "",
       trigger: { type: "schedule", ref: "" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "Do it" }],
@@ -554,6 +581,7 @@ describe("serializeWorkflowDraft", () => {
     const draft = {
       name: "my-workflow",
       description: "",
+      group: "",
       trigger: { type: "schedule", ref: "*/5 * * * *" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "Do it" }],
@@ -567,6 +595,7 @@ describe("serializeWorkflowDraft", () => {
     const draft = {
       name: "test-wf",
       description: "",
+      group: "",
       trigger: { type: "manual", ref: "" },
       enabled: false,
       steps: [
@@ -597,6 +626,7 @@ describe("serializeWorkflowDraft", () => {
     const draft = {
       name: "my-workflow",
       description: "",
+      group: "",
       trigger: { type: "manual", ref: "stale-value" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "Do it" }],
@@ -611,6 +641,7 @@ describe("serializeWorkflowDraft", () => {
     const draft = {
       name: "my-workflow",
       description: "",
+      group: "",
       trigger: { type: "portal", ref: "", portal, portalFieldsError: "x" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "Do it" }],
@@ -632,6 +663,7 @@ describe("validateWorkflowDraft - type-specific validation", () => {
     const draft = {
       name: "my-workflow",
       description: "",
+      group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "" }],
@@ -645,6 +677,7 @@ describe("validateWorkflowDraft - type-specific validation", () => {
     const draft = {
       name: "my-workflow",
       description: "",
+      group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent" }],
@@ -657,6 +690,7 @@ describe("validateWorkflowDraft - type-specific validation", () => {
     const draft = {
       name: "my-workflow",
       description: "",
+      group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "   " }],
@@ -669,6 +703,7 @@ describe("validateWorkflowDraft - type-specific validation", () => {
     const draft = {
       name: "my-workflow",
       description: "",
+      group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "step-one", type: "agent", prompt: "Do something" }],
@@ -842,6 +877,7 @@ describe("validateWorkflowDraft with step type schemas", () => {
     const draft: WorkflowDraft = {
       name: "test-wf",
       description: "",
+      group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "req-step", type: "http-request", config: { method: "GET" } }],
@@ -856,6 +892,7 @@ describe("validateWorkflowDraft with step type schemas", () => {
     const draft: WorkflowDraft = {
       name: "test-wf",
       description: "",
+      group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "req-step", type: "http-request", config: { url: "http://example.com" } }],
@@ -869,6 +906,7 @@ describe("validateWorkflowDraft with step type schemas", () => {
     const draft: WorkflowDraft = {
       name: "test-wf",
       description: "",
+      group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "unknown-step", type: "unknown-type", config: {} }],
@@ -884,6 +922,7 @@ describe("validateWorkflowDraft with step type schemas", () => {
     const draft: WorkflowDraft = {
       name: "test-wf",
       description: "",
+      group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
       steps: [{ slug: "req-step", type: "http-request", config: {} }],
@@ -899,6 +938,7 @@ describe("id-based edges (draft edges reference synthetic step ids)", () => {
   const draft = (edges: Array<{ from: string; to: string; branch?: string }>): WorkflowDraft => ({
     name: "wf",
     description: "",
+    group: "",
     trigger: { type: "manual", ref: "" },
     enabled: true,
     steps: [
@@ -974,6 +1014,7 @@ describe("computeOrphanedStepIndices", () => {
   ): WorkflowDraft => ({
     name: "wf",
     description: "",
+    group: "",
     trigger: { type: "manual", ref: "" },
     enabled: true,
     steps: steps.map((s) => ({ id: s.id, slug: s.slug, type: "agent", prompt: "x" })),

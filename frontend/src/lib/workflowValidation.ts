@@ -43,6 +43,8 @@ export interface DraftTrigger {
 export interface WorkflowDraft {
   name: string;
   description: string;
+  /** Free-text group used to organize workflows in the list (empty = ungrouped). */
+  group: string;
   trigger: DraftTrigger;
   enabled: boolean;
   /** Steps as a flat array with slug (converted to a map on serialize). */
@@ -114,6 +116,8 @@ export function edgesToSlugEdges(steps: Array<{ id?: string; slug: string }>, ed
 const SLUG_PATTERN = /^[a-z][a-z0-9-]*$/;
 const MAX_SLUG_LENGTH = 64;
 const MAX_DESCRIPTION_LENGTH = 256;
+/** Mirrors `WORKFLOW_GROUP_MAX_LENGTH` in the workflows extension schema. */
+export const MAX_GROUP_LENGTH = 64;
 const VALID_TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher", "portal"];
 /** Trigger types that take no ref. */
 const REFLESS_TRIGGER_TYPES = ["manual", "portal"];
@@ -315,6 +319,11 @@ export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: St
   // Validate description (optional, max 256 chars)
   if (draft.description && draft.description.length > MAX_DESCRIPTION_LENGTH) {
     errors.set("description", t("validation.descriptionTooLong", { max: MAX_DESCRIPTION_LENGTH }));
+  }
+
+  // Validate group (optional, max 64 chars after trimming)
+  if (draft.group && draft.group.trim().length > MAX_GROUP_LENGTH) {
+    errors.set("group", t("validation.groupTooLong", { max: MAX_GROUP_LENGTH }));
   }
 
   // Validate trigger type
@@ -685,6 +694,10 @@ export function serializeWorkflowDraft(draft: WorkflowDraft): Record<string, unk
   };
   if (draft.description) {
     result.description = draft.description;
+  }
+  const group = draft.group?.trim();
+  if (group) {
+    result.group = group;
   }
   return result;
 }

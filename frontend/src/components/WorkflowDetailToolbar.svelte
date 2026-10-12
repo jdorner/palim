@@ -6,6 +6,7 @@ import DotsThreeVerticalIcon from "phosphor-svelte/lib/DotsThreeVerticalIcon";
 import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import PlayIcon from "phosphor-svelte/lib/PlayIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
+import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { buttonVariants } from "$lib/components/ui/button/button.svelte";
 /**
@@ -21,6 +22,8 @@ interface Props {
   name: string;
   /** Optional description shown next to the title in view mode. */
   description?: string;
+  /** Optional group shown as a badge next to the title in view mode. */
+  group?: string;
   /** Whether the page is in edit mode. */
   editMode: boolean;
   /** Whether a save is in flight. */
@@ -50,6 +53,7 @@ interface Props {
 let {
   name,
   description,
+  group,
   editMode,
   saving,
   saveDisabled,
@@ -79,6 +83,9 @@ let confirmingDelete = $state(false);
       &laquo;&nbsp;{t("common.back")}
     </Button>
     <h2 class="text-lg font-semibold truncate">{name}</h2>
+    {#if !editMode && group}
+      <Badge variant="secondary" class="shrink-0 font-normal" title={t("workflows.group")}>{group}</Badge>
+    {/if}
     {#if !editMode && description}
       <span class="hidden md:inline text-sm text-muted-foreground truncate">{description}</span>
     {/if}
