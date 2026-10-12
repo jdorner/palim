@@ -22,7 +22,6 @@
  * {@link createExtension} produces an isolated instance.
  */
 
-import { type FSWatcher, watch } from "node:fs";
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
@@ -30,6 +29,7 @@ import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import { setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
 import { resolveAmbientUserId } from "@src/utils/fetch";
 import { registerTriggerOwnerCounter } from "@src/web/triggerOwnership";
+import type { FSWatcher } from "chokidar";
 import {
   type DagCoordinatorDeps,
   evaluateInlineRoot,
@@ -50,6 +50,7 @@ import { initSignalStore } from "./signalStore";
 import * as signalTimers from "./signalTimers";
 import { runJobs, stepData } from "./stepJobs";
 import { createWorkflowAnalyzer } from "./workflowAnalysis";
+import { watchWorkflowDir } from "./workflowDirWatcher";
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -57,7 +58,7 @@ import { createWorkflowAnalyzer } from "./workflowAnalysis";
 
 const manifest = {
   name: "workflows",
-  version: "2.2.0",
+  version: "2.2.1",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -299,13 +300,14 @@ export function createExtension(): Extension {
         onError: (err) => logger.error("Failed to reload workflows:", err),
       });
       try {
-        state.watcher = watch(state.workflowsDir, (_event, filename) => {
-          if (filename?.endsWith(".json5")) {
+        state.watcher = await watchWorkflowDir(
+          state.workflowsDir,
+          (filename) => {
             logger.debug(`Workflow file changed: ${filename}`);
             state.reloads?.schedule(filename);
-          }
-        });
-        state.watcher.on("error", (err) => logger.error("Workflow watcher error:", err));
+          },
+          (err) => logger.error("Workflow watcher error:", err),
+        );
         logger.info(`Watching ${state.workflowsDir} for workflow changes`);
       } catch (err) {
         logger.warn("Could not start workflow file watcher:", err);
@@ -435,7 +437,7 @@ export function createExtension(): Extension {
 
     async shutdown() {
       if (state.watcher) {
-        state.watcher.close();
+        await state.watcher.close();
         state.watcher = null;
       }
       state.reloads?.cancel();
