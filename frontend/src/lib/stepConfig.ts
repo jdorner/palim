@@ -61,7 +61,7 @@ export interface StepTemplateContext {
  * @returns The config fields
  */
 export function cfStepConfig(step: StepDraft): Record<string, unknown> {
-  const { slug: _s, type: _t, id: _i, ...rest } = step;
+  const { slug: _s, type: _t, id: _i, editorFormError: _e, ...rest } = step;
   return rest as Record<string, unknown>;
 }
 

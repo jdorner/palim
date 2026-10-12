@@ -80,7 +80,7 @@
       },
       "form": {
         "title": "Form",
-        "description": "Optional JSON Schema of a form the person fills in; the data becomes the step result's data."
+        "description": "Optional form the person fills in; the data becomes the step result's data."
       },
       "requireComment": {
         "title": "Require comment",
@@ -272,6 +272,66 @@
     "noPages": "Extension \"{name}\" has no pages.",
     "notAvailable": "The page \"{title}\" is not available yet.",
     "notInstalled": "Extension \"{name}\" is not installed."
+  },
+  "fieldBuilder": {
+    "addChild": "Add nested field",
+    "addField": "Add field",
+    "addOption": "Add option",
+    "default": "Default",
+    "defaultNone": "No default",
+    "description": "Help text",
+    "details": "Field details",
+    "editAsJson": "Edit as JSON",
+    "editAsRows": "Edit as fields",
+    "empty": "No fields yet.",
+    "errors": {
+      "badDefault": "\"{key}\": the default does not match the field type or options",
+      "duplicateKey": "\"{key}\" is used more than once",
+      "duplicateOption": "\"{key}\": option \"{value}\" is listed twice",
+      "emptyKey": "Field {index} has no name",
+      "emptyNestedKey": "\"{path}\": nested field {index} has no name",
+      "emptyOption": "\"{key}\": an option has no value",
+      "noOptions": "\"{key}\": add at least one option"
+    },
+    "invalidJson": "Invalid JSON: {error}",
+    "jsonFallback": "Shown as JSON because the builder cannot edit it: {reason}",
+    "key": "Name",
+    "keyHint": "Use letters, digits and _ so templates can reference this field.",
+    "label": "Label",
+    "list": "List",
+    "listTitle": "A list of values of this type",
+    "moveDown": "Move down",
+    "moveUp": "Move up",
+    "mustBeObject": "Must be a JSON object",
+    "notObjectSchema": "the schema is not an object schema",
+    "optionLabel": "Label",
+    "optionValue": "Value",
+    "options": "Options",
+    "removeField": "Remove field",
+    "removeOption": "Remove option",
+    "required": "Required",
+    "shapeTypes": {
+      "any": "Any",
+      "boolean": "Yes/No",
+      "number": "Number",
+      "object": "Object",
+      "string": "Text"
+    },
+    "type": "Type",
+    "types": {
+      "boolean": "Checkbox",
+      "date": "Date",
+      "integer": "Whole number",
+      "number": "Number",
+      "select": "Choice",
+      "text": "Text",
+      "textarea": "Multi-line text"
+    },
+    "unsupportedEmptyObject": "\"{path}\" is an empty object",
+    "unsupportedField": "field \"{key}\" uses settings the builder does not support",
+    "unsupportedKeyword": "the schema uses \"{keyword}\"",
+    "unsupportedNestedArray": "\"{path}\" is a list of lists",
+    "unsupportedType": "\"{path}\" has the unknown type \"{type}\""
   },
   "fileWatchers": {
     "colEvents": "Events",
@@ -717,9 +777,8 @@
     "portalAcceptImagesPdf": "Images and PDF",
     "portalDescription": "Description",
     "portalDescriptionPlaceholder": "Defaults to the workflow description",
-    "portalFields": "Form fields (JSON Schema)",
-    "portalFieldsHint": "Optional object schema; the values arrive as trigger.payload.data.",
-    "portalFieldsInvalid": "Not a valid JSON object",
+    "portalFields": "Form fields",
+    "portalFieldsHint": "Optional fields shown next to the upload; the values arrive as trigger.payload.data.",
     "portalFileRequired": "File required",
     "portalHint": "Portal users with the portal:start permission can start this workflow, typically by uploading a photo or file.",
     "portalMaxSize": "Max. size (MB)",

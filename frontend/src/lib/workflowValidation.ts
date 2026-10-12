@@ -76,6 +76,8 @@ export interface StepDraft {
   config?: Record<string, unknown>;
   /** Hand-authored result shape (agent and custom steps) for autocomplete/validation. */
   outputSchema?: OutputSchemaShorthand;
+  /** Editor-only: why the humanTask form being edited is invalid (blocks saving; never serialized). */
+  editorFormError?: string;
 }
 
 /**
@@ -470,6 +472,7 @@ function validateStepFields(
     const count =
       (assignees.users ?? []).filter((u) => u.trim()).length + (assignees.roles ?? []).filter((r) => r.trim()).length;
     if (count === 0) errors.set(`${path}.assignees`, t("validation.assigneeRequired"));
+    if (typeof step.editorFormError === "string") errors.set(`${path}.form`, step.editorFormError);
   }
 
   if (step.type === "iterator" && (!step.items || (step.items as string).trim().length === 0)) {
@@ -585,7 +588,7 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
 
   // Human task: flat fields, dropping empty optionals and empty assignee lists
   if (step.type === "humanTask") {
-    const { id: _id, slug: _s, type: _t, ...fields } = step;
+    const { id: _id, slug: _s, type: _t, editorFormError: _err, ...fields } = step;
     const result: Record<string, unknown> = { type: "humanTask" };
     for (const [key, value] of Object.entries(fields)) {
       if (value === undefined || value === null || value === "") continue;

@@ -3,12 +3,13 @@
  * Read-only config of a control-flow or custom step: a read-only form, or the
  * raw JSON when `viewAsJson` is set (or the type has no config schema).
  */
-import { builtinConfigSchema } from "$lib/builtinStepSchemas";
+import { genericFormSchema } from "$lib/builtinStepSchemas";
 import { Badge } from "$lib/components/ui/badge";
 import { t } from "$lib/i18n.svelte";
 import { CF_TYPES, cfStepConfig, type PanelStep, type PanelStepType } from "$lib/stepConfig";
 import type { StepDraft } from "$lib/workflowValidation";
 import ConditionForm from "../ConditionForm.svelte";
+import FieldListEditor from "../FieldListEditor.svelte";
 import StepConfigForm from "../StepConfigForm.svelte";
 
 interface Props {
@@ -31,7 +32,7 @@ let customConfig = $derived.by(() => {
 </script>
 
 {#if CF_TYPES.has(step.type)}
-  {@const cfSchema = builtinConfigSchema(step.type)}
+  {@const cfSchema = genericFormSchema(step.type)}
   {#if viewAsJson}
     <div class="flex flex-col gap-1.5 flex-1 min-h-0">
       <div class="flex items-center justify-between">
@@ -64,6 +65,17 @@ let customConfig = $derived.by(() => {
       values={cfStepConfig(asDraft)}
       readonly={true}
     />
+    {#if step.type === "humanTask" && asDraft.form}
+      <div class="flex flex-col gap-1 mt-3">
+        <span class="text-xs font-medium text-muted-foreground">{t("builtinSteps.humanTask.form.title")}</span>
+        <FieldListEditor
+          id="human-task-form-view"
+          mode="form"
+          value={asDraft.form as Record<string, unknown>}
+          readonly
+        />
+      </div>
+    {/if}
   {/if}
 {:else}
   {@const stepType = customStepTypes.find((st) => st.type === step.type)}

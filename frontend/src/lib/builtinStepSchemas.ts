@@ -106,8 +106,8 @@ export const EmitConfigSchema: Record<string, unknown> = {
 
 /**
  * Config schema for the `humanTask` step: creates a task in the portal and
- * waits for a person to answer it. `form` is a JSON Schema object and is
- * edited via "Edit as JSON".
+ * waits for a person to answer it. `form` is a JSON Schema object, edited by
+ * the field builder (`FieldListEditor`) instead of the generic form.
  */
 export const HumanTaskConfigSchema: Record<string, unknown> = {
   type: "object",
@@ -161,7 +161,7 @@ export const HumanTaskConfigSchema: Record<string, unknown> = {
     form: {
       type: "object",
       title: "Form",
-      description: "Optional JSON Schema of a form the person fills in; the data becomes the step result's data.",
+      description: "Optional form the person fills in; the data becomes the step result's data.",
     },
     requireComment: {
       type: "boolean",
@@ -280,4 +280,36 @@ export const BUILTIN_STEP_CONFIG_SCHEMAS: Record<string, Record<string, unknown>
  */
 export function builtinConfigSchema(type: string): Record<string, unknown> | undefined {
   return BUILTIN_STEP_CONFIG_SCHEMAS[type];
+}
+
+/** Fields of built-in step types that have a dedicated editor instead of the generic form. */
+const DEDICATED_FIELDS: Record<string, readonly string[]> = {
+  humanTask: ["form"],
+};
+
+/**
+ * Returns the fields of a built-in step type that are edited by a dedicated
+ * editor (e.g. the humanTask form builder) rather than the generic form.
+ *
+ * @param type - The step type identifier
+ * @returns The field names (empty when none)
+ */
+export function dedicatedFields(type: string): readonly string[] {
+  return DEDICATED_FIELDS[type] ?? [];
+}
+
+/**
+ * Returns the config schema for the generic form of a built-in step type:
+ * {@link builtinConfigSchema} without the fields that have a dedicated editor.
+ *
+ * @param type - The step type identifier
+ * @returns The JSON Schema for the generic form, or undefined
+ */
+export function genericFormSchema(type: string): Record<string, unknown> | undefined {
+  const schema = builtinConfigSchema(type);
+  const omit = dedicatedFields(type);
+  if (!schema || omit.length === 0) return schema;
+  const properties = { ...(schema.properties as Record<string, unknown>) };
+  for (const field of omit) delete properties[field];
+  return { ...schema, properties };
 }

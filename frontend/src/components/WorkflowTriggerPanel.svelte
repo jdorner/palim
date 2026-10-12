@@ -1,5 +1,4 @@
 <script lang="ts">
-import { untrack } from "svelte";
 import { authFetch } from "$lib/auth";
 import { Badge } from "$lib/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/components/ui/select";
@@ -16,6 +15,8 @@ import type { TriggerRefs } from "$lib/workflowEditorMeta";
 import type { DraftTrigger } from "$lib/workflowValidation";
 import { PORTAL_UPLOAD_DEFAULT_MB, PORTAL_UPLOAD_MAX_MB } from "$shared/portal";
 import type { PortalTriggerConfig } from "$shared/workflows";
+import FieldListEditor from "./FieldListEditor.svelte";
+import InfoTip from "./InfoTip.svelte";
 import MultiSelect from "./MultiSelect.svelte";
 import OutputSchemaEditor from "./OutputSchemaEditor.svelte";
 import StepPanelHeader from "./StepPanelHeader.svelte";
@@ -95,33 +96,6 @@ const acceptChoice = $derived(
     : (portalConfig.accept ?? ""),
 );
 
-/** The fields JSON as edited (kept separately so invalid JSON can be typed). */
-let fieldsText = $state("");
-$effect(() => {
-  // Re-seed when the draft's fields change from outside (undo, type switch),
-  // not while the text being typed already says the same.
-  const fields = draftTrigger?.portal?.fields;
-  if (draftTrigger?.portalFieldsError) return;
-  if (
-    sameJson(
-      untrack(() => fieldsText),
-      fields,
-    )
-  )
-    return;
-  fieldsText = fields ? JSON.stringify(fields, null, 2) : "";
-});
-
-/** Whether a JSON text denotes the given value (blank text = no value). */
-function sameJson(text: string, value: unknown): boolean {
-  if (text.trim() === "") return value === undefined;
-  try {
-    return JSON.stringify(JSON.parse(text)) === JSON.stringify(value);
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Applies a change to the portal configuration, dropping empty values.
  *
@@ -136,21 +110,6 @@ function updatePortal(patch: Partial<PortalTriggerConfig>, extra: Partial<DraftT
   }
   const { portalFieldsError: _err, ...rest } = draftTrigger;
   onTriggerChange({ ...rest, ...extra, portal: next as PortalTriggerConfig });
-}
-
-function onFieldsInput(text: string) {
-  fieldsText = text;
-  if (text.trim() === "") {
-    updatePortal({ fields: undefined });
-    return;
-  }
-  try {
-    const parsed = JSON.parse(text) as unknown;
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not an object");
-    updatePortal({ fields: parsed as Record<string, unknown> });
-  } catch {
-    updatePortal({}, { portalFieldsError: t("triggerPanel.portalFieldsInvalid") });
-  }
 }
 </script>
 
@@ -289,24 +248,23 @@ function onFieldsInput(text: string) {
     />
   </div>
   <div class="flex flex-col gap-1">
-    <label for="portal-fields" class="text-xs font-medium text-muted-foreground"
-      >{t("triggerPanel.portalFields")}</label
-    >
-    <textarea
-      id="portal-fields"
-      rows="6"
-      class="{inputClass} font-mono"
-      spellcheck="false"
-      placeholder={'{ "type": "object", "properties": { "note": { "type": "string", "title": "Note" } } }'}
-      value={fieldsText}
-      oninput={(e) => onFieldsInput((e.target as HTMLTextAreaElement).value)}
-    ></textarea>
-    {#if validationErrors.get("trigger.portal.fields") || draftTrigger?.portalFieldsError}
-      <span class="text-xs text-destructive"
-        >{draftTrigger?.portalFieldsError ?? validationErrors.get("trigger.portal.fields")}</span
+    <span class="inline-flex items-center gap-1">
+      <span id="portal-fields-label" class="text-xs font-medium text-muted-foreground"
+        >{t("triggerPanel.portalFields")}</span
       >
-    {:else}
-      <span class="text-xs text-muted-foreground">{t("triggerPanel.portalFieldsHint")}</span>
+      <InfoTip text={t("triggerPanel.portalFieldsHint")} />
+    </span>
+    <FieldListEditor
+      id="portal-fields"
+      labelledBy="portal-fields-label"
+      mode="form"
+      value={portalConfig.fields}
+      jsonPlaceholder={'{ "type": "object", "properties": { "note": { "type": "string", "title": "Note" } } }'}
+      onChange={(fields) => updatePortal({ fields })}
+      onError={(error) => updatePortal({}, error ? { portalFieldsError: error } : {})}
+    />
+    {#if validationErrors.get("trigger.portal.fields") && !draftTrigger?.portalFieldsError}
+      <span class="text-xs text-destructive">{validationErrors.get("trigger.portal.fields")}</span>
     {/if}
   </div>
   {@render runAsInfo(true)}
@@ -324,6 +282,12 @@ function onFieldsInput(text: string) {
     <dt class="text-muted-foreground">{t("triggerPanel.portalRoles")}</dt>
     <dd>{config.roles?.length ? config.roles.join(", ") : t("triggerPanel.portalRolesPlaceholder")}</dd>
   </dl>
+  {#if config.fields}
+    <div class="flex flex-col gap-1">
+      <span class="text-xs font-medium text-muted-foreground">{t("triggerPanel.portalFields")}</span>
+      <FieldListEditor id="portal-fields-view" mode="form" value={config.fields} readonly />
+    </div>
+  {/if}
   {@render runAsInfo(false)}
 {/snippet}
 
