@@ -498,6 +498,23 @@ export class ExtensionRegistry {
   }
 
   /**
+   * Replace the runtime warnings of a loaded extension (backs
+   * `ctx.status.setWarnings()`). Broadcasts `extension_schemas_changed` when
+   * the warnings actually changed, so connected clients refetch the list.
+   *
+   * @param name - The extension manifest name
+   * @param warnings - The normalized warning messages (empty clears them)
+   */
+  private setExtensionWarnings(name: string, warnings: string[]): void {
+    const entry = this.loaded.find((l) => l.name === name);
+    if (!entry) return;
+    const previous = entry.warnings ?? [];
+    if (previous.length === warnings.length && previous.every((w, i) => w === warnings[i])) return;
+    entry.warnings = warnings;
+    this.initDeps?.broadcastFn({ type: "extension_schemas_changed", name });
+  }
+
+  /**
    * Check whether an extension is enabled by querying the
    * `extension_settings` table. Extensions with no row are
    * treated as disabled. Core extensions (manifest.core === true)
@@ -551,6 +568,7 @@ export class ExtensionRegistry {
         settingsSchema: l.extension.manifest.settingsSchema ?? null,
         secretsSchema: l.extension.manifest.secretsSchema ?? null,
         error: l.error ?? null,
+        warnings: l.warnings ?? [],
         ui: (() => {
           const manifestUi = l.extension.manifest.ui ?? null;
           const registeredStepTypes = serializeStepTypes(l.stepTypes);
@@ -865,6 +883,7 @@ export class ExtensionRegistry {
         getSkillNamesFn: () => this.getSkillNames(),
         getStepHandlerFn: (type) => this.getRegisteredStepTypes().find((st) => st.type === type)?.handler,
         listStepTypesFn: () => this.listStepTypes(),
+        setWarningsFn: (n, warnings) => this.setExtensionWarnings(n, warnings),
         settingsSchema: ext.manifest.settingsSchema as Record<string, unknown> | undefined,
       }),
       broadcastFn: deps.broadcastFn,

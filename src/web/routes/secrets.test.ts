@@ -28,6 +28,7 @@ function createFakeRegistry(extensions: Partial<ExtensionInfo>[] = []) {
     settingsSchema: null,
     secretsSchema: TEST_SCHEMA,
     error: null,
+    warnings: [],
     ui: null,
   };
 
