@@ -1562,7 +1562,13 @@ describe("run namespace suggestions", () => {
       secretKeys: [],
       variableKeys: [],
     };
-    expect(getSuggestions(config, ["run"], "").map((s) => s.label)).toEqual(["id", "workflow", "createdBy", "baseUrl", "url"]);
+    expect(getSuggestions(config, ["run"], "").map((s) => s.label)).toEqual([
+      "id",
+      "workflow",
+      "createdBy",
+      "baseUrl",
+      "url",
+    ]);
     expect(getSuggestions(config, [], "ru").some((s) => s.label === "run")).toBe(true);
   });
 });
