@@ -23,7 +23,7 @@ let { text }: Props = $props();
   </Tooltip.Trigger>
   <Tooltip.Portal>
     <Tooltip.Content
-      class="z-50 max-w-64 rounded-md border border-border px-3 py-2 text-xs text-foreground shadow-md"
+      class="z-9999 max-w-64 rounded-md border border-border px-3 py-2 text-xs text-foreground shadow-md"
       style="background: hsl(var(--popover));"
       sideOffset={4}
       side="top"
