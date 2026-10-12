@@ -1118,7 +1118,7 @@ Custom steps have access to the same template engine as built-in steps:
 | `{{steps.<slug>.result.<path>}}` | Dot-path into a step result |
 | `{{steps.<slug>.config}}` | Static config of any step in the workflow (including later steps) |
 | `{{steps.<slug>.config.<path>}}` | Dot-path into a step's config (supports array indices, e.g. `config.sheets.0.columns`) |
-| `{{env.<VAR>}}` | Allowlisted environment variable |
+| `{{env.<VAR>}}` | Allowlisted environment variable (raw process environment; unset resolves to empty with a warning) |
 | `{{secret.<KEY>}}` | Encrypted secret (ACL-checked) |
 
 The `config` accessor is particularly useful for schema propagation: an agent step can reference a downstream step's column definitions to know what JSON structure to produce.

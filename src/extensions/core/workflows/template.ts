@@ -67,7 +67,7 @@ export interface TemplateContext {
   stepConfigs?: Record<string, unknown>;
   /** The workflow name (used as consumer identity for secret resolution). */
   workflowName?: string;
-  /** The current run, exposed as `{{run.id}}`, `{{run.workflow}}`, `{{run.createdBy}}`. */
+  /** The current run, exposed as `{{run.id}}`, `{{run.workflow}}`, `{{run.createdBy}}`, `{{run.baseUrl}}`, `{{run.url}}`. */
   run?: RunTemplateInfo;
   /** The secret resolver instance (optional - secret templates ignored if not provided). */
   secretStore?: TemplateSecretResolver;
@@ -130,7 +130,7 @@ function stringify(value: unknown): string {
  * - `{{env.<VAR>}}` - environment variable
  * - `{{secret.<KEY>}}` - encrypted secret (decrypted at access, ACL-checked)
  * - `{{var.<KEY>}}` - plaintext global variable (no ACL, no decryption)
- * - `{{run.id}}` / `{{run.workflow}}` / `{{run.createdBy}}` - the current run
+ * - `{{run.id}}` / `{{run.workflow}}` / `{{run.createdBy}}` / `{{run.baseUrl}}` / `{{run.url}}` - the current run
  *
  * @param template - The template string with `{{...}}` expressions
  * @param ctx - The resolution context (trigger payload + step results + step configs)
@@ -186,7 +186,9 @@ export async function resolveTemplates(
         warnings.push(`Access denied for env var "${varName}" - not in workflow allowlist`);
         resolved += `{{${trimmed}}}`;
       } else {
-        resolved += process.env[varName] ?? "";
+        const value = process.env[varName];
+        if (value === undefined) warnings.push(`Env var "${varName}" is not set`);
+        resolved += value ?? "";
       }
       continue;
     }
@@ -235,7 +237,7 @@ export async function resolveTemplates(
       continue;
     }
 
-    // {{run.<field>}} - the current workflow run (id, workflow, createdBy)
+    // {{run.<field>}} - the current workflow run (id, workflow, createdBy, baseUrl, url)
     if (parts[0] === "run" && parts.length === 2 && ctx.run) {
       const field = parts[1]!;
       if ((RUN_TEMPLATE_FIELDS as readonly string[]).includes(field)) {

@@ -87,7 +87,7 @@ export const DEFAULT_ENV_ALLOWLIST: readonly string[] = [
  * workflow run a template is resolved in. Single source of truth for the
  * backend template engine, the DAG validator, and the frontend autocomplete.
  */
-export const RUN_TEMPLATE_FIELDS = ["id", "workflow", "createdBy"] as const;
+export const RUN_TEMPLATE_FIELDS = ["id", "workflow", "createdBy", "baseUrl", "url"] as const;
 
 /** A field of the `run` template namespace. */
 export type RunTemplateField = (typeof RUN_TEMPLATE_FIELDS)[number];
@@ -100,6 +100,10 @@ export interface RunTemplateInfo {
   workflow: string;
   /** User ID of the run's creator, or null for system-started runs. */
   createdBy: string | null;
+  /** Base URL of the operator UI (`WEB_PUBLIC_URL`, else the server origin), no trailing slash. */
+  baseUrl: string;
+  /** Link to this run's page in the operator UI. */
+  url: string;
 }
 
 /**

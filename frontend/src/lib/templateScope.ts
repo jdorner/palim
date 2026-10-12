@@ -212,7 +212,7 @@ export function getVariableSuggestions(variableKeys: string[], prefix: string): 
 }
 
 /**
- * Returns `run` namespace field suggestions (`id`, `workflow`, `createdBy`),
+ * Returns `run` namespace field suggestions (`id`, `workflow`, `createdBy`, `baseUrl`, `url`),
  * filtered by prefix. All are terminal.
  *
  * @param prefix - The currently typed text used for filtering

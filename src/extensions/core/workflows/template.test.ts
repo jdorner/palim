@@ -142,10 +142,11 @@ describe("resolveTemplates", () => {
       delete process.env.SECRET_KEY;
     });
 
-    test("resolves to empty string for unset allowlisted var", async () => {
+    test("resolves to empty string with a warning for unset allowlisted var", async () => {
       delete process.env.NODE_ENV;
-      const { resolved } = await resolveTemplates("{{env.NODE_ENV}}", ctx);
+      const { resolved, warnings } = await resolveTemplates("{{env.NODE_ENV}}", ctx);
       expect(resolved).toBe("");
+      expect(warnings).toEqual(['Env var "NODE_ENV" is not set']);
     });
   });
 
