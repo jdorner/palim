@@ -39,7 +39,7 @@ let searching = $derived(query.trim() !== "");
 
 /** Tracks the anchor's position while open (it moves with the graph in the floating layout). */
 $effect(() => {
-  if (!variablePicker.open || !anchor) {
+  if (!variablePicker.open || !variablePicker.target || !anchor) {
     rect = null;
     return;
   }
@@ -63,24 +63,15 @@ $effect(() => {
 /** The panel element (focus inside it does not count as leaving the field). */
 let panelElement = $state<HTMLElement | null>(null);
 
-/** Hides the panel while a field without template support has focus. */
+/** Drops the target when focus moves elsewhere (see `variablePicker.noteFocus`). */
 $effect(() => {
   const onFocusIn = (e: FocusEvent) => {
     const el = e.target;
     if (!(el instanceof Element) || panelElement?.contains(el)) return;
     variablePicker.noteFocus(el);
   };
-  const onFocusOut = (e: FocusEvent) => {
-    const next = e.relatedTarget instanceof Element ? e.relatedTarget : null;
-    if (next && panelElement?.contains(next)) return;
-    variablePicker.noteBlur(next);
-  };
   document.addEventListener("focusin", onFocusIn);
-  document.addEventListener("focusout", onFocusOut);
-  return () => {
-    document.removeEventListener("focusin", onFocusIn);
-    document.removeEventListener("focusout", onFocusOut);
-  };
+  return () => document.removeEventListener("focusin", onFocusIn);
 });
 
 function keyOf(node: ScopeTreeNode): string {
@@ -165,7 +156,7 @@ function portal(node: HTMLElement) {
   {/each}
 {/snippet}
 
-{#if variablePicker.open && !variablePicker.suppressed && rect}
+{#if variablePicker.open && variablePicker.target && rect}
   <div
     use:portal
     bind:this={panelElement}
@@ -232,9 +223,7 @@ function portal(node: HTMLElement) {
     </div>
 
     <div class="flex-1 min-h-0 overflow-y-auto px-2 py-2" role="tabpanel">
-      {#if !tree}
-        <p class="px-1 text-xs text-muted-foreground">{t("variablePicker.noTarget")}</p>
-      {:else if nodes.length === 0}
+      {#if nodes.length === 0}
         <p class="px-1 text-xs text-muted-foreground">
           {searching ? t("variablePicker.noMatches") : t("variablePicker.empty")}
         </p>
@@ -242,8 +231,6 @@ function portal(node: HTMLElement) {
         {@render treeRows(nodes, 0)}
       {/if}
     </div>
-    {#if tree}
-      <p class="border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">{t("variablePicker.hint")}</p>
-    {/if}
+    <p class="border-t border-border px-3 py-1.5 text-[11px] text-muted-foreground">{t("variablePicker.hint")}</p>
   </div>
 {/if}

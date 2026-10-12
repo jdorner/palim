@@ -932,7 +932,6 @@
     "empty": "Hier ist nichts verfügbar.",
     "hint": "Klicke auf einen Wert, um ihn an der Cursorposition einzufügen.",
     "noMatches": "Keine Treffer.",
-    "noTarget": "Klicke in ein Feld mit {{ }}-Ausdrücken, um zu sehen, was es verwenden kann.",
     "search": "Suchen",
     "tabs": {
       "data": "Daten",
@@ -941,7 +940,7 @@
     },
     "title": "Verfügbare Daten",
     "toggle": "Verfügbare Daten",
-    "toggleTitle": "Daten anzeigen, die dieser Schritt verwenden kann (Strg+Umschalt+Leertaste)"
+    "toggleTitle": "Beim Bearbeiten eines Felds mit {{ }}-Ausdrücken die Daten anzeigen, die dieser Schritt verwenden kann (Strg+Umschalt+Leertaste)"
   },
   "variables": {
     "add": "Variable hinzufügen",

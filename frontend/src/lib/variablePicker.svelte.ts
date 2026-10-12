@@ -4,17 +4,15 @@
  * autocomplete (`TemplateAutocomplete`) registers itself as the target when it
  * gains focus, so the panel follows the field being edited. The target stays
  * registered on blur, so clicking into the panel (e.g. its search box) does not
- * lose it; the last selection is remembered for that case. Focusing a field
- * without template support hides the panel until a template field has focus.
+ * lose it; the last selection is remembered for that case. Focus moving
+ * anywhere else (another field, a graph node, a button) drops the target, and
+ * the panel only shows while there is a target.
  */
 import { insertReference } from "./autocompleteEngine";
 import type { ScopeConfig } from "./templateScope";
 
-/** Whether an element is a form field (buttons excluded). */
-function isPlainFormField(element: Element): boolean {
-  if (!element.matches("input, textarea, select, [contenteditable='true']")) return false;
-  return !(element instanceof HTMLInputElement && ["button", "submit", "reset"].includes(element.type));
-}
+/** Attribute marking the panel's on/off button, whose focus keeps the target. */
+export const PICKER_TOGGLE_ATTR = "data-variable-picker-toggle";
 
 /** A field the picker can insert into. */
 export interface PickerTarget {
@@ -46,12 +44,10 @@ function writeOpen(open: boolean): void {
 }
 
 class VariablePickerState {
-  /** Whether the panel is switched on (remembered across nodes and reloads). */
+  /** Whether the panel is switched on (remembered across nodes and reloads); it shows while there is a target. */
   #open = $state(readOpen());
   /** The field references are inserted into (null = none focused yet). */
   target = $state<PickerTarget | null>(null);
-  /** Whether a field without template support has focus (hides the panel). */
-  suppressed = $state(false);
   /** Selection of the target when it last lost focus. */
   #selection = { start: 0, end: 0 };
 
@@ -62,20 +58,18 @@ class VariablePickerState {
    */
   setTarget(target: PickerTarget): void {
     this.target = target;
-    this.suppressed = false;
   }
 
   /**
-   * Notes that an element gained focus: a form field that is not a template
-   * field hides the panel and drops the target, so nothing is inserted into a
-   * field the user has left. Other elements (buttons, the graph) change nothing.
+   * Notes that an element outside the panel gained focus: anything but the
+   * target field (or the panel's on/off button) drops the target, which hides
+   * the panel and ensures nothing is inserted into a field the user has left.
    *
    * @param element - The focused element
    */
   noteFocus(element: Element): void {
-    if (this.target?.element === element || !isPlainFormField(element)) return;
+    if (this.target?.element === element || element.hasAttribute(PICKER_TOGGLE_ATTR)) return;
     this.target = null;
-    this.suppressed = true;
   }
 
   /**
@@ -105,25 +99,11 @@ class VariablePickerState {
   set open(value: boolean) {
     this.#open = value;
     writeOpen(value);
-    if (value) this.suppressed = false;
   }
 
-  /** Switches the panel on or off (switching on also shows it while a plain field has focus). */
+  /** Switches the panel on or off. */
   toggle(): void {
     this.open = !this.open;
-  }
-
-  /**
-   * Notes that an element lost focus: once a field without template support
-   * is left (and focus does not move to another such field), the panel shows
-   * again, e.g. after switching to another node.
-   *
-   * @param next - The element receiving focus, if any
-   */
-  noteBlur(next: Element | null): void {
-    if (!this.suppressed) return;
-    if (next && isPlainFormField(next)) return;
-    this.suppressed = false;
   }
 
   /**

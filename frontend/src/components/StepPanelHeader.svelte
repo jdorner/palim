@@ -79,6 +79,7 @@ let title = $derived(labelForStepType(type, triggerType));
           ? "bg-white/25 text-white"
           : ""}"
         onclick={onToggleVariables}
+        data-variable-picker-toggle
         aria-pressed={variablesOpen}
         aria-label={t("variablePicker.toggle")}
         title={t("variablePicker.toggleTitle")}
