@@ -9,6 +9,7 @@
  */
 
 import type { RunTemplateInfo } from "@shared/workflows";
+import { publicBaseUrl } from "@src/config";
 import { eq, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import { workflowRuns } from "./runSchema";
@@ -241,12 +242,19 @@ export function get(runId: string): DagWorkflowRun | null {
  * Builds the `run` template namespace values for a run.
  *
  * @param run - The run record
- * @returns The run's ID, workflow name, and creator
+ * @returns The run's ID, workflow name, creator, UI base URL, and run page link
  */
 export function toRunTemplateInfo(
   run: Pick<DagWorkflowRun, "id" | "workflowName" | "createdByUserId">,
 ): RunTemplateInfo {
-  return { id: run.id, workflow: run.workflowName, createdBy: run.createdByUserId };
+  const baseUrl = publicBaseUrl();
+  return {
+    id: run.id,
+    workflow: run.workflowName,
+    createdBy: run.createdByUserId,
+    baseUrl,
+    url: `${baseUrl}/#/workflows/${encodeURIComponent(run.workflowName)}/runs/${encodeURIComponent(run.id)}`,
+  };
 }
 
 /**

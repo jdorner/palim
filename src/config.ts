@@ -45,6 +45,29 @@ export function serverOrigin(): string {
 }
 
 /**
+ * Public base URL of the operator UI, for links that leave the server (e.g. in
+ * notifications sent by workflows). Set it when Palim is reached through a
+ * reverse proxy or another host name than `WEB_HOST`. Empty when not
+ * configured. A trailing slash is removed.
+ */
+export const WEB_PUBLIC_URL: string = (() => {
+  const raw = process.env.WEB_PUBLIC_URL?.trim() ?? "";
+  if (!raw) return "";
+  assert(/^https?:\/\/[^\s]+$/.test(raw), `Invalid WEB_PUBLIC_URL: "${raw}" (must be an http(s) URL)`);
+  return raw.replace(/\/+$/, "");
+})();
+
+/**
+ * Returns the base URL users open the operator UI at, with no trailing slash:
+ * `WEB_PUBLIC_URL` when set, otherwise {@link serverOrigin}.
+ *
+ * @returns The public base URL of the operator UI
+ */
+export function publicBaseUrl(): string {
+  return WEB_PUBLIC_URL || serverOrigin();
+}
+
+/**
  * Reverse proxies whose `X-Forwarded-For` header is trusted when determining
  * the client IP (rate limiting, login throttling). Comma-separated IPs or CIDRs
  * from `TRUSTED_PROXIES`. Empty (default) means forwarding headers are ignored

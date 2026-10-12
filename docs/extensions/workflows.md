@@ -208,6 +208,11 @@ Agent step prompts support template variables:
 - `{{secret.KEY_NAME}}` - Resolve a secret from the vault
 - `{{steps.<slug>.result}}` - Result from any completed step (resolved from the run store, so any ancestor works, not just the direct predecessor)
 - `{{run.id}}`, `{{run.workflow}}`, `{{run.createdBy}}` - The current run's ID, workflow name, and creator's user ID
+- `{{run.baseUrl}}` - Base URL of the operator UI, without a trailing slash: `WEB_PUBLIC_URL` when set, otherwise the server origin (a wildcard bind address like `0.0.0.0` becomes `localhost`)
+- `{{run.url}}` - Link to the current run's page in the operator UI
+- `{{env.<VAR>}}` - An allowlisted environment variable, read from the process environment as is. Built-in defaults (e.g. `WEB_SCHEME` = `http`) don't apply, and an unset variable resolves to an empty string with a warning. For links into the UI, use `{{run.baseUrl}}` instead of assembling `{{env.WEB_SCHEME}}://{{env.WEB_HOST}}:{{env.WEB_PORT}}`.
+
+To link to another run, combine the base URL with its workflow name and run ID, e.g. `{{run.baseUrl}}/#/workflows/{{trigger.payload.workflow.workflowName}}/runs/{{trigger.payload.workflow.workflowRunId}}`.
 
 In the editor, typing `{{` in a field opens autocomplete (Ctrl+Space reopens it). To browse instead, open **Available data** from the step panel header (or press Ctrl+Shift+Space in a field): a panel beside the step lists the trigger payload, the results of the steps that run before this one, the loop variable inside an iterator, global variables, secrets, env variables, run fields, and functions. Clicking an entry inserts it at the cursor of the field you were editing. Once switched on, the panel stays on (also across reloads), but it only shows while you are editing a field with expression support.
 

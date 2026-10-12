@@ -7,6 +7,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
+import { publicBaseUrl } from "@src/config";
 import { createWorkflowTestDb } from "@src/test/db";
 import { type DagCoordinatorDeps, handleDagStepCompletion } from "./dagCoordinator";
 import { createDagEmitHandler } from "./dagEmitHandler";
@@ -363,7 +364,7 @@ describe("run template namespace", () => {
   test("resolves run.id, run.workflow and run.createdBy", async () => {
     const ctx = {
       stepResults: {},
-      run: { id: "run-42", workflow: "orders", createdBy: "user-1" },
+      run: dagRunStore.toRunTemplateInfo({ id: "run-42", workflowName: "orders", createdByUserId: "user-1" }),
     };
 
     const { resolved, warnings } = await resolveTemplates(
@@ -375,10 +376,20 @@ describe("run template namespace", () => {
     expect(resolved).toBe("/runs/run-42/steps/x/signal orders user-1");
   });
 
+  test("resolves run.baseUrl and run.url to the operator UI", async () => {
+    const run = dagRunStore.toRunTemplateInfo({ id: "run 1", workflowName: "my flow", createdByUserId: null });
+    const { resolved, warnings } = await resolveTemplates("{{run.baseUrl}} {{run.url}}", { stepResults: {}, run });
+
+    expect(warnings).toEqual([]);
+    expect(run.baseUrl).toBe(publicBaseUrl());
+    expect(run.baseUrl.endsWith("/")).toBe(false);
+    expect(resolved).toBe(`${run.baseUrl} ${run.baseUrl}/#/workflows/my%20flow/runs/run%201`);
+  });
+
   test("is available to function-call expressions", async () => {
     const { resolved } = await resolveTemplates("{{ trim(run.id) }}", {
       stepResults: {},
-      run: { id: "run-7", workflow: "w", createdBy: null },
+      run: dagRunStore.toRunTemplateInfo({ id: "run-7", workflowName: "w", createdByUserId: null }),
     });
 
     expect(resolved).toBe("run-7");
@@ -387,7 +398,7 @@ describe("run template namespace", () => {
   test("an unknown run field is left literal with a warning", async () => {
     const { resolved, warnings } = await resolveTemplates("{{run.nope}}", {
       stepResults: {},
-      run: { id: "r", workflow: "w", createdBy: null },
+      run: dagRunStore.toRunTemplateInfo({ id: "r", workflowName: "w", createdByUserId: null }),
     });
 
     expect(resolved).toBe("{{run.nope}}");
