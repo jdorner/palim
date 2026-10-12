@@ -8,6 +8,7 @@
 <script lang="ts">
 import BracketsCurlyIcon from "phosphor-svelte/lib/BracketsCurlyIcon";
 import TextboxIcon from "phosphor-svelte/lib/TextboxIcon";
+import TreeViewIcon from "phosphor-svelte/lib/TreeViewIcon";
 import XIcon from "phosphor-svelte/lib/XIcon";
 import type { Snippet } from "svelte";
 import { t } from "$lib/i18n.svelte";
@@ -27,11 +28,25 @@ interface Props {
   jsonView?: boolean;
   /** Toggle between form and JSON view; the toggle button is hidden when omitted. */
   onToggleJson?: () => void;
+  /** Whether the variable picker is open. */
+  variablesOpen?: boolean;
+  /** Open/close the variable picker; the button is hidden when omitted. */
+  onToggleVariables?: () => void;
   /** Close the panel. */
   onclose: () => void;
 }
 
-let { type, triggerType, subtitle, badge, jsonView = false, onToggleJson, onclose }: Props = $props();
+let {
+  type,
+  triggerType,
+  subtitle,
+  badge,
+  jsonView = false,
+  onToggleJson,
+  variablesOpen = false,
+  onToggleVariables,
+  onclose,
+}: Props = $props();
 
 let visual = $derived(
   type === "trigger"
@@ -57,6 +72,20 @@ let title = $derived(labelForStepType(type, triggerType));
     <div class="relative shrink-0">{@render badge()}</div>
   {/if}
   <div class="relative flex items-center gap-0.5 shrink-0">
+    {#if onToggleVariables}
+      <button
+        type="button"
+        class="p-1.5 rounded-md text-white/85 hover:text-white hover:bg-white/20 transition-colors {variablesOpen
+          ? "bg-white/25 text-white"
+          : ""}"
+        onclick={onToggleVariables}
+        aria-pressed={variablesOpen}
+        aria-label={t("variablePicker.toggle")}
+        title={t("variablePicker.toggleTitle")}
+      >
+        <TreeViewIcon size={16} weight="bold" aria-hidden="true" />
+      </button>
+    {/if}
     {#if onToggleJson}
       <button
         type="button"

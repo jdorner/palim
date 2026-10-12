@@ -209,6 +209,8 @@ Agent step prompts support template variables:
 - `{{steps.<slug>.result}}` - Result from any completed step (resolved from the run store, so any ancestor works, not just the direct predecessor)
 - `{{run.id}}`, `{{run.workflow}}`, `{{run.createdBy}}` - The current run's ID, workflow name, and creator's user ID
 
+In the editor, typing `{{` in a field opens autocomplete (Ctrl+Space reopens it). To browse instead, open **Available data** from the step panel header (or press Ctrl+Shift+Space in a field): a panel beside the step lists the trigger payload, the results of the steps that run before this one, the loop variable inside an iterator, global variables, secrets, env variables, run fields, and functions. Clicking an entry inserts it at the cursor of the field you were editing. The panel hides while a field without expression support has focus.
+
 ## Hot Reload
 
 The `workflows/` directory is watched for changes. Adding, modifying, or deleting a `.json5` file automatically reloads all definitions without restart.

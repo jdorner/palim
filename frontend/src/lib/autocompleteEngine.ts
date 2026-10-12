@@ -350,3 +350,56 @@ export function computeInsertion(
 export function navigateHighlight(currentIndex: number, direction: 1 | -1, listLength: number): number {
   return (currentIndex + direction + listLength) % listLength;
 }
+
+/**
+ * Inserts a reference picked from the variable picker into a field.
+ *
+ * Outside an expression the selection is replaced by a complete `{{expr}}`.
+ * Inside an open `{{` (e.g. after typing `{{steps.`, or within a call's
+ * arguments) the partially typed path under the cursor is replaced by `expr`,
+ * and a top-level expression that is not closed yet gets its `}}`. Functions
+ * are inserted as a call (`name()`) with the cursor between the parentheses.
+ *
+ * @param text - Current field text
+ * @param selStart - Selection start
+ * @param selEnd - Selection end
+ * @param expr - The dotted reference (e.g. `steps.fetch.result.id`) or function name
+ * @param kind - `"function"` to insert a call
+ * @returns The new text and cursor position
+ */
+export function insertReference(
+  text: string,
+  selStart: number,
+  selEnd: number,
+  expr: string,
+  kind: "value" | "function" = "value",
+): { newText: string; newCursorPos: number } {
+  const trigger = detectTrigger(text, selStart);
+  if (!trigger.active) {
+    const inserted = kind === "function" ? `{{${expr}()}}` : `{{${expr}}}`;
+    const newText = text.slice(0, selStart) + inserted + text.slice(selEnd);
+    const newCursorPos = kind === "function" ? selStart + 2 + expr.length + 1 : selStart + inserted.length;
+    return { newText, newCursorPos };
+  }
+
+  // Replace the partially typed path under the cursor, including its tail.
+  const typed = (trigger.path.length > 0 ? `${trigger.path.join(".")}.` : "") + trigger.prefix;
+  const start = text.slice(selStart - typed.length, selStart) === typed ? selStart - typed.length : selStart;
+  const tail = text.slice(selEnd).match(/^[a-zA-Z0-9_.$-]*/)?.[0].length ?? 0;
+  const after = text.slice(selEnd + tail);
+
+  if (kind === "function") {
+    const newText = `${text.slice(0, start)}${expr}()${after}`;
+    return { newText, newCursorPos: start + expr.length + 1 };
+  }
+
+  // Close the calls still open at the cursor and the expression itself, unless
+  // the closers already follow (before the next `{{`).
+  const nextOpen = after.indexOf("{{");
+  const rest = nextOpen === -1 ? after : after.slice(0, nextOpen);
+  const close = rest.indexOf("}}");
+  const closersAhead = [...(close === -1 ? rest : rest.slice(0, close))].filter((ch) => ch === ")").length;
+  const parens = Math.max(0, countOpenParens(text, trigger.triggerOffset, start) - closersAhead);
+  const inserted = `${expr}${")".repeat(parens)}${close === -1 ? "}}" : ""}`;
+  return { newText: text.slice(0, start) + inserted + after, newCursorPos: start + inserted.length };
+}

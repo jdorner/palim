@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as fc from "fast-check";
-import { computeInsertion, detectTrigger, navigateHighlight } from "./autocompleteEngine";
+import { computeInsertion, detectTrigger, insertReference, navigateHighlight } from "./autocompleteEngine";
 import type { Suggestion } from "./templateScope";
 
 /**
@@ -447,5 +447,45 @@ describe("Autocomplete Engine - Property Tests", () => {
         { numRuns: 100 },
       );
     });
+  });
+});
+
+describe("insertReference", () => {
+  test("outside an expression inserts a complete reference at the cursor", () => {
+    expect(insertReference("Hello ", 6, 6, "trigger.payload.name")).toEqual({
+      newText: "Hello {{trigger.payload.name}}",
+      newCursorPos: 30,
+    });
+  });
+
+  test("replaces the selection", () => {
+    expect(insertReference("a XX b", 2, 4, "run.id").newText).toBe("a {{run.id}} b");
+  });
+
+  test("inside an open expression replaces the typed path and closes it", () => {
+    const text = "Hi {{steps.";
+    expect(insertReference(text, text.length, text.length, "steps.fetch.result.id")).toEqual({
+      newText: "Hi {{steps.fetch.result.id}}",
+      newCursorPos: 28,
+    });
+  });
+
+  test("inside a closed expression keeps the existing closer and replaces the path tail", () => {
+    const text = "{{steps.fe}} rest";
+    // Cursor after "steps." with "fe" still to the right.
+    expect(insertReference(text, 8, 8, "steps.fetch.result").newText).toBe("{{steps.fetch.result}} rest");
+  });
+
+  test("inside a call argument inserts the path and closes the call", () => {
+    const text = "{{trim(}}";
+    expect(insertReference(text, 7, 7, "trigger.payload.note").newText).toBe("{{trim(trigger.payload.note)}}");
+    // An already typed `)` is kept, not duplicated.
+    expect(insertReference("{{trim()}}", 7, 7, "run.id").newText).toBe("{{trim(run.id)}}");
+  });
+
+  test("functions are inserted as a call with the cursor inside", () => {
+    expect(insertReference("x ", 2, 2, "trim", "function")).toEqual({ newText: "x {{trim()}}", newCursorPos: 9 });
+    const inside = "{{}}";
+    expect(insertReference(inside, 2, 2, "nowIso", "function")).toEqual({ newText: "{{nowIso()}}", newCursorPos: 9 });
   });
 });

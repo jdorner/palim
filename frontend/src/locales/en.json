@@ -283,7 +283,6 @@
     "details": "Field details",
     "editAsJson": "Edit as JSON",
     "editAsRows": "Edit as fields",
-    "empty": "No fields yet.",
     "errors": {
       "badDefault": "\"{key}\": the default does not match the field type or options",
       "duplicateKey": "\"{key}\" is used more than once",
@@ -927,6 +926,22 @@
     "unnamed": "(unnamed)",
     "titleRequired": "A title is required",
     "assigneeRequired": "At least one user or role is required"
+  },
+  "variablePicker": {
+    "collapseAll": "Collapse all",
+    "empty": "Nothing available here.",
+    "hint": "Click a value to insert it at the cursor.",
+    "noMatches": "No matches.",
+    "noTarget": "Click into a field that supports {{ }} expressions to see what it can use.",
+    "search": "Search",
+    "tabs": {
+      "data": "Data",
+      "functions": "Functions",
+      "variables": "Variables"
+    },
+    "title": "Available data",
+    "toggle": "Available data",
+    "toggleTitle": "Show the data this step can use (Ctrl+Shift+Space)"
   },
   "variables": {
     "add": "Add Variable",
