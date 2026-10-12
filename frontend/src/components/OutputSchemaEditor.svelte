@@ -2,15 +2,18 @@
 import MagicWandIcon from "phosphor-svelte/lib/MagicWandIcon";
 import { Button } from "$lib/components/ui/button";
 /**
- * Edits a trigger's or step's `outputSchema` shorthand: a JSON textarea plus an
- * "Infer from last run" action that fills it from the newest run's data. The
- * schema drives template autocomplete and path validation for references to
- * this node. Empty means the built-in (trigger type / step handler) schema.
+ * Edits a trigger's or step's `outputSchema` shorthand with the field builder
+ * (or as JSON), plus an "Infer from last run" action that fills it from the
+ * newest run's data. The schema drives template autocomplete and path
+ * validation for references to this node. Empty means the built-in (trigger
+ * type / step handler) schema.
  */
 import { i18n, t } from "$lib/i18n.svelte";
-import { formatShorthand, type InferSource, parseShorthand } from "$lib/outputSchemaShorthand";
+import type { InferSource } from "$lib/outputSchemaShorthand";
 import { fetchInferredSchema } from "$lib/workflowEditorMeta";
 import type { OutputSchemaShorthand } from "$shared/workflows";
+import FieldListEditor from "./FieldListEditor.svelte";
+import InfoTip from "./InfoTip.svelte";
 
 interface Props {
   /** The current shorthand (undefined = none declared). */
@@ -21,39 +24,15 @@ interface Props {
   workflowName?: string;
   /** Where to infer the schema from. */
   source: InferSource;
-  /** Called with the new shorthand when the text is valid. */
+  /** Called with the new shorthand when it is valid. */
   onChange?: (value: OutputSchemaShorthand | undefined) => void;
 }
 
 let { value, readonly = false, workflowName, source, onChange }: Props = $props();
 
-let text = $state("");
-let parseError = $state<string | null>(null);
 let inferStatus = $state<{ kind: "info" | "error"; message: string } | null>(null);
 let inferring = $state(false);
-/** Serialized value last applied to the textarea or emitted, to detect external changes (undo/redo). */
-let lastSynced: string | undefined;
-
-$effect(() => {
-  const serialized = JSON.stringify(value ?? null);
-  if (serialized === lastSynced) return;
-  lastSynced = serialized;
-  text = formatShorthand(value);
-  parseError = null;
-});
-
-/** Applies new textarea content: emits it when valid, else shows the error. */
-function apply(next: string) {
-  text = next;
-  const result = parseShorthand(next);
-  if (!result.ok) {
-    parseError = result.error;
-    return;
-  }
-  parseError = null;
-  lastSynced = JSON.stringify(result.value ?? null);
-  onChange?.(result.value);
-}
+let editorError = $state<string | null>(null);
 
 async function infer() {
   if (!workflowName) return;
@@ -61,7 +40,7 @@ async function infer() {
   inferStatus = null;
   try {
     const inferred = await fetchInferredSchema(workflowName, source);
-    apply(formatShorthand(inferred.shorthand));
+    onChange?.(inferred.shorthand);
     inferStatus = {
       kind: "info",
       message: t("outputSchema.inferredFrom", {
@@ -81,20 +60,23 @@ async function infer() {
   {#if value}
     <div class="flex flex-col gap-1">
       <span class="text-xs font-medium text-muted-foreground">{t("outputSchema.label")}</span>
-      <pre
-        class="text-xs font-mono whitespace-pre-wrap wrap-break-word bg-muted p-3 rounded max-h-64 overflow-y-auto"
-      >{formatShorthand(value)}</pre>
+      <FieldListEditor id="output-schema-view" mode="shape" {value} readonly />
     </div>
   {/if}
 {:else}
   <div class="flex flex-col gap-1">
     <div class="flex items-center justify-between gap-2">
-      <label for="output-schema-editor" class="text-xs font-medium text-muted-foreground"
-        >{t("outputSchema.label")}</label
-      >
+      <span class="inline-flex items-center gap-1">
+        <span id="output-schema-editor-label" class="text-xs font-medium text-muted-foreground"
+          >{t("outputSchema.label")}</span
+        >
+        <InfoTip text={t("outputSchema.hint")} />
+      </span>
       <div class="flex items-center gap-1">
-        {#if text}
-          <Button variant="ghost" size="xs" class="text-xs" onclick={() => apply("")}>{t("outputSchema.clear")}</Button>
+        {#if value}
+          <Button variant="ghost" size="xs" class="text-xs" onclick={() => onChange?.(undefined)}
+            >{t("outputSchema.clear")}</Button
+          >
         {/if}
         <Button
           variant="outline"
@@ -109,22 +91,19 @@ async function infer() {
         </Button>
       </div>
     </div>
-    <textarea
+    <FieldListEditor
       id="output-schema-editor"
-      class="min-h-24 max-h-80 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring"
-      placeholder={'{ "id": "string", "tags": ["string"], "meta": { "size": "number" } }'}
-      spellcheck="false"
-      value={text}
-      oninput={(e) => apply((e.target as HTMLTextAreaElement).value)}
-    ></textarea>
-    {#if parseError}
-      <span class="text-xs text-destructive">{parseError}</span>
-    {:else if inferStatus}
+      labelledBy="output-schema-editor-label"
+      mode="shape"
+      {value}
+      jsonPlaceholder={'{ "id": "string", "tags": ["string"], "meta": { "size": "number" } }'}
+      onChange={(next) => onChange?.(next as OutputSchemaShorthand | undefined)}
+      onError={(error) => (editorError = error)}
+    />
+    {#if inferStatus && !editorError}
       <span class="text-xs {inferStatus.kind === "error" ? "text-destructive" : "text-muted-foreground"}"
         >{inferStatus.message}</span
       >
-    {:else}
-      <span class="text-xs text-muted-foreground">{t("outputSchema.hint")}</span>
     {/if}
   </div>
 {/if}

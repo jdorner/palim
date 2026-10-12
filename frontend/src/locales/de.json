@@ -80,7 +80,7 @@
       },
       "form": {
         "title": "Formular",
-        "description": "Optionales JSON-Schema eines Formulars, das ausgefüllt wird; die Daten werden zu data im Schritt-Ergebnis."
+        "description": "Optionales Formular, das ausgefüllt wird; die Daten werden zu data im Schritt-Ergebnis."
       },
       "requireComment": {
         "title": "Kommentar erforderlich",
@@ -272,6 +272,66 @@
     "noPages": "Erweiterung „{name}“ hat keine Seiten.",
     "notAvailable": "Die Seite „{title}“ ist noch nicht verfügbar.",
     "notInstalled": "Erweiterung „{name}“ ist nicht installiert."
+  },
+  "fieldBuilder": {
+    "addChild": "Verschachteltes Feld hinzufügen",
+    "addField": "Feld hinzufügen",
+    "addOption": "Option hinzufügen",
+    "default": "Standardwert",
+    "defaultNone": "Kein Standardwert",
+    "description": "Hilfetext",
+    "details": "Felddetails",
+    "editAsJson": "Als JSON bearbeiten",
+    "editAsRows": "Als Felder bearbeiten",
+    "empty": "Noch keine Felder.",
+    "errors": {
+      "badDefault": "„{key}“: Der Standardwert passt nicht zum Feldtyp oder zu den Optionen",
+      "duplicateKey": "„{key}“ wird mehrfach verwendet",
+      "duplicateOption": "„{key}“: Option „{value}“ ist doppelt",
+      "emptyKey": "Feld {index} hat keinen Namen",
+      "emptyNestedKey": "„{path}“: Verschachteltes Feld {index} hat keinen Namen",
+      "emptyOption": "„{key}“: Eine Option hat keinen Wert",
+      "noOptions": "„{key}“: Mindestens eine Option hinzufügen"
+    },
+    "invalidJson": "Ungültiges JSON: {error}",
+    "jsonFallback": "Als JSON angezeigt, weil der Editor es nicht abbilden kann: {reason}",
+    "key": "Name",
+    "keyHint": "Nur Buchstaben, Ziffern und _ verwenden, damit Vorlagen das Feld referenzieren können.",
+    "label": "Beschriftung",
+    "list": "Liste",
+    "listTitle": "Eine Liste von Werten dieses Typs",
+    "moveDown": "Nach unten",
+    "moveUp": "Nach oben",
+    "mustBeObject": "Muss ein JSON-Objekt sein",
+    "notObjectSchema": "das Schema ist kein Objekt-Schema",
+    "optionLabel": "Beschriftung",
+    "optionValue": "Wert",
+    "options": "Optionen",
+    "removeField": "Feld entfernen",
+    "removeOption": "Option entfernen",
+    "required": "Pflicht",
+    "shapeTypes": {
+      "any": "Beliebig",
+      "boolean": "Ja/Nein",
+      "number": "Zahl",
+      "object": "Objekt",
+      "string": "Text"
+    },
+    "type": "Typ",
+    "types": {
+      "boolean": "Checkbox",
+      "date": "Datum",
+      "integer": "Ganzzahl",
+      "number": "Zahl",
+      "select": "Auswahl",
+      "text": "Text",
+      "textarea": "Mehrzeiliger Text"
+    },
+    "unsupportedEmptyObject": "„{path}“ ist ein leeres Objekt",
+    "unsupportedField": "Feld „{key}“ nutzt Einstellungen, die der Editor nicht unterstützt",
+    "unsupportedKeyword": "das Schema verwendet „{keyword}“",
+    "unsupportedNestedArray": "„{path}“ ist eine Liste von Listen",
+    "unsupportedType": "„{path}“ hat den unbekannten Typ „{type}“"
   },
   "fileWatchers": {
     "colEvents": "Ereignisse",
@@ -717,9 +777,8 @@
     "portalAcceptImagesPdf": "Bilder und PDF",
     "portalDescription": "Beschreibung",
     "portalDescriptionPlaceholder": "Standard: Beschreibung des Workflows",
-    "portalFields": "Formularfelder (JSON Schema)",
-    "portalFieldsHint": "Optionales Objekt-Schema; die Werte kommen als trigger.payload.data an.",
-    "portalFieldsInvalid": "Kein gültiges JSON-Objekt",
+    "portalFields": "Formularfelder",
+    "portalFieldsHint": "Optionale Felder neben dem Upload; die Werte kommen als trigger.payload.data an.",
     "portalFileRequired": "Datei erforderlich",
     "portalHint": "Portal-Nutzer mit der Berechtigung portal:start können diesen Workflow starten, typischerweise durch das Hochladen eines Fotos oder einer Datei.",
     "portalMaxSize": "Max. Größe (MB)",

@@ -231,6 +231,7 @@ frontend/                    # Svelte 5 web UI (page-based routing)
     │   ├── JobList, JobLogs, JobFilters
     │   ├── ScheduleList, SettingsForm, WorkflowGraph, WorkflowStepNode, FitViewOnInit
     │   ├── StepConfigForm, TemplateAutocomplete, MultiSelect
+    │   ├── FieldListEditor (+ fieldBuilder/)  # Field builder for portal fields, humanTask form, output schemas
     │   ├── WebhookList, FileWatcherList
     │   ├── ModelSelector, IntentModelSelector, Sidebar
     │   ├── GlobalSecretForm, SecretForm, PushSegment, StatusDot, AddStepNode
@@ -248,6 +249,7 @@ frontend/                    # Svelte 5 web UI (page-based routing)
         ├── modelStore.svelte.ts, readState.svelte.ts, settingsStore.svelte.ts
         ├── workflowRunStore.svelte.ts, workflowValidation.ts
         ├── autocompleteEngine.ts, schemaForm.ts, templateScope.ts, stepTypes.ts
+        ├── fieldBuilder.ts  # Field rows <-> form JSON Schema / outputSchema shorthand (lossless or JSON fallback)
         ├── utils.ts
         └── components/      # Reusable UI (shadcn-style primitives)
 
@@ -327,7 +329,7 @@ Workflow string fields, agent prompts, and `if`/`case`/`iterator` expressions su
 - **Namespaces**: beyond `trigger`/`steps`, expressions resolve `{{env.<VAR>}}` (environment variable), `{{secret.<KEY>}}` (encrypted vault secret, ACL-checked, decrypted at access), `{{var.<KEY>}}` (plaintext global variable from the `VariableStore` - no decryption, no ACL), and `{{run.id|workflow|createdBy}}` (the current run; fields in `RUN_TEMPLATE_FIELDS`, `shared/workflows.ts`). Missing variables and secrets are left literal with a warning.
 - **Sandboxed evaluation** (`templateEval.ts`): expressions are evaluated by `subscript` (Justin preset). Guarded namespaces (`secret`, `env`) are resolved (ACL/allowlist) BEFORE evaluation and never placed in the evaluated scope; `var` is exposed as a lazy null-prototype proxy backed by the resolver. Unresolvable paths, unknown functions, and parse errors leave the expression literal with a warning.
 - **Load-time validation** (`dagTemplateValidation.ts`): parses function-call syntax and validates argument paths under the same namespace rules, sharing the function-name allowlist so validation cannot diverge from evaluation. Warnings are advisory (surfaced non-blocking on the workflow list/detail API).
-- **Output schemas**: path checks and autocomplete for `trigger.payload.*` / `steps.<slug>.result.*` use each node's schema, which comes from a hand-authored `outputSchema` shorthand on the trigger or step (leaves `string`/`number`/`boolean`/`object`/`any`, nested maps, `[item]` arrays; compiled by `outputSchemaCompiler.ts`) or else from the built-in trigger / step-handler schema. The editor's *Output schema* panel can fill the shorthand from the newest run via `GET /ext/workflows/meta/infer-schema/:name` (`schemaSample.ts` + `shared/schemaInference.ts`).
+- **Output schemas**: path checks and autocomplete for `trigger.payload.*` / `steps.<slug>.result.*` use each node's schema, which comes from a hand-authored `outputSchema` shorthand (edited in the field builder, `FieldListEditor` shape mode) on the trigger or step (leaves `string`/`number`/`boolean`/`object`/`any`, nested maps, `[item]` arrays; compiled by `outputSchemaCompiler.ts`) or else from the built-in trigger / step-handler schema. The editor's *Output schema* panel can fill the shorthand from the newest run via `GET /ext/workflows/meta/infer-schema/:name` (`schemaSample.ts` + `shared/schemaInference.ts`).
 - **Frontend autocomplete** (`frontend/src/lib/autocompleteEngine.ts`, `templateScope.ts`): the `{{...}}` editor offers namespaces and built-in functions (sourced from the shared metadata) in value positions, classifies path vs function-argument cursor context, and closes open call parentheses when completing a value inside a call.
 
 ### Extension System

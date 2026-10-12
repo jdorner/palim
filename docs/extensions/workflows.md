@@ -89,6 +89,8 @@ A `humanTask` step asks a person: it creates a task in the [portal](../portal.md
 }
 ```
 
+`form` is a JSON Schema object in the subset the portal renders: text, multi-line text (`multiline: true`), date (`format: "date"`), number, integer, boolean, and choices (`enum`, or `anyOf` of `const` + `title`), each with optional `title`, `description`, `default`, plus the `required` list. The editor edits it as a field list; **Edit as JSON** shows the schema, and a schema with other keywords opens as JSON so nothing is lost.
+
 `title`, `body`, `context` values and assignee entries support `{{template}}` expressions. Without `outcomes`, the task offers approve / reject. On timeout the run fails, or with `onTimeout: "expire"` it continues with `outcome: "expired"`. A task cancelled by a manager fails the run, and a run that fails or is deleted cancels its open tasks. The run page shows the waiting task and, with `hitl:manage`, lets you cancel it.
 
 ### Signals

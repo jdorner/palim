@@ -130,6 +130,8 @@ A workflow with a `portal` trigger appears under **Start** in the portal. People
 }
 ```
 
+`fields` uses the same form subset as a [human task form](extensions/workflows.md#human-tasks): text, multi-line text, date, number, integer, boolean, and choices. In the workflow editor you add them as a field list (name, type, required, label, help text, default, options); **Edit as JSON** shows the schema.
+
 The upload is saved under `uploads/portal/<id>/` in the work directory. The run gets:
 
 | Path | Value |

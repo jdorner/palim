@@ -3,7 +3,7 @@
  * Edit form of a built-in control-flow step: the condition form for `if`, a
  * schema-driven form for the others, or the raw JSON config.
  */
-import { builtinConfigSchema } from "$lib/builtinStepSchemas";
+import { genericFormSchema } from "$lib/builtinStepSchemas";
 import { t } from "$lib/i18n.svelte";
 import {
   applyCfValues,
@@ -15,6 +15,8 @@ import {
 } from "$lib/stepConfig";
 import type { StepDraft } from "$lib/workflowValidation";
 import ConditionForm from "../ConditionForm.svelte";
+import FieldListEditor from "../FieldListEditor.svelte";
+import InfoTip from "../InfoTip.svelte";
 import StepConfigForm from "../StepConfigForm.svelte";
 
 interface Props {
@@ -33,7 +35,24 @@ interface Props {
 let { index, step, editAsJson, validationErrors, template, onUpdateDraftStep, onValidationErrorsChange }: Props =
   $props();
 
-let cfSchema = $derived(builtinConfigSchema(step.type));
+let cfSchema = $derived(genericFormSchema(step.type));
+
+/** Writes the humanTask form, or records why the edited form is invalid (blocks saving). */
+function setForm(form: Record<string, unknown> | undefined) {
+  onUpdateDraftStep(index, (s) => {
+    if (form) s.form = form;
+    else delete s.form;
+  });
+}
+
+function setFormError(error: string | null) {
+  onUpdateDraftStep(index, (s) => {
+    if (error) s.editorFormError = error;
+    else delete s.editorFormError;
+  });
+  const next = withoutError(validationErrors, `steps[${index}].form`);
+  if (next !== validationErrors) onValidationErrorsChange(next);
+}
 let branchLabels = $derived((step.branchLabels as { then?: string; else?: string } | undefined) ?? {});
 
 /** Writes one display-only branch label override of an `if` step. */
@@ -99,12 +118,33 @@ function setBranchLabel(branch: "then" | "else", value: string) {
       i18nScope={{ prefix: `builtinSteps.${step.type}` }}
       values={cfStepConfig(step)}
       onchange={(vals) => {
-        onUpdateDraftStep(index, (s) => applyCfValues(s, vals));
+        // Keep the fields the generic form does not edit (humanTask form).
+        onUpdateDraftStep(index, (s) =>
+          applyCfValues(s, { ...vals, form: s.form, editorFormError: s.editorFormError }),
+        );
         onValidationErrorsChange(revalidateCfStep(validationErrors, index, vals, schema));
       }}
       {...template}
       fieldErrors={stepFieldErrors(validationErrors, index, "flat")}
     />
+    {#if step.type === "humanTask"}
+      <div class="flex flex-col gap-1">
+        <span class="inline-flex items-center gap-1">
+          <span id="human-task-form-label" class="text-xs font-medium text-muted-foreground"
+            >{t("builtinSteps.humanTask.form.title")}</span
+          >
+          <InfoTip text={t("builtinSteps.humanTask.form.description")} />
+        </span>
+        <FieldListEditor
+          id="human-task-form"
+          labelledBy="human-task-form-label"
+          mode="form"
+          value={step.form as Record<string, unknown> | undefined}
+          onChange={setForm}
+          onError={setFormError}
+        />
+      </div>
+    {/if}
   {:else}
     <!-- JSON fallback: all fields except slug/type -->
     <div class="flex flex-col gap-1.5 flex-1 min-h-0">

@@ -11,8 +11,6 @@
   String fields support template autocomplete when autocomplete context is provided.
 -->
 <script lang="ts">
-import { Tooltip } from "bits-ui";
-import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
@@ -30,6 +28,7 @@ import {
   type SchemaProperty,
 } from "$lib/schemaForm";
 import type { OutputSchemas, SlugEdge } from "$lib/templateScope";
+import InfoTip from "./InfoTip.svelte";
 import KeyValueEditor from "./KeyValueEditor.svelte";
 import MultiSelect from "./MultiSelect.svelte";
 import StepConfigForm from "./StepConfigForm.svelte";
@@ -216,28 +215,6 @@ function parseNumberList(raw: string): number[] {
 }
 </script>
 
-{#snippet infoTip(
-  description: string,
-)}
-  <Tooltip.Root delayDuration={0}>
-    <Tooltip.Trigger
-      class="inline-flex items-center pointer-events-auto cursor-help text-muted-foreground/60 hover:text-muted-foreground"
-    >
-      <InfoIcon class="w-4 h-4" />
-    </Tooltip.Trigger>
-    <Tooltip.Portal>
-      <Tooltip.Content
-        class="z-50 max-w-64 rounded-md border border-border px-3 py-2 text-xs text-foreground shadow-md"
-        style="background: hsl(var(--popover));"
-        sideOffset={4}
-        side="top"
-      >
-        {description}
-      </Tooltip.Content>
-    </Tooltip.Portal>
-  </Tooltip.Root>
-{/snippet}
-
 {#snippet fieldLabel(
   key: string,
   label: string,
@@ -246,7 +223,7 @@ function parseNumberList(raw: string): number[] {
   <span class="inline-flex items-center gap-1">
     <label class="text-xs font-medium text-muted-foreground" for="{idPrefix}{key}">{label}</label>
     {#if description}
-      {@render infoTip(description)}
+      <InfoTip text={description} />
     {/if}
   </span>
 {/snippet}
@@ -296,7 +273,7 @@ function parseNumberList(raw: string): number[] {
           <span class="inline-flex items-center gap-1">
             <label class="text-xs font-medium" for="{idPrefix}{key}">{label}</label>
             {#if description}
-              {@render infoTip(description)}
+              <InfoTip text={description} />
             {/if}
           </span>
         </div>
