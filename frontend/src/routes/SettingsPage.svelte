@@ -13,6 +13,7 @@ import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+import { extensions as liveExtensions } from "$lib/extensionStore";
 import { t, tx } from "$lib/i18n.svelte";
 import { modelStore } from "$lib/modelStore.svelte";
 import { settings } from "$lib/settingsStore.svelte";
@@ -102,6 +103,15 @@ async function handleIntentChange(intent: ModelIntent, modelId: string | null) {
   }
   if (intentMessageTimer) clearTimeout(intentMessageTimer);
   intentMessageTimer = setTimeout(() => (intentMessage = null), 3000);
+}
+
+/**
+ * Current runtime warnings of an extension. Read from the app-wide extension
+ * store, which refetches on `extension_schemas_changed`, so warnings stay live
+ * while this page's own list is only loaded once.
+ */
+function warningsOf(ext: ExtensionInfo): string[] {
+  return $liveExtensions.find((e) => e.name === ext.name)?.warnings ?? ext.warnings ?? [];
 }
 
 async function fetchExtensions() {
@@ -359,6 +369,13 @@ $effect(() => {
                       <span title={ext.error} class="text-destructive dark:text-red-400 cursor-help">
                         <WarningIcon class="w-4 h-4" aria-label={t("settings.initError", { error: ext.error })} />
                       </span>
+                    {:else if warningsOf(ext).length > 0}
+                      <span title={warningsOf(ext).join("\n")} class="text-amber-500 cursor-help">
+                        <WarningIcon
+                          class="w-4 h-4"
+                          aria-label={t("settings.extensionWarnings", { count: warningsOf(ext).length })}
+                        />
+                      </span>
                     {/if}
                   </span>
                 </TableCell>
@@ -391,6 +408,19 @@ $effect(() => {
                   <TableCell colspan={7} class="p-0! bg-muted/30">
                     <div in:fly={{ y: -10, duration: 300 }} out:slide={{ duration: 200 }}>
                       <div class="p-4 space-y-6">
+                        {#if warningsOf(ext).length > 0}
+                          <div
+                            role="alert"
+                            class="flex items-start gap-2 px-3 py-2 rounded-md border border-amber-500/50 bg-amber-500/10 text-sm text-amber-500"
+                          >
+                            <WarningIcon class="w-4 h-4 mt-0.5 shrink-0" aria-hidden="true" />
+                            <ul class="space-y-0.5">
+                              {#each warningsOf(ext) as warning (warning)}
+                                <li>{warning}</li>
+                              {/each}
+                            </ul>
+                          </div>
+                        {/if}
                         {#if settingsLoading}
                           <LoadingIndicator />
                         {:else if settingsData}

@@ -46,6 +46,8 @@ export interface LoadedExtension {
   state: ExtensionState;
   /** Error message from the last failed initialization attempt, or null if healthy. */
   error?: string | null;
+  /** Runtime warnings reported via `ctx.status.setWarnings()`, cleared on deactivation. */
+  warnings?: string[];
   /** Compiled UI pages (module URLs or build errors), set on activation when the manifest declares pages. */
   uiPages?: ExtensionUiPage[];
   /** UI translation catalogs from the extension's `locales/` directory, loaded on activation. */

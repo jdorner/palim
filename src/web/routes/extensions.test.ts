@@ -37,6 +37,7 @@ function createMockRegistry(settingsSchema: Record<string, unknown> | null): Ext
         settingsSchema,
         secretsSchema: null,
         error: null,
+        warnings: [],
         ui: null,
       },
     ],

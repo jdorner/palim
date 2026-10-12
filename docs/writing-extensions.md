@@ -30,6 +30,7 @@ Extensions are self-contained modules that hook into the agent system. Each exte
   - [Skills (`ctx.skills`)](#skills-ctxskills)
   - [Step Types (`ctx.stepTypes`)](#step-types-ctxsteptypes)
   - [Dynamic Items (`ctx.dynamicItems`)](#dynamic-items-ctxdynamicitems)
+  - [Status (`ctx.status`)](#status-ctxstatus)
   - [State](#state)
   - [Internal (Core Extensions Only)](#internal-core-extensions-only)
 - [Configuration](#configuration)
@@ -428,6 +429,22 @@ Both accept an optional model `intent` (`"chat"`, `"vision"`, `"embedding"`) to 
 | `ctx.dynamicItems.register(name, fn)` | Register a dynamic item provider for settings and step type schema enrichment |
 | `ctx.dynamicItems.registerDefault(name, fn)` | Register a dynamic default provider (replaces a string property's `default`) |
 | `ctx.dynamicItems.invalidate()` | Tell connected clients the provider values changed, so open forms and step dropdowns refetch them |
+
+### Status (`ctx.status`)
+
+| Method | Description |
+| --- | --- |
+| `ctx.status.setWarnings(warnings)` | Replace this extension's runtime warnings; `[]` clears them |
+
+Use warnings for problems that need operator attention while the extension keeps running, such as a configured resource that no longer exists. They appear as a banner at the top of the extension's settings and as an amber icon in the extension list. Unlike an `initialize()` error, they don't mark the extension as failed. Warnings live in memory only and are cleared when the extension is deactivated. Blank entries are dropped and duplicates collapsed, and connected clients refresh only when the list actually changes, so calling it repeatedly with the same list is cheap. Like log output, warnings are not translated.
+
+```typescript
+function checkWorkflow(ctx: ExtensionContext): void {
+  const name = ctx.config.get<string>("WORKFLOW", "");
+  const missing = name !== "" && !ctx.workflows.names().includes(name);
+  ctx.status.setWarnings(missing ? [`Workflow "${name}" does not exist.`] : []);
+}
+```
 
 ### State
 

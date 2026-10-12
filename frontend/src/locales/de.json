@@ -626,6 +626,8 @@
     "expandThinkingHint": "Den Denkprozess des Modells in Chat-Nachrichten ausgeklappt anzeigen",
     "extensionDisabled": "{name} deaktiviert",
     "extensionEnabled": "{name} aktiviert",
+    "extensionWarnings_one": "{count} Warnung",
+    "extensionWarnings_other": "{count} Warnungen",
     "initError": "Initialisierungsfehler: {error}",
     "intentEmbedding": "Embedding",
     "intentEmbeddingHint": "Wird für Text-Embeddings und semantische Suche verwendet",

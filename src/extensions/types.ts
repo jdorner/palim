@@ -1072,6 +1072,27 @@ export interface ExtensionContext {
   };
 
   // -------------------------------------------------------------------------
+  // Status (settings UI)
+  // -------------------------------------------------------------------------
+
+  /** Runtime status shown to operators in the extension settings. */
+  readonly status: {
+    /**
+     * Replace this extension's current warnings.
+     *
+     * Warnings describe a problem that needs operator attention while the
+     * extension keeps running (e.g. a configured workflow was deleted). They
+     * are listed in the extension settings and marked in the extension list.
+     * Pass an empty array to clear them. Warnings are kept in memory only,
+     * cleared when the extension is deactivated, and connected clients refresh
+     * on every change. Blank entries are dropped and duplicates collapsed.
+     *
+     * @param warnings - Human-readable warning messages (English, like log output)
+     */
+    setWarnings(warnings: string[]): void;
+  };
+
+  // -------------------------------------------------------------------------
   // Internal (privileged, core extensions only)
   // -------------------------------------------------------------------------
 
