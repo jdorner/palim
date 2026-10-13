@@ -399,10 +399,14 @@ $effect(() => {
                     </span>
                     {#if wf.trigger.ref && triggerRoute(wf.trigger.type)}
                       <a href="#/{triggerRoute(wf.trigger.type)}" class="text-left">
-                        <span class="block text-muted-foreground text-xs font-mono mt-0.5 break-all">{wf.trigger.ref}</span>
+                        <span class="block text-muted-foreground text-xs font-mono mt-0.5 break-all"
+                          >{wf.trigger.ref}</span
+                        >
                       </a>
                     {:else if wf.trigger.ref}
-                      <span class="block text-muted-foreground text-xs font-mono mt-0.5 break-all">{wf.trigger.ref}</span>
+                      <span class="block text-muted-foreground text-xs font-mono mt-0.5 break-all"
+                        >{wf.trigger.ref}</span
+                      >
                     {/if}
                   </TableCell>
                   <TableCell class="text-center">
