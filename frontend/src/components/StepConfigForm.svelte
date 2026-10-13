@@ -4,8 +4,10 @@
   Renders form fields automatically from a JSON Schema (derived from the
   extension's TypeBox handler schema). Supports text, number, boolean, enum,
   textarea, multiselect, tags, and password field types, plus complex fields:
-  number lists, key/value records, nested objects and lists of objects (the
-  latter two render this form recursively).
+  number and string lists, key/value records, nested objects, discriminated
+  unions, and lists and records of objects (rendering this form recursively).
+  Loose unions (e.g. `string | object`) are edited as text; a structured value
+  in such a field falls back to the JSON view.
 
   Field descriptions are shown via an (i) icon with a CSS tooltip on hover.
   String fields support template autocomplete when autocomplete context is provided.
@@ -17,13 +19,16 @@ import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import { t, tx } from "$lib/i18n.svelte";
 import { type CoreKey, translateCore } from "$lib/i18nCore";
 import {
+  applyFormEdit,
   buildInitialValues,
   getAvailableItems,
   getEnumOptions,
+  getFormSchema,
   getInputType,
   getLabel,
   getProperties,
   getRecordValueSchema,
+  hasNonTextValue,
   parseTagList,
   type SchemaProperty,
 } from "$lib/schemaForm";
@@ -31,6 +36,7 @@ import type { OutputSchemas, SlugEdge } from "$lib/templateScope";
 import InfoTip from "./InfoTip.svelte";
 import KeyValueEditor from "./KeyValueEditor.svelte";
 import MultiSelect from "./MultiSelect.svelte";
+import ObjectRecordEditor from "./ObjectRecordEditor.svelte";
 import StepConfigForm from "./StepConfigForm.svelte";
 import TemplateAutocomplete from "./TemplateAutocomplete.svelte";
 
@@ -244,7 +250,11 @@ function parseNumberList(raw: string): number[] {
     {@const description = fieldDescription(key, prop)}
 
     <div class="space-y-1">
-      {#if inputType === "boolean" && !requiredKeys.has(key) && prop.default === undefined}
+      {#if hasNonTextValue(prop, formValues[key])}
+        <!-- A loose union holding a structured value: text inputs would lose it. -->
+        {@render fieldLabel(key, label, description)}
+        <p class="text-xs text-muted-foreground italic">{t("schemaForm.complexField")}</p>
+      {:else if inputType === "boolean" && !requiredKeys.has(key) && prop.default === undefined}
         <!-- Optional boolean without a default has three states: unset, true, false.
              A toggle cannot express "unset", so render a select instead. -->
         {@render fieldLabel(key, label, description)}
@@ -458,6 +468,63 @@ function parseNumberList(raw: string): number[] {
           placeholder="200, 201, ..."
           oninput={(e) => updateValue(key, parseNumberList(e.currentTarget.value))}
         >
+      {:else if inputType === "stringlist"}
+        {@render fieldLabel(key, label, description)}
+        <div class="space-y-1.5">
+          {#each listValue(key) as item, i (i)}
+            <div class="flex items-start gap-1.5">
+              <textarea
+                bind:this={fieldRefs[`${key}[${i}]`]}
+                aria-label="{label} {i + 1}"
+                class="block flex-1 min-w-0 rounded-md border border-border bg-background px-2 py-1.5 text-xs font-mono leading-relaxed focus:outline-none focus:ring-2 focus:ring-ring resize-y"
+                rows={2}
+                value={String(item ?? "")}
+                oninput={(e) =>
+                  updateValue(
+                    key,
+                    listValue(key).map((v, j) => (j === i ? e.currentTarget.value : v)),
+                  )}
+              ></textarea>
+              <button
+                type="button"
+                class="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive hover:bg-muted"
+                aria-label={t("schemaForm.removeItem", { index: i + 1 })}
+                onclick={() =>
+                  updateValue(
+                    key,
+                    listValue(key).filter((_, j) => j !== i),
+                  )}
+              >
+                <TrashIcon class="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            </div>
+            {#if autocompleteEnabled}
+              <TemplateAutocomplete
+                targetElement={fieldRefs[`${key}[${i}]`] ?? null}
+                steps={steps ?? []}
+                currentStepIndex={currentStepIndex ?? 0}
+                secretKeys={secretKeys ?? []}
+                variableKeys={variableKeys ?? []}
+                {outputSchemas}
+                {edges}
+                onChange={(newValue) =>
+                  updateValue(
+                    key,
+                    listValue(key).map((v, j) => (j === i ? newValue : v)),
+                  )}
+              />
+            {/if}
+          {/each}
+          <button
+            id="{idPrefix}{key}"
+            type="button"
+            class="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
+            onclick={() => updateValue(key, [...listValue(key), ""])}
+          >
+            <PlusIcon class="w-3.5 h-3.5" aria-hidden="true" />
+            {t("schemaForm.addItem")}
+          </button>
+        </div>
       {:else if inputType === "keyvalue"}
         {@render fieldLabel(key, label, description)}
         <KeyValueEditor
@@ -473,13 +540,31 @@ function parseNumberList(raw: string): number[] {
           {outputSchemas}
           {edges}
         />
-      {:else if inputType === "object"}
+      {:else if inputType === "objectrecord"}
+        {@render fieldLabel(key, label, description)}
+        <ObjectRecordEditor
+          id="{idPrefix}{key}"
+          valueSchema={getRecordValueSchema(prop)!}
+          value={formValues[key] as Record<string, unknown> | undefined}
+          onchange={(val) => updateValue(key, val)}
+          readonly={isReadonly}
+          {steps}
+          {currentStepIndex}
+          {secretKeys}
+          {variableKeys}
+          {outputSchemas}
+          {edges}
+          fieldErrors={nestedErrors(`${key}.`)}
+          idPrefix="{idPrefix}{key}-"
+          i18nScope={nestedScope(key)}
+        />
+      {:else if inputType === "object" || inputType === "variant"}
         {@render fieldLabel(key, label, description)}
         <div class="rounded-md border border-border bg-muted/40 p-2">
           <StepConfigForm
-            schema={prop}
+            schema={getFormSchema(prop, formValues[key])}
             values={(formValues[key] ?? {}) as Record<string, unknown>}
-            onchange={(val) => updateValue(key, val)}
+            onchange={(val) => updateValue(key, applyFormEdit(prop, formValues[key], val))}
             readonly={isReadonly}
             {steps}
             {currentStepIndex}
@@ -511,12 +596,12 @@ function parseNumberList(raw: string): number[] {
                 <TrashIcon class="w-3.5 h-3.5" aria-hidden="true" />
               </button>
               <StepConfigForm
-                schema={itemSchema}
+                schema={getFormSchema(itemSchema, item)}
                 values={(item ?? {}) as Record<string, unknown>}
                 onchange={(val) =>
                   updateValue(
                     key,
-                    listValue(key).map((v, j) => (j === i ? val : v)),
+                    listValue(key).map((v, j) => (j === i ? applyFormEdit(itemSchema, v, val) : v)),
                   )}
                 readonly={isReadonly}
                 {steps}
@@ -535,7 +620,8 @@ function parseNumberList(raw: string): number[] {
             id="{idPrefix}{key}"
             type="button"
             class="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-            onclick={() => updateValue(key, [...listValue(key), buildInitialValues(itemSchema)])}
+            onclick={() =>
+              updateValue(key, [...listValue(key), buildInitialValues(getFormSchema(itemSchema, undefined))])}
           >
             <PlusIcon class="w-3.5 h-3.5" aria-hidden="true" />
             {t("schemaForm.addItem")}

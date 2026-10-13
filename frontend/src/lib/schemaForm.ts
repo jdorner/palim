@@ -19,9 +19,12 @@ export type SchemaInputType =
   | "multiselect"
   | "tags"
   | "numberlist"
+  | "stringlist"
   | "keyvalue"
   | "object"
   | "objectlist"
+  | "objectrecord"
+  | "variant"
   | "unsupported";
 
 /** A single property descriptor from a JSON Schema `properties` object. */
@@ -83,17 +86,23 @@ export function getLabel(key: string, prop: SchemaProperty): string {
 /**
  * Determine the appropriate input type for rendering a schema property.
  *
- * @param prop - The property schema object
+ * @param schema - The property schema object
  * @returns The input type to use for rendering
  */
-export function getInputType(prop: SchemaProperty): SchemaInputType {
+export function getInputType(schema: SchemaProperty): SchemaInputType {
+  const prop = normalizeLooseUnion(schema);
   if (prop.sensitive === true) return "password";
   if (prop.type === "array" && Array.isArray(prop.availableItems)) return "multiselect";
-  if (prop.type === "array" && isSimpleStringArray(prop)) return "tags";
+  if (prop.type === "array" && isSimpleStringArray(prop)) {
+    return normalizeLooseUnion(prop.items as SchemaProperty).multiline === true ? "stringlist" : "tags";
+  }
   if (prop.type === "array" && isNumberArray(prop)) return "numberlist";
-  if (prop.type === "array" && isObjectWithProperties(prop.items)) return "objectlist";
+  if (prop.type === "array" && isFormObject(prop.items)) return "objectlist";
   if (isObjectWithProperties(prop)) return "object";
-  if (isPrimitive(getRecordValueSchema(prop))) return "keyvalue";
+  if (getVariants(prop)) return "variant";
+  const recordValue = getRecordValueSchema(prop);
+  if (isPrimitive(recordValue)) return "keyvalue";
+  if (isFormObject(recordValue)) return "objectrecord";
   if (isEnum(prop)) return "enum";
   if (prop.type === "boolean") return "boolean";
   if (prop.type === "number" || prop.type === "integer") return "number";
@@ -114,8 +123,8 @@ export function getInputType(prop: SchemaProperty): SchemaInputType {
  */
 function isSimpleStringArray(prop: SchemaProperty): boolean {
   const items = prop.items as SchemaProperty | undefined;
-  if (!items) return false;
-  return items.type === "string";
+  if (!items || typeof items !== "object") return false;
+  return normalizeLooseUnion(items).type === "string";
 }
 
 /**
@@ -140,6 +149,173 @@ function isObjectWithProperties(prop: unknown): boolean {
   if (!prop || typeof prop !== "object") return false;
   const p = prop as SchemaProperty;
   return p.type === "object" && !!p.properties && typeof p.properties === "object";
+}
+
+/**
+ * Check if a schema renders as a nested form: an object with named properties
+ * or a discriminated union of such objects.
+ *
+ * @param prop - The schema to check (may be undefined)
+ * @returns True if a nested form can edit values of this schema
+ */
+function isFormObject(prop: unknown): boolean {
+  if (!prop || typeof prop !== "object") return false;
+  return isObjectWithProperties(prop) || getVariants(prop as SchemaProperty) !== undefined;
+}
+
+/**
+ * Collapse a "loose" union to its plain string member, so it renders as a
+ * text field. Typical case: a value the backend accepts as `string | object |
+ * array` (TypeBox `Type.Union`), where text is the common form. Annotations of
+ * the union (title, description, multiline, ...) take precedence over the
+ * member's. Nested unions are searched; enums and unions without a plain
+ * string member are returned unchanged. The result is marked `looseUnion`, so
+ * the form can fall back to JSON editing for existing non-string values.
+ *
+ * @param prop - The schema to normalize
+ * @returns The string member merged with the union's annotations, or `prop`
+ */
+export function normalizeLooseUnion(prop: SchemaProperty): SchemaProperty {
+  if (!Array.isArray(prop.anyOf) || isEnum(prop)) return prop;
+  const member = findStringMember(prop.anyOf as SchemaProperty[]);
+  if (!member) return prop;
+  const { anyOf: _, ...annotations } = prop;
+  return { ...member, ...annotations, type: "string", looseUnion: true };
+}
+
+/**
+ * Find the first plain (non-const) string member of a union, searching nested
+ * unions.
+ *
+ * @param members - The union members
+ * @returns The string member, or undefined
+ */
+function findStringMember(members: SchemaProperty[]): SchemaProperty | undefined {
+  for (const m of members) {
+    if (!m || typeof m !== "object") continue;
+    if (m.type === "string" && !("const" in m)) return m;
+    if (Array.isArray(m.anyOf) && !isEnum(m)) {
+      const nested = findStringMember(m.anyOf as SchemaProperty[]);
+      if (nested) return nested;
+    }
+  }
+  return undefined;
+}
+
+/**
+ * Whether the current value of a field cannot be shown in its text inputs
+ * because a loose union (see {@link normalizeLooseUnion}) holds a structured
+ * value: the field itself, its list items, or its record values.
+ *
+ * @param prop - The normalized property schema
+ * @param value - The current value
+ * @returns True when the field must be edited as JSON
+ */
+export function hasNonTextValue(prop: SchemaProperty, value: unknown): boolean {
+  const structured = (v: unknown) => v !== null && typeof v === "object";
+  if (value === undefined || value === null) return false;
+  const items = prop.items as SchemaProperty | undefined;
+  if (prop.type === "array" && items?.looseUnion === true) return Array.isArray(value) && value.some(structured);
+  if (getRecordValueSchema(prop)?.looseUnion === true)
+    return structured(value) && Object.values(value).some(structured);
+  return prop.looseUnion === true && structured(value);
+}
+
+/** One alternative of a discriminated union. */
+export interface SchemaVariant {
+  /** The discriminator value selecting this alternative. */
+  value: string;
+  /** The alternative's object schema. */
+  schema: SchemaProperty;
+}
+
+/**
+ * Detect a discriminated union: an `anyOf` of objects with named properties
+ * that all declare the same property with a distinct `const` value (e.g.
+ * `type: "choice" | "score"`).
+ *
+ * @param prop - The property schema
+ * @returns The discriminator key and the alternatives, or undefined
+ */
+export function getVariants(prop: SchemaProperty): { discriminator: string; variants: SchemaVariant[] } | undefined {
+  const anyOf = prop.anyOf as SchemaProperty[] | undefined;
+  if (!Array.isArray(anyOf) || anyOf.length < 2 || !anyOf.every(isObjectWithProperties)) return undefined;
+  const first = getProperties(anyOf[0]!);
+  for (const key of Object.keys(first)) {
+    const values = anyOf.map((member) => getProperties(member)[key]?.const);
+    if (!values.every((v) => typeof v === "string")) continue;
+    if (new Set(values).size !== values.length) continue;
+    return {
+      discriminator: key,
+      variants: anyOf.map((member, i) => ({ value: values[i] as string, schema: member })),
+    };
+  }
+  return undefined;
+}
+
+/**
+ * Object schema of the nested form that edits a value of `prop`. For a
+ * discriminated union this is the alternative selected by the value's
+ * discriminator (the first one when unset), with the discriminator turned into
+ * an enum over all alternatives, so the form offers switching. Other schemas
+ * are returned unchanged.
+ *
+ * @param prop - An object schema or discriminated union
+ * @param value - The current value
+ * @returns The object schema to render
+ */
+export function getFormSchema(prop: SchemaProperty, value: unknown): SchemaProperty {
+  const info = getVariants(prop);
+  if (!info) return prop;
+  const { discriminator, variants } = info;
+  const current = (value as Record<string, unknown> | undefined)?.[discriminator];
+  const selected = variants.find((v) => v.value === current) ?? variants[0]!;
+  const { [discriminator]: discriminatorProp, ...rest } = getProperties(selected.schema);
+  const required = Array.isArray(selected.schema.required) ? (selected.schema.required as string[]) : [];
+  return {
+    ...selected.schema,
+    properties: {
+      [discriminator]: {
+        title: discriminatorProp?.title,
+        description: discriminatorProp?.description,
+        anyOf: variants.map((v) => ({ const: v.value })),
+      },
+      ...rest,
+    },
+    required: [discriminator, ...required.filter((k) => k !== discriminator)],
+  };
+}
+
+/**
+ * Apply an edit to a value of `prop` (see {@link getFormSchema}). When the
+ * discriminator of a union changed, the value is rebuilt for the new
+ * alternative: fields that render the same way in both are kept, the rest is
+ * dropped and required fields are seeded.
+ *
+ * @param prop - An object schema or discriminated union
+ * @param previous - The value before the edit
+ * @param next - The edited value
+ * @returns The value to store
+ */
+export function applyFormEdit(
+  prop: SchemaProperty,
+  previous: unknown,
+  next: Record<string, unknown>,
+): Record<string, unknown> {
+  const info = getVariants(prop);
+  if (!info) return next;
+  const before = (previous as Record<string, unknown> | undefined)?.[info.discriminator];
+  if (before === next[info.discriminator]) return next;
+  const oldProps = getProperties(getFormSchema(prop, previous));
+  const newSchema = getFormSchema(prop, next);
+  const newProps = getProperties(newSchema);
+  const kept: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(next)) {
+    const oldProp = oldProps[key];
+    const newProp = newProps[key];
+    if (oldProp && newProp && getInputType(oldProp) === getInputType(newProp)) kept[key] = value;
+  }
+  return buildInitialValues(newSchema, kept);
 }
 
 /**
@@ -168,10 +344,10 @@ export function getRecordValueSchema(prop: SchemaProperty): SchemaProperty | und
   const pattern = prop.patternProperties as Record<string, SchemaProperty> | undefined;
   if (pattern && typeof pattern === "object") {
     const values = Object.values(pattern);
-    return values.length === 1 ? values[0] : undefined;
+    return values.length === 1 ? normalizeLooseUnion(values[0]!) : undefined;
   }
   const additional = prop.additionalProperties;
-  if (additional && typeof additional === "object") return additional as SchemaProperty;
+  if (additional && typeof additional === "object") return normalizeLooseUnion(additional as SchemaProperty);
   return undefined;
 }
 
@@ -228,13 +404,33 @@ export function getEmptyValue(prop: SchemaProperty): unknown {
 }
 
 /**
- * Extract the properties map from a JSON Schema object.
+ * Extract the properties map from a JSON Schema object, normalized for form
+ * rendering (loose unions become strings, see {@link normalizeLooseUnion}).
  *
  * @param schema - The root JSON Schema object
  * @returns Record of property key to property schema
  */
 export function getProperties(schema: Record<string, unknown>): Record<string, SchemaProperty> {
-  return (schema.properties ?? {}) as Record<string, SchemaProperty>;
+  const properties = (schema.properties ?? {}) as Record<string, SchemaProperty>;
+  const result: Record<string, SchemaProperty> = {};
+  for (const [key, prop] of Object.entries(properties)) result[key] = normalizeProperty(prop);
+  return result;
+}
+
+/**
+ * Normalize a property for form rendering: loose unions become strings (see
+ * {@link normalizeLooseUnion}), also as array items.
+ *
+ * @param prop - The property schema
+ * @returns The normalized schema
+ */
+function normalizeProperty(prop: SchemaProperty): SchemaProperty {
+  const normalized = normalizeLooseUnion(prop);
+  const items = normalized.items as SchemaProperty | undefined;
+  if (normalized.type !== "array" || !items || typeof items !== "object") return normalized;
+  const normalizedItems = normalizeLooseUnion(items);
+  if (normalizedItems === items) return normalized;
+  return { ...normalized, items: normalizedItems, looseUnion: true };
 }
 
 /**

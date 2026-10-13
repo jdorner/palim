@@ -1,10 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
+  applyFormEdit,
   buildInitialValues,
   getAvailableItems,
   getEmptyValue,
+  getFormSchema,
   getInputType,
+  getProperties,
   getRecordValueSchema,
+  getVariants,
+  hasNonTextValue,
   parseTagList,
   type SchemaProperty,
 } from "./schemaForm";
@@ -193,5 +198,105 @@ describe("parseTagList", () => {
 
   test("keeps an unclosed expression in one entry while typing", () => {
     expect(parseTagList("alice, {{ var.X, ")).toEqual(["alice", "{{ var.X,"]);
+  });
+});
+
+/** `string | record | array`, as a TypeBox union serializes. */
+const content: SchemaProperty = {
+  anyOf: [
+    { type: "string", minLength: 1 },
+    { type: "object", patternProperties: { "^(.*)$": {} } },
+    { type: "array", items: {} },
+  ],
+};
+
+const choice: SchemaProperty = {
+  type: "object",
+  required: ["type", "instructions", "criteria"],
+  properties: {
+    type: { type: "string", const: "choice" },
+    instructions: content,
+    criteria: { type: "object", patternProperties: { "^(.*)$": { anyOf: [content, { type: "null" }] } } },
+  },
+};
+
+const score: SchemaProperty = {
+  type: "object",
+  required: ["type", "instructions", "criteria"],
+  properties: {
+    type: { type: "string", const: "score" },
+    instructions: content,
+    criteria: { type: "array", items: { ...content, multiline: true } },
+  },
+};
+
+const question: SchemaProperty = { anyOf: [choice, score] };
+
+describe("loose unions", () => {
+  test("a union with a string member renders as text, keeping the union's annotations", () => {
+    const props = getProperties({ properties: { a: { ...content, title: "A", multiline: true } } });
+    expect(props.a).toMatchObject({ type: "string", minLength: 1, title: "A", looseUnion: true });
+    expect(getInputType(props.a!)).toBe("textarea");
+  });
+
+  test("nested unions are searched, enums are left alone", () => {
+    expect(getInputType({ anyOf: [content, { type: "null" }] })).toBe("text");
+    expect(getInputType({ anyOf: [{ const: "a" }, { const: "b" }] })).toBe("enum");
+  });
+
+  test("records and lists of loose unions become key/value and list fields", () => {
+    const props = getProperties(choice);
+    expect(getInputType(props.criteria!)).toBe("keyvalue");
+    expect(getInputType(getProperties(score).criteria!)).toBe("stringlist");
+    expect(getInputType({ type: "array", items: content })).toBe("tags");
+  });
+
+  test("structured values fall back to JSON editing", () => {
+    const props = getProperties(choice);
+    expect(hasNonTextValue(props.instructions!, "text")).toBe(false);
+    expect(hasNonTextValue(props.instructions!, { a: 1 })).toBe(true);
+    expect(hasNonTextValue(props.criteria!, { a: "x", b: null })).toBe(false);
+    expect(hasNonTextValue(props.criteria!, { a: ["x"] })).toBe(true);
+    const levels = getProperties(score).criteria!;
+    expect(hasNonTextValue(levels, ["a", "b"])).toBe(false);
+    expect(hasNonTextValue(levels, ["a", { b: 1 }])).toBe(true);
+    expect(hasNonTextValue({ type: "string" }, { a: 1 })).toBe(false);
+  });
+});
+
+describe("discriminated unions", () => {
+  test("are detected by a shared const property", () => {
+    expect(getInputType(question)).toBe("variant");
+    expect(getVariants(question)).toMatchObject({
+      discriminator: "type",
+      variants: [{ value: "choice" }, { value: "score" }],
+    });
+    expect(getVariants({ anyOf: [choice, choice] })).toBeUndefined();
+  });
+
+  test("records and lists of them render nested forms", () => {
+    expect(getInputType({ type: "object", patternProperties: { "^(.*)$": question } })).toBe("objectrecord");
+    expect(getInputType({ type: "array", items: question })).toBe("objectlist");
+  });
+
+  test("the form schema follows the selected alternative, discriminator first as an enum", () => {
+    const schema = getFormSchema(question, { type: "score" });
+    expect(Object.keys(getProperties(schema))).toEqual(["type", "instructions", "criteria"]);
+    expect(getInputType(getProperties(schema).type!)).toBe("enum");
+    expect(getInputType(getProperties(schema).criteria!)).toBe("stringlist");
+    expect(getInputType(getProperties(getFormSchema(question, undefined)).criteria!)).toBe("keyvalue");
+    expect(buildInitialValues(getFormSchema(question, undefined))).toEqual({
+      type: "choice",
+      instructions: "",
+      criteria: {},
+    });
+  });
+
+  test("switching the alternative keeps compatible fields only", () => {
+    const before = { type: "choice", instructions: "Pick one", criteria: { a: "A" } };
+    const next = applyFormEdit(question, before, { ...before, type: "score" });
+    expect(next).toEqual({ type: "score", instructions: "Pick one", criteria: [] });
+    const edit = { ...before, instructions: "Changed" };
+    expect(applyFormEdit(question, before, edit)).toBe(edit);
   });
 });

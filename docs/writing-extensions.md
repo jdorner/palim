@@ -1216,7 +1216,15 @@ The form renderer uses TypeBox annotations on schema properties to determine lab
 | `Type.Union([Type.Literal(...), ...])` | Select dropdown |
 | `Type.Array(Type.String())` | Comma-separated text input ("tags") |
 | `Type.Array(Type.String())` with `dynamicItems` or `availableItems` | Multiselect |
-| Complex types (objects, arrays of objects) | Not supported in form — user is directed to JSON editor |
+| `Type.Array(Type.String({ multiline: true }))` | One textarea per item, with add/remove |
+| `Type.Array(Type.Number())` | Comma-separated number input |
+| `Type.Record(Type.String(), <primitive>)` | Key/value rows |
+| `Type.Object({...})` | Nested form |
+| `Type.Array(Type.Object({...}))` | List of nested forms, with add/remove |
+| `Type.Record(Type.String(), Type.Object({...}))` | One card per key (key input + nested form) |
+| `Type.Union([Type.Object({ type: Type.Literal("a"), ... }), ...])` (discriminated union) | Type select + the fields of the selected alternative; switching keeps fields that render the same way |
+| `Type.Union([Type.String(), <object or array>, ...])` ("loose" union) | The string member's input (union annotations such as `multiline` apply); a structured value shows a hint to use the JSON view |
+| Anything else | Not supported in form — user is directed to the JSON view |
 
 **Template autocomplete** is automatically enabled on text and textarea fields. Typing `{{` opens a suggestion popup with available template expressions (trigger payload, step results, secrets, env vars).
 
