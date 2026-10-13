@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { groupWorkflows, readCollapsedGroups, sectionKey, writeCollapsedGroups } from "./workflowGroups";
+import { groupWorkflows, readCollapsedGroups, sectionKey, sumRunCounts, writeCollapsedGroups } from "./workflowGroups";
 
 type Wf = { name: string; group?: string };
 
@@ -27,6 +27,21 @@ describe("groupWorkflows", () => {
 
   test("returns no sections for an empty list", () => {
     expect(groupWorkflows<Wf>([])).toEqual([]);
+  });
+});
+
+describe("sumRunCounts", () => {
+  test("sums the run counters", () => {
+    expect(
+      sumRunCounts([
+        { activeRuns: 1, failedRuns: 0, completedRuns: 5 },
+        { activeRuns: 2, failedRuns: 3, completedRuns: 7 },
+      ]),
+    ).toEqual({ activeRuns: 3, failedRuns: 3, completedRuns: 12 });
+  });
+
+  test("returns zeros for an empty section", () => {
+    expect(sumRunCounts([])).toEqual({ activeRuns: 0, failedRuns: 0, completedRuns: 0 });
   });
 });
 

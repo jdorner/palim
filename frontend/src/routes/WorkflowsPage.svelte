@@ -17,7 +17,14 @@ import { t } from "$lib/i18n.svelte";
 import { type CoreKey, translateCore } from "$lib/i18nCore";
 import { automationStyle } from "$lib/utils";
 import { warningLocation } from "$lib/workflowDetail";
-import { groupWorkflows, readCollapsedGroups, sectionKey, writeCollapsedGroups } from "$lib/workflowGroups";
+import {
+  groupWorkflows,
+  readCollapsedGroups,
+  sectionKey,
+  sumRunCounts,
+  type WorkflowRunCounts,
+  writeCollapsedGroups,
+} from "$lib/workflowGroups";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import { navigate } from "../router";
 
@@ -158,6 +165,27 @@ $effect(() => {
   </button>
 {/snippet}
 
+{#snippet runCount(
+  value: number,
+  color: string,
+)}
+  {#if value > 0 && color}
+    <span class="font-medium {color}">{value}</span>
+  {:else}
+    <span class="text-muted-foreground">{value}</span>
+  {/if}
+{/snippet}
+
+{#snippet cardSubtotals(
+  totals: WorkflowRunCounts,
+)}
+  <div class="flex flex-wrap items-center gap-x-4 gap-y-1 pl-5 text-xs text-muted-foreground">
+    <span>{t("workflows.activeLabel")} {@render runCount(totals.activeRuns, "text-blue-500")}</span>
+    <span>{t("workflows.failedLabel")} {@render runCount(totals.failedRuns, "text-red-500")}</span>
+    <span>{t("workflows.completedLabel", { count: totals.completedRuns })}</span>
+  </div>
+{/snippet}
+
 <div class="space-y-4">
   {#if loading}
     <LoadingIndicator />
@@ -178,7 +206,10 @@ $effect(() => {
     <div class="responsive-cards">
       {#each sections as section (sectionKey(section.group))}
         {#if showGroupHeaders}
-          <div class="pt-2">{@render groupHeader(section.group, section.items.length)}</div>
+          <div class="space-y-1 pt-2">
+            {@render groupHeader(section.group, section.items.length)}
+            {@render cardSubtotals(sumRunCounts(section.items))}
+          </div>
         {/if}
         {#if !isCollapsed(section.group)}
           {#each section.items as wf (wf.name)}
@@ -298,22 +329,31 @@ $effect(() => {
 
     <!-- Desktop: Table layout -->
     <div class="responsive-table rounded-md border border-border">
+      <!-- Explicit widths on all columns but Name (which takes the remaining space) keep the
+           layout stable when group sections are collapsed and their rows' content disappears. -->
       <Table>
         <TableHeader class="bg-muted/30">
           <TableRow>
             <TableHead>{t("common.name")}</TableHead>
-            <TableHead>{t("workflows.colTrigger")}</TableHead>
-            <TableHead class="text-center">{t("workflows.colActive")}</TableHead>
-            <TableHead class="text-center">{t("workflows.colFailed")}</TableHead>
-            <TableHead class="text-center">{t("workflows.colCompleted")}</TableHead>
-            <TableHead class="text-center">{t("common.actions")}</TableHead>
+            <TableHead class="w-44">{t("workflows.colTrigger")}</TableHead>
+            <TableHead class="w-24 text-center">{t("workflows.colActive")}</TableHead>
+            <TableHead class="w-24 text-center">{t("workflows.colFailed")}</TableHead>
+            <TableHead class="w-24 text-center">{t("workflows.colCompleted")}</TableHead>
+            <TableHead class="w-36 text-center xl:w-64">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {#each sections as section (sectionKey(section.group))}
             {#if showGroupHeaders}
+              {@const totals = sumRunCounts(section.items)}
               <TableRow class="bg-muted/20 hover:bg-muted/30">
-                <TableCell colspan={6}>{@render groupHeader(section.group, section.items.length)}</TableCell>
+                <TableCell colspan={2}>{@render groupHeader(section.group, section.items.length)}</TableCell>
+                <TableCell class="text-center text-sm"
+                  >{@render runCount(totals.activeRuns, "text-blue-500")}</TableCell
+                >
+                <TableCell class="text-center text-sm">{@render runCount(totals.failedRuns, "text-red-500")}</TableCell>
+                <TableCell class="text-center text-sm">{@render runCount(totals.completedRuns, "")}</TableCell>
+                <TableCell></TableCell>
               </TableRow>
             {/if}
             {#if !isCollapsed(section.group)}
@@ -359,10 +399,10 @@ $effect(() => {
                     </span>
                     {#if wf.trigger.ref && triggerRoute(wf.trigger.type)}
                       <a href="#/{triggerRoute(wf.trigger.type)}" class="text-left">
-                        <span class="block text-muted-foreground text-xs font-mono mt-0.5">{wf.trigger.ref}</span>
+                        <span class="block text-muted-foreground text-xs font-mono mt-0.5 break-all">{wf.trigger.ref}</span>
                       </a>
                     {:else if wf.trigger.ref}
-                      <span class="block text-muted-foreground text-xs font-mono mt-0.5">{wf.trigger.ref}</span>
+                      <span class="block text-muted-foreground text-xs font-mono mt-0.5 break-all">{wf.trigger.ref}</span>
                     {/if}
                   </TableCell>
                   <TableCell class="text-center">
