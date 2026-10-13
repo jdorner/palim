@@ -148,6 +148,7 @@ $effect(() => {
 {#snippet groupHeader(
   group: string | null,
   count: number,
+  hasWarnings: boolean,
 )}
   <button
     type="button"
@@ -162,6 +163,12 @@ $effect(() => {
     />
     <span class="truncate {group === null ? "text-muted-foreground" : ""}">{group ?? t("workflows.ungrouped")}</span>
     <span class="text-xs font-normal text-muted-foreground">{count}</span>
+    {#if hasWarnings}
+      <span class="inline-flex shrink-0 text-amber-500" title={t("workflows.groupHasWarnings")}>
+        <WarningIcon size={14} aria-hidden="true" />
+        <span class="sr-only">{t("workflows.groupHasWarnings")}</span>
+      </span>
+    {/if}
   </button>
 {/snippet}
 
@@ -207,7 +214,11 @@ $effect(() => {
       {#each sections as section (sectionKey(section.group))}
         {#if showGroupHeaders}
           <div class="space-y-1 pt-2">
-            {@render groupHeader(section.group, section.items.length)}
+            {@render groupHeader(
+              section.group,
+              section.items.length,
+              section.items.some((wf) => wf.warnings.length > 0),
+            )}
             {@render cardSubtotals(sumRunCounts(section.items))}
           </div>
         {/if}
@@ -347,7 +358,13 @@ $effect(() => {
             {#if showGroupHeaders}
               {@const totals = sumRunCounts(section.items)}
               <TableRow class="bg-muted/20 hover:bg-muted/30">
-                <TableCell colspan={2}>{@render groupHeader(section.group, section.items.length)}</TableCell>
+                <TableCell colspan={2}
+                  >{@render groupHeader(
+                    section.group,
+                    section.items.length,
+                    section.items.some((wf) => wf.warnings.length > 0),
+                  )}</TableCell
+                >
                 <TableCell class="text-center text-sm"
                   >{@render runCount(totals.activeRuns, "text-blue-500")}</TableCell
                 >

@@ -1015,6 +1015,7 @@
     "emptyBefore": "Keine Workflows definiert. Lege JSON5-Dateien in",
     "failedLabel": "Fehlgeschlagen:",
     "group": "Gruppe",
+    "groupHasWarnings": "Mindestens ein Workflow in dieser Gruppe hat Warnungen",
     "groupPlaceholder": "Optionale Gruppe, z. B. Finanzen",
     "loadFailed": "Workflows konnten nicht geladen werden. Bitte versuche es später erneut.",
     "loadWorkflowFailed": "Workflow konnte nicht geladen werden",
