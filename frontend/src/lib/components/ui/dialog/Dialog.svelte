@@ -68,6 +68,7 @@ function handleKeydown(e: KeyboardEvent) {
   >
     <div
       bind:this={panelEl}
+      data-dialog-panel
       class={cn(
         "bg-background border border-border rounded-lg shadow-lg w-full max-w-md max-h-full flex flex-col overflow-hidden",
         className,

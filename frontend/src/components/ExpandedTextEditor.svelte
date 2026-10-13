@@ -17,6 +17,7 @@ import { Button } from "$lib/components/ui/button";
 import { Dialog } from "$lib/components/ui/dialog";
 import { t } from "$lib/i18n.svelte";
 import type { OutputSchemas, SlugEdge } from "$lib/templateScope";
+import { variablePicker } from "$lib/variablePicker.svelte";
 import TemplateAutocomplete from "./TemplateAutocomplete.svelte";
 
 /** Context for template autocomplete in the dialog. */
@@ -53,6 +54,12 @@ let { title, description, value, oninput, onClose, maxlength, placeholder, templ
 
 let textareaEl = $state<HTMLTextAreaElement | null>(null);
 
+/**
+ * With the variable picker switched on, the dialog is shifted right on wider
+ * screens so the picker (docked to its left) does not cover the text.
+ */
+let dialogClass = $derived(template && !readonly && variablePicker.open ? "max-w-4xl sm:ml-[296px]" : "max-w-4xl");
+
 /** The edited text (initialized once from `value`). */
 let text = $state(untrack(() => value));
 
@@ -80,7 +87,7 @@ function portal(node: HTMLElement) {
     if (e.key === "Escape") e.preventDefault();
   }}
 >
-  <Dialog open {title} {description} class="max-w-4xl" {onClose}>
+  <Dialog open {title} {description} class={dialogClass} {onClose}>
     <!-- Single child of the dialog body: its space-y spacing would otherwise
          add a margin under the textarea while the autocomplete popup is open. -->
     <div>

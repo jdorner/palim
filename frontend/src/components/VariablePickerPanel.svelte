@@ -16,7 +16,7 @@ import { buildScopeTree, filterScopeTree, type ScopeTreeGroupId, type ScopeTreeN
 import { variablePicker } from "$lib/variablePicker.svelte";
 
 interface Props {
-  /** The step panel the picker docks to (placed to its left). */
+  /** The step panel the picker docks to (placed to its left), unless the field is in a dialog. */
   anchor: HTMLElement | null;
 }
 
@@ -37,13 +37,18 @@ let tree = $derived(variablePicker.target ? buildScopeTree(variablePicker.target
 let nodes = $derived(filterScopeTree(tree?.find((g) => g.id === tab)?.nodes ?? [], query));
 let searching = $derived(query.trim() !== "");
 
-/** Tracks the anchor's position while open (it moves with the graph in the floating layout). */
+/**
+ * Tracks the anchor's position while open (it moves with the graph in the
+ * floating layout). A field inside a dialog (e.g. the large text editor)
+ * docks the panel to that dialog instead of the step panel.
+ */
 $effect(() => {
-  if (!variablePicker.open || !variablePicker.target || !anchor) {
+  const host = variablePicker.target?.element.closest<HTMLElement>("[data-dialog-panel]") ?? anchor;
+  if (!variablePicker.open || !variablePicker.target || !host) {
     rect = null;
     return;
   }
-  const el = anchor;
+  const el = host;
   let frame = 0;
   const measure = () => {
     const r = el.getBoundingClientRect();
