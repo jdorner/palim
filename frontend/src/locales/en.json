@@ -1015,6 +1015,7 @@
     "emptyBefore": "No workflows defined. Add JSON5 files to",
     "failedLabel": "Failed:",
     "group": "Group",
+    "groupHasWarnings": "At least one workflow in this group has warnings",
     "groupPlaceholder": "Optional group, e.g. Finance",
     "loadFailed": "Failed to load workflows. Please try again later.",
     "loadWorkflowFailed": "Failed to load workflow",

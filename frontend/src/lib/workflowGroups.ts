@@ -40,6 +40,29 @@ export function groupWorkflows<T extends { group?: string }>(workflows: T[]): Wo
   return sections;
 }
 
+/** Run counters of a workflow, summed per section for the group subtotals. */
+export interface WorkflowRunCounts {
+  activeRuns: number;
+  failedRuns: number;
+  completedRuns: number;
+}
+
+/**
+ * Sums the run counters of a section's workflows.
+ *
+ * @param items - The section's workflows
+ * @returns The subtotals
+ */
+export function sumRunCounts(items: WorkflowRunCounts[]): WorkflowRunCounts {
+  const totals: WorkflowRunCounts = { activeRuns: 0, failedRuns: 0, completedRuns: 0 };
+  for (const wf of items) {
+    totals.activeRuns += wf.activeRuns;
+    totals.failedRuns += wf.failedRuns;
+    totals.completedRuns += wf.completedRuns;
+  }
+  return totals;
+}
+
 /**
  * Key of a section in the collapsed-state set (`""` for the ungrouped section,
  * which a real group name cannot be since groups are trimmed and non-empty).
