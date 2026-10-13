@@ -4,11 +4,10 @@
  * autocomplete and a large editor dialog).
  */
 import ArrowsOutSimpleIcon from "phosphor-svelte/lib/ArrowsOutSimpleIcon";
-import { Button } from "$lib/components/ui/button";
-import { Dialog } from "$lib/components/ui/dialog";
 import { t } from "$lib/i18n.svelte";
 import { type StepTemplateContext, withoutError } from "$lib/stepConfig";
 import type { StepDraft } from "$lib/workflowValidation";
+import ExpandedTextEditor from "../ExpandedTextEditor.svelte";
 import MultiSelect from "../MultiSelect.svelte";
 import TemplateAutocomplete from "../TemplateAutocomplete.svelte";
 
@@ -40,7 +39,6 @@ let {
 }: Props = $props();
 
 let promptEl = $state<HTMLTextAreaElement | null>(null);
-let expandedPromptEl = $state<HTMLTextAreaElement | null>(null);
 
 /** Whether the prompt is open in the large editor dialog. */
 let promptExpanded = $state(false);
@@ -58,16 +56,6 @@ function setPrompt(value: string) {
   });
   const next = withoutError(validationErrors, `steps[${index}].prompt`);
   if (next !== validationErrors) onValidationErrorsChange(next);
-}
-
-/** Svelte action that portals the element to document.body. */
-function portal(node: HTMLElement) {
-  document.body.appendChild(node);
-  return {
-    destroy() {
-      node.remove();
-    },
-  };
 }
 </script>
 
@@ -138,41 +126,14 @@ function portal(node: HTMLElement) {
 </div>
 
 {#if promptExpanded}
-  <!-- Portaled so the fixed overlay escapes the floating panel (which can
-       sit inside the graph's transformed viewport). Escape is marked as
-       handled so the page does not also close the panel or leave edit mode. -->
-  <div
-    use:portal
-    role="presentation"
-    onkeydown={(e) => {
-      if (e.key === "Escape") e.preventDefault();
-    }}
-  >
-    <Dialog
-      open
-      title={t("stepSidebar.prompt")}
-      description={step.slug}
-      class="max-w-4xl"
-      onClose={() => (promptExpanded = false)}
-    >
-      <!-- Single child of the dialog body: its space-y spacing would otherwise
-           add a margin under the textarea while the autocomplete popup is open. -->
-      <div>
-        <textarea
-          bind:this={expandedPromptEl}
-          aria-label={t("stepSidebar.prompt")}
-          class="block w-full h-[60vh] px-3 py-2 text-sm font-mono border border-border rounded-md bg-background resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-          maxlength={10000}
-          value={step.prompt ?? ""}
-          oninput={(e) => setPrompt((e.target as HTMLTextAreaElement).value)}
-          placeholder={t("stepSidebar.promptPlaceholder")}
-        ></textarea>
-        <TemplateAutocomplete targetElement={expandedPromptEl} {...template} onChange={setPrompt} />
-      </div>
-      {#snippet footer()}
-        <span class="mr-auto self-center text-xs text-muted-foreground">{(step.prompt ?? "").length}/ 10000</span>
-        <Button size="sm" onclick={() => (promptExpanded = false)}>{t("stepSidebar.done")}</Button>
-      {/snippet}
-    </Dialog>
-  </div>
+  <ExpandedTextEditor
+    title={t("stepSidebar.prompt")}
+    description={step.slug}
+    value={step.prompt ?? ""}
+    oninput={setPrompt}
+    onClose={() => (promptExpanded = false)}
+    maxlength={10000}
+    placeholder={t("stepSidebar.promptPlaceholder")}
+    {template}
+  />
 {/if}

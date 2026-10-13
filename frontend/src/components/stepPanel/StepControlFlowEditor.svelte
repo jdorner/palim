@@ -15,6 +15,8 @@ import {
 } from "$lib/stepConfig";
 import type { StepDraft } from "$lib/workflowValidation";
 import ConditionForm from "../ConditionForm.svelte";
+import ExpandButton from "../ExpandButton.svelte";
+import ExpandedTextEditor from "../ExpandedTextEditor.svelte";
 import FieldListEditor from "../FieldListEditor.svelte";
 import InfoTip from "../InfoTip.svelte";
 import StepConfigForm from "../StepConfigForm.svelte";
@@ -36,6 +38,25 @@ let { index, step, editAsJson, validationErrors, template, onUpdateDraftStep, on
   $props();
 
 let cfSchema = $derived(genericFormSchema(step.type));
+
+/** Whether the JSON config is open in the large editor dialog. */
+let jsonExpanded = $state(false);
+
+// Close the large editor when the panel switches to another step.
+$effect(() => {
+  index;
+  jsonExpanded = false;
+});
+
+/** Applies the JSON editor's text; invalid JSON is ignored until it parses. */
+function onJsonInput(raw: string) {
+  try {
+    const parsed = JSON.parse(raw);
+    onUpdateDraftStep(index, (s) => applyCfValues(s, parsed));
+  } catch {
+    // Invalid JSON - ignore until valid
+  }
+}
 
 /** Writes the humanTask form, or records why the edited form is invalid (blocks saving). */
 function setForm(form: Record<string, unknown> | undefined) {
@@ -152,20 +173,24 @@ function setBranchLabel(branch: "then" | "else", value: string) {
         <label for="step-cf-config" class="text-xs font-medium text-muted-foreground"
           >{t("stepSidebar.configJson")}</label
         >
+        <ExpandButton label={t("stepSidebar.configJson")} onclick={() => (jsonExpanded = true)} />
       </div>
       <textarea
         id="step-cf-config"
         class="w-full flex-1 px-2 py-1.5 text-xs font-mono border border-border rounded-md bg-background focus:outline-none focus:ring-2 focus:ring-ring resize-none"
         value={JSON.stringify(cfStepConfig(step), null, 2)}
-        oninput={(e) => {
-          try {
-            const parsed = JSON.parse((e.target as HTMLTextAreaElement).value);
-            onUpdateDraftStep(index, (s) => applyCfValues(s, parsed));
-          } catch {
-            // Invalid JSON - ignore until valid
-          }
-        }}
+        oninput={(e) => onJsonInput(e.currentTarget.value)}
       ></textarea>
     </div>
   {/if}
 </div>
+
+{#if jsonExpanded}
+  <ExpandedTextEditor
+    title={t("stepSidebar.configJson")}
+    description={step.slug}
+    value={JSON.stringify(cfStepConfig(step), null, 2)}
+    oninput={onJsonInput}
+    onClose={() => (jsonExpanded = false)}
+  />
+{/if}

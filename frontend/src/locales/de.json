@@ -716,6 +716,7 @@
     "done": "Fertig",
     "elseLabel": "Beschriftung „Sonst“-Kante",
     "expand": "Vergrößern",
+    "expandField": "{label} in größerem Editor öffnen",
     "expandPrompt": "Prompt-Editor vergrößern",
     "noDetails": "Für diesen Schritttyp sind keine Details verfügbar.",
     "prompt": "Prompt",

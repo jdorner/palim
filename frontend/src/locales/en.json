@@ -716,6 +716,7 @@
     "done": "Done",
     "elseLabel": "Else edge label",
     "expand": "Expand",
+    "expandField": "Open {label} in a larger editor",
     "expandPrompt": "Expand prompt editor",
     "noDetails": "No details available for this step type.",
     "prompt": "Prompt",
