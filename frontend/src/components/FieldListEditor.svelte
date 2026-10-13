@@ -27,6 +27,8 @@ import {
 import { t } from "$lib/i18n.svelte";
 import { formatShorthand, parseShorthand } from "$lib/outputSchemaShorthand";
 import type { OutputSchemaShorthand } from "$shared/workflows";
+import ExpandButton from "./ExpandButton.svelte";
+import ExpandedTextEditor from "./ExpandedTextEditor.svelte";
 import FormFieldRows, { type FormRowState } from "./fieldBuilder/FormFieldRows.svelte";
 import ShapeFieldRows from "./fieldBuilder/ShapeFieldRows.svelte";
 
@@ -57,6 +59,9 @@ let formRows = $state<FormRowState[]>([]);
 let shapeRows = $state<ShapeFieldRow[]>([]);
 let jsonMode = $state(false);
 let jsonText = $state("");
+
+/** Whether the JSON text is open in the large editor dialog. */
+let jsonExpanded = $state(false);
 let jsonError = $state<string | null>(null);
 let rowError = $state<string | null>(null);
 /** Why the current value cannot be edited as rows (null = it can). */
@@ -249,7 +254,7 @@ let shapeViewRows = $derived(viewRows?.ok && mode === "shape" ? (viewRows.rows a
 
     <div class="flex items-center justify-between gap-2">
       {#if jsonMode}
-        <span></span>
+        <ExpandButton label={t("fieldBuilder.editAsJson")} onclick={() => (jsonExpanded = true)} />
       {:else}
         <button
           type="button"
@@ -286,4 +291,13 @@ let shapeViewRows = $derived(viewRows?.ok && mode === "shape" ? (viewRows.rows a
       <span class="text-xs text-destructive">{jsonMode ? jsonError : rowError}</span>
     {/if}
   </fieldset>
+  {#if jsonMode && jsonExpanded}
+    <ExpandedTextEditor
+      title={t("fieldBuilder.editAsJson")}
+      value={jsonText}
+      oninput={onJsonInput}
+      onClose={() => (jsonExpanded = false)}
+      placeholder={jsonPlaceholder}
+    />
+  {/if}
 {/if}

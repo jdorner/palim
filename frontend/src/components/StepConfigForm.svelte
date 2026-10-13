@@ -15,6 +15,7 @@
 <script lang="ts">
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
+import { untrack } from "svelte";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
 import { t, tx } from "$lib/i18n.svelte";
 import { type CoreKey, translateCore } from "$lib/i18nCore";
@@ -33,6 +34,8 @@ import {
   type SchemaProperty,
 } from "$lib/schemaForm";
 import type { OutputSchemas, SlugEdge } from "$lib/templateScope";
+import ExpandButton from "./ExpandButton.svelte";
+import ExpandedTextEditor from "./ExpandedTextEditor.svelte";
 import InfoTip from "./InfoTip.svelte";
 import KeyValueEditor from "./KeyValueEditor.svelte";
 import MultiSelect from "./MultiSelect.svelte";
@@ -210,6 +213,39 @@ function listValue(key: string): unknown[] {
   return Array.isArray(v) ? v : [];
 }
 
+/** The text field open in the large editor dialog, if any. */
+let expanded = $state<{
+  title: string;
+  get: () => string;
+  set: (value: string) => void;
+  maxlength?: number;
+} | null>(null);
+
+/** Step index the large editor was last reset for (not reactive). */
+let expandedStepIndex = untrack(() => currentStepIndex);
+
+// Close the large editor when the form switches to another step. The effect
+// can re-run on every edit (the index arrives through spread template props),
+// so it compares against the last index instead of resetting unconditionally.
+$effect(() => {
+  const stepIndex = currentStepIndex;
+  if (stepIndex === expandedStepIndex) return;
+  expandedStepIndex = stepIndex;
+  expanded = null;
+});
+
+/**
+ * Open a text field in the large editor dialog.
+ *
+ * @param title - Dialog title (the field label)
+ * @param get - Reads the current text
+ * @param set - Writes edited text
+ * @param maxlength - Optional length limit
+ */
+function openExpanded(title: string, get: () => string, set: (value: string) => void, maxlength?: number) {
+  expanded = { title, get, set, maxlength };
+}
+
 /** Parse a comma-separated number list, dropping tokens that are not numbers. */
 function parseNumberList(raw: string): number[] {
   return raw
@@ -377,7 +413,19 @@ function parseNumberList(raw: string): number[] {
           oninput={(e) => updateValue(key, e.currentTarget.value)}
         >
       {:else if inputType === "textarea"}
-        {@render fieldLabel(key, label, description)}
+        <div class="flex items-center justify-between">
+          {@render fieldLabel(key, label, description)}
+          <ExpandButton
+            {label}
+            onclick={() =>
+              openExpanded(
+                label,
+                () => String(formValues[key] ?? ""),
+                (v) => updateValue(key, v),
+                prop.maxLength as number | undefined,
+              )}
+          />
+        </div>
         <textarea
           id="{idPrefix}{key}"
           bind:this={fieldRefs[key]}
@@ -485,18 +533,33 @@ function parseNumberList(raw: string): number[] {
                     listValue(key).map((v, j) => (j === i ? e.currentTarget.value : v)),
                   )}
               ></textarea>
-              <button
-                type="button"
-                class="shrink-0 rounded p-1 text-muted-foreground hover:text-destructive hover:bg-muted"
-                aria-label={t("schemaForm.removeItem", { index: i + 1 })}
-                onclick={() =>
-                  updateValue(
-                    key,
-                    listValue(key).filter((_, j) => j !== i),
-                  )}
-              >
-                <TrashIcon class="w-3.5 h-3.5" aria-hidden="true" />
-              </button>
+              <div class="flex shrink-0 flex-col">
+                <ExpandButton
+                  label="{label} {i + 1}"
+                  onclick={() =>
+                    openExpanded(
+                      `${label} ${i + 1}`,
+                      () => String(listValue(key)[i] ?? ""),
+                      (v) =>
+                        updateValue(
+                          key,
+                          listValue(key).map((item, j) => (j === i ? v : item)),
+                        ),
+                    )}
+                />
+                <button
+                  type="button"
+                  class="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-muted"
+                  aria-label={t("schemaForm.removeItem", { index: i + 1 })}
+                  onclick={() =>
+                    updateValue(
+                      key,
+                      listValue(key).filter((_, j) => j !== i),
+                    )}
+                >
+                  <TrashIcon class="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
+              </div>
             </div>
             {#if autocompleteEnabled}
               <TemplateAutocomplete
@@ -639,3 +702,24 @@ function parseNumberList(raw: string): number[] {
     <p class="text-xs text-muted-foreground italic">{t("schemaForm.noFields")}</p>
   {/if}
 </fieldset>
+
+{#if expanded}
+  <ExpandedTextEditor
+    title={expanded.title}
+    value={expanded.get()}
+    oninput={expanded.set}
+    onClose={() => (expanded = null)}
+    maxlength={expanded.maxlength}
+    readonly={isReadonly}
+    template={autocompleteEnabled
+      ? {
+          steps: steps ?? [],
+          currentStepIndex: currentStepIndex ?? 0,
+          secretKeys: secretKeys ?? [],
+          variableKeys: variableKeys ?? [],
+          outputSchemas,
+          edges,
+        }
+      : undefined}
+  />
+{/if}

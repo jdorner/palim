@@ -15,6 +15,8 @@ import type { TriggerRefs } from "$lib/workflowEditorMeta";
 import type { DraftTrigger } from "$lib/workflowValidation";
 import { PORTAL_UPLOAD_DEFAULT_MB, PORTAL_UPLOAD_MAX_MB } from "$shared/portal";
 import type { PortalTriggerConfig } from "$shared/workflows";
+import ExpandButton from "./ExpandButton.svelte";
+import ExpandedTextEditor from "./ExpandedTextEditor.svelte";
 import FieldListEditor from "./FieldListEditor.svelte";
 import InfoTip from "./InfoTip.svelte";
 import MultiSelect from "./MultiSelect.svelte";
@@ -56,6 +58,9 @@ let {
   onTriggerChange,
   onValidationErrorsChange,
 }: Props = $props();
+
+/** Whether the portal description is open in the large editor dialog. */
+let descriptionExpanded = $state(false);
 
 /** Selectable workflow trigger types (subtypes of the built-in "trigger" node). */
 const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher", "portal"] as const;
@@ -162,9 +167,12 @@ function updatePortal(patch: Partial<PortalTriggerConfig>, extra: Partial<DraftT
     >
   </div>
   <div class="flex flex-col gap-1">
-    <label for="portal-description" class="text-xs font-medium text-muted-foreground"
-      >{t("triggerPanel.portalDescription")}</label
-    >
+    <div class="flex items-center justify-between">
+      <label for="portal-description" class="text-xs font-medium text-muted-foreground"
+        >{t("triggerPanel.portalDescription")}</label
+      >
+      <ExpandButton label={t("triggerPanel.portalDescription")} onclick={() => (descriptionExpanded = true)} />
+    </div>
     <textarea
       id="portal-description"
       rows="2"
@@ -174,6 +182,16 @@ function updatePortal(patch: Partial<PortalTriggerConfig>, extra: Partial<DraftT
       value={portalConfig.description ?? ""}
       oninput={(e) => updatePortal({ description: (e.target as HTMLTextAreaElement).value })}
     ></textarea>
+    {#if descriptionExpanded}
+      <ExpandedTextEditor
+        title={t("triggerPanel.portalDescription")}
+        value={portalConfig.description ?? ""}
+        oninput={(v) => updatePortal({ description: v })}
+        onClose={() => (descriptionExpanded = false)}
+        maxlength={2000}
+        placeholder={t("triggerPanel.portalDescriptionPlaceholder")}
+      />
+    {/if}
   </div>
   <div class="flex flex-col gap-1">
     <label for="portal-accept" class="text-xs font-medium text-muted-foreground"

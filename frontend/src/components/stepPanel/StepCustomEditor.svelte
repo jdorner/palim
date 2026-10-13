@@ -12,6 +12,8 @@ import {
   withoutError,
 } from "$lib/stepConfig";
 import type { StepDraft } from "$lib/workflowValidation";
+import ExpandButton from "../ExpandButton.svelte";
+import ExpandedTextEditor from "../ExpandedTextEditor.svelte";
 import StepConfigForm from "../StepConfigForm.svelte";
 
 interface Props {
@@ -41,6 +43,15 @@ let {
   onUpdateDraftStep,
   onValidationErrorsChange,
 }: Props = $props();
+
+/** Whether the JSON config is open in the large editor dialog. */
+let jsonExpanded = $state(false);
+
+// Close the large editor when the panel switches to another step.
+$effect(() => {
+  index;
+  jsonExpanded = false;
+});
 
 /** Applies the JSON editor's text: the parsed config, or an "Invalid JSON" error. */
 function onJsonInput(raw: string) {
@@ -84,6 +95,7 @@ function onJsonInput(raw: string) {
     <div class="flex flex-col gap-1.5 flex-1 min-h-0">
       <div class="flex items-center justify-between">
         <label for="step-config" class="text-xs font-medium text-muted-foreground">{t("stepSidebar.configJson")}</label>
+        <ExpandButton label={t("stepSidebar.configJson")} onclick={() => (jsonExpanded = true)} />
       </div>
       <textarea
         id="step-config"
@@ -97,3 +109,13 @@ function onJsonInput(raw: string) {
     </div>
   {/if}
 </div>
+
+{#if jsonExpanded}
+  <ExpandedTextEditor
+    title={t("stepSidebar.configJson")}
+    description={step.slug}
+    value={JSON.stringify(step.config ?? {}, null, 2)}
+    oninput={onJsonInput}
+    onClose={() => (jsonExpanded = false)}
+  />
+{/if}
