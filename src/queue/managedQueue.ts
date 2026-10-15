@@ -360,9 +360,9 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
       }
 
       // removeAsync handles queue, waitingDeps, and waitingChildren states.
-      await this.queue.removeAsync(jobId);
+      await this.tryRemove(jobId);
 
-      // removeAsync does not report success/failure, so verify via state.
+      // An active job survives the removal attempt, so verify via state.
       const stateAfter = await this.queue.getJobState(jobId);
       if (stateAfter === "unknown") {
         logger.info(`Cancelled job ${jobId} from "${this.queue.name}"`);
@@ -383,6 +383,21 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
     } catch (err) {
       logger.warn(`Failed to cancel job ${jobId} from "${this.queue.name}"`, err);
       return false;
+    }
+  }
+
+  /**
+   * Attempts to remove a job, tolerating bunqueue's refusal for jobs it cannot
+   * remove (active, failed). Callers verify the outcome via `getJobState`.
+   *
+   * @param jobId - The job to remove
+   * @returns Resolves once the removal attempt has settled
+   */
+  private async tryRemove(jobId: string): Promise<void> {
+    try {
+      await this.queue.removeAsync(jobId);
+    } catch {
+      // Refused (job still exists in a non-removable state); the caller's state check handles it.
     }
   }
 
@@ -417,7 +432,7 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
 
     // Queued/active/delayed/waiting-children jobs: removeAsync handles these.
     for (const id of other) {
-      await this.queue.removeAsync(id);
+      await this.tryRemove(id);
       if ((await this.queue.getJobState(id)) === "unknown") {
         removed.push(id);
       } else {
