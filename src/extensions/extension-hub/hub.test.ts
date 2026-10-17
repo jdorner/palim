@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from "bun:test";
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -81,24 +81,36 @@ interface Fixture {
   store: HubStore;
   externalDir: string;
   failing: Set<string>;
+  manifestVersion: { value: string | null };
   includePrereleases: { value: boolean };
 }
 
 /**
  * The fake registry reports every folder with an index.ts as loaded at once
- * (the directory watcher's job), except folders listed in `failing`.
+ * (the directory watcher's job), with its package.json version (or
+ * `manifestVersion` when set), except folders listed in `failing` as `name`
+ * or `name@version`.
  */
 async function createFixture(): Promise<Fixture> {
   const base = await mkdtemp(path.join(root, "case-"));
   const externalDir = path.join(base, "extensions");
   await mkdir(externalDir);
   const failing = new Set<string>();
+  const manifestVersion: { value: string | null } = { value: null };
+  const pkgVersion = (f: string): string => {
+    try {
+      return JSON.parse(readFileSync(path.join(externalDir, f, "package.json"), "utf8")).version;
+    } catch {
+      return "0.0.0";
+    }
+  };
+  const fails = (f: string) => failing.has(f) || failing.has(`${f}@${pkgVersion(f)}`);
   const loaded = (): LoadedExtensionStatus[] =>
     readdirSync(externalDir)
-      .filter((f) => existsSync(path.join(externalDir, f, "index.ts")) && !failing.has(f))
+      .filter((f) => existsSync(path.join(externalDir, f, "index.ts")) && !fails(f))
       .map((f) => ({
         name: f,
-        version: "9.9.9",
+        version: manifestVersion.value ?? pkgVersion(f),
         source: "external",
         dir: path.join(externalDir, f),
         state: "active",
@@ -108,8 +120,9 @@ async function createFixture(): Promise<Fixture> {
   const api: ExternalExtensionsApi = {
     externalDir,
     list: loaded,
+    sync: () => {},
     lastLoadFailure: (dir) =>
-      failing.has(path.basename(dir)) && existsSync(dir) ? { reason: "boom", at: Date.now() } : null,
+      existsSync(dir) && fails(path.basename(dir)) ? { reason: "boom", at: Date.now() } : null,
   };
   const store = new HubStore(createTestDb());
   const tokens = new Map<string, string>();
@@ -128,7 +141,7 @@ async function createFixture(): Promise<Fixture> {
     loadWait: { timeoutMs: 2000, pollMs: 10 },
     unloadWait: { timeoutMs: 2000, pollMs: 10 },
   });
-  return { hub, store, externalDir, failing, includePrereleases };
+  return { hub, store, externalDir, failing, manifestVersion, includePrereleases };
 }
 
 /** Asserts that a promise rejects with a HubError of the given status. */
@@ -179,6 +192,7 @@ describe("HubService", () => {
   });
 
   test("installs the newest release by default", async () => {
+    f.manifestVersion.value = "9.9.9";
     const result = await f.hub.install({ sourceId, name: "foo", userId: "u1" });
     expect(result.install).toMatchObject({ ref: "foo@1.1.0", refKind: "tag", version: "1.1.0", installedBy: "u1" });
     expect(result.outcome.status).toBe("loaded");
@@ -271,6 +285,114 @@ describe("HubService", () => {
     await f.hub.install({ sourceId, name: "foo", userId: null });
     await expectHubError(f.hub.deleteSource(sourceId), 409);
     await expectHubError(f.hub.createSource({ name: "Test", url: repoDir }), 409);
+  });
+});
+
+describe("HubService updates", () => {
+  let f: Fixture;
+  let sourceId: string;
+
+  beforeEach(async () => {
+    f = await createFixture();
+    sourceId = (await f.hub.createSource({ name: "Test", url: repoDir })).source.id;
+    await f.hub.install({ sourceId, name: "foo", version: "1.0.0", userId: null });
+  });
+
+  const installedVersion = async () =>
+    JSON.parse(await Bun.file(path.join(f.externalDir, "foo", "package.json")).text()).version as string;
+
+  test("updates to the available version and keeps a backup", async () => {
+    expect(f.hub.updates()).toEqual([
+      expect.objectContaining({
+        name: "foo",
+        installedVersion: "1.0.0",
+        update: expect.objectContaining({ version: "1.1.0" }),
+      }),
+    ]);
+
+    const result = await f.hub.update({ name: "foo", userId: "u2" });
+    expect(result).toMatchObject({ from: "1.0.0", outcome: { status: "loaded", version: "1.1.0" }, warnings: [] });
+    expect(result.install).toMatchObject({ ref: "foo@1.1.0", version: "1.1.0", installedBy: "u2" });
+    expect(result.install.previous).toMatchObject({ ref: "foo@1.0.0", version: "1.0.0" });
+    expect(await installedVersion()).toBe("1.1.0");
+    expect(f.hub.updates()).toEqual([]);
+
+    const foo = (await f.hub.catalog()).sources[0]!.extensions.find((e) => e.name === "foo")!;
+    expect(foo.installed).toMatchObject({
+      version: "1.1.0",
+      canRollback: true,
+      previousVersion: "1.0.0",
+      modified: false,
+    });
+
+    await expectHubError(f.hub.update({ name: "foo", userId: null }), 409); // up to date
+  });
+
+  test("rolls back and forward", async () => {
+    await f.hub.update({ name: "foo", userId: null });
+    const back = await f.hub.rollback("foo", null);
+    expect(back).toMatchObject({ from: "1.1.0", install: { version: "1.0.0", ref: "foo@1.0.0" } });
+    expect(await installedVersion()).toBe("1.0.0");
+    expect(f.store.getInstall("foo")?.contentHash).toBe(await hashTree(path.join(f.externalDir, "foo")));
+
+    const forward = await f.hub.rollback("foo", null);
+    expect(forward.install).toMatchObject({ version: "1.1.0", previous: { version: "1.0.0" } });
+    expect(await installedVersion()).toBe("1.1.0");
+  });
+
+  test("refuses rollback without a backup", async () => {
+    await expectHubError(f.hub.rollback("foo", null), 409);
+  });
+
+  test("updates to an explicit version or ref, including downgrades", async () => {
+    f.includePrereleases.value = true;
+    await f.hub.update({ name: "foo", version: "2.0.0-rc.1", userId: null });
+    expect(await installedVersion()).toBe("2.0.0-rc.1");
+    await f.hub.update({ name: "foo", ref: "foo@1.0.0", userId: null });
+    expect(f.store.getInstall("foo")).toMatchObject({ version: "1.0.0", refKind: "tag" });
+    await f.hub.update({ name: "foo", ref: "main", userId: null });
+    expect(f.store.getInstall("foo")).toMatchObject({ refKind: "branch", ref: "main" });
+  });
+
+  test("refuses to overwrite local changes unless forced", async () => {
+    await writeFile(path.join(f.externalDir, "foo", "index.ts"), "// patched\n");
+    expect((await f.hub.catalog()).sources[0]!.extensions.find((e) => e.name === "foo")!.installed?.modified).toBe(
+      true,
+    );
+    const err = await expectHubError(f.hub.update({ name: "foo", userId: null }), 409);
+    expect(err.details).toEqual({ modified: true });
+
+    await f.hub.update({ name: "foo", force: true, userId: null });
+    expect(await installedVersion()).toBe("1.1.0");
+    // The backup holds the patched tree, and rolling back restores it as it was.
+    await f.hub.rollback("foo", null);
+    expect(await Bun.file(path.join(f.externalDir, "foo", "index.ts")).text()).toBe("// patched\n");
+    expect((await f.hub.catalog()).sources[0]!.extensions.find((e) => e.name === "foo")!.installed?.modified).toBe(
+      false,
+    );
+  });
+
+  test("restores the previous version when the update fails to load", async () => {
+    f.failing.add("foo@1.1.0");
+    const err = await expectHubError(f.hub.update({ name: "foo", userId: null }), 422);
+    expect(err.message).toContain("restored 1.0.0");
+    expect(await installedVersion()).toBe("1.0.0");
+    expect(f.store.getInstall("foo")).toMatchObject({ version: "1.0.0", previous: null });
+    expect(f.hub.updates().map((u) => u.name)).toEqual(["foo"]);
+  });
+
+  test("check fetches sources and reports updates and fetch errors", async () => {
+    await f.hub.createSource({ name: "Broken", url: path.join(root, "missing.git") });
+    const result = await f.hub.check();
+    expect(result.updates.map((u) => u.update.version)).toEqual(["1.1.0"]);
+    expect(result.errors).toEqual([{ source: "Broken", error: expect.stringContaining("git clone failed") }]);
+  });
+
+  test("uninstall removes the backup", async () => {
+    await f.hub.update({ name: "foo", userId: null });
+    await f.hub.uninstall("foo");
+    await f.hub.install({ sourceId, name: "foo", userId: null });
+    await expectHubError(f.hub.rollback("foo", null), 409);
   });
 });
 

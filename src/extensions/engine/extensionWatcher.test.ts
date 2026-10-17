@@ -442,5 +442,65 @@ export default {
       expect(registry.getRegisteredTools().some((t) => t.name === "reload-ext_tool_v1")).toBe(false);
       expect(registry.getRegisteredTools().some((t) => t.name === "reload-ext_tool_v2")).toBe(true);
     });
+
+    test("reload picks up changed sibling modules and package.json", async () => {
+      await watcher.start();
+      const extDir = join(externalDir, "deps-ext");
+      mkdirSync(extDir, { recursive: true });
+      await Bun.write(join(extDir, "package.json"), JSON.stringify({ name: "deps-ext", version: "1.0.0" }));
+      await Bun.write(join(extDir, "dep.ts"), `export const label = "one";`);
+      await Bun.write(
+        join(extDir, "index.ts"),
+        `import pkg from "./package.json";
+import { label } from "./dep.ts";
+export default {
+  manifest: { name: pkg.name, version: pkg.version, description: label },
+  async initialize() {},
+  async shutdown() {},
+};
+`,
+      );
+      await sleep(EVENT_SETTLE_MS);
+      expect(registry.getLoadedExtensionInfo().find((i) => i.name === "deps-ext")).toMatchObject({
+        version: "1.0.0",
+        description: "one",
+      });
+
+      await Bun.write(join(extDir, "package.json"), JSON.stringify({ name: "deps-ext", version: "2.0.0" }));
+      await Bun.write(join(extDir, "dep.ts"), `export const label = "two";`);
+      await Bun.write(join(extDir, "index.ts"), `${await Bun.file(join(extDir, "index.ts")).text()}\n`);
+      await sleep(EVENT_SETTLE_MS);
+      expect(registry.getLoadedExtensionInfo().find((i) => i.name === "deps-ext")).toMatchObject({
+        version: "2.0.0",
+        description: "two",
+      });
+    });
+  });
+
+  describe("requestSync", () => {
+    test("loads a present folder and unloads a removed one without filesystem events", async () => {
+      // Not started: no filesystem events reach the watcher at all.
+      await createTempExtension(externalDir, "sync-ext");
+      watcher.requestSync("sync-ext");
+      await sleep(EVENT_SETTLE_MS);
+      expect(registry.getLoadedExtensionInfo().some((i) => i.name === "sync-ext")).toBe(true);
+
+      rmSync(join(externalDir, "sync-ext"), { recursive: true, force: true });
+      watcher.requestSync("sync-ext");
+      await sleep(EVENT_SETTLE_MS);
+      expect(registry.getLoadedExtensionInfo().some((i) => i.name === "sync-ext")).toBe(false);
+    });
+
+    test("ignores loaded folders and invalid names", async () => {
+      await createTempExtension(externalDir, "steady-ext");
+      watcher.requestSync("steady-ext");
+      await sleep(EVENT_SETTLE_MS);
+      const loadedBefore = registry.getLoadedExtensionInfo().length;
+      watcher.requestSync("steady-ext");
+      watcher.requestSync("../etc");
+      watcher.requestSync(".hidden");
+      await sleep(EVENT_SETTLE_MS);
+      expect(registry.getLoadedExtensionInfo().length).toBe(loadedBefore);
+    });
   });
 });

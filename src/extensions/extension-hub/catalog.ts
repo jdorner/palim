@@ -273,6 +273,8 @@ export interface InstalledView {
   canRollback: boolean;
   /** Version the rollback would restore. */
   previousVersion: string | null;
+  /** Whether the installed files differ from what was installed (blocks updates without force). */
+  modified: boolean;
 }
 
 /** One catalog row. */
@@ -337,6 +339,8 @@ export interface CatalogInputs {
   snapshots: Map<string, SourceSnapshot>;
   /** Install records. */
   installs: InstallRecord[];
+  /** Names of installs whose files were changed locally. */
+  modified: Set<string>;
   /** Loaded extensions by folder name (external directory only). */
   loadedByFolder: Map<string, LoadedInfo & { name: string }>;
   /** Folder names present in the external extensions directory. */
@@ -352,7 +356,7 @@ export interface CatalogInputs {
  * @returns The view
  */
 export function buildCatalog(inputs: CatalogInputs): CatalogView {
-  const { sources, snapshots, installs, loadedByFolder, folders, includePrereleases } = inputs;
+  const { sources, snapshots, installs, modified, loadedByFolder, folders, includePrereleases } = inputs;
   const installsByName = new Map(installs.map((i) => [i.name, i]));
   const managed = new Set(installs.map((i) => i.name));
   const localFolders = new Set(folders.filter((f) => !managed.has(f)));
@@ -374,6 +378,7 @@ export function buildCatalog(inputs: CatalogInputs): CatalogView {
         : null,
       canRollback: install.previous !== null,
       previousVersion: install.previous?.version ?? null,
+      modified: modified.has(install.name),
     };
   };
 

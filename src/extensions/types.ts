@@ -1197,6 +1197,16 @@ export interface ExternalExtensionsApi {
    * @returns The failure reason and its time (epoch ms), or null
    */
   lastLoadFailure(dir: string): { reason: string; at: number } | null;
+  /**
+   * Asks the directory watcher to reconcile one folder of the external
+   * directory with the registry (load it if present and not loaded, unload it
+   * if gone), through the same debounced queue as filesystem events. Use after
+   * moving extension folders: back-to-back renames of the same path may not
+   * produce filesystem events. No-op when no watcher runs.
+   *
+   * @param folder - Folder name below {@link externalDir}
+   */
+  sync(folder: string): void;
 }
 
 // ---------------------------------------------------------------------------

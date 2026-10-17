@@ -116,6 +116,35 @@ export class ExtensionWatcher {
   }
 
   /**
+   * Queues a reconciliation of one extension folder with the registry, as if
+   * a filesystem event had been seen: load when `<folder>/index.ts` exists and
+   * the folder's extension is not loaded, unload when the folder is gone but
+   * still known. Moving folders back and forth quickly can produce no events
+   * at all, so tools that move extension folders call this afterwards.
+   *
+   * @param folder - Folder name below the watched directory
+   */
+  requestSync(folder: string): void {
+    if (!folder || folder.includes("/") || folder.startsWith(".")) return;
+    const dir = path.join(this.directory, folder);
+    const present = existsSync(path.join(dir, "index.ts"));
+    const loaded = this.registry
+      .getLoadedExtensionInfo()
+      .some((i) => i.name === (this.dirToManifestName.get(folder) ?? folder));
+    if (present && !loaded) {
+      this.pendingUnloads.delete(folder);
+      if (!this.pendingReloads.has(folder)) this.pendingLoads.add(folder);
+    } else if (!present && (loaded || this.knownExtensions.has(folder))) {
+      this.pendingLoads.delete(folder);
+      this.pendingReloads.delete(folder);
+      this.pendingUnloads.add(folder);
+    } else {
+      return;
+    }
+    this.scheduleDebouncedProcess();
+  }
+
+  /**
    * Stop watching and clean up.
    */
   async stop(): Promise<void> {

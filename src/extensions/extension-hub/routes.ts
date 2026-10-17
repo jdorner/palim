@@ -14,7 +14,7 @@ import { type Static, type TSchema, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import type { Context } from "elysia";
 import { HubError } from "./errors";
-import type { HubService } from "./hub";
+import type { CheckResult, HubService } from "./hub";
 
 const OptionalNullableString = Type.Optional(Type.Union([Type.String({ maxLength: 500 }), Type.Null()]));
 
@@ -51,6 +51,26 @@ const InstallSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/** Body of `POST /installed/:name/update`. */
+const UpdateSchema = Type.Object(
+  {
+    version: Type.Optional(Type.String({ minLength: 1, maxLength: 100 })),
+    ref: Type.Optional(Type.String({ minLength: 1, maxLength: 200 })),
+    force: Type.Optional(Type.Boolean()),
+  },
+  { additionalProperties: false },
+);
+
+/** Callbacks the routes need from the extension. */
+export interface RouteHooks {
+  /** Reports whether a source has an HTTPS token stored. */
+  hasToken: (sourceId: string) => Promise<boolean>;
+  /** Fetches all sources and publishes the update state. */
+  runCheck: () => Promise<CheckResult>;
+  /** Publishes the update state after installs, updates, or fetches changed it. */
+  afterChange: () => void;
+}
+
 /** Route handler signature. */
 type Handler = (reqCtx: Context) => Response | Promise<Response>;
 
@@ -72,14 +92,15 @@ function check<T extends TSchema>(schema: T, body: unknown): Static<T> {
  * @param ctx - Extension context
  * @param hub - The hub service
  * @param getUserId - Resolves the requesting user's id
- * @param hasToken - Reports whether a source has an HTTPS token stored
+ * @param hooks - Token lookup, the update check, and the change notification
  */
 export function registerRoutes(
   ctx: ExtensionContext,
   hub: HubService,
   getUserId: (request: Request) => string | undefined,
-  hasToken: (sourceId: string) => Promise<boolean>,
+  hooks: RouteHooks,
 ): void {
+  const { hasToken, runCheck, afterChange } = hooks;
   const wrap =
     (fn: Handler): Handler =>
     async (reqCtx) => {
@@ -109,7 +130,9 @@ export function registerRoutes(
     "/sources",
     wrap(async (reqCtx) => {
       const body = check(CreateSourceSchema, reqCtx.body);
-      return Response.json(await hub.createSource(body), { status: 201 });
+      const result = await hub.createSource(body);
+      afterChange();
+      return Response.json(result, { status: 201 });
     }),
   );
 
@@ -118,7 +141,9 @@ export function registerRoutes(
     "/sources/:id",
     wrap(async (reqCtx) => {
       const body = check(UpdateSourceSchema, reqCtx.body);
-      return Response.json(await hub.updateSource(param(reqCtx, "id"), body));
+      const result = await hub.updateSource(param(reqCtx, "id"), body);
+      afterChange();
+      return Response.json(result);
     }),
   );
 
@@ -127,6 +152,7 @@ export function registerRoutes(
     "/sources/:id",
     wrap(async (reqCtx) => {
       await hub.deleteSource(param(reqCtx, "id"));
+      afterChange();
       return new Response(null, { status: 204 });
     }),
   );
@@ -134,13 +160,21 @@ export function registerRoutes(
   ctx.routes.register(
     "POST",
     "/sources/:id/refresh",
-    wrap(async (reqCtx) => Response.json(await hub.refreshSource(param(reqCtx, "id")))),
+    wrap(async (reqCtx) => {
+      const result = await hub.refreshSource(param(reqCtx, "id"));
+      afterChange();
+      return Response.json(result);
+    }),
   );
 
   ctx.routes.register(
     "POST",
     "/refresh",
-    wrap(async () => Response.json({ results: await hub.refreshAll() })),
+    wrap(async () => {
+      const results = await hub.refreshAll();
+      afterChange();
+      return Response.json({ results });
+    }),
   );
 
   ctx.routes.register(
@@ -158,13 +192,61 @@ export function registerRoutes(
         throw new HubError(400, "Give either version or ref, not both");
       }
       const result = await hub.install({ ...body, userId: getUserId(reqCtx.request) ?? null });
+      afterChange();
       return Response.json(result, { status: 201 });
+    }),
+  );
+
+  ctx.routes.register(
+    "GET",
+    "/updates",
+    wrap(() => {
+      const updates = hub.updates();
+      return Response.json({ count: updates.length, updates });
+    }),
+  );
+
+  ctx.routes.register(
+    "POST",
+    "/check",
+    wrap(async () => Response.json(await runCheck())),
+  );
+
+  ctx.routes.register(
+    "POST",
+    "/installed/:name/update",
+    wrap(async (reqCtx) => {
+      const body = check(UpdateSchema, reqCtx.body ?? {});
+      if (body.version !== undefined && body.ref !== undefined) {
+        throw new HubError(400, "Give either version or ref, not both");
+      }
+      const result = await hub.update({
+        ...body,
+        name: param(reqCtx, "name"),
+        userId: getUserId(reqCtx.request) ?? null,
+      });
+      afterChange();
+      return Response.json(result);
+    }),
+  );
+
+  ctx.routes.register(
+    "POST",
+    "/installed/:name/rollback",
+    wrap(async (reqCtx) => {
+      const result = await hub.rollback(param(reqCtx, "name"), getUserId(reqCtx.request) ?? null);
+      afterChange();
+      return Response.json(result);
     }),
   );
 
   ctx.routes.register(
     "DELETE",
     "/installed/:name",
-    wrap(async (reqCtx) => Response.json(await hub.uninstall(param(reqCtx, "name")))),
+    wrap(async (reqCtx) => {
+      const result = await hub.uninstall(param(reqCtx, "name"));
+      afterChange();
+      return Response.json(result);
+    }),
   );
 }

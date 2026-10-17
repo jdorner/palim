@@ -158,6 +158,9 @@ export class ExtensionRegistry {
   /** Registry view handed to extensions as `ctx.internal.extensions`. */
   private readonly externalExtensionsApi: ExternalExtensionsApi;
 
+  /** Reconciles one external extension folder (set by the directory watcher's owner). */
+  private externalSyncFn?: (folder: string) => void;
+
   constructor(config: ExtensionRegistryConfig) {
     this.extensionDirs = config.extensionDirs;
     this.workDir = config.workDir;
@@ -181,12 +184,23 @@ export class ExtensionRegistry {
           };
         }),
       lastLoadFailure: (dir) => this.loadFailures.get(resolve(dir)) ?? null,
+      sync: (folder) => this.externalSyncFn?.(folder),
     };
   }
 
   /** The built-in extensions directory - used by the skill watcher and exposed to extensions. */
   private get builtinExtensionsDir(): string {
     return this.extensionDirs[0]!;
+  }
+
+  /**
+   * Sets the function behind `ctx.internal.extensions.sync()`, normally the
+   * external directory watcher's `ExtensionWatcher.requestSync()`.
+   *
+   * @param fn - Reconciles one folder of the external extensions directory
+   */
+  setExternalSync(fn: (folder: string) => void): void {
+    this.externalSyncFn = fn;
   }
 
   /**
@@ -649,6 +663,11 @@ export class ExtensionRegistry {
       }
     }
 
+    // The cache-busting query below only renews index.ts itself; its own imports
+    // (sibling modules, package.json, node_modules) stay cached by path. Drop
+    // them so a reload or update picks up every changed file.
+    purgeModuleCache(extensionDir);
+
     // Import with cache-busting to bypass Bun's module cache (the counter keeps
     // two loads within the same millisecond from sharing a cache entry)
     const cacheBustedPath = `${modulePath}?v=${Date.now()}-${++this.importCounter}`;
@@ -1037,6 +1056,19 @@ export class ExtensionRegistry {
 
 // ---------------------------------------------------------------------------
 // Re-export from config for backwards-compat (extension consumers may import it)
+/**
+ * Removes every cached module below a directory from Bun's module registry
+ * (`require.cache` covers ES modules too), so the next import reads them again.
+ *
+ * @param dir - Extension directory
+ */
+function purgeModuleCache(dir: string): void {
+  const prefix = `${resolve(dir)}/`;
+  for (const key of Object.keys(require.cache)) {
+    if (key.startsWith(prefix)) delete require.cache[key];
+  }
+}
+
 export { serverOrigin } from "@src/config";
 
 /**

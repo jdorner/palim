@@ -529,6 +529,8 @@ export class AppBootstrap {
       registry: this.registry,
     });
     await this.extensionWatcher.start();
+    const watcher = this.extensionWatcher;
+    this.registry.setExternalSync((folder) => watcher.requestSync(folder));
 
     // ---------------------------------------------------------------------------
     // Wire chat event broadcasting

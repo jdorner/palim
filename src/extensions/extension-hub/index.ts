@@ -11,8 +11,10 @@
  *   install are never touched.
  *
  * Each source is mirrored locally (bare clone) below
- * `<DATA_DIR>/extension-hub/`, so listing never needs the network. Requires
- * `git` and `tar` on the host.
+ * `<DATA_DIR>/extension-hub/`, so listing never needs the network. Sources
+ * are fetched periodically; when the set of available updates changes, open
+ * hub pages receive an `updates_changed` event. Updating stays a manual
+ * action. Requires `git` and `tar` on the host.
  */
 
 import path from "node:path";
@@ -24,6 +26,12 @@ import { HubService } from "./hub";
 import { registerRoutes } from "./routes";
 import { HubStore } from "./store";
 
+/** Default interval of the periodic update check. */
+const DEFAULT_CHECK_INTERVAL_MINUTES = 360;
+
+/** Delay of the first check after start (lets the server finish booting). */
+const FIRST_CHECK_DELAY_MS = 30_000;
+
 const manifest = {
   name: "extension-hub",
   version: "0.1.0",
@@ -34,8 +42,18 @@ const manifest = {
       description: "Offer prerelease versions (e.g. 1.2.0-rc.1) as the latest version",
       default: false,
     }),
+    checkIntervalMinutes: Type.Integer({
+      title: "Update check interval (minutes)",
+      description: "How often all sources are fetched to look for new versions (0 = only on demand)",
+      default: DEFAULT_CHECK_INTERVAL_MINUTES,
+      minimum: 0,
+      maximum: 10080,
+    }),
   }),
 } satisfies ExtensionManifest;
+
+/** UI event sent when the set of available updates changes. */
+export const UPDATES_CHANGED_EVENT = "updates_changed";
 
 /** Secret key holding a source's HTTPS token. */
 function tokenKey(sourceId: string): string {
@@ -48,6 +66,14 @@ function tokenKey(sourceId: string): string {
  * @returns An {@link Extension} object ready to be loaded by the registry
  */
 export function createExtension(): Extension {
+  const timers: { first?: ReturnType<typeof setTimeout>; interval?: ReturnType<typeof setInterval> } = {};
+  const clearTimers = () => {
+    clearTimeout(timers.first);
+    clearInterval(timers.interval);
+    timers.first = undefined;
+    timers.interval = undefined;
+  };
+
   return {
     manifest,
 
@@ -86,11 +112,61 @@ export function createExtension(): Extension {
       });
       await hub.init();
 
-      registerRoutes(ctx, hub, requestUserId, async (id) => (await getToken(id)) !== null);
+      // Publishes fetch errors as extension warnings and update-set changes to open pages.
+      let lastSignature: string | null = null;
+      const publish = () => {
+        ctx.status.setWarnings(
+          hub
+            .listSources()
+            .filter((s) => s.lastError)
+            .map((s) => `Source "${s.name}" could not be fetched: ${s.lastError}`),
+        );
+        const updates = hub.updates();
+        const signature = JSON.stringify(updates.map((u) => [u.name, u.update.commit]));
+        if (signature === lastSignature) return;
+        if (lastSignature !== null) {
+          for (const u of updates) {
+            ctx.log.info(`[extension-hub] Update available: ${u.name} ${u.installedVersion} -> ${u.update.ref}`);
+          }
+        }
+        lastSignature = signature;
+        ctx.ui.emit(UPDATES_CHANGED_EVENT, { count: updates.length, names: updates.map((u) => u.name) });
+      };
+      const runCheck = async () => {
+        const result = await hub.check();
+        publish();
+        return result;
+      };
+      const schedule = () => {
+        clearTimers();
+        const minutes = ctx.config.get<number>("CHECK_INTERVAL_MINUTES", DEFAULT_CHECK_INTERVAL_MINUTES);
+        if (!(minutes > 0)) return;
+        const tick = () => {
+          runCheck().catch((err) => ctx.log.error(`[extension-hub] Update check failed: ${(err as Error).message}`));
+        };
+        timers.first = setTimeout(tick, FIRST_CHECK_DELAY_MS);
+        timers.interval = setInterval(tick, minutes * 60_000);
+      };
+
+      ctx.events.on("settings:changed", (event) => {
+        if ((event as { extensionName?: string }).extensionName !== manifest.name) return;
+        schedule();
+        publish();
+      });
+
+      registerRoutes(ctx, hub, requestUserId, {
+        hasToken: async (id) => (await getToken(id)) !== null,
+        runCheck,
+        afterChange: publish,
+      });
+      publish();
+      schedule();
       ctx.log.info(`[extension-hub] Ready (${hub.listSources().length} source(s))`);
     },
 
-    async shutdown() {},
+    async shutdown() {
+      clearTimers();
+    },
   };
 }
 

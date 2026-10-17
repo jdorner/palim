@@ -62,6 +62,25 @@ export default {
   git(repo, "commit", "-q", "-m", "greeter");
   git(repo, "tag", "greeter@1.0.0");
 
+  await writeFile(path.join(ext, "package.json"), JSON.stringify({ name: "greeter", version: "1.1.0" }));
+  git(repo, "commit", "-q", "-am", "greeter 1.1.0");
+  git(repo, "tag", "greeter@1.1.0");
+
+  // 1.2.0 throws on activation: the hub must restore the previous version.
+  await writeFile(path.join(ext, "package.json"), JSON.stringify({ name: "greeter", version: "1.2.0" }));
+  await writeFile(
+    path.join(ext, "index.ts"),
+    `import pkg from "./package.json";
+export default {
+  manifest: { name: pkg.name, version: pkg.version },
+  async initialize() { throw new Error("broken release"); },
+  async shutdown() {},
+};
+`,
+  );
+  git(repo, "commit", "-q", "-am", "greeter 1.2.0");
+  git(repo, "tag", "greeter@1.2.0");
+
   const builtinDir = path.join(root, "builtin");
   const externalDir = path.join(root, "external");
   mkdirSync(builtinDir);
@@ -96,6 +115,7 @@ export default {
 
   watcher = new ExtensionWatcher({ directory: externalDir, registry, debounceMs: 50 });
   await watcher.start();
+  registry.setExternalSync((folder) => watcher.requestSync(folder));
 
   hub = new HubService({
     store: new HubStore(createTestDb()),
@@ -122,8 +142,10 @@ afterAll(async () => {
 });
 
 describe("hub with the real watcher", () => {
-  test("installs, loads, uninstalls, and unloads", async () => {
-    const result = await hub.install({ sourceId, name: "greeter", userId: null });
+  const loadedVersion = () => api.list().find((e) => e.name === "greeter")?.version;
+
+  test("installs, updates, rolls back, survives a broken update, and uninstalls", async () => {
+    const result = await hub.install({ sourceId, name: "greeter", version: "1.0.0", userId: null });
     expect(result.outcome).toEqual({ status: "loaded", version: "1.0.0" });
     expect(result.warnings).toEqual([]);
     expect(api.list().find((e) => e.name === "greeter")?.state).toBe("active");
@@ -131,8 +153,21 @@ describe("hub with the real watcher", () => {
     const view = await hub.catalog();
     expect(view.sources[0]!.extensions[0]!.installed?.loaded).toMatchObject({ version: "1.0.0", state: "active" });
 
+    // Default update target is the newest release, which is 1.2.0 (broken): restored to 1.0.0.
+    const broken = hub.update({ name: "greeter", userId: null });
+    await expect(broken).rejects.toThrow(/broken release.*restored 1\.0\.0/);
+    expect(loadedVersion()).toBe("1.0.0");
+
+    const updated = await hub.update({ name: "greeter", version: "1.1.0", userId: null });
+    expect(updated.outcome).toEqual({ status: "loaded", version: "1.1.0" });
+    expect(loadedVersion()).toBe("1.1.0");
+
+    const rolledBack = await hub.rollback("greeter", null);
+    expect(rolledBack.outcome).toEqual({ status: "loaded", version: "1.0.0" });
+    expect(loadedVersion()).toBe("1.0.0");
+
     expect(await hub.uninstall("greeter")).toEqual({ unloaded: true });
     expect(api.list().some((e) => e.name === "greeter")).toBe(false);
     expect(existsSync(path.join(api.externalDir, "greeter"))).toBe(false);
-  }, 30_000);
+  }, 60_000);
 });

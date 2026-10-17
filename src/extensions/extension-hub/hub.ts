@@ -1,28 +1,36 @@
 /**
- * Extension Hub service: sources, catalog, install, and uninstall.
+ * Extension Hub service: sources, catalog, install, update, rollback, and uninstall.
  *
  * Every mutating operation runs under one in-process lock, so installs,
  * removals, and fetches never interleave.
+ *
+ * Replacing an installed tree (update, rollback) is sequential: the old folder
+ * is moved out and the registry confirms the unload before the new folder is
+ * moved in, so the directory watcher sees a plain unload followed by a load.
+ * The replaced tree is kept as the one rollback backup.
  *
  * @module
  */
 
 import { existsSync } from "node:fs";
-import { rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import path from "node:path";
 import type { ExternalExtensionsApi, Logger } from "@ext/types";
 import {
   buildCatalog,
   type CatalogView,
+  findUpdate,
   type LoadedInfo,
   latestRelease,
   type SourceSnapshot,
   scanSource,
+  type UpdateInfo,
 } from "./catalog";
 import { HubError } from "./errors";
 import { assertSafeRef, assertSafeRemoteUrl } from "./git";
 import {
   assertExtensionName,
+  hashTree,
   type LoadOutcome,
   moveAside,
   placeTree,
@@ -106,6 +114,46 @@ export interface InstallResult {
   outcome: LoadOutcome;
   /** Non-fatal findings (e.g. manifest version differs from package.json). */
   warnings: string[];
+}
+
+/** Update request. */
+export interface UpdateRequest {
+  /** Extension name. */
+  name: string;
+  /** Version to update to (default: the available update). */
+  version?: string;
+  /** Tag, branch, or commit to switch to. */
+  ref?: string;
+  /** Overwrite local modifications, or reinstall the same commit. */
+  force?: boolean;
+  /** Updating user. */
+  userId: string | null;
+}
+
+/** Result of an update or rollback. */
+export interface ReplaceResult extends InstallResult {
+  /** Version that was replaced. */
+  from: string;
+}
+
+/** An installed extension with an available update. */
+export interface UpdateSummary {
+  /** Extension name. */
+  name: string;
+  /** Installed version. */
+  installedVersion: string;
+  /** Installed ref. */
+  ref: string;
+  /** The update. */
+  update: UpdateInfo;
+}
+
+/** Result of a periodic or manual check. */
+export interface CheckResult {
+  /** Installs with an update. */
+  updates: UpdateSummary[];
+  /** Sources whose fetch failed. */
+  errors: Array<{ source: string; error: string }>;
 }
 
 /**
@@ -255,10 +303,17 @@ export class HubService {
         });
       }
     }
+    const installs = this.deps.store.listInstalls();
+    const modified = new Set<string>();
+    for (const install of installs) {
+      const dir = path.join(this.externalDir, install.name);
+      if (existsSync(dir) && (await hashTree(dir)) !== install.contentHash) modified.add(install.name);
+    }
     return buildCatalog({
       sources: this.deps.store.listSources(),
       snapshots: this.snapshots,
-      installs: this.deps.store.listInstalls(),
+      installs,
+      modified,
       loadedByFolder,
       folders: await this.externalFolders(),
       includePrereleases: this.deps.includePrereleases(),
@@ -303,6 +358,7 @@ export class HubService {
       const since = Date.now();
       try {
         await placeTree(staged.dir, targetDir);
+        this.deps.extensions.sync(name);
       } catch (err) {
         await rm(staged.dir, { recursive: true, force: true });
         throw err;
@@ -354,10 +410,169 @@ export class HubService {
       assertExtensionName(name);
       if (!this.deps.store.getInstall(name)) throw new HubError(404, `"${name}" was not installed by the hub`);
       const unloaded = await this.removeFolder(path.join(this.externalDir, name));
+      await rm(this.backupDir(name), { recursive: true, force: true });
       this.deps.store.deleteInstall(name);
       this.deps.log.info(`[extension-hub] Uninstalled "${name}"`);
       return { unloaded };
     });
+  }
+
+  /**
+   * Updates an installed extension, by default to its available update.
+   * Refused when the installed files were changed locally (unless `force`).
+   * When the new version fails to load, the previous one is restored.
+   *
+   * @param request - Name, optional target version or ref, force, user
+   * @returns The new record, load outcome, warnings, and replaced version
+   * @throws {HubError} 404 not installed, 409 modified / up to date, 422 failed to load (rolled back)
+   */
+  update(request: UpdateRequest): Promise<ReplaceResult> {
+    return this.exclusive(async () => {
+      const name = assertExtensionName(request.name);
+      const current = this.requireInstall(name);
+      const dir = this.installedDir(name);
+      const currentHash = await hashTree(dir);
+      if (!request.force && currentHash !== current.contentHash) {
+        throw new HubError(409, `"${name}" was modified locally; force the update to discard the changes`, {
+          modified: true,
+        });
+      }
+
+      const source = this.deps.store.requireSource(current.sourceId);
+      const repo = this.repo(source);
+      const pending = findUpdate(current, this.snapshots.get(source.id) ?? null, this.deps.includePrereleases());
+      const explicit = request.version !== undefined || request.ref !== undefined;
+      if (!explicit && !pending) throw new HubError(409, `"${name}" is up to date`);
+      const fallback = pending ? { ref: pending.ref, refKind: current.refKind, commit: pending.commit } : null;
+      const target = await resolveTarget(repo, name, request, fallback);
+      if (target.commit === current.commit && target.ref === current.ref && !request.force) {
+        throw new HubError(409, `"${name}" is already at ${target.ref}`);
+      }
+      const staged = await stageTree(repo, name, target, path.join(this.deps.workRoot, "staging"), {
+        sourceId: source.id,
+        url: source.url,
+      });
+
+      const backup = this.backupDir(name);
+      const outcome = await this.swap(dir, staged.dir, backup);
+      if (outcome.status === "failed") {
+        const failed = await this.trashSlot(name);
+        await this.swap(dir, backup, failed);
+        await rm(path.dirname(failed), { recursive: true, force: true });
+        // The backup now is the live tree again, so there is nothing left to roll back to.
+        this.deps.store.saveInstall({ ...current, previous: null });
+        throw new HubError(
+          422,
+          `"${name}" ${target.ref} failed to load (${outcome.error}); restored ${current.version}`,
+        );
+      }
+
+      const install: InstallRecord = {
+        name,
+        sourceId: source.id,
+        ref: target.ref,
+        refKind: target.refKind,
+        version: staged.meta.version,
+        commit: target.commit,
+        contentHash: staged.contentHash,
+        installedAt: Date.now(),
+        installedBy: request.userId,
+        previous: {
+          ref: current.ref,
+          refKind: current.refKind,
+          version: current.version,
+          commit: current.commit,
+          contentHash: currentHash,
+        },
+      };
+      this.deps.store.saveInstall(install);
+      this.deps.log.info(`[extension-hub] Updated "${name}" ${current.version} -> ${install.version} (${target.ref})`);
+      const warnings = versionWarnings(name, install.version, outcome);
+      for (const w of warnings) this.deps.log.warn(`[extension-hub] ${w}`);
+      return { install, outcome, warnings, from: current.version };
+    });
+  }
+
+  /**
+   * Swaps an installed extension with its backup (the state before the last
+   * update). Rolling back twice returns to the newer version. When the backup
+   * fails to load, the current version is restored.
+   *
+   * @param name - Extension name
+   * @param userId - Acting user
+   * @returns The new record, load outcome, warnings, and replaced version
+   * @throws {HubError} 404 not installed, 409 no backup, 422 failed to load (restored)
+   */
+  rollback(name: string, userId: string | null): Promise<ReplaceResult> {
+    return this.exclusive(async () => {
+      assertExtensionName(name);
+      const current = this.requireInstall(name);
+      const backup = this.backupDir(name);
+      if (!current.previous || !existsSync(path.join(backup, "index.ts"))) {
+        throw new HubError(409, `"${name}" has no previous version to roll back to`);
+      }
+      const previous = current.previous;
+      const dir = this.installedDir(name);
+      const currentHash = await hashTree(dir);
+
+      const parked = await this.trashSlot(name);
+      const outcome = await this.swap(dir, backup, parked);
+      if (outcome.status === "failed") {
+        await this.swap(dir, parked, backup);
+        await rm(path.dirname(parked), { recursive: true, force: true });
+        throw new HubError(
+          422,
+          `"${name}" ${previous.version} failed to load (${outcome.error}); kept ${current.version}`,
+        );
+      }
+      await rename(parked, backup);
+      await rm(path.dirname(parked), { recursive: true, force: true });
+
+      const install: InstallRecord = {
+        ...current,
+        ...previous,
+        installedAt: Date.now(),
+        installedBy: userId,
+        previous: {
+          ref: current.ref,
+          refKind: current.refKind,
+          version: current.version,
+          commit: current.commit,
+          contentHash: currentHash,
+        },
+      };
+      this.deps.store.saveInstall(install);
+      this.deps.log.info(`[extension-hub] Rolled back "${name}" ${current.version} -> ${install.version}`);
+      const warnings = versionWarnings(name, install.version, outcome);
+      return { install, outcome, warnings, from: current.version };
+    });
+  }
+
+  /**
+   * Lists installs with an available update, from the last fetched state.
+   *
+   * @returns Updates sorted by name
+   */
+  updates(): UpdateSummary[] {
+    const result: UpdateSummary[] = [];
+    for (const install of this.deps.store.listInstalls()) {
+      const update = findUpdate(install, this.snapshots.get(install.sourceId) ?? null, this.deps.includePrereleases());
+      if (update) result.push({ name: install.name, installedVersion: install.version, ref: install.ref, update });
+    }
+    return result;
+  }
+
+  /**
+   * Fetches all sources and reports available updates and fetch errors.
+   *
+   * @returns Updates and errors
+   */
+  async check(): Promise<CheckResult> {
+    const results = await this.refreshAll();
+    return {
+      updates: this.updates(),
+      errors: results.filter((r) => r.error).map((r) => ({ source: r.source.name, error: r.error! })),
+    };
   }
 
   /** Runs a function under the hub lock. */
@@ -406,10 +621,57 @@ export class HubService {
     return null;
   }
 
+  /** Returns the install record or fails with 404. */
+  private requireInstall(name: string): InstallRecord {
+    const install = this.deps.store.getInstall(name);
+    if (!install) throw new HubError(404, `"${name}" was not installed by the hub`);
+    return install;
+  }
+
+  /** Returns the folder of an install, failing when it disappeared. */
+  private installedDir(name: string): string {
+    const dir = path.join(this.externalDir, name);
+    if (!existsSync(dir)) {
+      throw new HubError(409, `"${name}" is missing from the extensions directory; uninstall and reinstall it`);
+    }
+    return dir;
+  }
+
+  /** The rollback backup of an extension. */
+  private backupDir(name: string): string {
+    return path.join(this.deps.workRoot, "backup", name);
+  }
+
+  /** Returns a fresh, not yet existing path below the trash directory. */
+  private async trashSlot(name: string): Promise<string> {
+    const trash = path.join(this.deps.workRoot, "trash");
+    await mkdir(trash, { recursive: true });
+    return path.join(await mkdtemp(path.join(trash, `${name}-`)), name);
+  }
+
+  /**
+   * Replaces the extension in `dir` with the tree at `incoming`, moving the
+   * old tree to `outgoing` (replaced if it exists). Waits for the registry to
+   * unload the old and load the new extension.
+   */
+  private async swap(dir: string, incoming: string, outgoing: string): Promise<LoadOutcome> {
+    await rm(outgoing, { recursive: true, force: true });
+    await mkdir(path.dirname(outgoing), { recursive: true });
+    const folder = path.basename(dir);
+    await rename(dir, outgoing);
+    this.deps.extensions.sync(folder);
+    await waitForUnload(this.deps.extensions, dir, this.deps.unloadWait ?? DEFAULT_UNLOAD_WAIT);
+    const since = Date.now();
+    await rename(incoming, dir);
+    this.deps.extensions.sync(folder);
+    return waitForLoad(this.deps.extensions, dir, since, this.deps.loadWait ?? DEFAULT_LOAD_WAIT);
+  }
+
   /** Moves an extension folder out (the watcher unloads it), waits, then deletes it. */
   private async removeFolder(dir: string): Promise<boolean> {
     if (!existsSync(dir)) return true;
     const moved = await moveAside(dir, path.join(this.deps.workRoot, "trash"));
+    this.deps.extensions.sync(path.basename(dir));
     const unloaded = await waitForUnload(this.deps.extensions, dir, this.deps.unloadWait ?? DEFAULT_UNLOAD_WAIT);
     await rm(path.dirname(moved), { recursive: true, force: true });
     return unloaded;
