@@ -247,7 +247,8 @@ export class HubService {
    * @param id - Source id
    * @param input - Changed fields
    * @returns The source and the fetch error (null when nothing was fetched)
-   * @throws {HubError} 400 invalid input, a stored token on an origin change, or a token on a non-HTTPS URL
+   * @throws {HubError} 400 invalid input, a stored token on an origin change, or a token on a non-HTTPS URL;
+   *   503 when the token cannot be stored or cleared
    */
   updateSource(id: string, input: Partial<SourceInput>): Promise<SourceResult> {
     return this.exclusive(async () => {
@@ -266,8 +267,11 @@ export class HubService {
       }
       const hasToken = input.token !== undefined ? Boolean(input.token) : (await this.deps.getToken(id)) !== null;
       if (hasToken) assertTokenAllowed(patch.url ?? current.url);
+      // Clear before saving the patch, so a failed clear never leaves the old
+      // token bound to a new URL.
+      if (input.token !== undefined && !input.token) await this.deps.setToken(id, null);
       const source = this.deps.store.updateSource(id, patch);
-      if (input.token !== undefined) await this.deps.setToken(id, input.token || null);
+      if (input.token) await this.deps.setToken(id, input.token);
       const urlChanged = source.url !== current.url;
       if (urlChanged) await this.repo(source).remove();
       if (urlChanged || source.branch !== current.branch || input.token) return this.fetchSource(id);

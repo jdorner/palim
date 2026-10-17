@@ -2,14 +2,17 @@ import { describe, expect, test } from "bun:test";
 import { HubError } from "./errors";
 import { createTokenAccess, pruneTokens, type TokenSecrets, tokenKey } from "./tokens";
 
-/** In-memory secret store; `failing` makes every call throw (no vault). */
+/**
+ * In-memory secret store. `failing` makes every call throw except `keys()`,
+ * which lists the stored keys, or nothing when `initial` is empty (no vault).
+ */
 function memorySecrets(
   initial: Record<string, string> = {},
   failing = false,
 ): TokenSecrets & { data: Map<string, string> } {
   const data = new Map(Object.entries(initial));
   const guard = () => {
-    if (failing) throw new Error("no master key");
+    if (failing) throw new Error("database is locked");
   };
   return {
     data,
@@ -26,7 +29,6 @@ function memorySecrets(
       return data.delete(key);
     },
     async keys() {
-      guard();
       return [...data.keys()].sort();
     },
   };
@@ -59,6 +61,13 @@ describe("createTokenAccess", () => {
     await expect(setToken("s1", "abc")).rejects.toMatchObject({ status: 503 });
     expect(await getToken("s1")).toBeNull();
     await setToken("s1", null);
+  });
+
+  test("a stored token that cannot be deleted fails the clear with 503", async () => {
+    const secrets = memorySecrets({ [tokenKey("s1")]: "abc" }, true);
+    const { setToken } = createTokenAccess(secrets);
+    await expect(setToken("s1", null)).rejects.toMatchObject({ status: 503 });
+    expect(secrets.data.get(tokenKey("s1"))).toBe("abc");
   });
 });
 

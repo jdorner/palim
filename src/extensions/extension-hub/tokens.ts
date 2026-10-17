@@ -38,7 +38,8 @@ export function tokenKey(sourceId: string): string {
  *
  * @param secrets - The extension's secret store
  * @returns `getToken` (null when unset or the vault is unavailable) and
- *   `setToken` (null clears; throws 503 when a token cannot be stored)
+ *   `setToken` (null clears; throws 503 when a token cannot be stored or a
+ *   stored token cannot be deleted)
  */
 export function createTokenAccess(secrets: TokenSecrets): {
   getToken: (sourceId: string) => Promise<string | null>;
@@ -53,14 +54,21 @@ export function createTokenAccess(secrets: TokenSecrets): {
       }
     },
     async setToken(sourceId, token) {
-      try {
-        if (token) await secrets.set(tokenKey(sourceId), token);
-        else await secrets.delete(tokenKey(sourceId));
-      } catch (err) {
-        // Clearing without a vault is a no-op: nothing can have been stored.
-        if (token) {
+      const key = tokenKey(sourceId);
+      if (token) {
+        try {
+          await secrets.set(key, token);
+        } catch (err) {
           throw new HubError(503, `Storing the token needs the secret vault: ${(err as Error).message}`);
         }
+        return;
+      }
+      try {
+        // Without a vault `keys()` is empty, so clearing is a no-op only when
+        // nothing is stored; any failure to delete a stored token propagates.
+        if ((await secrets.keys()).includes(key)) await secrets.delete(key);
+      } catch (err) {
+        throw new HubError(503, `The token could not be cleared: ${(err as Error).message}`);
       }
     },
   };
