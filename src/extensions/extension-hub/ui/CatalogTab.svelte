@@ -249,7 +249,7 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
   entry: Partial<Pick<CatalogEntry, "update" | "blockedByLocal">>,
   installed: InstalledView | null,
 )}
-  <div class="flex flex-wrap gap-1">
+  <div class="flex flex-wrap justify-center gap-1">
     {#if entry.update}
       <Badge class="whitespace-nowrap"
         >{$i18n.t("status.updateAvailable", { version: entry.update.version ?? entry.update.ref })}</Badge
@@ -421,9 +421,9 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
               <TableHeader class="bg-muted/30">
                 <TableRow>
                   <TableHead>{$i18n.t("columns.extension")}</TableHead>
-                  <TableHead>{$i18n.t("columns.installed")}</TableHead>
-                  <TableHead>{$i18n.t("columns.latest")}</TableHead>
-                  <TableHead>{$i18n.t("columns.status")}</TableHead>
+                  <TableHead class="text-center">{$i18n.t("columns.installed")}</TableHead>
+                  <TableHead class="text-center">{$i18n.t("columns.latest")}</TableHead>
+                  <TableHead class="text-center">{$i18n.t("columns.status")}</TableHead>
                   <TableHead class="text-center">{$i18n.t("columns.enabled")}</TableHead>
                   {#if canWrite}
                     <TableHead class="text-center">{$i18n.t("columns.actions")}</TableHead>
@@ -434,9 +434,9 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
                 {#each source.extensions as entry (entry.name)}
                   <TableRow>
                     <TableCell class="max-w-md">{@render nameCell(entry)}</TableCell>
-                    <TableCell>{@render installedCell(entry.installed)}</TableCell>
-                    <TableCell>{@render availableCell(entry)}</TableCell>
-                    <TableCell>{@render statusChips(entry, entry.installed)}</TableCell>
+                    <TableCell class="text-center">{@render installedCell(entry.installed)}</TableCell>
+                    <TableCell class="text-center">{@render availableCell(entry)}</TableCell>
+                    <TableCell class="text-center">{@render statusChips(entry, entry.installed)}</TableCell>
                     <TableCell class="text-center">{@render enabledCell(entry.name, entry.installed)}</TableCell>
                     {#if canWrite}
                       <TableCell class="w-1 text-right">
