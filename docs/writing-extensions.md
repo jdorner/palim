@@ -439,6 +439,8 @@ Both accept an optional model `intent` (`"chat"`, `"vision"`, `"embedding"`) to 
 | --- | --- |
 | `ctx.secrets.get(key)` | Retrieve a secret (ACL-checked, audited) |
 | `ctx.secrets.set(key, value, opts?)` | Store an encrypted secret |
+| `ctx.secrets.delete(key)` | Delete one of the extension's secrets (audited); returns whether it existed |
+| `ctx.secrets.keys()` | List the keys of the extension's secrets (no values) |
 
 Secret descriptions from `secretsSchema` are translated through `secrets.<KEY>.description` in the extension's catalogs (see [Translations](#manifest-and-schema-metadata)).
 

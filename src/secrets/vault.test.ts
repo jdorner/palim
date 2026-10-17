@@ -344,3 +344,18 @@ describe("SecretVault (property-based)", () => {
     );
   });
 });
+
+describe("SecretVault.listKeys", () => {
+  test("lists only the keys of one scope, sorted, and reflects removals", async () => {
+    const vault = await SecretVault.create({ database: createTestDb(), masterKey: Buffer.alloc(32, 0xcd) });
+    await vault.bulkUpsert("ext-a", { B_KEY: "2", A_KEY: "1" });
+    await vault.bulkUpsert("ext-b", { OTHER: "3" });
+
+    expect(vault.listKeys("ext-a")).toEqual(["A_KEY", "B_KEY"]);
+    expect(vault.listKeys("ext-b")).toEqual(["OTHER"]);
+    expect(vault.listKeys("ext-c")).toEqual([]);
+
+    expect(vault.remove("ext-a", "A_KEY", "ext:ext-a")).toBe(true);
+    expect(vault.listKeys("ext-a")).toEqual(["B_KEY"]);
+  });
+});

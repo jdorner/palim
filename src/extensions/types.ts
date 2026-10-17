@@ -783,6 +783,22 @@ export interface ExtensionContext {
      * @param opts - Optional ACL configuration for the new secret
      */
     set(key: string, value: string, opts?: SetSecretOptions): Promise<void>;
+
+    /**
+     * Delete one of this extension's secrets. The deletion is audited.
+     *
+     * @param key - The secret key name
+     * @returns True when the secret existed and was deleted
+     * @throws {Error} When the vault is not configured
+     */
+    delete(key: string): Promise<boolean>;
+
+    /**
+     * List the keys of this extension's secrets (values are not decrypted).
+     *
+     * @returns Secret keys, sorted (empty when the vault is not configured)
+     */
+    keys(): Promise<string[]>;
   };
 
   // -------------------------------------------------------------------------

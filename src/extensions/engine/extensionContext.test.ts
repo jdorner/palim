@@ -4,6 +4,8 @@
 
 import { describe, expect, test } from "bun:test";
 import type { WorkflowDispatchResult } from "@ext/types";
+import { SecretVault } from "@src/secrets/vault";
+import { createTestDb } from "@src/test/db";
 import { EventBus } from "./eventBus";
 import { createExtensionContext, setWorkflowDispatchFn, setWorkflowNamesFn } from "./extensionContext";
 
@@ -208,5 +210,29 @@ describe("ctx.status.setWarnings", () => {
   test("is a no-op without a registry callback", () => {
     const { context } = createExtensionContext(createMinimalDeps());
     expect(() => context.status.setWarnings(["x"])).not.toThrow();
+  });
+});
+
+describe("ctx.secrets.delete / keys", () => {
+  test("delete and list only the extension's own secrets", async () => {
+    const secretVault = await SecretVault.create({ database: createTestDb(), masterKey: Buffer.alloc(32, 0x11) });
+    await secretVault.bulkUpsert("other-extension", { FOREIGN: "x" });
+    const { context } = createExtensionContext({ ...createMinimalDeps(), secretVault });
+
+    await context.secrets.set("A_KEY", "1");
+    await context.secrets.set("B_KEY", "2");
+    expect(await context.secrets.keys()).toEqual(["A_KEY", "B_KEY"]);
+
+    expect(await context.secrets.delete("A_KEY")).toBe(true);
+    expect(await context.secrets.delete("A_KEY")).toBe(false);
+    expect(await context.secrets.delete("FOREIGN")).toBe(false);
+    expect(await context.secrets.keys()).toEqual(["B_KEY"]);
+    expect(secretVault.listKeys("other-extension")).toEqual(["FOREIGN"]);
+  });
+
+  test("without a vault: keys is empty and delete rejects", async () => {
+    const { context } = createExtensionContext(createMinimalDeps());
+    expect(await context.secrets.keys()).toEqual([]);
+    await expect(context.secrets.delete("A_KEY")).rejects.toThrow("not available");
   });
 });

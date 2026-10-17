@@ -53,6 +53,8 @@ Open **Extension Hub** in the sidebar. Its badge shows the number of available u
 | Branch | Branch offered for installs without a release. Empty = the repository's default branch. |
 | HTTPS access token | Optional, for private HTTPS repositories |
 
+The token is stored encrypted in the secret vault as the extension secret `SOURCE_TOKEN_<source id>`. Clearing it or deleting the source deletes the secret, and on startup the hub removes tokens of sources that no longer exist. Some servers refuse git over HTTPS altogether: Gitea and Forgejo answer `Interacting with repositories by HTTP protocol is not allowed` when `DISABLE_HTTP_GIT` is on; use SSH there.
+
 Saving clones the repository into a local mirror and lists its extensions. A source that can't be fetched is still saved, with the error shown, so you can correct the URL or credentials. **Fetch** updates one source. A source can only be deleted while nothing installed from it remains.
 
 ### Catalog

@@ -21,11 +21,11 @@ import path from "node:path";
 import type { Extension, ExtensionContext, ExtensionManifest } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 import { requestUserId } from "@src/web/triggerOwnership";
-import { HubError } from "./errors";
 import { PAGE_ROUTE, UPDATES_CHANGED_EVENT } from "./events";
 import { HubService } from "./hub";
 import { registerRoutes } from "./routes";
 import { HubStore } from "./store";
+import { createTokenAccess, pruneTokens } from "./tokens";
 
 /** Default interval of the periodic update check. */
 const DEFAULT_CHECK_INTERVAL_MINUTES = 360;
@@ -66,11 +66,6 @@ const manifest = {
   }),
 } satisfies ExtensionManifest;
 
-/** Secret key holding a source's HTTPS token. */
-function tokenKey(sourceId: string): string {
-  return `SOURCE_TOKEN_${sourceId}`;
-}
-
 /**
  * Creates a fresh Extension Hub instance.
  *
@@ -95,22 +90,7 @@ export function createExtension(): Extension {
         return;
       }
 
-      const getToken = async (sourceId: string) => {
-        try {
-          return (await ctx.secrets.get(tokenKey(sourceId))) || null;
-        } catch {
-          return null;
-        }
-      };
-      const setToken = async (sourceId: string, token: string | null) => {
-        try {
-          await ctx.secrets.set(tokenKey(sourceId), token ?? "");
-        } catch (err) {
-          if (token) {
-            throw new HubError(503, `Storing the token needs the secret vault: ${(err as Error).message}`);
-          }
-        }
-      };
+      const { getToken, setToken } = createTokenAccess(ctx.secrets);
 
       const hub = new HubService({
         store: new HubStore(ctx.db),
@@ -123,6 +103,13 @@ export function createExtension(): Extension {
         watchMode: process.execArgv.some((arg) => arg === "--watch" || arg === "--hot"),
       });
       await hub.init();
+
+      try {
+        const removed = await pruneTokens(ctx.secrets, new Set(hub.listSources().map((s) => s.id)));
+        if (removed.length > 0) ctx.log.info(`[extension-hub] Removed ${removed.length} unused source token(s)`);
+      } catch (err) {
+        ctx.log.warn(`[extension-hub] Could not clean up source tokens: ${(err as Error).message}`);
+      }
 
       // Publishes fetch errors as extension warnings and update-set changes to open pages.
       let lastSignature: string | null = null;

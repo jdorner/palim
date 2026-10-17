@@ -482,7 +482,7 @@ Palim has two layers of secret management:
 - Extension and workflow secrets managed via the web UI
 - Per-row ACL with consumer identity pattern matching
 - All access attempts are audit-logged to SQLite
-- Extensions access secrets via `ctx.secrets.get(key)` / `ctx.secrets.set(key, value)`
+- Extensions access secrets via `ctx.secrets.get(key)` / `ctx.secrets.set(key, value)`, delete them with `ctx.secrets.delete(key)`, and list their keys with `ctx.secrets.keys()`
 - Workflows access secrets via `{{secret.KEY_NAME}}` template syntax
 - Requires `SECRETS_MASTER_KEY` (or derivation from `.env.keys`) for encryption
 
