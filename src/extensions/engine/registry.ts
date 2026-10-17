@@ -879,7 +879,9 @@ export class ExtensionRegistry {
         variableStore: deps.variableStore,
         hitlService: deps.hitlService,
         portalLaunchers: deps.portalLaunchers,
-        identityApi: deps.userStore ? createIdentityApi(deps.userStore) : undefined,
+        identityApi: deps.userStore
+          ? createIdentityApi(deps.userStore, { extensionName, log: (message) => logger.info(message) })
+          : undefined,
         routeRegistry: deps.routeRegistry,
         rescanSkillsFn: () => this.discoverAndLoadSkills(),
         getSkillNamesFn: () => this.getSkillNames(),

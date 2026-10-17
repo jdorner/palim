@@ -1098,8 +1098,10 @@ export interface ExtensionContext {
   // -------------------------------------------------------------------------
 
   /**
-   * Privileged capabilities only available to core extensions.
-   * `undefined` for regular extensions.
+   * Privileged capabilities. Handed to every extension (core, built-in, and
+   * external alike), which all run in-process and are trusted; meant for
+   * infrastructure code. Individual members are `undefined` when the backing
+   * service is not configured.
    */
   readonly internal?: {
     /** Secrets resolution with custom consumer identity (e.g. for workflow templates). */

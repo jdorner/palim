@@ -453,14 +453,14 @@ function checkWorkflow(ctx: ExtensionContext): void {
 | `ctx.isEnabled()` | Check whether this extension is enabled |
 | `ctx.isEnabled(name)` | Check whether another extension is enabled |
 
-### Internal (Core Extensions Only)
+### Internal (Privileged)
 
 | Property | Description |
 | --- | --- |
 | `ctx.internal?.secrets.resolveAs(key, consumer)` | Resolve a secret with a custom consumer identity (e.g. for workflow templates) |
-| `ctx.internal?.identity.listOperatorUsernames()` | Usernames of enabled operator accounts (e.g. for a "run as" dropdown via `dynamicItems`) |
-| `ctx.internal?.identity.mintToken(username, ttlMs?)` | Short-lived bearer token to call the API as that operator; null for unknown, disabled, or portal accounts |
-| `ctx.internal?.identity.registerOwnerCounter(kind, counter)` | Refuse deleting a user the extension still acts as (`counter(username)` > 0); returns an unregister function for `shutdown()` |
+| `ctx.internal?.identity.listOperatorUsernames()` | Usernames of the accounts an extension may act as: enabled operators without the `admin` or `system` role (e.g. for a "run as" dropdown via `dynamicItems`) |
+| `ctx.internal?.identity.mintToken(username, ttlMs?)` | Short-lived bearer token to call the API as that operator (logged with the extension name); null for any account not listed above |
+| `ctx.internal?.identity.registerOwnerCounter(kind, counter)` | Refuse deleting a user the extension still acts as (`counter(username)` > 0); kept per extension, so it cannot replace core or other extensions' counters; returns an unregister function for `shutdown()` |
 
 ## Configuration
 
