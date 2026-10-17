@@ -50,6 +50,12 @@ RUN cd frontend && bun install --frozen-lockfile --production
 # ============================================================
 FROM docker.io/oven/bun:1.3-debian
 
+# git and ssh for the Extension Hub, which installs extensions from git
+# repositories (tar, also needed, is part of the base image)
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git openssh-client ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /app
 
 # Reuse the already-extracted production dependencies from the deps stage

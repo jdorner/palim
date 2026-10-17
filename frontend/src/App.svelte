@@ -14,6 +14,7 @@ import { type Component, onDestroy, onMount } from "svelte";
 import { get } from "svelte/store";
 import {
   connected,
+  extensionUpdateCount,
   fetchFileWatcherCount,
   fetchWebhookCount,
   fetchWorkflowCount,
@@ -121,6 +122,10 @@ function handleMessage(message: WebSocketMessage) {
       break;
     case "extension_ui_event":
       dispatchExtensionUiEvent(message);
+      // The extension hub's nav badge counts available updates.
+      if (message.extension === "extension-hub" && message.event === "updates_changed") {
+        extensionUpdateCount.set((message.data as { count?: number } | undefined)?.count ?? 0);
+      }
       break;
     case "extension_schemas_changed":
       fetchExtensions();

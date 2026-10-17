@@ -167,6 +167,8 @@ Each external extension should have a `package.json`. Use `dependencies` for pac
 ```json
 {
   "name": "my-extension",
+  "version": "1.2.0",
+  "description": "What the extension does",
   "module": "index.ts",
   "type": "module",
   "dependencies": {
@@ -185,6 +187,36 @@ Each external extension should have a `package.json`. Use `dependencies` for pac
 - **Dependencies matching a host package** at a compatible version are skipped (no duplication). The core's copy is reused at runtime.
 - **Dependencies not in the host** are installed into the extension's local `node_modules/`.
 - **Version conflicts** (extension requests a range incompatible with the installed host version) are logged as warnings, and the extension's version is installed locally.
+
+**Version and description:** `package.json` is the single place for the extension's version. Read the manifest's name, version, and description from it, so they can't drift apart:
+
+```typescript
+import pkg from "./package.json";
+
+const manifest = {
+  name: pkg.name,
+  version: pkg.version,
+  description: pkg.description,
+  // ...
+} satisfies ExtensionManifest;
+```
+
+### Publishing for the Extension Hub
+
+The [Extension Hub](extensions/extension-hub.md) installs external extensions from a git repository with one folder per extension. A folder is offered when it has:
+
+- an `index.ts`, and
+- a `package.json` whose `name` equals the folder name and whose `version` is a [semver](https://semver.org) version (`1.2.0`, `2.0.0-rc.1`).
+
+Releases are tags named `<name>@<version>`, matching the `package.json` version of the tagged commit:
+
+```bash
+# bump "version" in my-extension/package.json, commit, then:
+git tag my-extension@1.2.0
+git push origin my-extension@1.2.0
+```
+
+Untagged extensions can still be installed from a branch (updates then follow the branch) or a commit. If the repository's root `.gitignore` excludes generated files, anchor the patterns to the root (`/package.json`, not `package.json`), or the extensions' own `package.json` files are not committed.
 
 ### Generated tsconfig.json
 
@@ -205,6 +237,7 @@ The auto-generated `tsconfig.json` looks like this (paths are relative to your e
     "verbatimModuleSyntax": true,
     "noEmit": true,
     "skipLibCheck": true,
+    "resolveJsonModule": true,
     "typeRoots": ["<relative-path>/node_modules/@types"],
     "paths": {
       "@ext/types": ["<relative-path>/src/extensions/types.ts"],
@@ -240,7 +273,7 @@ External extensions are discovered at boot by scanning `EXTERNAL_EXTENSIONS_DIR`
 - A changed `index.ts` reloads the extension (unload, then load).
 - Changes below `<extension>/ui/` only rebuild the extension's [UI pages](#extension-ui), and open pages remount with the new code.
 
-Other files (helpers imported by `index.ts`) do not trigger a reload; touch `index.ts` to reload after editing them.
+Other files (helpers imported by `index.ts`) do not trigger a reload; touch `index.ts` to reload after editing them. A reload re-reads all of the extension's files, including those helpers and `package.json`. Exception: under `bun run dev` (Bun's watch mode), Bun keeps the helpers cached across reloads. Editing a helper there restarts the whole server anyway, but folders replaced by the [Extension Hub](extensions/extension-hub.md) need a manual restart.
 
 ### Error Handling
 
@@ -462,6 +495,9 @@ function checkWorkflow(ctx: ExtensionContext): void {
 | `ctx.internal?.secrets.resolveAs(key, consumer)` | Resolve a secret with a custom consumer identity (e.g. for workflow templates) |
 | `ctx.internal?.identity.listOperatorUsernames()` | Usernames of the accounts an extension may act as: enabled operators without the `admin` or `system` role (e.g. for a "run as" dropdown via `dynamicItems`) |
 | `ctx.internal?.identity.mintToken(username, ttlMs?)` | Short-lived bearer token to call the API as that operator (logged with the extension name); null for any account not listed above |
+| `ctx.internal?.extensions.list()` | Loaded extensions with name, version, source, directory, state, enabled flag, and activation error |
+| `ctx.internal?.extensions.lastLoadFailure(dir)` | Why the extension in a directory last failed to load (import, validation, dependencies), or null |
+| `ctx.internal?.extensions.sync(folder)` | Ask the external directory watcher to load or unload one folder of `externalDir` (use after moving extension folders) |
 | `ctx.internal?.identity.registerOwnerCounter(kind, counter)` | Refuse deleting a user the extension still acts as (`counter(username)` > 0); kept per extension, so it cannot replace core or other extensions' counters; returns an unregister function for `shutdown()` |
 
 ## Configuration

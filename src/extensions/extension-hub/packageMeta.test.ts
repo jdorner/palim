@@ -46,6 +46,13 @@ describe("readmeSummary", () => {
   test("returns the first prose paragraph", () => {
     expect(readmeSummary("# Title\n\n```sh\nx\n```\n\nDoes   things\nwell.\n\nMore.")).toBe("Does things well.");
     expect(readmeSummary(null)).toBeNull();
+    expect(
+      readmeSummary(
+        "# x\n\nA Palim extension that adds an `imap-fetch` step, built on [ImapFlow](https://imapflow.com/), with **System-1** _support_ and snake_case_name.",
+      ),
+    ).toBe(
+      "A Palim extension that adds an imap-fetch step, built on ImapFlow, with System-1 support and snake_case_name.",
+    );
   });
 });
 

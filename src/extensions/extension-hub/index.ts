@@ -22,6 +22,7 @@ import type { Extension, ExtensionContext, ExtensionManifest } from "@ext/types"
 import { Type } from "@sinclair/typebox";
 import { requestUserId } from "@src/web/triggerOwnership";
 import { HubError } from "./errors";
+import { PAGE_ROUTE, UPDATES_CHANGED_EVENT } from "./events";
 import { HubService } from "./hub";
 import { registerRoutes } from "./routes";
 import { HubStore } from "./store";
@@ -36,6 +37,19 @@ const manifest = {
   name: "extension-hub",
   version: "0.1.0",
   description: "Install, update, and remove external extensions from git repositories",
+  ui: {
+    pages: [{ id: "hub", title: "Extension Hub", entry: "ui/ExtensionHubPage.svelte" }],
+    navigation: [
+      {
+        label: "Extension Hub",
+        route: PAGE_ROUTE,
+        icon: "PuzzlePieceIcon",
+        order: 200,
+        badgeKey: "extensionUpdateCount",
+        iconColor: "text-violet-600 dark:text-violet-400",
+      },
+    ],
+  },
   settingsSchema: Type.Object({
     includePrereleases: Type.Boolean({
       title: "Include prereleases",
@@ -51,9 +65,6 @@ const manifest = {
     }),
   }),
 } satisfies ExtensionManifest;
-
-/** UI event sent when the set of available updates changes. */
-export const UPDATES_CHANGED_EVENT = "updates_changed";
 
 /** Secret key holding a source's HTTPS token. */
 function tokenKey(sourceId: string): string {
@@ -109,6 +120,7 @@ export function createExtension(): Extension {
         getToken,
         setToken,
         includePrereleases: () => ctx.config.get<boolean>("INCLUDE_PRERELEASES", false),
+        watchMode: process.execArgv.some((arg) => arg === "--watch" || arg === "--hot"),
       });
       await hub.init();
 

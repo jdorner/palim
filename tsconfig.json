@@ -31,7 +31,17 @@
       "@shared/*": ["./shared/*"],
       "@ext/sdk": ["./src/extensions/sdk.ts"],
       "@ext/types": ["./src/extensions/types.ts"],
-      "@ext/ui": ["./src/extensions/ui/index.ts"]
+      "@ext/ui": ["./src/extensions/ui/index.ts"],
+      // Extension UI pages (src/extensions/*/ui/*.svelte): the public UI kit and its
+      // internal $lib imports, as in the tsconfig generated for external extensions
+      "@palim/ui": ["./frontend/src/lib/extensionKit.ts"],
+      "$lib/*": ["./frontend/src/lib/*"],
+      "$shared/*": ["./shared/*"],
+      // Packages the extension UI builder provides from frontend/node_modules
+      "phosphor-svelte/lib/*": ["./frontend/node_modules/phosphor-svelte/lib/*.svelte.d.ts"],
+      "bits-ui": ["./frontend/node_modules/bits-ui/dist/index.d.ts"],
+      "tailwind-merge": ["./frontend/node_modules/tailwind-merge/dist/types.d.ts"],
+      "tailwind-variants": ["./frontend/node_modules/tailwind-variants/dist/index.d.ts"]
     }
   }
 }

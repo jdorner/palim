@@ -1,5 +1,12 @@
 import { derived, type Readable } from "svelte/store";
-import { fileWatcherCount, mcpServerCount, schedules, webhookCount, workflowCount } from "./appStore";
+import {
+  extensionUpdateCount,
+  fileWatcherCount,
+  mcpServerCount,
+  schedules,
+  webhookCount,
+  workflowCount,
+} from "./appStore";
 
 /** Derived store providing the number of configured schedules. */
 const scheduleCount: Readable<number> = derived(schedules, ($s) => $s.length);
@@ -11,6 +18,7 @@ export const badgeRegistry: Record<string, Readable<number>> = {
   fileWatcherCount,
   workflowCount,
   scheduleCount,
+  extensionUpdateCount,
 };
 
 /**

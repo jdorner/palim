@@ -136,7 +136,23 @@ export function releaseTag(name: string, version: string): string {
 }
 
 /**
- * Extracts a one-paragraph description from a README (first non-heading paragraph).
+ * Removes inline markdown (emphasis, code, links, images) from a paragraph.
+ *
+ * @param text - Markdown paragraph
+ * @returns Plain text
+ */
+export function stripMarkdown(text: string): string {
+  return text
+    .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/(\*\*|__)(.+?)\1/g, "$2")
+    .replace(/(^|[\s(])([*_])(\S(?:.*?\S)?)\2(?=[\s).,;:!?]|$)/g, "$1$3")
+    .replace(/`([^`]+)`/g, "$1");
+}
+
+/**
+ * Extracts a one-paragraph description from a README (first non-heading
+ * paragraph, inline markdown removed).
  *
  * @param readme - README content, or null
  * @returns The paragraph (max 300 chars), or null
@@ -146,7 +162,8 @@ export function readmeSummary(readme: string | null): string | null {
   for (const block of readme.split(/\r?\n\s*\r?\n/)) {
     const text = block.trim();
     if (!text || text.startsWith("#") || text.startsWith("```") || text.startsWith("<")) continue;
-    const flat = text.replace(/\s+/g, " ");
+    const flat = stripMarkdown(text).replace(/\s+/g, " ").trim();
+    if (!flat) continue;
     return flat.length > 300 ? `${flat.slice(0, 297)}...` : flat;
   }
   return null;

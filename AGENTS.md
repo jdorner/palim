@@ -145,6 +145,7 @@ src/
 │   │   └── workflows/       # DAG job pipelines (JSON5: steps map + edges array)
 │   ├── core-wf-steps/       # Core (top-level): built-in workflow step types
 │   ├── datatables/          # Typed data tables (JSON rows), CSV/XLSX import/export, step types, `datatable` program, UI page
+│   ├── extension-hub/       # Install/update/roll back external extensions from git sources (bare mirrors, <name>@<semver> tags), UI page
 │   └── <name>/index.ts      # Optional extensions (see list below)
 ├── secrets/
 │   ├── vault.ts             # SecretVault: SQLite-backed AES-256-GCM encrypted storage with per-row ACL
@@ -357,7 +358,11 @@ Extensions declare Svelte 5 pages in `manifest.ui.pages` (`{ id, title, entry: "
 
 Extension routes are not mounted on Elysia directly (Elysia cannot add routes after `listen()`). The web server mounts a fixed `/ext/*` catch-all that dispatches through `ExtensionRouter` (`src/web/extensionRouter.ts`); routes are added on registration and removed on deactivate/unload, so enabling, re-enabling, or hot-loading an extension at runtime takes effect immediately. The router parses the body per the route's `parse` option from a clone of the request, so handlers can still read `request` directly.
 
-Current extensions (14): **converter**, **datatables**, **error-analyzer**, **mcp**, **ntfy**, **steering**, **telegram**, **web-fetch**, **wiki** | Core: **core-wf-steps**, **filewatcher**, **scheduler**, **webhooks**, **workflows**
+#### Extension Hub
+
+`src/extensions/extension-hub/` installs external extensions from git repositories (one folder per extension with `index.ts` + a `package.json` named after the folder with a semver `version`; releases are tags `<name>@<version>`). Each source is a bare mirror in `<DATA_DIR>/extension-hub/repos/`; install records live in the DB (`ext_extension_hub_*`, migration `0018`), never in files. Trees are extracted with `git archive` into staging and renamed into `EXTERNAL_EXTENSIONS_DIR`; loading stays with the `ExtensionWatcher`, driven explicitly via `ctx.internal.extensions.sync(folder)` (back-to-back renames of one path may emit no chokidar events) and observed via `ctx.internal.extensions.list()` / `lastLoadFailure()`. Updates and rollbacks swap sequentially (move out, wait for unload, move in, wait for load) and restore the previous tree when the new one fails to load. A periodic check (`checkIntervalMinutes`) fetches all sources and emits `updates_changed` (feeds the `extensionUpdateCount` nav badge). `registry.loadOne()` purges the extension directory's entries from Bun's module cache (`require.cache`) before importing, so reloads pick up changed sibling modules and `package.json`, not just `index.ts`. This has no effect under `bun --watch`/`--hot` (Bun keeps its own module registry there), so in `bun run dev` hub updates and rollbacks return a restart warning.
+
+Current extensions (15): **converter**, **datatables**, **error-analyzer**, **extension-hub**, **mcp**, **ntfy**, **steering**, **telegram**, **web-fetch**, **wiki** | Core: **core-wf-steps**, **filewatcher**, **scheduler**, **webhooks**, **workflows**
 
 #### Dynamic Schema Enrichment
 

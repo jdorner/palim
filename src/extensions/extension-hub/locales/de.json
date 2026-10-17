@@ -1,0 +1,148 @@
+{
+  "actions": {
+    "changeVersion": "Version...",
+    "disable": "Deaktivieren",
+    "enable": "Aktivieren",
+    "install": "Installieren",
+    "rollback": "Zurücksetzen",
+    "rollbackTo": "Zurück zu {version}",
+    "uninstall": "Deinstallieren",
+    "update": "Aktualisieren"
+  },
+  "catalog": {
+    "addSource": "Quelle hinzufügen",
+    "emptySource": "Diese Quelle bietet keine Erweiterungen an (keine Ordner mit index.ts und keine <name>@<version>-Tags).",
+    "fetchError": "Letzter Abruf fehlgeschlagen: {error}",
+    "fetchedAt": "abgerufen {date}",
+    "loading": "Katalog wird geladen...",
+    "noSources": "Noch keine Quellen. Füge ein Git-Repository hinzu, um seine Erweiterungen zu sehen."
+  },
+  "check": {
+    "button": "Nach Updates suchen",
+    "running": "Prüfe...",
+    "sourceError": "Quelle \"{source}\" konnte nicht abgerufen werden: {error}",
+    "upToDate": "Alle installierten Erweiterungen sind aktuell",
+    "updates_one": "{count} Update verfügbar",
+    "updates_other": "{count} Updates verfügbar"
+  },
+  "columns": {
+    "actions": "Aktionen",
+    "enabled": "Aktiviert",
+    "extension": "Erweiterung",
+    "installed": "Installiert",
+    "latest": "Neueste",
+    "status": "Status"
+  },
+  "confirm": {
+    "rollbackMessage": "{from} durch die zuvor installierte Version {to} ersetzen. Danach kannst du wieder vorwärts wechseln.",
+    "rollbackTitle": "{name} zurücksetzen?",
+    "uninstallMessage": "Die Erweiterung wird entladen und ihre Dateien gelöscht. Einstellungen und Secrets bleiben für eine spätere Neuinstallation erhalten.",
+    "uninstallTitle": "{name} deinstallieren?"
+  },
+  "description": "Externe Erweiterungen aus Git-Repositories installieren, aktualisieren und entfernen",
+  "dialog": {
+    "branchHead": "Branch {branch} (aktuell {version})",
+    "commit": "Commit",
+    "customRef": "Anderer Tag, Branch oder Commit...",
+    "discardChanges": "Lokale Änderungen ersetzen",
+    "followsBranch": "Updates folgen dem Branch",
+    "installTitle": "{name} installieren",
+    "installed": "Installiert: {version} ({ref})",
+    "latest": "neueste",
+    "modifiedWarning": "Die installierten Dateien wurden lokal geändert. Ein Update ersetzt sie (die geänderte Version bleibt als Sicherung zum Zurücksetzen erhalten).",
+    "prerelease": "Vorabversion",
+    "ref": "Tag, Branch oder Commit",
+    "refHint": "Einem Branch folgen die Update-Prüfungen; ein Commit bleibt fest.",
+    "refPlaceholder": "z. B. main oder 1a2b3c4d",
+    "reinstall": "Trotzdem neu installieren",
+    "sameWarning": "Das ist der installierte Commit.",
+    "trustHint": "Erweiterungen laufen im Palim-Server mit vollem Zugriff. Installiere nur Code, dem du vertraust.",
+    "updateTitle": "Version von {name} ändern",
+    "version": "Version",
+    "working": "Wird ausgeführt..."
+  },
+  "local": {
+    "hint": "Manuell im Erweiterungsverzeichnis abgelegt. Der Hub listet sie auf, ändert sie aber nie.",
+    "title": "Lokale Erweiterungen"
+  },
+  "nav": {
+    "/ext-page/extension-hub/hub": "Erweiterungs-Hub"
+  },
+  "notify": {
+    "disabled": "{name} deaktiviert",
+    "enabled": "{name} aktiviert",
+    "installed": "{name} {version} installiert",
+    "rolledBack": "{name} auf {version} zurückgesetzt",
+    "stillLoading": "{name} ist installiert und wird noch geladen (Abhängigkeiten werden installiert); schau gleich noch einmal nach",
+    "uninstalled": "{name} deinstalliert",
+    "updated": "{name} auf {version} aktualisiert"
+  },
+  "orphans": {
+    "hint": "Ihre Quelle oder ihr Ordner im Repository existiert nicht mehr, daher können sie nicht aktualisiert werden.",
+    "title": "Aus entfernten Quellen installiert"
+  },
+  "pages": {
+    "hub": {
+      "title": "Erweiterungs-Hub"
+    }
+  },
+  "settings": {
+    "checkIntervalMinutes": {
+      "description": "Wie oft alle Quellen auf neue Versionen geprüft werden (0 = nur auf Anforderung)",
+      "title": "Prüfintervall für Updates (Minuten)"
+    },
+    "includePrereleases": {
+      "description": "Vorabversionen (z. B. 1.2.0-rc.1) als neueste Version anbieten",
+      "title": "Vorabversionen einbeziehen"
+    }
+  },
+  "sources": {
+    "add": "Quelle hinzufügen",
+    "addTitle": "Quelle hinzufügen",
+    "branch": "Branch",
+    "branchPlaceholder": "Standard-Branch des Repositorys",
+    "clearToken": "Gespeichertes Token entfernen",
+    "defaultBranch": "Standard",
+    "deleteMessage": "Ihr lokaler Spiegel wird gelöscht. Quellen mit installierten Erweiterungen können nicht gelöscht werden.",
+    "deleteTitle": "Quelle {name} löschen?",
+    "deleted": "Quelle \"{name}\" gelöscht",
+    "editTitle": "Quelle {name} bearbeiten",
+    "empty": "Noch keine Quellen.",
+    "emptyHint": "Eine Quelle ist ein Git-Repository mit einem Ordner pro Erweiterung, jeweils mit index.ts und package.json.",
+    "fetchFailed": "Abrufen der Quelle fehlgeschlagen: {error}",
+    "fetching": "Wird abgerufen...",
+    "lastFetch": "Letzter Abruf",
+    "loading": "Quellen werden geladen...",
+    "name": "Name",
+    "refresh": "Abrufen",
+    "refreshed": "Quelle \"{name}\" abgerufen",
+    "saved": "Quelle \"{name}\" gespeichert und abgerufen",
+    "token": "HTTPS-Zugriffstoken",
+    "tokenHint": "Wird verschlüsselt im Secret-Tresor gespeichert. Für SSH oder öffentliche Repositories nicht nötig.",
+    "tokenStored": "gespeichert - leer lassen zum Beibehalten",
+    "url": "Repository-URL",
+    "urlHint": "SSH (nutzt die SSH-Schlüssel des Servers), HTTPS oder ein lokaler Pfad.",
+    "withToken": "mit Zugriffstoken"
+  },
+  "status": {
+    "active": "Aktiv",
+    "disabled": "Deaktiviert",
+    "disabledHint": "Geladen, aber in den Einstellungen deaktiviert: nach einem Neustart bleibt sie aus",
+    "error": "Fehler",
+    "local": "Lokaler Ordner",
+    "localHint": "Ein manuell angelegter Ordner mit diesem Namen existiert; der Hub überschreibt ihn nicht",
+    "modified": "Geändert",
+    "modifiedHint": "Dateien wurden nach der Installation geändert; Updates verwerfen diese Änderungen",
+    "notInstallable": "Nicht installierbar",
+    "notLoaded": "Nicht geladen",
+    "notLoadedHint": "Die Erweiterung ist installiert, aber nicht geladen; siehe Server-Log",
+    "updateAvailable": "Update: {version}",
+    "versionMismatch": "Versionen abweichend",
+    "versionMismatchHint": "Das Manifest nennt {manifest}, package.json nennt {package}. Verwende version: pkg.version im Manifest."
+  },
+  "tabs": {
+    "catalog": "Katalog",
+    "label": "Bereiche des Erweiterungs-Hubs",
+    "sources": "Quellen"
+  }
+}

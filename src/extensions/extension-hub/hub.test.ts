@@ -7,7 +7,7 @@ import type { ExternalExtensionsApi, LoadedExtensionStatus } from "@ext/types";
 import { createTestDb } from "@src/test/db";
 import createLogger from "logging";
 import { HubError } from "./errors";
-import { HubService } from "./hub";
+import { HubService, WATCH_MODE_WARNING } from "./hub";
 import { hashTree, SOURCE_MARKER } from "./installer";
 import { assertContainedLinks } from "./sources";
 import { HubStore } from "./store";
@@ -91,7 +91,7 @@ interface Fixture {
  * `manifestVersion` when set), except folders listed in `failing` as `name`
  * or `name@version`.
  */
-async function createFixture(): Promise<Fixture> {
+async function createFixture(options: { watchMode?: boolean } = {}): Promise<Fixture> {
   const base = await mkdtemp(path.join(root, "case-"));
   const externalDir = path.join(base, "extensions");
   await mkdir(externalDir);
@@ -140,6 +140,7 @@ async function createFixture(): Promise<Fixture> {
     includePrereleases: () => includePrereleases.value,
     loadWait: { timeoutMs: 2000, pollMs: 10 },
     unloadWait: { timeoutMs: 2000, pollMs: 10 },
+    watchMode: options.watchMode,
   });
   return { hub, store, externalDir, failing, manifestVersion, includePrereleases };
 }
@@ -386,6 +387,14 @@ describe("HubService updates", () => {
     const result = await f.hub.check();
     expect(result.updates.map((u) => u.update.version)).toEqual(["1.1.0"]);
     expect(result.errors).toEqual([{ source: "Broken", error: expect.stringContaining("git clone failed") }]);
+  });
+
+  test("warns under bun --watch that updates need a restart", async () => {
+    const watched = await createFixture({ watchMode: true });
+    const id = (await watched.hub.createSource({ name: "Test", url: repoDir })).source.id;
+    await watched.hub.install({ sourceId: id, name: "foo", version: "1.0.0", userId: null });
+    expect((await watched.hub.update({ name: "foo", userId: null })).warnings).toEqual([WATCH_MODE_WARNING]);
+    expect((await watched.hub.rollback("foo", null)).warnings).toEqual([WATCH_MODE_WARNING]);
   });
 
   test("uninstall removes the backup", async () => {

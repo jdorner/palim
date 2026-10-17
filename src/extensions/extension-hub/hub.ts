@@ -70,7 +70,17 @@ export interface HubServiceDeps {
   loadWait?: WaitOptions;
   /** Unload wait override (tests). */
   unloadWait?: WaitOptions;
+  /**
+   * Whether the server runs under `bun --watch`/`--hot`. Bun then keeps an
+   * extension's other modules cached across reloads, so updates need a restart.
+   */
+  watchMode?: boolean;
 }
+
+/** Warning added to updates and rollbacks under `bun --watch`/`--hot`. */
+export const WATCH_MODE_WARNING =
+  "The server runs in watch mode (bun run dev), where Bun keeps the extension's other modules cached: " +
+  "restart the server to run the new version completely.";
 
 /** Source input as accepted by the API. */
 export interface SourceInput {
@@ -487,7 +497,7 @@ export class HubService {
       };
       this.deps.store.saveInstall(install);
       this.deps.log.info(`[extension-hub] Updated "${name}" ${current.version} -> ${install.version} (${target.ref})`);
-      const warnings = versionWarnings(name, install.version, outcome);
+      const warnings = this.replaceWarnings(name, install.version, outcome);
       for (const w of warnings) this.deps.log.warn(`[extension-hub] ${w}`);
       return { install, outcome, warnings, from: current.version };
     });
@@ -543,7 +553,7 @@ export class HubService {
       };
       this.deps.store.saveInstall(install);
       this.deps.log.info(`[extension-hub] Rolled back "${name}" ${current.version} -> ${install.version}`);
-      const warnings = versionWarnings(name, install.version, outcome);
+      const warnings = this.replaceWarnings(name, install.version, outcome);
       return { install, outcome, warnings, from: current.version };
     });
   }
@@ -619,6 +629,12 @@ export class HubService {
     if (latest) return { ref: latest.tag, refKind: "tag", commit: latest.commit };
     if (ext.head?.installable) return { ref: ext.head.branch, refKind: "branch", commit: ext.head.commit };
     return null;
+  }
+
+  /** Warnings after replacing a loaded extension (update, rollback). */
+  private replaceWarnings(name: string, version: string, outcome: LoadOutcome): string[] {
+    if (this.deps.watchMode) return [WATCH_MODE_WARNING];
+    return versionWarnings(name, version, outcome);
   }
 
   /** Returns the install record or fails with 404. */

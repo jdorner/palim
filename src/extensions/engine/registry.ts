@@ -665,7 +665,9 @@ export class ExtensionRegistry {
 
     // The cache-busting query below only renews index.ts itself; its own imports
     // (sibling modules, package.json, node_modules) stay cached by path. Drop
-    // them so a reload or update picks up every changed file.
+    // them so a reload or update picks up every changed file. Under
+    // `bun --watch`/`--hot` this has no effect (Bun keeps its own module
+    // registry there); a restart is needed in that mode.
     purgeModuleCache(extensionDir);
 
     // Import with cache-busting to bypass Bun's module cache (the counter keeps
