@@ -34,20 +34,30 @@ export function requestUserId(request: Request): string | undefined {
  */
 export type TriggerOwnerCounter = (userId: string) => number | Promise<number>;
 
-/** Registered counters keyed by trigger kind (e.g. "webhook", "file watcher", "schedule"). */
-const ownerCounters = new Map<string, TriggerOwnerCounter>();
+/**
+ * Registered counters keyed by registration key. The key defaults to the kind;
+ * extensions register under a key namespaced by their name, so they can never
+ * replace a core counter or one of another extension.
+ */
+const ownerCounters = new Map<string, { kind: string; counter: TriggerOwnerCounter }>();
 
 /**
  * Registers a counter for triggers of the given kind.
  *
  * @param kind - Human-readable singular trigger kind, used in error messages.
  * @param counter - Returns how many triggers of this kind the user created.
+ * @param key - Registration key (defaults to `kind`); a later registration under the same key replaces the earlier one.
  * @returns A function that removes the registration (call it on shutdown).
  */
-export function registerTriggerOwnerCounter(kind: string, counter: TriggerOwnerCounter): () => void {
-  ownerCounters.set(kind, counter);
+export function registerTriggerOwnerCounter(
+  kind: string,
+  counter: TriggerOwnerCounter,
+  key: string = kind,
+): () => void {
+  const entry = { kind, counter };
+  ownerCounters.set(key, entry);
   return () => {
-    if (ownerCounters.get(kind) === counter) ownerCounters.delete(kind);
+    if (ownerCounters.get(key) === entry) ownerCounters.delete(key);
   };
 }
 
@@ -60,7 +70,7 @@ export function registerTriggerOwnerCounter(kind: string, counter: TriggerOwnerC
  */
 export async function countTriggersOwnedBy(userId: string): Promise<{ kind: string; count: number }[]> {
   const results: { kind: string; count: number }[] = [];
-  for (const [kind, counter] of ownerCounters) {
+  for (const { kind, counter } of ownerCounters.values()) {
     const count = await counter(userId);
     if (count > 0) results.push({ kind, count });
   }

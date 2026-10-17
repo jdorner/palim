@@ -11,6 +11,7 @@ import type { ExtensionInfo, ExtensionUiPage, StepTypeInfo } from "@shared/exten
 import { FALLBACK_LOCALE, type Locale } from "@shared/i18n";
 import type { WebSocketMessage } from "@shared/websocket";
 import type { AuthResolver, UserStore } from "@src/auth";
+import { createIdentityApi } from "@src/auth/identityApi";
 import { PROJECT_DIR, serverOrigin } from "@src/config";
 import { getDb, schema } from "@src/db";
 import type { HitlService } from "@src/hitl";
@@ -878,6 +879,9 @@ export class ExtensionRegistry {
         variableStore: deps.variableStore,
         hitlService: deps.hitlService,
         portalLaunchers: deps.portalLaunchers,
+        identityApi: deps.userStore
+          ? createIdentityApi(deps.userStore, { extensionName, log: (message) => logger.info(message) })
+          : undefined,
         routeRegistry: deps.routeRegistry,
         rescanSkillsFn: () => this.discoverAndLoadSkills(),
         getSkillNamesFn: () => this.getSkillNames(),
