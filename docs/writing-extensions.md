@@ -407,6 +407,8 @@ Both accept an optional model `intent` (`"chat"`, `"vision"`, `"embedding"`) to 
 | `ctx.secrets.get(key)` | Retrieve a secret (ACL-checked, audited) |
 | `ctx.secrets.set(key, value, opts?)` | Store an encrypted secret |
 
+Secret descriptions from `secretsSchema` are translated through `secrets.<KEY>.description` in the extension's catalogs (see [Translations](#manifest-and-schema-metadata)).
+
 ### Skills (`ctx.skills`)
 
 | Method | Description |
@@ -490,7 +492,7 @@ Throwing during `initialize()` places the extension in suspended state with the 
 
 ### Settings Schema
 
-Extensions can declare a `settingsSchema` in their manifest to enable UI-based configuration. The schema is a TypeBox `Type.Object()` that describes all configurable settings:
+Extensions can declare a `settingsSchema` in their manifest to enable UI-based configuration. The schema is a TypeBox `Type.Object()` that describes all configurable settings. Titles and descriptions stay English in the code; translate them in the extension's catalogs (`settings.<prop>.title` / `.description`, see [Translations](#manifest-and-schema-metadata)):
 
 ```typescript
 import { Type } from "@sinclair/typebox";
@@ -897,6 +899,8 @@ const extension: Extension = {
 
 export default extension;
 ```
+
+Step labels and config field titles/descriptions are translated through `steps.<type>.label` and `steps.<type>.config.<prop>.title` / `.description` in the extension's catalogs (see [Translations](#manifest-and-schema-metadata)).
 
 ### StepTypeHandler Interface
 
@@ -1467,7 +1471,7 @@ Events go to every connected client. Send identifiers and let the page fetch det
 
 ### Translations
 
-The UI ships in English and German. Each user picks a language in the user menu, or an admin sets it on the Users & Roles page. "Browser default" follows the browser language. Extensions translate their UI through the same mechanism: they ship catalogs, and the host resolves them for the active language.
+The UI ships in English and German. Each user picks a language in the user menu, or an admin sets it on the Users & Roles page. "Browser default" follows the browser language. Extensions translate their UI through the same mechanism: they ship catalogs, and the host resolves them for the active language. Catalogs are not only for pages: an extension without any UI ships them too, to translate its description, settings, secrets, and step types (see [Manifest and schema metadata](#manifest-and-schema-metadata) below).
 
 **Catalogs** live in `locales/<locale>.json` next to `index.ts`, one file per supported locale (`en`, `de`). A catalog is nested JSON with string leaves; keys are addressed with dots (`{ "list": { "empty": "No tables yet." } }` → `list.empty`). English is the fallback for missing keys. Malformed files and unsupported locales are skipped with a warning and never fail activation. For external extensions, saving a catalog reloads it and open pages update immediately.
 
@@ -1505,7 +1509,9 @@ The UI ships in English and German. Each user picks a language in the user menu,
 
 `@palim/ui` components (dialogs, `MultiSelect`, `LoadingIndicator`, ...) translate their built-in labels automatically.
 
-**Manifest and schema metadata** stays English in the code. The host translates it through reserved catalog keys and falls back to the English text when a key is missing:
+#### Manifest and schema metadata
+
+Manifest and schema metadata stays English in the code. The host translates it through reserved catalog keys and falls back to the English text when a key is missing:
 
 | Key | Translates |
 | --- | --- |
