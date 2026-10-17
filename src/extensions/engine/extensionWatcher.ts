@@ -57,6 +57,10 @@ export class ExtensionWatcher {
   private pendingLocaleReloads = new Set<string>();
   /** Debounce timer handle. */
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Tail of the serialized processing runs, null when idle. */
+  private processing: Promise<void> | null = null;
+  /** Resolvers waiting for the watcher to become idle (see {@link settled}). */
+  private settleWaiters: Array<() => void> = [];
 
   /** Tracks known extension directories (dirname -> true). */
   private knownExtensions = new Set<string>();
@@ -123,9 +127,10 @@ export class ExtensionWatcher {
    * at all, so tools that move extension folders call this afterwards.
    *
    * @param folder - Folder name below the watched directory
+   * @returns Resolves once all queued changes (this one included) are processed
    */
-  requestSync(folder: string): void {
-    if (!folder || folder.includes("/") || folder.startsWith(".")) return;
+  requestSync(folder: string): Promise<void> {
+    if (!folder || folder.includes("/") || folder.startsWith(".")) return this.settled();
     const dir = path.join(this.directory, folder);
     const present = existsSync(path.join(dir, "index.ts"));
     const loaded = this.registry
@@ -139,9 +144,11 @@ export class ExtensionWatcher {
       this.pendingReloads.delete(folder);
       this.pendingUnloads.add(folder);
     } else {
-      return;
+      // Nothing to do for this folder, but a change seen earlier may still be in flight.
+      return this.settled();
     }
     this.scheduleDebouncedProcess();
+    return this.settled();
   }
 
   /**
@@ -161,6 +168,24 @@ export class ExtensionWatcher {
     this.pendingReloads.clear();
     this.pendingUiRebuilds.clear();
     this.dirToManifestName.clear();
+    this.releaseSettleWaiters();
+  }
+
+  /**
+   * Resolves once no change is queued and no processing run is in flight.
+   *
+   * @returns Promise resolving when the watcher is idle
+   */
+  private settled(): Promise<void> {
+    if (!this.debounceTimer && !this.processing) return Promise.resolve();
+    return new Promise((resolve) => this.settleWaiters.push(resolve));
+  }
+
+  /** Resolves all {@link settled} waiters. */
+  private releaseSettleWaiters(): void {
+    const waiters = this.settleWaiters;
+    this.settleWaiters = [];
+    for (const resolve of waiters) resolve();
   }
 
   /**
@@ -340,8 +365,17 @@ export class ExtensionWatcher {
     }
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = null;
-      this.processPending().catch((err) => {
-        logger.error("Error processing pending extension changes:", err);
+      // Runs are chained so loads and unloads never overlap.
+      const run = (this.processing ?? Promise.resolve())
+        .then(() => this.processPending())
+        .catch((err) => {
+          logger.error("Error processing pending extension changes:", err);
+        });
+      this.processing = run;
+      void run.then(() => {
+        if (this.processing !== run) return;
+        this.processing = null;
+        if (!this.debounceTimer) this.releaseSettleWaiters();
       });
     }, this.debounceMs);
   }

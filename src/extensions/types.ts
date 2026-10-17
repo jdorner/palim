@@ -1218,12 +1218,30 @@ export interface ExternalExtensionsApi {
    * directory with the registry (load it if present and not loaded, unload it
    * if gone), through the same debounced queue as filesystem events. Use after
    * moving extension folders: back-to-back renames of the same path may not
-   * produce filesystem events. No-op when no watcher runs.
+   * produce filesystem events. Resolves once the watcher has processed every
+   * queued change (including activation), with what the registry then holds
+   * for the folder. Without a watcher it reports the current state at once.
    *
    * @param folder - Folder name below {@link externalDir}
+   * @returns The folder's state after the reconciliation
    */
-  sync(folder: string): void;
+  sync(folder: string): Promise<ExternalFolderStatus>;
 }
+
+/**
+ * What the registry holds for one folder of the external extensions
+ * directory, as returned by {@link ExternalExtensionsApi.sync}.
+ *
+ * - `active`: an extension from this folder is loaded and running.
+ * - `suspended`: loaded but not running (disabled by the operator, or its activation failed).
+ * - `failed`: nothing is loaded, and a load attempt made during this sync failed.
+ * - `unloaded`: nothing is loaded from this folder.
+ */
+export type ExternalFolderStatus =
+  | { status: "active"; name: string; version: string }
+  | { status: "suspended"; name: string; version: string; enabled: boolean; error: string | null }
+  | { status: "failed"; error: string }
+  | { status: "unloaded" };
 
 // ---------------------------------------------------------------------------
 // Extension

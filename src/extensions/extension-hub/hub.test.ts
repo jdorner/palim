@@ -3,12 +3,12 @@ import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
-import type { ExternalExtensionsApi, LoadedExtensionStatus } from "@ext/types";
+import type { ExternalExtensionsApi, ExternalFolderStatus, LoadedExtensionStatus } from "@ext/types";
 import { createTestDb } from "@src/test/db";
 import createLogger from "logging";
 import { HubError } from "./errors";
 import { HubService, WATCH_MODE_WARNING } from "./hub";
-import { hashTree, SOURCE_MARKER } from "./installer";
+import { hashTree, loadOutcome, SOURCE_MARKER } from "./installer";
 import { assertContainedLinks } from "./sources";
 import { HubStore } from "./store";
 
@@ -81,6 +81,8 @@ interface Fixture {
   store: HubStore;
   externalDir: string;
   failing: Set<string>;
+  stuck: Set<string>;
+  hanging: Set<string>;
   manifestVersion: { value: string | null };
   includePrereleases: { value: boolean };
   tokens: Map<string, string>;
@@ -90,13 +92,16 @@ interface Fixture {
  * The fake registry reports every folder with an index.ts as loaded at once
  * (the directory watcher's job), with its package.json version (or
  * `manifestVersion` when set), except folders listed in `failing` as `name`
- * or `name@version`.
+ * or `name@version`. Folders in `stuck` stay loaded after they were moved
+ * away; loads of folders in `hanging` (`name` or `name@version`) never finish.
  */
 async function createFixture(options: { watchMode?: boolean } = {}): Promise<Fixture> {
   const base = await mkdtemp(path.join(root, "case-"));
   const externalDir = path.join(base, "extensions");
   await mkdir(externalDir);
   const failing = new Set<string>();
+  const stuck = new Set<string>();
+  const hanging = new Set<string>();
   const manifestVersion: { value: string | null } = { value: null };
   const pkgVersion = (f: string): string => {
     try {
@@ -105,7 +110,8 @@ async function createFixture(options: { watchMode?: boolean } = {}): Promise<Fix
       return "0.0.0";
     }
   };
-  const fails = (f: string) => failing.has(f) || failing.has(`${f}@${pkgVersion(f)}`);
+  const matches = (set: Set<string>, f: string) => set.has(f) || set.has(`${f}@${pkgVersion(f)}`);
+  const fails = (f: string) => matches(failing, f);
   const loaded = (): LoadedExtensionStatus[] =>
     readdirSync(externalDir)
       .filter((f) => existsSync(path.join(externalDir, f, "index.ts")) && !fails(f))
@@ -121,7 +127,17 @@ async function createFixture(options: { watchMode?: boolean } = {}): Promise<Fix
   const api: ExternalExtensionsApi = {
     externalDir,
     list: loaded,
-    sync: () => {},
+    sync: (f) => {
+      if (!existsSync(path.join(externalDir, f, "index.ts"))) {
+        const status: ExternalFolderStatus = stuck.has(f)
+          ? { status: "active", name: f, version: "0.0.0" }
+          : { status: "unloaded" };
+        return Promise.resolve(status);
+      }
+      if (matches(hanging, f)) return new Promise(() => {});
+      if (fails(f)) return Promise.resolve({ status: "failed", error: "boom" });
+      return Promise.resolve({ status: "active", name: f, version: manifestVersion.value ?? pkgVersion(f) });
+    },
     lastLoadFailure: (dir) =>
       existsSync(dir) && fails(path.basename(dir)) ? { reason: "boom", at: Date.now() } : null,
   };
@@ -139,11 +155,11 @@ async function createFixture(options: { watchMode?: boolean } = {}): Promise<Fix
       else tokens.delete(id);
     },
     includePrereleases: () => includePrereleases.value,
-    loadWait: { timeoutMs: 2000, pollMs: 10 },
-    unloadWait: { timeoutMs: 2000, pollMs: 10 },
+    loadWait: { timeoutMs: 200 },
+    unloadWait: { timeoutMs: 200 },
     watchMode: options.watchMode,
   });
-  return { hub, store, externalDir, failing, manifestVersion, includePrereleases, tokens };
+  return { hub, store, externalDir, failing, stuck, hanging, manifestVersion, includePrereleases, tokens };
 }
 
 /** Asserts that a promise rejects with a HubError of the given status. */
@@ -376,6 +392,27 @@ describe("HubService updates", () => {
     expect(f.hub.updates().map((u) => u.name)).toEqual(["foo"]);
   });
 
+  test("restores the previous version when the update does not load in time", async () => {
+    f.hanging.add("foo@1.1.0");
+    const err = await expectHubError(f.hub.update({ name: "foo", userId: null }), 422);
+    expect(err.message).toContain("timed out");
+    expect(err.message).toContain("restored 1.0.0");
+    expect(await installedVersion()).toBe("1.0.0");
+    expect(f.store.getInstall("foo")).toMatchObject({ version: "1.0.0", ref: "foo@1.0.0" });
+    expect(existsSync(backupDir())).toBe(false);
+  });
+
+  test("aborts the update without replacing anything when the old version does not unload", async () => {
+    f.stuck.add("foo");
+    const err = await expectHubError(f.hub.update({ name: "foo", userId: null }), 500);
+    expect(err.message).toContain("could not be unloaded");
+    expect(await installedVersion()).toBe("1.0.0");
+    expect(f.store.getInstall("foo")).toMatchObject({ version: "1.0.0", ref: "foo@1.0.0" });
+    expect(f.store.getInstall("foo")?.contentHash).toBe(await hashTree(path.join(f.externalDir, "foo")));
+    expect(existsSync(backupDir())).toBe(false);
+    expect(readdirSync(path.join(path.dirname(f.externalDir), "hub", "staging"))).toEqual([]);
+  });
+
   test("check fetches sources and reports updates and fetch errors", async () => {
     await f.hub.createSource({ name: "Broken", url: path.join(root, "missing.git") });
     const result = await f.hub.check();
@@ -413,5 +450,24 @@ describe("tree checks", () => {
     expect(await hashTree(dir)).toBe(before);
     await writeFile(path.join(dir, "index.ts"), "changed");
     expect(await hashTree(dir)).not.toBe(before);
+  });
+});
+
+describe("loadOutcome", () => {
+  test("counts only active or operator-disabled extensions as loaded", () => {
+    expect(loadOutcome({ status: "active", name: "a", version: "1.0.0" })).toEqual({
+      status: "loaded",
+      version: "1.0.0",
+    });
+    expect(loadOutcome({ status: "suspended", name: "a", version: "1.0.0", enabled: false, error: null })).toEqual({
+      status: "loaded",
+      version: "1.0.0",
+    });
+    expect(loadOutcome({ status: "suspended", name: "a", version: "1.0.0", enabled: true, error: "x" })).toEqual({
+      status: "failed",
+      error: "x",
+    });
+    expect(loadOutcome({ status: "unloaded" }).status).toBe("failed");
+    expect(loadOutcome(null)).toEqual({ status: "timeout" });
   });
 });

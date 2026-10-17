@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { WebSocketMessage } from "@shared/websocket";
 import { DATA_DIR } from "@src/config";
 import { closeDb, getDb, schema } from "@src/db";
+import type { ExternalExtensionsApi } from "../types";
 import { ExtensionWatcher } from "./extensionWatcher";
 import type { RegistryInitDeps } from "./registry";
 import { ExtensionRegistry } from "./registry";
@@ -501,6 +502,33 @@ export default {
       watcher.requestSync(".hidden");
       await sleep(EVENT_SETTLE_MS);
       expect(registry.getLoadedExtensionInfo().length).toBe(loadedBefore);
+    });
+
+    test("resolves once processed, with the registry's state of the folder", async () => {
+      registry.setExternalSync((folder) => watcher.requestSync(folder));
+      const api = (registry as unknown as { externalExtensionsApi: ExternalExtensionsApi }).externalExtensionsApi;
+
+      await createTempExtension(externalDir, "awaited-ext");
+      expect(await api.sync("awaited-ext")).toEqual({ status: "active", name: "awaited-ext", version: "1.0.0" });
+      // Already loaded: nothing queued, the state is reported as is.
+      expect((await api.sync("awaited-ext")).status).toBe("active");
+
+      rmSync(join(externalDir, "awaited-ext"), { recursive: true, force: true });
+      expect(await api.sync("awaited-ext")).toEqual({ status: "unloaded" });
+
+      mkdirSync(join(externalDir, "throwing-ext"));
+      await Bun.write(
+        join(externalDir, "throwing-ext", "index.ts"),
+        `export default {
+  manifest: { name: "throwing-ext", version: "1.0.0" },
+  async initialize() { throw new Error("no luck"); },
+  async shutdown() {},
+};
+`,
+      );
+      const failed = await api.sync("throwing-ext");
+      expect(failed.status).toBe("failed");
+      expect(failed.status === "failed" && failed.error).toContain("no luck");
     });
   });
 });

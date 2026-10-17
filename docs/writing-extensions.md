@@ -501,7 +501,7 @@ function checkWorkflow(ctx: ExtensionContext): void {
 | `ctx.internal?.identity.mintToken(username, ttlMs?)` | Short-lived bearer token to call the API as that operator (logged with the extension name); null for any account not listed above |
 | `ctx.internal?.extensions.list()` | Loaded extensions with name, version, source, directory, state, enabled flag, and activation error |
 | `ctx.internal?.extensions.lastLoadFailure(dir)` | Why the extension in a directory last failed to load (import, validation, dependencies), or null |
-| `ctx.internal?.extensions.sync(folder)` | Ask the external directory watcher to load or unload one folder of `externalDir` (use after moving extension folders) |
+| `ctx.internal?.extensions.sync(folder)` | Ask the external directory watcher to load or unload one folder of `externalDir` (use after moving extension folders); resolves once processed with the folder's state: `active`, `suspended` (with `enabled` and `error`), `failed` (this sync's load attempt failed), or `unloaded` |
 | `ctx.internal?.identity.registerOwnerCounter(kind, counter)` | Refuse deleting a user the extension still acts as (`counter(username)` > 0); kept per extension, so it cannot replace core or other extensions' counters; returns an unregister function for `shutdown()` |
 
 ## Configuration

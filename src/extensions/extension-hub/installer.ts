@@ -12,7 +12,7 @@
 import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rename, rm } from "node:fs/promises";
 import path from "node:path";
-import type { ExternalExtensionsApi } from "@ext/types";
+import type { ExternalExtensionsApi, ExternalFolderStatus } from "@ext/types";
 import { HubError } from "./errors";
 import { assertSafeRef, COMMIT_PATTERN, EXTENSION_NAME_PATTERN } from "./git";
 import { type PackageMeta, parsePackageMeta, releaseTag } from "./packageMeta";
@@ -210,58 +210,55 @@ export async function placeTree(staged: string, targetDir: string): Promise<void
   await rename(staged, targetDir);
 }
 
-/** Options for {@link waitForLoad} and {@link waitForUnload}. */
+/** Options for {@link syncFolder}. */
 export interface WaitOptions {
   /** Give up after this many ms. */
   timeoutMs: number;
-  /** Poll interval in ms. */
-  pollMs: number;
 }
 
 /**
- * Waits until the registry has loaded the extension in a directory, or
- * reported a load failure that happened after `since`.
+ * Asks the directory watcher to reconcile one extension folder and waits for
+ * the registry's confirmed state of it.
  *
  * @param api - Registry view
- * @param dir - Extension directory
- * @param since - Only failures at or after this time count (epoch ms)
- * @param options - Timeout and poll interval
- * @returns The outcome
+ * @param folder - Folder name below the external extensions directory
+ * @param options - Timeout
+ * @returns The folder's state, or null when the watcher did not finish in time
  */
-export async function waitForLoad(
+export async function syncFolder(
   api: ExternalExtensionsApi,
-  dir: string,
-  since: number,
+  folder: string,
   options: WaitOptions,
-): Promise<LoadOutcome> {
-  const target = path.resolve(dir);
-  const deadline = Date.now() + options.timeoutMs;
-  while (Date.now() < deadline) {
-    const entry = api.list().find((e) => e.dir !== null && path.resolve(e.dir) === target);
-    // A suspended entry counts as loaded: the operator disabled the extension earlier.
-    if (entry)
-      return entry.error ? { status: "failed", error: entry.error } : { status: "loaded", version: entry.version };
-    const failure = api.lastLoadFailure(target);
-    if (failure && failure.at >= since) return { status: "failed", error: failure.reason };
-    await Bun.sleep(options.pollMs);
+): Promise<ExternalFolderStatus | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<null>((resolve) => {
+    timer = setTimeout(() => resolve(null), options.timeoutMs);
+  });
+  try {
+    return await Promise.race([api.sync(folder), timeout]);
+  } finally {
+    clearTimeout(timer);
   }
-  return { status: "timeout" };
 }
 
 /**
- * Waits until no loaded extension lives in a directory any more.
+ * Interprets a folder's state after placing an extension there. Only an
+ * active extension, or one the operator disabled earlier, counts as loaded.
  *
- * @param api - Registry view
- * @param dir - Former extension directory
- * @param options - Timeout and poll interval
- * @returns True when unloaded, false on timeout
+ * @param status - Result of {@link syncFolder}
+ * @returns The load outcome
  */
-export async function waitForUnload(api: ExternalExtensionsApi, dir: string, options: WaitOptions): Promise<boolean> {
-  const target = path.resolve(dir);
-  const deadline = Date.now() + options.timeoutMs;
-  while (Date.now() < deadline) {
-    if (!api.list().some((e) => e.dir !== null && path.resolve(e.dir) === target)) return true;
-    await Bun.sleep(options.pollMs);
+export function loadOutcome(status: ExternalFolderStatus | null): LoadOutcome {
+  if (!status) return { status: "timeout" };
+  switch (status.status) {
+    case "active":
+      return { status: "loaded", version: status.version };
+    case "suspended":
+      if (!status.enabled && !status.error) return { status: "loaded", version: status.version };
+      return { status: "failed", error: status.error ?? "the extension is not active" };
+    case "failed":
+      return { status: "failed", error: status.error };
+    case "unloaded":
+      return { status: "failed", error: "the extension was not loaded" };
   }
-  return false;
 }

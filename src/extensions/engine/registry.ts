@@ -37,6 +37,7 @@ import type {
   CoreQueueName,
   Extension,
   ExternalExtensionsApi,
+  ExternalFolderStatus,
   RouteRegistry,
   RunAgentOptions,
 } from "../types";
@@ -159,7 +160,7 @@ export class ExtensionRegistry {
   private readonly externalExtensionsApi: ExternalExtensionsApi;
 
   /** Reconciles one external extension folder (set by the directory watcher's owner). */
-  private externalSyncFn?: (folder: string) => void;
+  private externalSyncFn?: (folder: string) => Promise<void>;
 
   constructor(config: ExtensionRegistryConfig) {
     this.extensionDirs = config.extensionDirs;
@@ -184,8 +185,32 @@ export class ExtensionRegistry {
           };
         }),
       lastLoadFailure: (dir) => this.loadFailures.get(resolve(dir)) ?? null,
-      sync: (folder) => this.externalSyncFn?.(folder),
+      sync: async (folder) => {
+        const since = Date.now();
+        await this.externalSyncFn?.(folder);
+        return this.externalFolderStatus(folder, since);
+      },
     };
+  }
+
+  /**
+   * Reports what is loaded from one folder of the external directory.
+   *
+   * @param folder - Folder name below the external directory
+   * @param since - Load failures recorded before this time (epoch ms) are ignored
+   * @returns The folder's state
+   */
+  private externalFolderStatus(folder: string, since: number): ExternalFolderStatus {
+    const dir = resolve(this.externalExtensionsApi.externalDir, folder);
+    const entry = this.loaded.find((l) => l.modulePath && resolve(dirname(l.modulePath)) === dir);
+    if (entry) {
+      const { name, version } = entry.extension.manifest;
+      if (entry.state === "active") return { status: "active", name, version };
+      return { status: "suspended", name, version, enabled: this.isExtensionEnabled(name), error: entry.error ?? null };
+    }
+    const failure = this.loadFailures.get(dir);
+    if (failure && failure.at >= since) return { status: "failed", error: failure.reason };
+    return { status: "unloaded" };
   }
 
   /** The built-in extensions directory - used by the skill watcher and exposed to extensions. */
@@ -197,9 +222,9 @@ export class ExtensionRegistry {
    * Sets the function behind `ctx.internal.extensions.sync()`, normally the
    * external directory watcher's `ExtensionWatcher.requestSync()`.
    *
-   * @param fn - Reconciles one folder of the external extensions directory
+   * @param fn - Reconciles one folder of the external extensions directory, resolving once processed
    */
-  setExternalSync(fn: (folder: string) => void): void {
+  setExternalSync(fn: (folder: string) => Promise<void>): void {
     this.externalSyncFn = fn;
   }
 

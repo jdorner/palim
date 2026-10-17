@@ -125,8 +125,8 @@ export default {
     getToken: async () => null,
     setToken: async () => {},
     includePrereleases: () => false,
-    loadWait: { timeoutMs: 20_000, pollMs: 50 },
-    unloadWait: { timeoutMs: 10_000, pollMs: 50 },
+    loadWait: { timeoutMs: 20_000 },
+    unloadWait: { timeoutMs: 10_000 },
   });
   const created = await hub.createSource({ name: "Local", url: repo });
   expect(created.error).toBeNull();

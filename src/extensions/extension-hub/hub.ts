@@ -32,23 +32,23 @@ import {
   assertExtensionName,
   hashTree,
   type LoadOutcome,
+  loadOutcome,
   moveAside,
   placeTree,
   type ResolvedTarget,
   resolveTarget,
   stageTree,
+  syncFolder,
   type WaitOptions,
-  waitForLoad,
-  waitForUnload,
 } from "./installer";
 import { SourceRepo } from "./sources";
 import type { HubStore, InstallRecord, SourceRecord } from "./store";
 
 /** Default wait for a freshly placed extension to load (dependency install included). */
-const DEFAULT_LOAD_WAIT: WaitOptions = { timeoutMs: 90_000, pollMs: 500 };
+const DEFAULT_LOAD_WAIT: WaitOptions = { timeoutMs: 90_000 };
 
 /** Default wait for a removed extension to unload. */
-const DEFAULT_UNLOAD_WAIT: WaitOptions = { timeoutMs: 15_000, pollMs: 250 };
+const DEFAULT_UNLOAD_WAIT: WaitOptions = { timeoutMs: 15_000 };
 
 /** Dependencies of {@link HubService}. */
 export interface HubServiceDeps {
@@ -377,10 +377,8 @@ export class HubService {
         url: source.url,
       });
 
-      const since = Date.now();
       try {
         await placeTree(staged.dir, targetDir);
-        this.deps.extensions.sync(name);
       } catch (err) {
         await rm(staged.dir, { recursive: true, force: true });
         throw err;
@@ -401,11 +399,8 @@ export class HubService {
         `[extension-hub] Installed "${name}" ${install.version} (${target.ref} @ ${target.commit.slice(0, 10)})`,
       );
 
-      const outcome = await waitForLoad(
-        this.deps.extensions,
-        targetDir,
-        since,
-        this.deps.loadWait ?? DEFAULT_LOAD_WAIT,
+      const outcome = loadOutcome(
+        await syncFolder(this.deps.extensions, name, this.deps.loadWait ?? DEFAULT_LOAD_WAIT),
       );
       if (outcome.status === "failed") {
         await this.removeFolder(targetDir);
@@ -441,11 +436,13 @@ export class HubService {
   /**
    * Updates an installed extension, by default to its available update.
    * Refused when the installed files were changed locally (unless `force`).
-   * When the new version fails to load, the previous one is restored.
+   * When the new version is not confirmed active in time, the previous one is
+   * restored and its install record kept.
    *
    * @param request - Name, optional target version or ref, force, user
    * @returns The new record, load outcome, warnings, and replaced version
-   * @throws {HubError} 404 not installed, 409 modified / up to date, 422 failed to load (previous version restored)
+   * @throws {HubError} 404 not installed, 409 modified / up to date, 422 failed to load (previous version restored),
+   *   500 the old or the new version could not be confirmed unloaded (nothing replaced, or restore incomplete)
    */
   update(request: UpdateRequest): Promise<UpdateResult> {
     return this.exclusive(async () => {
@@ -474,14 +471,36 @@ export class HubService {
       });
 
       const backup = this.backupDir(name);
-      const outcome = await this.swap(dir, staged.dir, backup);
-      if (outcome.status === "failed") {
+      let outcome: LoadOutcome;
+      try {
+        outcome = await this.swap(dir, staged.dir, backup);
+      } catch (err) {
+        await rm(staged.dir, { recursive: true, force: true });
+        throw err;
+      }
+      if (outcome.status !== "loaded") {
+        const reason = outcome.status === "failed" ? outcome.error : "timed out waiting for it to load";
         const failed = await this.trashSlot(name);
-        await this.swap(dir, backup, failed);
-        await rm(path.dirname(failed), { recursive: true, force: true });
+        let restored: LoadOutcome;
+        try {
+          restored = await this.swap(dir, backup, failed);
+        } catch (err) {
+          // The new tree stays in place; keep the old one for a manual restore.
+          throw new HubError(
+            500,
+            `"${name}" ${target.ref} failed to load (${reason}), and restoring ${current.version} failed: ` +
+              `${(err as Error).message}; the previous version is kept in ${backup}`,
+          );
+        } finally {
+          await rm(path.dirname(failed), { recursive: true, force: true });
+        }
+        const note =
+          restored.status === "loaded"
+            ? ""
+            : ` but it did not load either (${restored.status === "failed" ? restored.error : "timed out"})`;
         throw new HubError(
           422,
-          `"${name}" ${target.ref} failed to load (${outcome.error}); restored ${current.version}`,
+          `"${name}" ${target.ref} failed to load (${reason}); restored ${current.version}${note}`,
         );
       }
 
@@ -615,30 +634,43 @@ export class HubService {
 
   /**
    * Replaces the extension in `dir` with the tree at `incoming`, moving the
-   * old tree to `outgoing` (replaced if it exists). Waits for the registry to
-   * unload the old and load the new extension.
+   * old tree to `outgoing` (replaced if it exists). The new tree is only moved
+   * in once the registry confirmed the old extension unloaded; otherwise the
+   * old tree is moved back and `incoming` is left untouched.
+   *
+   * @returns The load outcome of the new extension
+   * @throws {HubError} 500 when the old extension was not confirmed unloaded
    */
   private async swap(dir: string, incoming: string, outgoing: string): Promise<LoadOutcome> {
     await rm(outgoing, { recursive: true, force: true });
     await mkdir(path.dirname(outgoing), { recursive: true });
     const folder = path.basename(dir);
     await rename(dir, outgoing);
-    this.deps.extensions.sync(folder);
-    await waitForUnload(this.deps.extensions, dir, this.deps.unloadWait ?? DEFAULT_UNLOAD_WAIT);
-    const since = Date.now();
+    const unloaded = await syncFolder(this.deps.extensions, folder, this.deps.unloadWait ?? DEFAULT_UNLOAD_WAIT);
+    if (unloaded?.status !== "unloaded") {
+      await rename(outgoing, dir);
+      await syncFolder(this.deps.extensions, folder, this.deps.unloadWait ?? DEFAULT_UNLOAD_WAIT);
+      throw new HubError(
+        500,
+        `"${folder}" could not be unloaded (${unloaded ? `still ${unloaded.status}` : "timed out"}); ` +
+          `nothing was replaced, a server restart may be needed`,
+      );
+    }
     await rename(incoming, dir);
-    this.deps.extensions.sync(folder);
-    return waitForLoad(this.deps.extensions, dir, since, this.deps.loadWait ?? DEFAULT_LOAD_WAIT);
+    return loadOutcome(await syncFolder(this.deps.extensions, folder, this.deps.loadWait ?? DEFAULT_LOAD_WAIT));
   }
 
   /** Moves an extension folder out (the watcher unloads it), waits, then deletes it. */
   private async removeFolder(dir: string): Promise<boolean> {
     if (!existsSync(dir)) return true;
     const moved = await moveAside(dir, path.join(this.deps.workRoot, "trash"));
-    this.deps.extensions.sync(path.basename(dir));
-    const unloaded = await waitForUnload(this.deps.extensions, dir, this.deps.unloadWait ?? DEFAULT_UNLOAD_WAIT);
+    const status = await syncFolder(
+      this.deps.extensions,
+      path.basename(dir),
+      this.deps.unloadWait ?? DEFAULT_UNLOAD_WAIT,
+    );
     await rm(path.dirname(moved), { recursive: true, force: true });
-    return unloaded;
+    return status?.status === "unloaded";
   }
 
   /** Folder names in the external directory that contain an `index.ts`. */
