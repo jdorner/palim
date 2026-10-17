@@ -155,14 +155,8 @@ export async function stageTree(
   }
 }
 
-/**
- * Hashes the files of an extension tree (paths and contents), ignoring
- * `node_modules` and files generated after install.
- *
- * @param root - Extension directory
- * @returns Hex SHA-256
- */
-export async function hashTree(root: string): Promise<string> {
+/** Lists the hashed files of an extension tree (sorted, relative), skipping `node_modules` and generated files. */
+async function listTreeFiles(root: string): Promise<string[]> {
   const glob = new Bun.Glob("**");
   const files: string[] = [];
   for await (const rel of glob.scan({ cwd: root, dot: true, onlyFiles: true, followSymlinks: false })) {
@@ -171,12 +165,56 @@ export async function hashTree(root: string): Promise<string> {
     if (parts.length === 1 && HASH_IGNORED.has(rel)) continue;
     files.push(rel);
   }
-  files.sort();
+  return files.sort();
+}
+
+/** Whether an error is a missing-file error (the file vanished between listing and reading). */
+function isNotFound(err: unknown): boolean {
+  return (err as NodeJS.ErrnoException)?.code === "ENOENT";
+}
+
+/**
+ * Hashes the files of an extension tree (paths and contents), ignoring
+ * `node_modules` and files generated after install. Files that vanish while
+ * the tree is scanned are skipped.
+ *
+ * @param root - Extension directory
+ * @returns Hex SHA-256
+ */
+export async function hashTree(root: string): Promise<string> {
   const hasher = new Bun.CryptoHasher("sha256");
-  for (const rel of files) {
+  for (const rel of await listTreeFiles(root)) {
+    let bytes: Uint8Array;
+    try {
+      bytes = await Bun.file(path.join(root, rel)).bytes();
+    } catch (err) {
+      if (isNotFound(err)) continue;
+      throw err;
+    }
     hasher.update(`${rel}\0`);
-    hasher.update(await Bun.file(path.join(root, rel)).bytes());
+    hasher.update(bytes);
     hasher.update("\0");
+  }
+  return hasher.digest("hex");
+}
+
+/**
+ * Cheap change detector for an extension tree: the same files as
+ * {@link hashTree}, with their size, mtime, and inode instead of contents.
+ * When it is unchanged, a previously computed {@link hashTree} still holds.
+ *
+ * @param root - Extension directory
+ * @returns Opaque fingerprint
+ */
+export async function treeFingerprint(root: string): Promise<string> {
+  const hasher = new Bun.CryptoHasher("sha256");
+  for (const rel of await listTreeFiles(root)) {
+    try {
+      const stats = await Bun.file(path.join(root, rel)).stat();
+      hasher.update(`${rel}\0${stats.size}\0${stats.mtimeMs}\0${stats.ino}\0`);
+    } catch (err) {
+      if (!isNotFound(err)) throw err;
+    }
   }
   return hasher.digest("hex");
 }

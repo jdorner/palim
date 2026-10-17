@@ -8,7 +8,7 @@ import { createTestDb } from "@src/test/db";
 import createLogger from "logging";
 import { HubError } from "./errors";
 import { HubService, WATCH_MODE_WARNING } from "./hub";
-import { hashTree, loadOutcome, SOURCE_MARKER } from "./installer";
+import { hashTree, loadOutcome, SOURCE_MARKER, treeFingerprint } from "./installer";
 import { assertContainedLinks } from "./sources";
 import { HubStore } from "./store";
 
@@ -485,6 +485,18 @@ describe("tree checks", () => {
     expect(await hashTree(dir)).toBe(before);
     await writeFile(path.join(dir, "index.ts"), "changed");
     expect(await hashTree(dir)).not.toBe(before);
+  });
+
+  test("fingerprint tracks the hashed files without reading them", async () => {
+    const dir = await mkdtemp(path.join(root, "fingerprint-"));
+    await writeFile(path.join(dir, "index.ts"), "x");
+    const before = await treeFingerprint(dir);
+    await writeFile(path.join(dir, SOURCE_MARKER), "{}");
+    await mkdir(path.join(dir, "node_modules"), { recursive: true });
+    await writeFile(path.join(dir, "node_modules", "a.js"), "y");
+    expect(await treeFingerprint(dir)).toBe(before);
+    await writeFile(path.join(dir, "extra.ts"), "");
+    expect(await treeFingerprint(dir)).not.toBe(before);
   });
 });
 

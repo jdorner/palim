@@ -39,6 +39,7 @@ import {
   resolveTarget,
   stageTree,
   syncFolder,
+  treeFingerprint,
   type WaitOptions,
 } from "./installer";
 import { SourceRepo } from "./sources";
@@ -173,6 +174,8 @@ export class HubService {
   private readonly repos = new Map<string, SourceRepo>();
   private readonly snapshots = new Map<string, SourceSnapshot>();
   private lock: Promise<unknown> = Promise.resolve();
+  /** Content hashes of installed trees, valid while their fingerprint is unchanged. */
+  private readonly treeHashes = new Map<string, { fingerprint: string; hash: string }>();
 
   /**
    * @param deps - Store, registry view, paths, token access, settings
@@ -333,9 +336,11 @@ export class HubService {
     const installs = this.deps.store.listInstalls();
     const modified = new Set<string>();
     for (const install of installs) {
-      const dir = path.join(this.externalDir, install.name);
-      if (existsSync(dir) && (await hashTree(dir)) !== install.contentHash) modified.add(install.name);
+      const hash = await this.installedHash(install.name);
+      if (hash !== null && hash !== install.contentHash) modified.add(install.name);
     }
+    const installed = new Set(installs.map((install) => install.name));
+    for (const name of this.treeHashes.keys()) if (!installed.has(name)) this.treeHashes.delete(name);
     return buildCatalog({
       sources: this.deps.store.listSources(),
       snapshots: this.snapshots,
@@ -558,6 +563,27 @@ export class HubService {
       updates: this.updates(),
       errors: results.filter((r) => r.error).map((r) => ({ source: r.source.name, error: r.error! })),
     };
+  }
+
+  /**
+   * Content hash of an installed tree, recomputed only when its fingerprint
+   * changed. Runs without the hub lock, so the tree may be moved concurrently:
+   * a missing or unreadable tree yields null (treated as unmodified).
+   */
+  private async installedHash(name: string): Promise<string | null> {
+    const dir = path.join(this.externalDir, name);
+    if (!existsSync(dir)) return null;
+    try {
+      const fingerprint = await treeFingerprint(dir);
+      const cached = this.treeHashes.get(name);
+      if (cached?.fingerprint === fingerprint) return cached.hash;
+      const hash = await hashTree(dir);
+      this.treeHashes.set(name, { fingerprint, hash });
+      return hash;
+    } catch (err) {
+      this.deps.log.debug(`[extension-hub] Hashing "${name}" failed: ${(err as Error).message}`);
+      return null;
+    }
   }
 
   /** Runs a function under the hub lock. */
