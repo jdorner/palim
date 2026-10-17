@@ -177,6 +177,7 @@ export class SourceRepo {
    *
    * @param specs - `<commit>:<path>` object names
    * @returns Spec to file content (null when missing or not a file)
+   * @throws {HubError} 502 when git fails or its output is truncated (nothing is cached then)
    */
   async readFiles(specs: string[]): Promise<Map<string, string | null>> {
     const result = new Map<string, string | null>();
@@ -195,15 +196,19 @@ export class SourceRepo {
       const bytes = new Uint8Array(buffer);
       if (code !== 0) throw new HubError(502, `git cat-file failed: exit code ${code}`);
       const decoder = new TextDecoder();
+      // A short read must fail the batch: caching the unparsed specs as
+      // missing would hide existing files for good (commit specs never change).
+      const truncated = () => new HubError(502, "git cat-file returned a truncated batch");
       let offset = 0;
       for (const spec of missing) {
         const eol = bytes.indexOf(0x0a, offset);
-        if (eol === -1) break;
+        if (eol === -1) throw truncated();
         const header = decoder.decode(bytes.subarray(offset, eol));
         offset = eol + 1;
         const parts = header.split(" ");
         if (parts.length === 3 && /^\d+$/.test(parts[2]!)) {
           const size = Number(parts[2]);
+          if (offset + size >= bytes.length || bytes[offset + size] !== 0x0a) throw truncated();
           const content = parts[1] === "blob" ? decoder.decode(bytes.subarray(offset, offset + size)) : null;
           offset += size + 1;
           result.set(spec, content);
