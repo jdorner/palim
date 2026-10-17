@@ -70,8 +70,13 @@ export function registerRunsRoutes(deps: WorkflowRouteDeps): void {
 
     const wf = store.get(run.workflowName);
     // `?include=results` adds each step's persisted result (API clients such
-    // as MCP servers); the run page does not need them.
-    const includeResults = new URL(reqCtx.request.url).searchParams.get("include") === "results";
+    // as MCP servers); the run page does not need them. Results can hold
+    // resolved secrets and private data, so only the user who started the run
+    // gets them; everyone else sees statuses only.
+    const includeResults =
+      new URL(reqCtx.request.url).searchParams.get("include") === "results" &&
+      run.createdByUserId !== null &&
+      requestUserId(reqCtx.request) === run.createdByUserId;
 
     // Waiting signal records keyed by step slug, used to enrich paused
     // waitFor steps with their event name and input schema. A run may have

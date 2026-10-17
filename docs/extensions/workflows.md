@@ -180,7 +180,7 @@ Trigger a manual workflow run. Returns the run ID and per-step job IDs.
 
 ### GET /ext/workflows/runs/:runId
 
-Get run status with per-step states. `if`/`case` steps carry an `evaluation` (expression, resolved value, branch), and a step that failed without a job (e.g. a `case` with no matching path) carries the failure reason as `error`. A failed run carries `failureReason`. With `?include=results`, each step that produced a result carries it as `result` (for API clients; the run page does not request it).
+Get run status with per-step states. `if`/`case` steps carry an `evaluation` (expression, resolved value, branch), and a step that failed without a job (e.g. a `case` with no matching path) carries the failure reason as `error`. A failed run carries `failureReason`. With `?include=results`, each step that produced a result carries it as `result`, but only when the caller started the run (results can hold resolved secrets); everyone else gets statuses only. Meant for API clients; the run page does not request it.
 
 ### GET /ext/workflows/runs/:runId/logs
 

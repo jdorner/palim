@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, test } from "bun:test";
 import type { ExtensionContext, Logger, ManagedQueuePort, RouteHandler } from "@ext/types";
+import type { ResolvedPrincipal } from "@src/auth";
+import { buildAbility } from "@src/auth";
 import { createTestDb } from "@src/test/db";
+import { setPrincipal } from "@src/web/auth";
 import type { Context } from "elysia";
 import type { DagStepJobData } from "../dagEngine";
 import * as dagRunStore from "../dagRunStore";
@@ -27,8 +30,15 @@ function runDetailHandler(): RouteHandler {
   return handler;
 }
 
-function call(handler: RouteHandler, runId: string, query = ""): Promise<Response> {
+function call(handler: RouteHandler, runId: string, query = "", userId = "owner"): Promise<Response> {
   const request = new Request(`http://localhost/ext/workflows/runs/${runId}${query}`);
+  const principal: ResolvedPrincipal = {
+    user: { id: userId, username: userId, roles: [], kind: "operator" },
+    isAdmin: false,
+    permissions: [],
+    ability: buildAbility({ userId, isAdmin: false, permissions: [] }),
+  };
+  setPrincipal(request, principal);
   return Promise.resolve(handler({ request, params: { runId } } as unknown as Context));
 }
 
@@ -45,6 +55,17 @@ beforeEach(() => {
     stepResults: { a: { text: "hello" } },
     triggerPayload: null,
     failureReason: "b exploded",
+    createdByUserId: "owner",
+  });
+  dagRunStore.create({
+    id: "run-system",
+    workflowName: "wf",
+    status: "completed",
+    edgeStates: {},
+    stepStatuses: { a: "completed" },
+    stepResults: { a: "system output" },
+    triggerPayload: null,
+    failureReason: null,
   });
 });
 
@@ -58,13 +79,27 @@ describe("GET /runs/:runId", () => {
     expect(body.steps.every((s) => !("result" in s))).toBe(true);
   });
 
-  test("adds persisted step results with include=results", async () => {
+  test("adds persisted step results with include=results for the run's starter", async () => {
     const body = (await (await call(runDetailHandler(), "run-1", "?include=results")).json()) as {
       steps: { slug: string; result?: unknown }[];
     };
     const bySlug = Object.fromEntries(body.steps.map((s) => [s.slug, s]));
     expect(bySlug.a?.result).toEqual({ text: "hello" });
     expect(bySlug.b && "result" in bySlug.b).toBe(false);
+  });
+
+  test("withholds results from other users", async () => {
+    const body = (await (await call(runDetailHandler(), "run-1", "?include=results", "someone-else")).json()) as {
+      steps: Record<string, unknown>[];
+    };
+    expect(body.steps.every((s) => !("result" in s))).toBe(true);
+  });
+
+  test("withholds results of runs without a recorded starter", async () => {
+    const body = (await (await call(runDetailHandler(), "run-system", "?include=results")).json()) as {
+      steps: Record<string, unknown>[];
+    };
+    expect(body.steps.every((s) => !("result" in s))).toBe(true);
   });
 
   test("answers 404 for an unknown run", async () => {
