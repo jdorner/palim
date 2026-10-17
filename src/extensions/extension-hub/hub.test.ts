@@ -83,6 +83,7 @@ interface Fixture {
   failing: Set<string>;
   manifestVersion: { value: string | null };
   includePrereleases: { value: boolean };
+  tokens: Map<string, string>;
 }
 
 /**
@@ -142,7 +143,7 @@ async function createFixture(options: { watchMode?: boolean } = {}): Promise<Fix
     unloadWait: { timeoutMs: 2000, pollMs: 10 },
     watchMode: options.watchMode,
   });
-  return { hub, store, externalDir, failing, manifestVersion, includePrereleases };
+  return { hub, store, externalDir, failing, manifestVersion, includePrereleases, tokens };
 }
 
 /** Asserts that a promise rejects with a HubError of the given status. */
@@ -287,6 +288,17 @@ describe("HubService", () => {
     await f.hub.install({ sourceId, name: "foo", userId: null });
     await expectHubError(f.hub.deleteSource(sourceId), 409);
     await expectHubError(f.hub.createSource({ name: "Test", url: repoDir }), 409);
+  });
+
+  test("requires re-entering a stored token when the source moves to another host", async () => {
+    f.tokens.set(sourceId, "secret");
+    await expectHubError(f.hub.updateSource(sourceId, { url: "https://git.invalid/ext.git" }), 400);
+    expect(f.store.getSource(sourceId)?.url).toBe(repoDir);
+
+    // Same origin, or the token explicitly cleared, is fine.
+    await f.hub.updateSource(sourceId, { url: path.join(root, "other.git") });
+    await f.hub.updateSource(sourceId, { url: "https://git.invalid/ext.git", token: null });
+    expect(f.tokens.has(sourceId)).toBe(false);
   });
 });
 

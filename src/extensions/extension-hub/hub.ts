@@ -27,7 +27,7 @@ import {
   type UpdateInfo,
 } from "./catalog";
 import { HubError } from "./errors";
-import { assertSafeRef, assertSafeRemoteUrl } from "./git";
+import { assertSafeRef, assertSafeRemoteUrl, remoteOrigin } from "./git";
 import {
   assertExtensionName,
   hashTree,
@@ -235,9 +235,13 @@ export class HubService {
   /**
    * Updates a source; a changed URL or branch triggers a fresh fetch.
    *
+   * A stored token is never sent to another host: moving the URL to a
+   * different scheme, host, or port requires re-entering or clearing it.
+   *
    * @param id - Source id
    * @param input - Changed fields
    * @returns The source and the fetch error (null when nothing was fetched)
+   * @throws {HubError} 400 invalid input or a stored token on an origin change
    */
   updateSource(id: string, input: Partial<SourceInput>): Promise<SourceResult> {
     return this.exclusive(async () => {
@@ -246,6 +250,14 @@ export class HubService {
       if (input.name !== undefined) patch.name = normalizeName(input.name);
       if (input.url !== undefined) patch.url = assertSafeRemoteUrl(input.url);
       if (input.branch !== undefined) patch.branch = normalizeBranch(input.branch);
+      if (
+        patch.url !== undefined &&
+        input.token === undefined &&
+        remoteOrigin(patch.url) !== remoteOrigin(current.url) &&
+        (await this.deps.getToken(id)) !== null
+      ) {
+        throw new HubError(400, "The repository host changed: re-enter the access token or clear it");
+      }
       const source = this.deps.store.updateSource(id, patch);
       if (input.token !== undefined) await this.deps.setToken(id, input.token || null);
       const urlChanged = source.url !== current.url;

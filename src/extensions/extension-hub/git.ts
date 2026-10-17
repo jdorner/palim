@@ -57,20 +57,55 @@ export function assertSafeRef(ref: string): string {
  * Validates a git remote URL: ssh, https, http, git, file URLs, scp-style
  * `user@host:path`, or an absolute local path.
  *
+ * Credentials embedded in the URL are refused: the URL is shown to every
+ * operator and written into installed trees, so tokens belong in the source's
+ * token field. Only ssh URLs may carry a user name (no password).
+ *
  * @param url - The remote URL
  * @returns The trimmed URL
  * @throws {HubError} 400 when the URL is not accepted
  */
 export function assertSafeRemoteUrl(url: string): string {
   const value = url.trim();
-  const ok =
-    /^(ssh|https?|git|file):\/\/[^\s]+$/.test(value) ||
-    /^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s]+$/.test(value) ||
-    /^\/[^\s]*$/.test(value);
+  const isSchemeUrl = /^(ssh|https?|git|file):\/\/[^\s]+$/.test(value);
+  const ok = isSchemeUrl || /^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s]+$/.test(value) || /^\/[^\s]*$/.test(value);
   if (!ok || value.startsWith("-") || value.length > 500) {
     throw new HubError(400, `Unsupported repository URL "${value}"`);
   }
+  if (isSchemeUrl) {
+    let parsed: URL;
+    try {
+      parsed = new URL(value);
+    } catch {
+      throw new HubError(400, "Unsupported repository URL: it could not be parsed");
+    }
+    if (parsed.password || (parsed.username && parsed.protocol !== "ssh:")) {
+      throw new HubError(
+        400,
+        "Repository URLs must not contain credentials; enter an access token in the token field instead",
+      );
+    }
+  }
   return value;
+}
+
+/**
+ * Returns the part of a validated remote URL a token is bound to: scheme,
+ * host, and port. Local paths and `file://` URLs share one origin.
+ *
+ * @param url - A URL accepted by {@link assertSafeRemoteUrl}
+ * @returns A comparable origin string
+ */
+export function remoteOrigin(url: string): string {
+  if (url.startsWith("/") || url.startsWith("file://")) return "file:";
+  const scp = /^[A-Za-z0-9._-]+@([A-Za-z0-9.-]+):/.exec(url);
+  if (scp && !url.includes("://")) return `ssh://${scp[1]!.toLowerCase()}`;
+  try {
+    const parsed = new URL(url);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    return url;
+  }
 }
 
 /**

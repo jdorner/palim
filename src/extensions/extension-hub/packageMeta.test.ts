@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { HubError } from "./errors";
-import { assertSafeRef, assertSafeRemoteUrl } from "./git";
+import { assertSafeRef, assertSafeRemoteUrl, remoteOrigin } from "./git";
 import { compareVersions, isPrerelease, parsePackageMeta, parseReleaseTag, readmeSummary } from "./packageMeta";
 
 describe("parsePackageMeta", () => {
@@ -81,4 +81,22 @@ describe("input validation", () => {
       expect(() => assertSafeRemoteUrl(url)).toThrow(HubError);
     },
   );
+
+  test.each([
+    "https://x-access-token:secret@github.com/acme/ext.git",
+    "https://secret@github.com/acme/ext.git",
+    "http://user:pw@git.example.com/ext.git",
+    "ssh://git:pw@git.example.com/ext.git",
+    "git://user@git.example.com/ext.git",
+  ])("rejects credentials in URL %p without echoing them", (url) => {
+    expect(() => assertSafeRemoteUrl(url)).toThrow(/must not contain credentials/);
+  });
+
+  test("derives the origin a token is bound to", () => {
+    expect(remoteOrigin("https://github.com/acme/a.git")).toBe(remoteOrigin("https://GitHub.com/other/b.git"));
+    expect(remoteOrigin("https://github.com/a.git")).not.toBe(remoteOrigin("http://github.com/a.git"));
+    expect(remoteOrigin("https://github.com/a.git")).not.toBe(remoteOrigin("https://evil.example/a.git"));
+    expect(remoteOrigin("git@github.com:acme/a.git")).toBe("ssh://github.com");
+    expect(remoteOrigin("/srv/a.git")).toBe(remoteOrigin("file:///srv/b.git"));
+  });
 });
