@@ -1,7 +1,7 @@
 <script lang="ts">
 /** Adds or edits a source repository. */
 import type { PalimHost } from "@ext/ui";
-import { Button, Checkbox, Dialog, Label } from "@palim/ui";
+import { Button, Checkbox, Dialog, InfoTip, Label } from "@palim/ui";
 import { errorText, INPUT_CLASS, request, type SourceInfo } from "./api";
 
 let {
@@ -66,7 +66,10 @@ async function save() {
       <input id="hub-source-name" class={INPUT_CLASS} bind:value={name} autocomplete="off">
     </div>
     <div class="space-y-1.5">
-      <Label for="hub-source-url">{$i18n.t("sources.url")}</Label>
+      <div class="flex items-center gap-1.5">
+        <Label for="hub-source-url">{$i18n.t("sources.url")}</Label>
+        <InfoTip text={$i18n.t("sources.urlHint")} />
+      </div>
       <input
         id="hub-source-url"
         class="{INPUT_CLASS} font-mono"
@@ -75,7 +78,6 @@ async function save() {
         autocomplete="off"
         spellcheck="false"
       >
-      <p class="text-xs text-muted-foreground">{$i18n.t("sources.urlHint")}</p>
     </div>
     <div class="space-y-1.5">
       <Label for="hub-source-branch">
@@ -91,9 +93,12 @@ async function save() {
       >
     </div>
     <div class="space-y-1.5">
-      <Label for="hub-source-token">
-        {$i18n.t("sources.token")} <span class="text-muted-foreground">{$i18n.t("common.optional")}</span>
-      </Label>
+      <div class="flex items-center gap-1.5">
+        <Label for="hub-source-token">
+          {$i18n.t("sources.token")} <span class="text-muted-foreground">{$i18n.t("common.optional")}</span>
+        </Label>
+        <InfoTip text={$i18n.t("sources.tokenHint")} />
+      </div>
       <input
         id="hub-source-token"
         type="password"
@@ -102,7 +107,6 @@ async function save() {
         bind:value={token}
         autocomplete="new-password"
       >
-      <p class="text-xs text-muted-foreground">{$i18n.t("sources.tokenHint")}</p>
       {#if initial?.hasToken}
         <div class="flex items-center gap-2">
           <Checkbox id="hub-source-clear-token" bind:checked={clearToken} disabled={token.trim() !== ""} />

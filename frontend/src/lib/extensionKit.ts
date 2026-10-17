@@ -26,5 +26,6 @@ export { Label } from "$lib/components/ui/label";
 export { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "$lib/components/ui/select";
 export { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 export { cn } from "$lib/utils";
+export { default as InfoTip } from "../components/InfoTip.svelte";
 export { default as MultiSelect } from "../components/MultiSelect.svelte";
 export { default as StatusDot } from "../components/StatusDot.svelte";
