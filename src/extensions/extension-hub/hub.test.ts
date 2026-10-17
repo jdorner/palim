@@ -311,10 +311,23 @@ describe("HubService", () => {
     await expectHubError(f.hub.updateSource(sourceId, { url: "https://git.invalid/ext.git" }), 400);
     expect(f.store.getSource(sourceId)?.url).toBe(repoDir);
 
-    // Same origin, or the token explicitly cleared, is fine.
-    await f.hub.updateSource(sourceId, { url: path.join(root, "other.git") });
+    // Clearing the token explicitly is fine.
     await f.hub.updateSource(sourceId, { url: "https://git.invalid/ext.git", token: null });
     expect(f.tokens.has(sourceId)).toBe(false);
+  });
+
+  test("refuses access tokens on non-HTTPS sources", async () => {
+    await expectHubError(
+      f.hub.createSource({ name: "Local", url: path.join(root, "other.git"), token: "secret" }),
+      400,
+    );
+    expect(f.store.listSources().some((s) => s.name === "Local")).toBe(false);
+    await expectHubError(f.hub.updateSource(sourceId, { token: "secret" }), 400);
+    expect(f.tokens.has(sourceId)).toBe(false);
+
+    // A token stored before the rule (e.g. on an old http:// row) is not sent.
+    f.tokens.set(sourceId, "secret");
+    await expectHubError(f.hub.updateSource(sourceId, { url: path.join(root, "other.git") }), 400);
   });
 });
 

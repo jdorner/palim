@@ -109,10 +109,10 @@
     "refreshed": "Source \"{name}\" fetched",
     "saved": "Source \"{name}\" saved and fetched",
     "token": "HTTPS access token",
-    "tokenHint": "Stored encrypted in the secret vault. Not needed for SSH or public repositories.",
+    "tokenHint": "Stored encrypted in the secret vault. HTTPS URLs only. Not needed for SSH or public repositories.",
     "tokenStored": "stored - leave empty to keep",
     "url": "Repository URL",
-    "urlHint": "SSH (uses the server's SSH keys), HTTPS, or a local path. Without credentials: put an access token in the token field.",
+    "urlHint": "SSH (uses the server's SSH keys), HTTPS, or a local path.",
     "withToken": "with access token"
   },
   "status": {

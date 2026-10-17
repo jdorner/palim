@@ -109,10 +109,10 @@
     "refreshed": "Quelle \"{name}\" abgerufen",
     "saved": "Quelle \"{name}\" gespeichert und abgerufen",
     "token": "HTTPS-Zugriffstoken",
-    "tokenHint": "Wird verschlüsselt im Secret-Tresor gespeichert. Für SSH oder öffentliche Repositories nicht nötig.",
+    "tokenHint": "Wird verschlüsselt im Secret-Tresor gespeichert. Nur für HTTPS-URLs. Für SSH oder öffentliche Repositories nicht nötig.",
     "tokenStored": "gespeichert - leer lassen zum Beibehalten",
     "url": "Repository-URL",
-    "urlHint": "SSH (nutzt die SSH-Schlüssel des Servers), HTTPS oder ein lokaler Pfad. Ohne Zugangsdaten: ein Zugriffstoken gehört ins Token-Feld.",
+    "urlHint": "SSH (nutzt die SSH-Schlüssel des Servers), HTTPS oder ein lokaler Pfad.",
     "withToken": "mit Zugriffstoken"
   },
   "status": {

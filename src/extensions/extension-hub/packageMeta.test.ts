@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { HubError } from "./errors";
-import { assertSafeRef, assertSafeRemoteUrl, remoteOrigin } from "./git";
+import { assertSafeRef, assertSafeRemoteUrl, assertTokenAllowed, gitEnv, remoteOrigin } from "./git";
 import { compareVersions, isPrerelease, parsePackageMeta, parseReleaseTag, readmeSummary } from "./packageMeta";
 
 describe("parsePackageMeta", () => {
@@ -75,19 +75,22 @@ describe("input validation", () => {
     expect(assertSafeRemoteUrl(url)).toBe(url);
   });
 
-  test.each(["ext::sh -c touch% /tmp/pwned", "-uhttps://x", "relative/path", "https://a b"])(
-    "rejects URL %p",
-    (url) => {
-      expect(() => assertSafeRemoteUrl(url)).toThrow(HubError);
-    },
-  );
+  test.each([
+    "ext::sh -c touch% /tmp/pwned",
+    "-uhttps://x",
+    "relative/path",
+    "https://a b",
+    "http://github.com/acme/ext.git",
+    "git://github.com/acme/ext.git",
+  ])("rejects URL %p", (url) => {
+    expect(() => assertSafeRemoteUrl(url)).toThrow(HubError);
+  });
 
   test.each([
     "https://x-access-token:secret@github.com/acme/ext.git",
     "https://secret@github.com/acme/ext.git",
-    "http://user:pw@git.example.com/ext.git",
+    "https://user:pw@git.example.com/ext.git",
     "ssh://git:pw@git.example.com/ext.git",
-    "git://user@git.example.com/ext.git",
   ])("rejects credentials in URL %p without echoing them", (url) => {
     expect(() => assertSafeRemoteUrl(url)).toThrow(/must not contain credentials/);
   });
@@ -98,5 +101,21 @@ describe("input validation", () => {
     expect(remoteOrigin("https://github.com/a.git")).not.toBe(remoteOrigin("https://evil.example/a.git"));
     expect(remoteOrigin("git@github.com:acme/a.git")).toBe("ssh://github.com");
     expect(remoteOrigin("/srv/a.git")).toBe(remoteOrigin("file:///srv/b.git"));
+  });
+
+  test("allows tokens only on https URLs", () => {
+    expect(() => assertTokenAllowed("https://github.com/acme/ext.git")).not.toThrow();
+    for (const url of ["ssh://git@github.com/acme/ext.git", "git@github.com:acme/ext.git", "/srv/repo.git"]) {
+      expect(() => assertTokenAllowed(url)).toThrow(HubError);
+    }
+  });
+
+  test("restricts transports and disables redirects when a token is attached", () => {
+    expect(gitEnv().GIT_ALLOW_PROTOCOL).toBe("file:https:ssh");
+    expect(gitEnv().GIT_CONFIG_COUNT).toBeUndefined();
+    const env = gitEnv("secret");
+    expect(env.GIT_CONFIG_COUNT).toBe("2");
+    expect(env.GIT_CONFIG_KEY_1).toBe("http.followRedirects");
+    expect(env.GIT_CONFIG_VALUE_1).toBe("false");
   });
 });

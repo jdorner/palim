@@ -27,7 +27,7 @@ import {
   type UpdateInfo,
 } from "./catalog";
 import { HubError } from "./errors";
-import { assertSafeRef, assertSafeRemoteUrl, remoteOrigin } from "./git";
+import { assertSafeRef, assertSafeRemoteUrl, assertTokenAllowed, remoteOrigin } from "./git";
 import {
   assertExtensionName,
   hashTree,
@@ -215,11 +215,13 @@ export class HubService {
    *
    * @param input - Name, URL, branch, token
    * @returns The source and the fetch error
-   * @throws {HubError} 400 invalid input, 409 name taken
+   * @throws {HubError} 400 invalid input or a token on a non-HTTPS URL, 409 name taken
    */
   createSource(input: SourceInput): Promise<SourceResult> {
     return this.exclusive(async () => {
-      const source = this.deps.store.createSource(normalizeSource(input));
+      const normalized = normalizeSource(input);
+      if (input.token) assertTokenAllowed(normalized.url);
+      const source = this.deps.store.createSource(normalized);
       if (input.token) {
         try {
           await this.deps.setToken(source.id, input.token);
@@ -236,12 +238,13 @@ export class HubService {
    * Updates a source; a changed URL or branch triggers a fresh fetch.
    *
    * A stored token is never sent to another host: moving the URL to a
-   * different scheme, host, or port requires re-entering or clearing it.
+   * different scheme, host, or port requires re-entering or clearing it, and
+   * a token is only kept on an `https://` URL.
    *
    * @param id - Source id
    * @param input - Changed fields
    * @returns The source and the fetch error (null when nothing was fetched)
-   * @throws {HubError} 400 invalid input or a stored token on an origin change
+   * @throws {HubError} 400 invalid input, a stored token on an origin change, or a token on a non-HTTPS URL
    */
   updateSource(id: string, input: Partial<SourceInput>): Promise<SourceResult> {
     return this.exclusive(async () => {
@@ -258,6 +261,8 @@ export class HubService {
       ) {
         throw new HubError(400, "The repository host changed: re-enter the access token or clear it");
       }
+      const hasToken = input.token !== undefined ? Boolean(input.token) : (await this.deps.getToken(id)) !== null;
+      if (hasToken) assertTokenAllowed(patch.url ?? current.url);
       const source = this.deps.store.updateSource(id, patch);
       if (input.token !== undefined) await this.deps.setToken(id, input.token || null);
       const urlChanged = source.url !== current.url;

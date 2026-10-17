@@ -13,7 +13,7 @@ import { existsSync } from "node:fs";
 import { lstat, mkdir, readlink, rm } from "node:fs/promises";
 import path from "node:path";
 import { HubError } from "./errors";
-import { GIT_NETWORK_TIMEOUT_MS, runGit, spawnGit, tryGit } from "./git";
+import { assertTokenAllowed, GIT_NETWORK_TIMEOUT_MS, runGit, spawnGit, tryGit } from "./git";
 
 /** Upper bound of cached object reads per mirror. */
 const MAX_CACHE_ENTRIES = 5000;
@@ -65,10 +65,11 @@ export class SourceRepo {
   /**
    * Clones the mirror if needed, then fetches all branches and tags.
    *
-   * @throws {HubError} 502 when git fails (unreachable remote, auth)
+   * @throws {HubError} 400 when a token is set on a non-HTTPS URL, 502 when git fails (unreachable remote, auth)
    */
   async sync(): Promise<void> {
     const token = await this.getToken();
+    if (token) assertTokenAllowed(this.url);
     if (!this.exists()) {
       await mkdir(path.dirname(this.dir), { recursive: true });
       await rm(this.dir, { recursive: true, force: true });

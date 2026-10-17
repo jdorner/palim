@@ -54,8 +54,10 @@ export function assertSafeRef(ref: string): string {
 }
 
 /**
- * Validates a git remote URL: ssh, https, http, git, file URLs, scp-style
- * `user@host:path`, or an absolute local path.
+ * Validates a git remote URL: ssh, https, file URLs, scp-style
+ * `user@host:path`, or an absolute local path. Plaintext transports (`http`,
+ * `git`) are refused: installed code runs in the server process, so it must
+ * not be fetched over a connection that can be tampered with.
  *
  * Credentials embedded in the URL are refused: the URL is shown to every
  * operator and written into installed trees, so tokens belong in the source's
@@ -67,7 +69,7 @@ export function assertSafeRef(ref: string): string {
  */
 export function assertSafeRemoteUrl(url: string): string {
   const value = url.trim();
-  const isSchemeUrl = /^(ssh|https?|git|file):\/\/[^\s]+$/.test(value);
+  const isSchemeUrl = /^(ssh|https|file):\/\/[^\s]+$/.test(value);
   const ok = isSchemeUrl || /^[A-Za-z0-9._-]+@[A-Za-z0-9.-]+:[^\s]+$/.test(value) || /^\/[^\s]*$/.test(value);
   if (!ok || value.startsWith("-") || value.length > 500) {
     throw new HubError(400, `Unsupported repository URL "${value}"`);
@@ -87,6 +89,19 @@ export function assertSafeRemoteUrl(url: string): string {
     }
   }
   return value;
+}
+
+/**
+ * Checks that an access token may be sent to a remote: tokens travel as an
+ * HTTP header, so only `https://` remotes may carry one.
+ *
+ * @param url - A URL accepted by {@link assertSafeRemoteUrl}
+ * @throws {HubError} 400 when the URL is not an HTTPS URL
+ */
+export function assertTokenAllowed(url: string): void {
+  if (!url.startsWith("https://")) {
+    throw new HubError(400, "Access tokens can only be used with https:// repository URLs");
+  }
 }
 
 /**
@@ -111,6 +126,9 @@ export function remoteOrigin(url: string): string {
 /**
  * Builds the environment for a git process.
  *
+ * With a token, redirects are not followed: `http.extraHeader` is sent with
+ * every request, so a redirect would hand the token to the redirect target.
+ *
  * @param token - Optional HTTPS access token
  * @returns The environment variables
  */
@@ -118,15 +136,17 @@ export function gitEnv(token?: string | null): Record<string, string | undefined
   const env: Record<string, string | undefined> = {
     ...process.env,
     GIT_TERMINAL_PROMPT: "0",
-    GIT_ALLOW_PROTOCOL: "file:git:http:https:ssh",
+    GIT_ALLOW_PROTOCOL: "file:https:ssh",
     GIT_SSH_COMMAND: process.env.GIT_SSH_COMMAND || "ssh -o BatchMode=yes",
     LC_ALL: "C",
   };
   if (token) {
     const basic = Buffer.from(`x-access-token:${token}`).toString("base64");
-    env.GIT_CONFIG_COUNT = "1";
+    env.GIT_CONFIG_COUNT = "2";
     env.GIT_CONFIG_KEY_0 = "http.extraHeader";
     env.GIT_CONFIG_VALUE_0 = `Authorization: Basic ${basic}`;
+    env.GIT_CONFIG_KEY_1 = "http.followRedirects";
+    env.GIT_CONFIG_VALUE_1 = "false";
   }
   return env;
 }
