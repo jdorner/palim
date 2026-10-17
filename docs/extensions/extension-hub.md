@@ -7,7 +7,7 @@ You can:
 - register git repositories as **sources** (SSH, HTTPS, or a local path);
 - see the extensions each source offers, with their released versions;
 - install an extension by version, or from any tag, branch, or commit;
-- update, roll back, and uninstall what you installed;
+- update (including downgrades) and uninstall what you installed;
 - let Palim check the sources periodically for new versions.
 
 Installing, updating, and removing extensions and sources needs the `manage Extension` permission (admins). Everyone else can see the catalog.
@@ -75,7 +75,7 @@ The catalog lists the extensions of each source:
 | Version mismatch | The manifest's version differs from `package.json` |
 | Local folder | A hand-placed folder with this name exists; the hub won't overwrite it |
 
-Below the sources, **Installed from removed sources** lists installs whose source or folder no longer exists (they can still be rolled back or uninstalled). Hand-placed extensions are not listed separately; see them under **Settings → Extensions**. When one has the same name as an extension a source offers, its catalog row shows **Local folder**, and the hub won't install over it.
+Below the sources, **Installed from removed sources** lists installs whose source or folder no longer exists (they can still be uninstalled). Hand-placed extensions are not listed separately; see them under **Settings → Extensions**. When one has the same name as an extension a source offers, its catalog row shows **Local folder**, and the hub won't install over it.
 
 ## Installing
 
@@ -89,17 +89,16 @@ The hub extracts the extension into the external extensions directory (`<DATA_DI
 
 A freshly installed extension runs right away but is **disabled** in the settings, like any new extension. Enable it on the catalog row or in the settings so it stays active after a restart.
 
-## Updating, rolling back, uninstalling
+## Updating and uninstalling
 
 - **Update** installs the available update. **Version…** switches to any other version, branch, or commit, including downgrades.
-- An update is refused while the installed files were changed locally (**Modified**). The version dialog offers to replace the changes; the changed files are kept as the rollback backup.
-- If the new version fails to load, the previous version is restored automatically.
-- **Back to …** swaps in the version that the last update replaced. Doing it twice returns to the newer version. One previous version is kept.
+- An update is refused while the installed files were changed locally (**Modified**). The version dialog offers to replace them; the local changes are then lost.
+- If the new version fails to load, the previous version is restored automatically. To go back to an older version later, pick it in **Version…**.
 - **Uninstall** unloads the extension and deletes its files. Its settings and secrets are kept, so a later reinstall picks them up.
 
-Each update or rollback briefly unloads the extension (usually about a second) before the new version loads.
+Each update briefly unloads the extension (usually about a second) before the new version loads.
 
-When Palim runs with `bun run dev` (Bun's watch mode), Bun keeps the extension's other modules cached, so an update or rollback only takes full effect after restarting the server. The hub says so after each update, and the catalog may show **Version mismatch** until then. `bun run start` and the Docker image are not affected.
+When Palim runs with `bun run dev` (Bun's watch mode), Bun keeps the extension's other modules cached, so an update only takes full effect after restarting the server. The hub says so after each update, and the catalog may show **Version mismatch** until then. `bun run start` and the Docker image are not affected.
 
 ## Update checks
 
@@ -123,6 +122,6 @@ The hub only touches folders it installed; it records them in Palim's database. 
 | Path | Content |
 | --- | --- |
 | `<DATA_DIR>/extension-hub/repos/` | Local mirrors of the sources (bare git clones) |
-| `<DATA_DIR>/extension-hub/backup/` | The previous version of each updated extension (for rollback) |
+| `<DATA_DIR>/extension-hub/backup/` | The old version of an extension while an update is loading (restored if the update fails) |
 | `<DATA_DIR>/extension-hub/staging/`, `trash/` | Temporary folders during installs and removals |
 | `<DATA_DIR>/extensions/<name>/` | Installed extensions, with a `.palim-source.json` note of their origin |

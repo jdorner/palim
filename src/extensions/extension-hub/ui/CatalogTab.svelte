@@ -1,7 +1,7 @@
 <script lang="ts">
 /**
  * Catalog: extensions per source with their install state and actions
- * (install, update, change version, roll back, enable, uninstall), followed by
+ * (install, update, change version, enable, uninstall), followed by
  * installs whose source or folder vanished and hand-placed local extensions.
  * Laid out like the MCP servers page: bordered table on desktop, cards below.
  */
@@ -19,7 +19,6 @@ import {
   ToggleSwitch,
 } from "@palim/ui";
 import ArrowCircleUpIcon from "phosphor-svelte/lib/ArrowCircleUpIcon";
-import ArrowCounterClockwiseIcon from "phosphor-svelte/lib/ArrowCounterClockwiseIcon";
 import DownloadSimpleIcon from "phosphor-svelte/lib/DownloadSimpleIcon";
 import GitBranchIcon from "phosphor-svelte/lib/GitBranchIcon";
 import GitCommitIcon from "phosphor-svelte/lib/GitCommitIcon";
@@ -35,9 +34,9 @@ import {
   type InstalledView,
   type InstallResult,
   isInstallable,
-  type ReplaceResult,
   request,
   shortSha,
+  type UpdateResult,
   type VersionChoice,
 } from "./api";
 import VersionDialog from "./VersionDialog.svelte";
@@ -83,8 +82,8 @@ async function run(name: string, action: () => Promise<void>) {
   }
 }
 
-/** Reports a completed install/update/rollback. */
-function report(name: string, result: InstallResult, key: "installed" | "updated" | "rolledBack") {
+/** Reports a completed install or update. */
+function report(name: string, result: InstallResult, key: "installed" | "updated") {
   const t = i18n.current.t;
   if (result.outcome.status === "timeout") {
     palim.notify(t("notify.stillLoading", { name }), "info");
@@ -105,7 +104,7 @@ async function submitDialog(choice: VersionChoice) {
       });
       report(entry.name, result, "installed");
     } else {
-      const result = await request<ReplaceResult>(palim, `/installed/${encodeURIComponent(entry.name)}/update`, {
+      const result = await request<UpdateResult>(palim, `/installed/${encodeURIComponent(entry.name)}/update`, {
         method: "POST",
         body: choice,
       });
@@ -121,27 +120,11 @@ async function quickUpdate(entry: CatalogEntry) {
     return;
   }
   await run(entry.name, async () => {
-    const result = await request<ReplaceResult>(palim, `/installed/${encodeURIComponent(entry.name)}/update`, {
+    const result = await request<UpdateResult>(palim, `/installed/${encodeURIComponent(entry.name)}/update`, {
       method: "POST",
       body: {},
     });
     report(entry.name, result, "updated");
-  });
-}
-
-async function rollback(name: string, installed: InstalledView) {
-  const t = i18n.current.t;
-  const ok = await palim.confirm({
-    title: t("confirm.rollbackTitle", { name }),
-    message: t("confirm.rollbackMessage", { from: installed.version, to: installed.previousVersion ?? "?" }),
-    confirmLabel: t("actions.rollback"),
-  });
-  if (!ok) return;
-  await run(name, async () => {
-    const result = await request<ReplaceResult>(palim, `/installed/${encodeURIComponent(name)}/rollback`, {
-      method: "POST",
-    });
-    report(name, result, "rolledBack");
   });
 }
 
@@ -307,21 +290,9 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
   {/if}
 {/snippet}
 
-{#snippet installedActions(
+{#snippet uninstallButton(
   name: string,
-  installed: InstalledView,
 )}
-  {#if installed.canRollback}
-    <Button
-      size="sm"
-      variant="outline"
-      disabled={busy !== null}
-      title={$i18n.t("actions.rollbackTo", { version: installed.previousVersion ?? "?" })}
-      onclick={() => rollback(name, installed)}
-    >
-      <ArrowCounterClockwiseIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("actions.rollback")}
-    </Button>
-  {/if}
   <Button size="sm" variant="destructive" disabled={busy !== null} onclick={() => uninstall(name)}>
     <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("actions.uninstall")}
   </Button>
@@ -341,7 +312,7 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
     <Button size="sm" variant="outline" disabled={busy !== null} onclick={() => (dialog = { entry, mode: "update" })}>
       <TagIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("actions.changeVersion")}
     </Button>
-    {@render installedActions(entry.name, entry.installed)}
+    {@render uninstallButton(entry.name)}
   {:else if !entry.blockedByLocal && isInstallable(entry)}
     <Button size="sm" disabled={busy !== null} onclick={() => (dialog = { entry, mode: "install" })}>
       <DownloadSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("actions.install")}
@@ -471,7 +442,7 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
               <div class="flex flex-wrap items-center gap-2">
                 {@render enabledCell(orphan.name, orphan.installed)}
                 {#if canWrite}
-                  {@render installedActions(orphan.name, orphan.installed)}
+                  {@render uninstallButton(orphan.name)}
                 {/if}
               </div>
             </div>

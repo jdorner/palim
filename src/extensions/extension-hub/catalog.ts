@@ -269,10 +269,6 @@ export interface InstalledView {
   installedBy: string | null;
   /** Registry state with the manifest name (null = not loaded). */
   loaded: (LoadedInfo & { name: string }) | null;
-  /** Whether a rollback backup exists. */
-  canRollback: boolean;
-  /** Version the rollback would restore. */
-  previousVersion: string | null;
   /** Whether the installed files differ from what was installed (blocks updates without force). */
   modified: boolean;
 }
@@ -372,8 +368,6 @@ export function buildCatalog(inputs: CatalogInputs): CatalogView {
             error: loaded.error,
           }
         : null,
-      canRollback: install.previous !== null,
-      previousVersion: install.previous?.version ?? null,
       modified: modified.has(install.name),
     };
   };

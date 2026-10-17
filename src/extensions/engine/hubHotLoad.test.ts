@@ -144,7 +144,7 @@ afterAll(async () => {
 describe("hub with the real watcher", () => {
   const loadedVersion = () => api.list().find((e) => e.name === "greeter")?.version;
 
-  test("installs, updates, rolls back, survives a broken update, and uninstalls", async () => {
+  test("installs, updates, downgrades, survives a broken update, and uninstalls", async () => {
     const result = await hub.install({ sourceId, name: "greeter", version: "1.0.0", userId: null });
     expect(result.outcome).toEqual({ status: "loaded", version: "1.0.0" });
     expect(result.warnings).toEqual([]);
@@ -162,8 +162,8 @@ describe("hub with the real watcher", () => {
     expect(updated.outcome).toEqual({ status: "loaded", version: "1.1.0" });
     expect(loadedVersion()).toBe("1.1.0");
 
-    const rolledBack = await hub.rollback("greeter", null);
-    expect(rolledBack.outcome).toEqual({ status: "loaded", version: "1.0.0" });
+    const downgraded = await hub.update({ name: "greeter", version: "1.0.0", userId: null });
+    expect(downgraded.outcome).toEqual({ status: "loaded", version: "1.0.0" });
     expect(loadedVersion()).toBe("1.0.0");
 
     expect(await hub.uninstall("greeter")).toEqual({ unloaded: true });

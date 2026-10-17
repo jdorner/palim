@@ -56,6 +56,4 @@ export const hubInstalls = sqliteTable("ext_extension_hub_installs", {
   installedAt: integer("installed_at").notNull(),
   /** User who installed or last updated it (null = system). */
   installedBy: text("installed_by"),
-  /** JSON of the previous install state while a rollback backup exists (null = none). */
-  previous: text("previous"),
 });

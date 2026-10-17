@@ -35,20 +35,6 @@ export interface SourceRecord {
   lastError: string | null;
 }
 
-/** The state an update replaced, kept while a rollback backup exists. */
-export interface PreviousInstall {
-  /** Ref. */
-  ref: string;
-  /** Ref kind. */
-  refKind: RefKind;
-  /** Version. */
-  version: string;
-  /** Commit. */
-  commit: string;
-  /** Content hash. */
-  contentHash: string;
-}
-
 /** An extension installed by the hub. */
 export interface InstallRecord {
   /** Folder / package name. */
@@ -69,8 +55,6 @@ export interface InstallRecord {
   installedAt: number;
   /** User id of the installer. */
   installedBy: string | null;
-  /** State before the last update (null = no rollback available). */
-  previous: PreviousInstall | null;
 }
 
 /**
@@ -219,8 +203,7 @@ export class HubStore {
    * @param record - The record
    */
   saveInstall(record: InstallRecord): void {
-    const row = { ...record, previous: record.previous ? JSON.stringify(record.previous) : null };
-    this.db.insert(hubInstalls).values(row).onConflictDoUpdate({ target: hubInstalls.name, set: row }).run();
+    this.db.insert(hubInstalls).values(record).onConflictDoUpdate({ target: hubInstalls.name, set: record }).run();
   }
 
   /**
@@ -241,9 +224,5 @@ export class HubStore {
 
 /** Maps a database row to an install record. */
 function toInstall(row: typeof hubInstalls.$inferSelect): InstallRecord {
-  return {
-    ...row,
-    refKind: row.refKind as RefKind,
-    previous: row.previous ? (JSON.parse(row.previous) as PreviousInstall) : null,
-  };
+  return { ...row, refKind: row.refKind as RefKind };
 }

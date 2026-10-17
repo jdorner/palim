@@ -231,16 +231,6 @@ export function registerRoutes(
   );
 
   ctx.routes.register(
-    "POST",
-    "/installed/:name/rollback",
-    wrap(async (reqCtx) => {
-      const result = await hub.rollback(param(reqCtx, "name"), getUserId(reqCtx.request) ?? null);
-      afterChange();
-      return Response.json(result);
-    }),
-  );
-
-  ctx.routes.register(
     "DELETE",
     "/installed/:name",
     wrap(async (reqCtx) => {

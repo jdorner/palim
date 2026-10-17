@@ -1,13 +1,13 @@
 /**
- * Extension Hub service: sources, catalog, install, update, rollback, and uninstall.
+ * Extension Hub service: sources, catalog, install, update, and uninstall.
  *
  * Every mutating operation runs under one in-process lock, so installs,
  * removals, and fetches never interleave.
  *
- * Replacing an installed tree (update, rollback) is sequential: the old folder
- * is moved out and the registry confirms the unload before the new folder is
- * moved in, so the directory watcher sees a plain unload followed by a load.
- * The replaced tree is kept as the one rollback backup.
+ * Updating an installed tree is sequential: the old folder is moved out and the
+ * registry confirms the unload before the new folder is moved in, so the
+ * directory watcher sees a plain unload followed by a load. The old tree is kept
+ * until the new one has loaded, to restore it when the update fails.
  *
  * @module
  */
@@ -77,7 +77,7 @@ export interface HubServiceDeps {
   watchMode?: boolean;
 }
 
-/** Warning added to updates and rollbacks under `bun --watch`/`--hot`. */
+/** Warning added to updates under `bun --watch`/`--hot`. */
 export const WATCH_MODE_WARNING =
   "The server runs in watch mode (bun run dev), where Bun keeps the extension's other modules cached: " +
   "restart the server to run the new version completely.";
@@ -140,8 +140,8 @@ export interface UpdateRequest {
   userId: string | null;
 }
 
-/** Result of an update or rollback. */
-export interface ReplaceResult extends InstallResult {
+/** Result of an update. */
+export interface UpdateResult extends InstallResult {
   /** Version that was replaced. */
   from: string;
 }
@@ -383,7 +383,6 @@ export class HubService {
         contentHash: staged.contentHash,
         installedAt: Date.now(),
         installedBy: request.userId,
-        previous: null,
       };
       this.deps.store.saveInstall(install);
       this.deps.log.info(
@@ -434,15 +433,14 @@ export class HubService {
    *
    * @param request - Name, optional target version or ref, force, user
    * @returns The new record, load outcome, warnings, and replaced version
-   * @throws {HubError} 404 not installed, 409 modified / up to date, 422 failed to load (rolled back)
+   * @throws {HubError} 404 not installed, 409 modified / up to date, 422 failed to load (previous version restored)
    */
-  update(request: UpdateRequest): Promise<ReplaceResult> {
+  update(request: UpdateRequest): Promise<UpdateResult> {
     return this.exclusive(async () => {
       const name = assertExtensionName(request.name);
       const current = this.requireInstall(name);
       const dir = this.installedDir(name);
-      const currentHash = await hashTree(dir);
-      if (!request.force && currentHash !== current.contentHash) {
+      if (!request.force && (await hashTree(dir)) !== current.contentHash) {
         throw new HubError(409, `"${name}" was modified locally; force the update to discard the changes`, {
           modified: true,
         });
@@ -469,8 +467,6 @@ export class HubService {
         const failed = await this.trashSlot(name);
         await this.swap(dir, backup, failed);
         await rm(path.dirname(failed), { recursive: true, force: true });
-        // The backup now is the live tree again, so there is nothing left to roll back to.
-        this.deps.store.saveInstall({ ...current, previous: null });
         throw new HubError(
           422,
           `"${name}" ${target.ref} failed to load (${outcome.error}); restored ${current.version}`,
@@ -487,73 +483,13 @@ export class HubService {
         contentHash: staged.contentHash,
         installedAt: Date.now(),
         installedBy: request.userId,
-        previous: {
-          ref: current.ref,
-          refKind: current.refKind,
-          version: current.version,
-          commit: current.commit,
-          contentHash: currentHash,
-        },
       };
       this.deps.store.saveInstall(install);
+      // Loaded: the old tree is no longer needed.
+      await rm(backup, { recursive: true, force: true });
       this.deps.log.info(`[extension-hub] Updated "${name}" ${current.version} -> ${install.version} (${target.ref})`);
-      const warnings = this.replaceWarnings(name, install.version, outcome);
+      const warnings = this.updateWarnings(name, install.version, outcome);
       for (const w of warnings) this.deps.log.warn(`[extension-hub] ${w}`);
-      return { install, outcome, warnings, from: current.version };
-    });
-  }
-
-  /**
-   * Swaps an installed extension with its backup (the state before the last
-   * update). Rolling back twice returns to the newer version. When the backup
-   * fails to load, the current version is restored.
-   *
-   * @param name - Extension name
-   * @param userId - Acting user
-   * @returns The new record, load outcome, warnings, and replaced version
-   * @throws {HubError} 404 not installed, 409 no backup, 422 failed to load (restored)
-   */
-  rollback(name: string, userId: string | null): Promise<ReplaceResult> {
-    return this.exclusive(async () => {
-      assertExtensionName(name);
-      const current = this.requireInstall(name);
-      const backup = this.backupDir(name);
-      if (!current.previous || !existsSync(path.join(backup, "index.ts"))) {
-        throw new HubError(409, `"${name}" has no previous version to roll back to`);
-      }
-      const previous = current.previous;
-      const dir = this.installedDir(name);
-      const currentHash = await hashTree(dir);
-
-      const parked = await this.trashSlot(name);
-      const outcome = await this.swap(dir, backup, parked);
-      if (outcome.status === "failed") {
-        await this.swap(dir, parked, backup);
-        await rm(path.dirname(parked), { recursive: true, force: true });
-        throw new HubError(
-          422,
-          `"${name}" ${previous.version} failed to load (${outcome.error}); kept ${current.version}`,
-        );
-      }
-      await rename(parked, backup);
-      await rm(path.dirname(parked), { recursive: true, force: true });
-
-      const install: InstallRecord = {
-        ...current,
-        ...previous,
-        installedAt: Date.now(),
-        installedBy: userId,
-        previous: {
-          ref: current.ref,
-          refKind: current.refKind,
-          version: current.version,
-          commit: current.commit,
-          contentHash: currentHash,
-        },
-      };
-      this.deps.store.saveInstall(install);
-      this.deps.log.info(`[extension-hub] Rolled back "${name}" ${current.version} -> ${install.version}`);
-      const warnings = this.replaceWarnings(name, install.version, outcome);
       return { install, outcome, warnings, from: current.version };
     });
   }
@@ -631,8 +567,8 @@ export class HubService {
     return null;
   }
 
-  /** Warnings after replacing a loaded extension (update, rollback). */
-  private replaceWarnings(name: string, version: string, outcome: LoadOutcome): string[] {
+  /** Warnings after an update replaced a loaded extension. */
+  private updateWarnings(name: string, version: string, outcome: LoadOutcome): string[] {
     if (this.deps.watchMode) return [WATCH_MODE_WARNING];
     return versionWarnings(name, version, outcome);
   }
@@ -653,7 +589,7 @@ export class HubService {
     return dir;
   }
 
-  /** The rollback backup of an extension. */
+  /** Where an update parks the old tree until the new one has loaded. */
   private backupDir(name: string): string {
     return path.join(this.deps.workRoot, "backup", name);
   }

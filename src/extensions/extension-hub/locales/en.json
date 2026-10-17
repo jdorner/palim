@@ -4,8 +4,6 @@
     "disable": "Disable",
     "enable": "Enable",
     "install": "Install",
-    "rollback": "Roll back",
-    "rollbackTo": "Back to {version}",
     "uninstall": "Uninstall",
     "update": "Update"
   },
@@ -34,8 +32,6 @@
     "status": "Status"
   },
   "confirm": {
-    "rollbackMessage": "Replace {from} with the previously installed {to}. You can roll forward again afterwards.",
-    "rollbackTitle": "Roll back {name}?",
     "uninstallMessage": "The extension is unloaded and its files are deleted. Its settings and secrets are kept for a later reinstall.",
     "uninstallTitle": "Uninstall {name}?"
   },
@@ -49,7 +45,7 @@
     "installTitle": "Install {name}",
     "installed": "Installed: {version} ({ref})",
     "latest": "latest",
-    "modifiedWarning": "The installed files were changed locally. Updating replaces them (the changed version is kept as the rollback backup).",
+    "modifiedWarning": "The installed files were changed locally. Updating replaces them, and the local changes are lost.",
     "prerelease": "prerelease",
     "ref": "Tag, branch, or commit",
     "refHint": "A branch is followed by update checks; a commit stays pinned.",
@@ -68,7 +64,6 @@
     "disabled": "{name} disabled",
     "enabled": "{name} enabled",
     "installed": "{name} {version} installed",
-    "rolledBack": "{name} rolled back to {version}",
     "stillLoading": "{name} is installed and still loading (installing dependencies); check back shortly",
     "uninstalled": "{name} uninstalled",
     "updated": "{name} updated to {version}"

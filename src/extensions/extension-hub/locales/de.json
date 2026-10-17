@@ -4,8 +4,6 @@
     "disable": "Deaktivieren",
     "enable": "Aktivieren",
     "install": "Installieren",
-    "rollback": "Zurücksetzen",
-    "rollbackTo": "Zurück zu {version}",
     "uninstall": "Deinstallieren",
     "update": "Aktualisieren"
   },
@@ -34,8 +32,6 @@
     "status": "Status"
   },
   "confirm": {
-    "rollbackMessage": "{from} durch die zuvor installierte Version {to} ersetzen. Danach kannst du wieder vorwärts wechseln.",
-    "rollbackTitle": "{name} zurücksetzen?",
     "uninstallMessage": "Die Erweiterung wird entladen und ihre Dateien gelöscht. Einstellungen und Secrets bleiben für eine spätere Neuinstallation erhalten.",
     "uninstallTitle": "{name} deinstallieren?"
   },
@@ -49,7 +45,7 @@
     "installTitle": "{name} installieren",
     "installed": "Installiert: {version} ({ref})",
     "latest": "neueste",
-    "modifiedWarning": "Die installierten Dateien wurden lokal geändert. Ein Update ersetzt sie (die geänderte Version bleibt als Sicherung zum Zurücksetzen erhalten).",
+    "modifiedWarning": "Die installierten Dateien wurden lokal geändert. Ein Update ersetzt sie, die lokalen Änderungen gehen verloren.",
     "prerelease": "Vorabversion",
     "ref": "Tag, Branch oder Commit",
     "refHint": "Einem Branch folgen die Update-Prüfungen; ein Commit bleibt fest.",
@@ -68,7 +64,6 @@
     "disabled": "{name} deaktiviert",
     "enabled": "{name} aktiviert",
     "installed": "{name} {version} installiert",
-    "rolledBack": "{name} auf {version} zurückgesetzt",
     "stillLoading": "{name} ist installiert und wird noch geladen (Abhängigkeiten werden installiert); schau gleich noch einmal nach",
     "uninstalled": "{name} deinstalliert",
     "updated": "{name} auf {version} aktualisiert"

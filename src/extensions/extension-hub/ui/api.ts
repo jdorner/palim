@@ -4,7 +4,7 @@
 
 import type { PalimHost } from "@ext/ui";
 import type { CatalogEntry, InstalledView } from "../catalog";
-import type { CheckResult, InstallResult, ReplaceResult } from "../hub";
+import type { CheckResult, InstallResult, UpdateResult } from "../hub";
 import type { SourceRecord } from "../store";
 
 export type {
@@ -15,7 +15,7 @@ export type {
   ReleaseInfo,
   UpdateInfo,
 } from "../catalog";
-export type { CheckResult, InstallResult, ReplaceResult };
+export type { CheckResult, InstallResult, UpdateResult };
 
 /** What the version dialog submits. */
 export interface VersionChoice {

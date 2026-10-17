@@ -19,6 +19,5 @@ CREATE TABLE IF NOT EXISTS `ext_extension_hub_installs` (
 	`commit` text NOT NULL,
 	`content_hash` text NOT NULL,
 	`installed_at` integer NOT NULL,
-	`installed_by` text,
-	`previous` text
+	`installed_by` text
 );

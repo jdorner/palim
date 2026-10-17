@@ -302,8 +302,10 @@ describe("HubService updates", () => {
 
   const installedVersion = async () =>
     JSON.parse(await Bun.file(path.join(f.externalDir, "foo", "package.json")).text()).version as string;
+  /** Where an update parks the old tree (fixture workRoot is next to the extensions directory). */
+  const backupDir = () => path.join(path.dirname(f.externalDir), "hub", "backup", "foo");
 
-  test("updates to the available version and keeps a backup", async () => {
+  test("updates to the available version and drops the old tree once loaded", async () => {
     expect(f.hub.updates()).toEqual([
       expect.objectContaining({
         name: "foo",
@@ -315,35 +317,14 @@ describe("HubService updates", () => {
     const result = await f.hub.update({ name: "foo", userId: "u2" });
     expect(result).toMatchObject({ from: "1.0.0", outcome: { status: "loaded", version: "1.1.0" }, warnings: [] });
     expect(result.install).toMatchObject({ ref: "foo@1.1.0", version: "1.1.0", installedBy: "u2" });
-    expect(result.install.previous).toMatchObject({ ref: "foo@1.0.0", version: "1.0.0" });
     expect(await installedVersion()).toBe("1.1.0");
+    expect(existsSync(backupDir())).toBe(false);
     expect(f.hub.updates()).toEqual([]);
 
     const foo = (await f.hub.catalog()).sources[0]!.extensions.find((e) => e.name === "foo")!;
-    expect(foo.installed).toMatchObject({
-      version: "1.1.0",
-      canRollback: true,
-      previousVersion: "1.0.0",
-      modified: false,
-    });
+    expect(foo.installed).toMatchObject({ version: "1.1.0", modified: false });
 
     await expectHubError(f.hub.update({ name: "foo", userId: null }), 409); // up to date
-  });
-
-  test("rolls back and forward", async () => {
-    await f.hub.update({ name: "foo", userId: null });
-    const back = await f.hub.rollback("foo", null);
-    expect(back).toMatchObject({ from: "1.1.0", install: { version: "1.0.0", ref: "foo@1.0.0" } });
-    expect(await installedVersion()).toBe("1.0.0");
-    expect(f.store.getInstall("foo")?.contentHash).toBe(await hashTree(path.join(f.externalDir, "foo")));
-
-    const forward = await f.hub.rollback("foo", null);
-    expect(forward.install).toMatchObject({ version: "1.1.0", previous: { version: "1.0.0" } });
-    expect(await installedVersion()).toBe("1.1.0");
-  });
-
-  test("refuses rollback without a backup", async () => {
-    await expectHubError(f.hub.rollback("foo", null), 409);
   });
 
   test("updates to an explicit version or ref, including downgrades", async () => {
@@ -366,9 +347,7 @@ describe("HubService updates", () => {
 
     await f.hub.update({ name: "foo", force: true, userId: null });
     expect(await installedVersion()).toBe("1.1.0");
-    // The backup holds the patched tree, and rolling back restores it as it was.
-    await f.hub.rollback("foo", null);
-    expect(await Bun.file(path.join(f.externalDir, "foo", "index.ts")).text()).toBe("// patched\n");
+    expect(await Bun.file(path.join(f.externalDir, "foo", "index.ts")).text()).not.toBe("// patched\n");
     expect((await f.hub.catalog()).sources[0]!.extensions.find((e) => e.name === "foo")!.installed?.modified).toBe(
       false,
     );
@@ -379,7 +358,9 @@ describe("HubService updates", () => {
     const err = await expectHubError(f.hub.update({ name: "foo", userId: null }), 422);
     expect(err.message).toContain("restored 1.0.0");
     expect(await installedVersion()).toBe("1.0.0");
-    expect(f.store.getInstall("foo")).toMatchObject({ version: "1.0.0", previous: null });
+    expect(f.store.getInstall("foo")).toMatchObject({ version: "1.0.0", ref: "foo@1.0.0" });
+    expect(f.store.getInstall("foo")?.contentHash).toBe(await hashTree(path.join(f.externalDir, "foo")));
+    expect(existsSync(backupDir())).toBe(false);
     expect(f.hub.updates().map((u) => u.name)).toEqual(["foo"]);
   });
 
@@ -395,14 +376,6 @@ describe("HubService updates", () => {
     const id = (await watched.hub.createSource({ name: "Test", url: repoDir })).source.id;
     await watched.hub.install({ sourceId: id, name: "foo", version: "1.0.0", userId: null });
     expect((await watched.hub.update({ name: "foo", userId: null })).warnings).toEqual([WATCH_MODE_WARNING]);
-    expect((await watched.hub.rollback("foo", null)).warnings).toEqual([WATCH_MODE_WARNING]);
-  });
-
-  test("uninstall removes the backup", async () => {
-    await f.hub.update({ name: "foo", userId: null });
-    await f.hub.uninstall("foo");
-    await f.hub.install({ sourceId, name: "foo", userId: null });
-    await expectHubError(f.hub.rollback("foo", null), 409);
   });
 });
 
