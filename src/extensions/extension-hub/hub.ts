@@ -446,7 +446,8 @@ export class HubService {
    * @param request - Name, optional target version or ref, force, user
    * @returns The new record, load outcome, warnings, and replaced version
    * @throws {HubError} 404 not installed, 409 modified / up to date, 422 failed to load (previous version restored),
-   *   500 the old or the new version could not be confirmed unloaded (nothing replaced, or restore incomplete)
+   *   500 the old or the new version could not be confirmed unloaded (nothing replaced, or restore incomplete),
+   *   or the restored previous version failed to load as well (`details.rollbackFailed`)
    */
   update(request: UpdateRequest): Promise<UpdateResult> {
     return this.exclusive(async () => {
@@ -498,14 +499,17 @@ export class HubService {
         } finally {
           await rm(path.dirname(failed), { recursive: true, force: true });
         }
-        const note =
-          restored.status === "loaded"
-            ? ""
-            : ` but it did not load either (${restored.status === "failed" ? restored.error : "timed out"})`;
-        throw new HubError(
-          422,
-          `"${name}" ${target.ref} failed to load (${reason}); restored ${current.version}${note}`,
-        );
+        if (restored.status !== "loaded") {
+          // Update and rollback both failed: the old files are back, but not running.
+          const restoreReason = restored.status === "failed" ? restored.error : "timed out waiting for it to load";
+          throw new HubError(
+            500,
+            `"${name}" ${target.ref} failed to load (${reason}), and the rollback to ${current.version} ` +
+              `failed to load too (${restoreReason}); its files are back in place, a server restart may be needed`,
+            { rollbackFailed: true, restoreError: restoreReason },
+          );
+        }
+        throw new HubError(422, `"${name}" ${target.ref} failed to load (${reason}); restored ${current.version}`);
       }
 
       const install: InstallRecord = {

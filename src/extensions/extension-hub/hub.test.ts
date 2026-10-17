@@ -425,6 +425,18 @@ describe("HubService updates", () => {
     expect(existsSync(backupDir())).toBe(false);
   });
 
+  test("reports a failed rollback distinctly when the restored version does not load either", async () => {
+    f.failing.add("foo@1.1.0");
+    f.failing.add("foo@1.0.0");
+    const err = await expectHubError(f.hub.update({ name: "foo", userId: null }), 500);
+    expect(err.message).toContain("rollback to 1.0.0 failed to load too");
+    expect(err.message).not.toContain("restored 1.0.0");
+    expect(err.details).toEqual({ rollbackFailed: true, restoreError: "boom" });
+    expect(await installedVersion()).toBe("1.0.0");
+    expect(f.store.getInstall("foo")).toMatchObject({ version: "1.0.0", ref: "foo@1.0.0" });
+    expect(existsSync(backupDir())).toBe(false);
+  });
+
   test("aborts the update without replacing anything when the old version does not unload", async () => {
     f.stuck.add("foo");
     const err = await expectHubError(f.hub.update({ name: "foo", userId: null }), 500);
