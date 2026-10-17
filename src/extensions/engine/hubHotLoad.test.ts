@@ -166,7 +166,7 @@ describe("hub with the real watcher", () => {
     expect(downgraded.outcome).toEqual({ status: "loaded", version: "1.0.0" });
     expect(loadedVersion()).toBe("1.0.0");
 
-    expect(await hub.uninstall("greeter")).toEqual({ unloaded: true });
+    await hub.uninstall("greeter");
     expect(api.list().some((e) => e.name === "greeter")).toBe(false);
     expect(existsSync(path.join(api.externalDir, "greeter"))).toBe(false);
   }, 60_000);

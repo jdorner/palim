@@ -234,9 +234,9 @@ export function registerRoutes(
     "DELETE",
     "/installed/:name",
     wrap(async (reqCtx) => {
-      const result = await hub.uninstall(param(reqCtx, "name"));
+      await hub.uninstall(param(reqCtx, "name"));
       afterChange();
-      return Response.json(result);
+      return new Response(null, { status: 204 });
     }),
   );
 }

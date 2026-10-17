@@ -423,18 +423,17 @@ export class HubService {
    * a later reinstall picks them up.
    *
    * @param name - Extension name
-   * @returns Whether the registry confirmed the unload
-   * @throws {HubError} 404 when the hub did not install it
+   * @throws {HubError} 404 when the hub did not install it, 500 when the
+   *   extension was not confirmed unloaded (files and install record are kept)
    */
-  uninstall(name: string): Promise<{ unloaded: boolean }> {
+  uninstall(name: string): Promise<void> {
     return this.exclusive(async () => {
       assertExtensionName(name);
       if (!this.deps.store.getInstall(name)) throw new HubError(404, `"${name}" was not installed by the hub`);
-      const unloaded = await this.removeFolder(path.join(this.externalDir, name));
+      await this.removeFolder(path.join(this.externalDir, name));
       await rm(this.backupDir(name), { recursive: true, force: true });
       this.deps.store.deleteInstall(name);
       this.deps.log.info(`[extension-hub] Uninstalled "${name}"`);
-      return { unloaded };
     });
   }
 
@@ -665,17 +664,29 @@ export class HubService {
     return loadOutcome(await syncFolder(this.deps.extensions, folder, this.deps.loadWait ?? DEFAULT_LOAD_WAIT));
   }
 
-  /** Moves an extension folder out (the watcher unloads it), waits, then deletes it. */
-  private async removeFolder(dir: string): Promise<boolean> {
-    if (!existsSync(dir)) return true;
+  /**
+   * Moves an extension folder out (the watcher unloads it), waits for the
+   * confirmed unload, then deletes it. Without that confirmation the folder is
+   * moved back, so files and registry stay in step.
+   *
+   * @throws {HubError} 500 when the extension was not confirmed unloaded
+   */
+  private async removeFolder(dir: string): Promise<void> {
+    if (!existsSync(dir)) return;
+    const folder = path.basename(dir);
     const moved = await moveAside(dir, path.join(this.deps.workRoot, "trash"));
-    const status = await syncFolder(
-      this.deps.extensions,
-      path.basename(dir),
-      this.deps.unloadWait ?? DEFAULT_UNLOAD_WAIT,
-    );
+    const status = await syncFolder(this.deps.extensions, folder, this.deps.unloadWait ?? DEFAULT_UNLOAD_WAIT);
+    if (status?.status !== "unloaded") {
+      await rename(moved, dir);
+      await rm(path.dirname(moved), { recursive: true, force: true });
+      await syncFolder(this.deps.extensions, folder, this.deps.unloadWait ?? DEFAULT_UNLOAD_WAIT);
+      throw new HubError(
+        500,
+        `"${folder}" could not be unloaded (${status ? `still ${status.status}` : "timed out"}); ` +
+          `nothing was removed, a server restart may be needed`,
+      );
+    }
     await rm(path.dirname(moved), { recursive: true, force: true });
-    return status?.status === "unloaded";
   }
 
   /** Folder names in the external directory that contain an `index.ts`. */

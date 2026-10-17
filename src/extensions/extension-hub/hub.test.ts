@@ -289,10 +289,20 @@ describe("HubService", () => {
     await writeFile(path.join(f.externalDir, "mine", "index.ts"), "export default {};\n");
     await f.hub.install({ sourceId, name: "foo", userId: null });
 
-    expect(await f.hub.uninstall("foo")).toEqual({ unloaded: true });
+    await f.hub.uninstall("foo");
     expect(existsSync(path.join(f.externalDir, "foo"))).toBe(false);
     expect(f.store.getInstall("foo")).toBeUndefined();
     expect(readdirSync(f.externalDir)).toEqual(["mine"]);
+  });
+
+  test("keeps files and install record when the uninstalled extension does not unload", async () => {
+    await f.hub.install({ sourceId, name: "foo", userId: null });
+    f.stuck.add("foo");
+
+    const err = await expectHubError(f.hub.uninstall("foo"), 500);
+    expect(err.message).toContain("could not be unloaded");
+    expect(existsSync(path.join(f.externalDir, "foo", "index.ts"))).toBe(true);
+    expect(f.store.getInstall("foo")).toBeDefined();
   });
 
   test("keeps a source whose fetch fails and refuses deleting a used source", async () => {
