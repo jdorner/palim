@@ -1151,7 +1151,52 @@ export interface ExtensionContext {
      * returned function in `shutdown()`.
      */
     identity?: IdentityApi;
+    /**
+     * Read-only view of the extensions loaded from the external extensions
+     * directory, for tooling that installs or updates them there (loading and
+     * unloading itself stays with the directory watcher).
+     */
+    extensions?: ExternalExtensionsApi;
   };
+}
+
+/** A loaded extension as reported by {@link ExternalExtensionsApi.list}. */
+export interface LoadedExtensionStatus {
+  /** Manifest name. */
+  name: string;
+  /** Manifest version. */
+  version: string;
+  /** Where the extension comes from. */
+  source: "core" | "builtin" | "external";
+  /** Absolute path of the extension directory (null when unknown). */
+  dir: string | null;
+  /** Lifecycle state. */
+  state: "active" | "suspended";
+  /** Whether the operator enabled it (disabled extensions stay suspended after a restart). */
+  enabled: boolean;
+  /** Error from the last failed activation, or null. */
+  error: string | null;
+}
+
+/** Privileged view of the extension registry for managing external extensions. */
+export interface ExternalExtensionsApi {
+  /** Absolute path of the external extensions directory. */
+  readonly externalDir: string;
+  /**
+   * Lists every loaded extension.
+   *
+   * @returns One status entry per loaded extension
+   */
+  list(): LoadedExtensionStatus[];
+  /**
+   * Returns why the extension in a directory last failed to load (import,
+   * validation, dependencies), or null when its last load attempt succeeded
+   * or none was made.
+   *
+   * @param dir - Absolute path of the extension directory
+   * @returns The failure reason and its time (epoch ms), or null
+   */
+  lastLoadFailure(dir: string): { reason: string; at: number } | null;
 }
 
 // ---------------------------------------------------------------------------

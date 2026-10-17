@@ -26,6 +26,7 @@ describe("generateExtensionTsconfig", () => {
     expect(opts.verbatimModuleSyntax).toBe(true);
     expect(opts.noEmit).toBe(true);
     expect(opts.skipLibCheck).toBe(true);
+    expect(opts.resolveJsonModule).toBe(true);
   });
 
   test("computes relative paths correctly from extension to core project", () => {

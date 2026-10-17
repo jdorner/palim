@@ -41,6 +41,10 @@ import {
   dataTableRows as extDatatablesRows,
   dataTables as extDatatablesTables,
 } from "@src/extensions/datatables/schema";
+import {
+  hubInstalls as extExtensionHubInstalls,
+  hubSources as extExtensionHubSources,
+} from "@src/extensions/extension-hub/schema";
 import { mcpServers as extMcpServers } from "@src/extensions/mcp/schema";
 import { wikiEmbeddings as extWikiEmbeddings } from "@src/extensions/wiki/schema";
 import { drizzle } from "drizzle-orm/bun-sqlite";
@@ -66,6 +70,8 @@ const schema = {
   extWikiEmbeddings,
   extDatatablesTables,
   extDatatablesRows,
+  extExtensionHubSources,
+  extExtensionHubInstalls,
   secretAuditLog,
   secretsVault,
   globalVariables,

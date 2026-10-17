@@ -148,7 +148,10 @@ export {
   dataTableRows as extDatatablesRows,
   dataTables as extDatatablesTables,
 } from "@src/extensions/datatables/schema";
-//export { extInstallerRegistry } from "@src/extensions/ext-installer/schema";
+export {
+  hubInstalls as extExtensionHubInstalls,
+  hubSources as extExtensionHubSources,
+} from "@src/extensions/extension-hub/schema";
 //export { toolUsage as extIntrospectionToolUsage } from "@src/extensions/introspection/schema";
 export { mcpServers as extMcpServers } from "@src/extensions/mcp/schema";
 export { wikiEmbeddings as extWikiEmbeddings } from "@src/extensions/wiki/schema";

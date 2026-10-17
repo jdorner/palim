@@ -5,7 +5,7 @@
 
 import type { FSWatcher } from "node:fs";
 import { watch as fsWatch } from "node:fs";
-import { dirname } from "node:path";
+import { dirname, resolve } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ExtensionInfo, ExtensionUiPage, StepTypeInfo } from "@shared/extensions";
 import { FALLBACK_LOCALE, type Locale } from "@shared/i18n";
@@ -32,7 +32,14 @@ import { eq } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";
 import type { LoadedExtension } from "../internalTypes";
-import type { AgentProcessorResult, CoreQueueName, Extension, RouteRegistry, RunAgentOptions } from "../types";
+import type {
+  AgentProcessorResult,
+  CoreQueueName,
+  Extension,
+  ExternalExtensionsApi,
+  RouteRegistry,
+  RunAgentOptions,
+} from "../types";
 import { resolveDependencyOrder } from "./dependencyResolver";
 import {
   discoverExtensions as discoverExtensionsFn,
@@ -142,6 +149,15 @@ export class ExtensionRegistry {
   /** Extension names to skip during initialization (failed dependency resolution). */
   private skipExtensionNames = new Set<string>();
 
+  /** Import counter for cache-busting module URLs in {@link loadOne}. */
+  private importCounter = 0;
+
+  /** Last failed {@link loadOne} attempt per extension directory (cleared on success). */
+  private readonly loadFailures = new Map<string, { reason: string; at: number }>();
+
+  /** Registry view handed to extensions as `ctx.internal.extensions`. */
+  private readonly externalExtensionsApi: ExternalExtensionsApi;
+
   constructor(config: ExtensionRegistryConfig) {
     this.extensionDirs = config.extensionDirs;
     this.workDir = config.workDir;
@@ -149,6 +165,23 @@ export class ExtensionRegistry {
     this.getCoreQueueFn = config.getCoreQueueFn;
     this.onSkillMapChanged = config.onSkillMapChanged;
     this.flowProducer = new FlowProducer({ embedded: true });
+    this.externalExtensionsApi = {
+      externalDir: this.extensionDirs[1] ?? "",
+      list: () =>
+        this.getLoadedExtensionInfo().map((info) => {
+          const entry = this.loaded.find((l) => l.name === info.name);
+          return {
+            name: info.name,
+            version: info.version,
+            source: info.source,
+            dir: entry?.modulePath ? dirname(entry.modulePath) : null,
+            state: entry?.state ?? "suspended",
+            enabled: info.enabled,
+            error: info.error,
+          };
+        }),
+      lastLoadFailure: (dir) => this.loadFailures.get(resolve(dir)) ?? null,
+    };
   }
 
   /** The built-in extensions directory - used by the skill watcher and exposed to extensions. */
@@ -602,18 +635,23 @@ export class ExtensionRegistry {
 
     // Resolve external dependencies before importing (tsconfig + npm packages)
     const extensionDir = modulePath.replace(/\/index\.ts$/, "");
+    const fail = (reason: string): false => {
+      this.loadFailures.set(resolve(extensionDir), { reason, at: Date.now() });
+      return false;
+    };
     const externalDir = this.extensionDirs[1];
     if (externalDir && extensionDir.startsWith(externalDir)) {
       const resolver = new ExternalDependencyResolver({ coreProjectDir: PROJECT_DIR });
       const result = await resolver.resolveOne(extensionDir);
       if (result.depsInstalled === false) {
         logger.error(`External dependency resolution failed for "${result.name}": ${result.error ?? "unknown error"}`);
-        return false;
+        return fail(`Dependency resolution failed: ${result.error ?? "unknown error"}`);
       }
     }
 
-    // Import with cache-busting to bypass Bun's module cache
-    const cacheBustedPath = `${modulePath}?v=${Date.now()}`;
+    // Import with cache-busting to bypass Bun's module cache (the counter keeps
+    // two loads within the same millisecond from sharing a cache entry)
+    const cacheBustedPath = `${modulePath}?v=${Date.now()}-${++this.importCounter}`;
     let ext: Extension | null = null;
 
     try {
@@ -621,13 +659,13 @@ export class ExtensionRegistry {
       const candidate = mod.default ?? mod;
 
       if (!this.validateExtension(candidate, modulePath)) {
-        return false;
+        return fail("Invalid extension module (see server log)");
       }
 
       ext = candidate;
     } catch (err) {
       logger.error(`Failed to import extension module at ${modulePath}:`, err);
-      return false;
+      return fail(`Import failed: ${(err as Error).message ?? err}`);
     }
 
     const name = ext.manifest.name;
@@ -635,7 +673,7 @@ export class ExtensionRegistry {
     // Check for duplicate name
     if (this.loaded.some((l) => l.name === name)) {
       logger.error(`Cannot load extension "${name}": already loaded`);
-      return false;
+      return fail(`An extension named "${name}" is already loaded`);
     }
 
     // Check dependencies against currently loaded extensions
@@ -644,7 +682,7 @@ export class ExtensionRegistry {
     const missingDeps = deps.filter((dep) => !loadedNames.has(dep));
     if (missingDeps.length > 0) {
       logger.error(`Cannot load extension "${name}": missing dependencies: ${missingDeps.join(", ")}`);
-      return false;
+      return fail(`Missing dependencies: ${missingDeps.join(", ")}`);
     }
 
     // Add to loaded list as suspended, then activate
@@ -670,8 +708,9 @@ export class ExtensionRegistry {
       if (failIdx !== -1) {
         this.loaded.splice(failIdx, 1);
       }
-      return false;
+      return fail(`Activation failed: ${(err as Error).message ?? err}`);
     }
+    this.loadFailures.delete(resolve(extensionDir));
 
     // Discover skills for this extension
     const extDir = modulePath.replace(/\/index\.ts$/, "");
@@ -879,6 +918,7 @@ export class ExtensionRegistry {
         variableStore: deps.variableStore,
         hitlService: deps.hitlService,
         portalLaunchers: deps.portalLaunchers,
+        externalExtensionsApi: this.externalExtensionsApi,
         identityApi: deps.userStore
           ? createIdentityApi(deps.userStore, { extensionName, log: (message) => logger.info(message) })
           : undefined,

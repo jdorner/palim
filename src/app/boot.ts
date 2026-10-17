@@ -522,6 +522,8 @@ export class AppBootstrap {
     // ---------------------------------------------------------------------------
     // Start external extension directory watcher (hot-load/unload)
     // ---------------------------------------------------------------------------
+    // Create the directory so extensions placed later (e.g. by the extension hub) are picked up.
+    mkdirSync(EXTERNAL_EXTENSIONS_DIR, { recursive: true });
     this.extensionWatcher = new ExtensionWatcher({
       directory: EXTERNAL_EXTENSIONS_DIR,
       registry: this.registry,

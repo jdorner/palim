@@ -39,6 +39,7 @@ import type {
   EventParam,
   EventType,
   ExtensionContext,
+  ExternalExtensionsApi,
   HttpMethod,
   QueueEventName,
   RouteHandler,
@@ -197,6 +198,8 @@ export interface ExtensionContextDeps
   portalLaunchers?: PortalLauncherRegistry;
   /** Operator account lookups and token minting (optional). Exposed to extensions via `ctx.internal.identity`. */
   identityApi?: IdentityApi;
+  /** Registry view of loaded extensions (optional). Exposed to extensions via `ctx.internal.extensions`. */
+  externalExtensionsApi?: ExternalExtensionsApi;
   /** The extension's settingsSchema (TypeBox TObject), if declared. */
   settingsSchema?: Record<string, unknown>;
 }
@@ -236,6 +239,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     hitlService,
     portalLaunchers,
     identityApi,
+    externalExtensionsApi,
     rescanSkillsFn,
     getSkillNamesFn,
     settingsSchema,
@@ -776,6 +780,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
           }
         : undefined,
       identity: identityApi,
+      extensions: externalExtensionsApi,
     },
   };
 
