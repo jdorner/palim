@@ -61,10 +61,6 @@
     "version": "Version",
     "working": "Working..."
   },
-  "local": {
-    "hint": "Placed in the extensions directory by hand. The hub lists them but never changes them.",
-    "title": "Local extensions"
-  },
   "nav": {
     "/ext-page/extension-hub/hub": "Extension Hub"
   },

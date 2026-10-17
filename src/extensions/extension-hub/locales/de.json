@@ -61,10 +61,6 @@
     "version": "Version",
     "working": "Wird ausgeführt..."
   },
-  "local": {
-    "hint": "Manuell im Erweiterungsverzeichnis abgelegt. Der Hub listet sie auf, ändert sie aber nie.",
-    "title": "Lokale Erweiterungen"
-  },
   "nav": {
     "/ext-page/extension-hub/hub": "Erweiterungs-Hub"
   },

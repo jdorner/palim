@@ -311,22 +311,12 @@ export interface CatalogSource {
   extensions: CatalogEntry[];
 }
 
-/** An extension folder in the external directory that the hub did not install. */
-export interface LocalExtension {
-  /** Folder name. */
-  folder: string;
-  /** Loaded manifest name and version (null = not loaded). */
-  loaded: (LoadedInfo & { name: string }) | null;
-}
-
 /** The full catalog view. */
 export interface CatalogView {
   /** Sources with their extensions. */
   sources: CatalogSource[];
   /** Installs whose source or extension no longer exists. */
   orphans: Array<{ name: string; installed: InstalledView }>;
-  /** Hand-placed extensions (never touched by the hub). */
-  local: LocalExtension[];
   /** Number of installs with an update. */
   updateCount: number;
 }
@@ -418,6 +408,5 @@ export function buildCatalog(inputs: CatalogInputs): CatalogView {
   });
 
   const orphans = installs.filter((i) => !shown.has(i.name)).map((i) => ({ name: i.name, installed: view(i) }));
-  const local = [...localFolders].sort().map((folder) => ({ folder, loaded: loadedByFolder.get(folder) ?? null }));
-  return { sources: catalogSources, orphans, local, updateCount };
+  return { sources: catalogSources, orphans, updateCount };
 }

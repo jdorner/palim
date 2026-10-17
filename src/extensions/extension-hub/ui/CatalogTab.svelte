@@ -479,27 +479,6 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
         </div>
       </section>
     {/if}
-
-    {#if view.local.length > 0}
-      <section class="space-y-2">
-        <div>
-          <h2 class="text-sm font-semibold">{$i18n.t("local.title")}</h2>
-          <p class="text-xs text-muted-foreground">{$i18n.t("local.hint")}</p>
-        </div>
-        <div class="flex flex-wrap gap-1.5">
-          {#each view.local as local (local.folder)}
-            <Badge variant="outline" class="gap-1.5 font-normal">
-              {local.folder}
-              {#if local.loaded}
-                <span class="font-mono text-muted-foreground">{local.loaded.version}</span>
-              {:else}
-                <span class="text-muted-foreground">{$i18n.t("status.notLoaded")}</span>
-              {/if}
-            </Badge>
-          {/each}
-        </div>
-      </section>
-    {/if}
   </div>
 {/if}
 

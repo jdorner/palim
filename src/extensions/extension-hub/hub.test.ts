@@ -243,7 +243,8 @@ describe("HubService", () => {
     await mkdir(path.join(f.externalDir, "foo"));
     await writeFile(path.join(f.externalDir, "foo", "index.ts"), "export default {};\n");
     await expectHubError(f.hub.install({ sourceId, name: "foo", userId: null }), 409);
-    expect((await f.hub.catalog()).local.map((l) => l.folder)).toEqual(["foo"]);
+    const foo = (await f.hub.catalog()).sources[0]!.extensions.find((e) => e.name === "foo")!;
+    expect(foo).toMatchObject({ blockedByLocal: true, installed: null });
     await expectHubError(f.hub.uninstall("foo"), 404);
 
     await expectHubError(f.hub.install({ sourceId, name: "bar", ref: "main", userId: null }), 422);

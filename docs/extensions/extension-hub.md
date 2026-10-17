@@ -75,7 +75,7 @@ The catalog lists the extensions of each source:
 | Version mismatch | The manifest's version differs from `package.json` |
 | Local folder | A hand-placed folder with this name exists; the hub won't overwrite it |
 
-Below the sources, **Installed from removed sources** lists installs whose source or folder no longer exists (they can still be rolled back or uninstalled), and **Local extensions** lists hand-placed folders, which the hub never changes.
+Below the sources, **Installed from removed sources** lists installs whose source or folder no longer exists (they can still be rolled back or uninstalled). Hand-placed extensions are not listed separately; see them under **Settings → Extensions**. When one has the same name as an extension a source offers, its catalog row shows **Local folder**, and the hub won't install over it.
 
 ## Installing
 
@@ -116,7 +116,7 @@ Updates are never installed automatically.
 
 ## Coexistence with hand-placed extensions
 
-The hub only touches folders it installed; it records them in Palim's database. Anything else in the external extensions directory is listed as local and left alone, and the hub refuses to install over it. If that directory is itself a git working copy you develop in, add the folders the hub installs to its `.gitignore`, or develop elsewhere and install through the hub.
+The hub only touches folders it installed; it records them in Palim's database. Anything else in the external extensions directory is left alone (it appears under Settings → Extensions), and the hub refuses to install over it. If that directory is itself a git working copy you develop in, add the folders the hub installs to its `.gitignore`, or develop elsewhere and install through the hub.
 
 ## Storage
 
