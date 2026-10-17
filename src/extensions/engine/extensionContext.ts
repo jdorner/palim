@@ -10,6 +10,7 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { StepTypeInfo } from "@shared/extensions";
 import type { ModelIntent } from "@shared/models";
 import type { WebSocketMessage } from "@shared/websocket";
+import type { IdentityApi } from "@src/auth/identityTypes";
 import { serverOrigin } from "@src/config";
 import type { HitlService } from "@src/hitl";
 import type { PortalLauncherRegistry } from "@src/portal";
@@ -194,6 +195,8 @@ export interface ExtensionContextDeps
   hitlService?: HitlService;
   /** The portal workflow launcher registry (optional). Exposed to core extensions via `ctx.internal.portal`. */
   portalLaunchers?: PortalLauncherRegistry;
+  /** Operator account lookups and token minting (optional). Exposed to extensions via `ctx.internal.identity`. */
+  identityApi?: IdentityApi;
   /** The extension's settingsSchema (TypeBox TObject), if declared. */
   settingsSchema?: Record<string, unknown>;
 }
@@ -232,6 +235,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     variableStore,
     hitlService,
     portalLaunchers,
+    identityApi,
     rescanSkillsFn,
     getSkillNamesFn,
     settingsSchema,
@@ -771,6 +775,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
             describeRunAs: (userId) => portalLaunchers.describeRunAs(userId),
           }
         : undefined,
+      identity: identityApi,
     },
   };
 

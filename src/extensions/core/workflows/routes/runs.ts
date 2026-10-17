@@ -69,6 +69,9 @@ export function registerRunsRoutes(deps: WorkflowRouteDeps): void {
     if (!run) return Response.json({ error: "Run not found" }, { status: 404 });
 
     const wf = store.get(run.workflowName);
+    // `?include=results` adds each step's persisted result (API clients such
+    // as MCP servers); the run page does not need them.
+    const includeResults = new URL(reqCtx.request.url).searchParams.get("include") === "results";
 
     // Waiting signal records keyed by step slug, used to enrich paused
     // waitFor steps with their event name and input schema. A run may have
@@ -126,6 +129,7 @@ export function registerRunsRoutes(deps: WorkflowRouteDeps): void {
         humanTask?: WaitingHumanTask;
         evaluation?: ControlFlowEvaluation;
         error?: string;
+        result?: unknown;
       } = {
         slug,
         type: stepDef?.type ?? "unknown",
@@ -138,6 +142,7 @@ export function registerRunsRoutes(deps: WorkflowRouteDeps): void {
       // A step that failed without a job failed inline in the coordinator;
       // the run's failure reason is its only error record.
       if (status === "failed" && !entry.jobId && run.failureReason) entry.error = run.failureReason;
+      if (includeResults && slug in run.stepResults) entry.result = run.stepResults[slug];
       const signal = waitingSignalsByStep.get(slug);
       if (signal) {
         entry.waitEvent = signal.event;
@@ -155,6 +160,7 @@ export function registerRunsRoutes(deps: WorkflowRouteDeps): void {
       runId,
       workflowName: run.workflowName,
       status: run.status,
+      ...(run.failureReason ? { failureReason: run.failureReason } : {}),
       trigger: wf?.trigger ?? null,
       chosenBranches,
       steps,

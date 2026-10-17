@@ -17,6 +17,7 @@ import type { Logger } from "logging";
 // extensions without any @src/@shared alias. See ./publicTypes for the rationale.
 import type {
   HitlApi,
+  IdentityApi,
   JobInfo,
   JobProcessor,
   ManagedQueueOptions,
@@ -1141,6 +1142,13 @@ export interface ExtensionContext {
      * the returned function in `shutdown()`.
      */
     portal?: PortalApi;
+    /**
+     * Operator accounts: list them, mint a token to act as one, and keep a
+     * referenced account from being deleted. Undefined when no user store is
+     * configured (e.g. in tests). Owner counters must be removed with the
+     * returned function in `shutdown()`.
+     */
+    identity?: IdentityApi;
   };
 }
 
@@ -1167,6 +1175,7 @@ export type {
   HitlCreateTaskInput,
   HitlSourceHandler,
   HitlTaskRecord,
+  IdentityApi,
   PortalApi,
   PortalLauncherDef,
   PortalLauncherProvider,

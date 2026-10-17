@@ -30,6 +30,8 @@
 export type { StepIconName, StepTypeInfo } from "../../shared/extensions";
 export type { ModelIntent } from "../../shared/models";
 export type { WebSocketMessage } from "../../shared/websocket";
+// Identity contract for acting as a configured operator account (self-contained module).
+export type { IdentityApi } from "../auth/identityTypes";
 // Human task (HITL) contract for core task sources (self-contained module).
 export type {
   CreateTaskInput as HitlCreateTaskInput,

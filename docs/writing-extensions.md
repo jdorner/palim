@@ -458,6 +458,9 @@ function checkWorkflow(ctx: ExtensionContext): void {
 | Property | Description |
 | --- | --- |
 | `ctx.internal?.secrets.resolveAs(key, consumer)` | Resolve a secret with a custom consumer identity (e.g. for workflow templates) |
+| `ctx.internal?.identity.listOperatorUsernames()` | Usernames of enabled operator accounts (e.g. for a "run as" dropdown via `dynamicItems`) |
+| `ctx.internal?.identity.mintToken(username, ttlMs?)` | Short-lived bearer token to call the API as that operator; null for unknown, disabled, or portal accounts |
+| `ctx.internal?.identity.registerOwnerCounter(kind, counter)` | Refuse deleting a user the extension still acts as (`counter(username)` > 0); returns an unregister function for `shutdown()` |
 
 ## Configuration
 
