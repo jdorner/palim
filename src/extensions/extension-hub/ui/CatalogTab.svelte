@@ -411,7 +411,8 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
                     <TableCell class="text-center">{@render enabledCell(entry.name, entry.installed)}</TableCell>
                     {#if canWrite}
                       <TableCell class="w-1 text-right">
-                        <div class="inline-flex flex-wrap justify-end gap-2 xl:flex-nowrap">
+                        <!-- Min width: the column keeps its size while a row shows "Working..." instead of buttons. -->
+                        <div class="inline-flex min-w-64 flex-wrap justify-end gap-2 xl:flex-nowrap">
                           {@render actions(entry)}
                         </div>
                       </TableCell>
