@@ -1,5 +1,5 @@
-import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
+import { afterAll, afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { mkdirSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WebSocketMessage } from "@shared/websocket";
@@ -502,6 +502,58 @@ export default {
       watcher.requestSync(".hidden");
       await sleep(EVENT_SETTLE_MS);
       expect(registry.getLoadedExtensionInfo().length).toBe(loadedBefore);
+    });
+
+    test("runs at once instead of waiting for the debounce", async () => {
+      const slow = new ExtensionWatcher({ directory: externalDir, registry, debounceMs: 60_000 });
+      await createTempExtension(externalDir, "quick-ext");
+      await slow.requestSync("quick-ext");
+      expect(registry.loadedNameForDir(join(externalDir, "quick-ext"))).toBe("quick-ext");
+      await slow.stop();
+    });
+
+    test("leaves an unchanged folder alone and reloads an edited entry point", async () => {
+      await createTempExtension(externalDir, "same-ext");
+      await watcher.requestSync("same-ext");
+      const unload = spyOn(registry, "unloadOne");
+      await watcher.requestSync("same-ext");
+      expect(unload).not.toHaveBeenCalled();
+
+      await sleep(20); // a distinct mtime
+      await Bun.write(
+        join(externalDir, "same-ext", "index.ts"),
+        "// edited\n" + (await Bun.file(join(externalDir, "same-ext", "index.ts")).text()),
+      );
+      await watcher.requestSync("same-ext");
+      expect(unload).toHaveBeenCalledTimes(1);
+      expect(registry.loadedNameForDir(join(externalDir, "same-ext"))).toBe("same-ext");
+      unload.mockRestore();
+    });
+
+    test("late filesystem events after a folder swap do not unload or reload the new tree", async () => {
+      await watcher.start();
+      const dir = join(externalDir, "swap-ext");
+      await createTempExtension(externalDir, "swap-ext");
+      await watcher.requestSync("swap-ext");
+
+      const unload = spyOn(registry, "unloadOne");
+      const load = spyOn(registry, "loadOne");
+      // Like an update: move the old tree out, sync, move the new tree in, sync.
+      renameSync(dir, join(tempDir, "old-swap-ext"));
+      await watcher.requestSync("swap-ext");
+      await createTempExtension(tempDir, "swap-ext");
+      renameSync(join(tempDir, "swap-ext"), dir);
+      await watcher.requestSync("swap-ext");
+      expect(unload).toHaveBeenCalledTimes(1);
+      expect(load).toHaveBeenCalledTimes(1);
+
+      // chokidar reports both moves afterwards; they must change nothing.
+      await sleep(EVENT_SETTLE_MS);
+      expect(unload).toHaveBeenCalledTimes(1);
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(registry.loadedNameForDir(dir)).toBe("swap-ext");
+      unload.mockRestore();
+      load.mockRestore();
     });
 
     test("resolves once processed, with the registry's state of the folder", async () => {

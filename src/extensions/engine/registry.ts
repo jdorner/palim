@@ -194,6 +194,17 @@ export class ExtensionRegistry {
   }
 
   /**
+   * Returns the manifest name of the extension loaded from a directory.
+   *
+   * @param dir - Extension directory
+   * @returns The manifest name, or null when nothing is loaded from there
+   */
+  loadedNameForDir(dir: string): string | null {
+    const target = resolve(dir);
+    return this.loaded.find((l) => l.modulePath && resolve(dirname(l.modulePath)) === target)?.name ?? null;
+  }
+
+  /**
    * Reports what is loaded from one folder of the external directory.
    *
    * @param folder - Folder name below the external directory

@@ -1216,11 +1216,12 @@ export interface ExternalExtensionsApi {
   /**
    * Asks the directory watcher to reconcile one folder of the external
    * directory with the registry (load it if present and not loaded, unload it
-   * if gone), through the same debounced queue as filesystem events. Use after
-   * moving extension folders: back-to-back renames of the same path may not
-   * produce filesystem events. Resolves once the watcher has processed every
-   * queued change (including activation), with what the registry then holds
-   * for the folder. Without a watcher it reports the current state at once.
+   * if gone, reload it if another tree was moved in) at once, without the
+   * debounce of filesystem events. Use after moving extension folders:
+   * back-to-back renames of the same path may not produce filesystem events.
+   * Resolves once the folder is reconciled (including activation), with what
+   * the registry then holds for it. Without a watcher it reports the current
+   * state at once.
    *
    * @param folder - Folder name below {@link externalDir}
    * @returns The folder's state after the reconciliation
