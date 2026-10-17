@@ -87,13 +87,18 @@ $effect(() => {
   // yields new prop objects; the parent re-creates this component when the
   // page's module URL actually changes.
   const { ext, current, baseRoute } = untrack(() => ({ ext: extension, current: page, baseRoute: pageRoute }));
-  const { host, dispose } = createPalimHost({
-    extension: { name: ext.name, version: ext.version },
-    pageId: current.id,
-    pageRoute: baseRoute,
-    notify: showNotice,
-    confirm: requestConfirm,
-  });
+  // Untracked too: building the host reads reactive state (i18n catalogs and
+  // locale via toStore), which would otherwise remount the page whenever the
+  // catalogs reload. The host forwards those changes to the page itself.
+  const { host, dispose } = untrack(() =>
+    createPalimHost({
+      extension: { name: ext.name, version: ext.version },
+      pageId: current.id,
+      pageRoute: baseRoute,
+      notify: showNotice,
+      confirm: requestConfirm,
+    }),
+  );
   const unloadStylesheet = loadStylesheet(ext.name, current.css);
 
   let cancelled = false;
