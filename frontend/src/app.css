@@ -1,6 +1,14 @@
 @import "tailwindcss";
 @import "./theme.css";
 
+/*
+ * Navigation icon colors of extensions (manifest `ui.navigation[].iconColor`).
+ * Extension sources are not scanned by this build (external ones don't even
+ * exist yet), so every text color of the palette in shades 300-700, plain and
+ * `dark:`, is always generated.
+ */
+@source inline("{dark:,}text-{red,orange,amber,yellow,lime,green,emerald,teal,cyan,sky,blue,indigo,violet,purple,fuchsia,pink,rose,slate,gray,zinc,neutral,stone,mauve,olive,mist,taupe}-{300,400,500,600,700}");
+
 @font-face {
   font-family: "Satisfy";
   font-style: normal;

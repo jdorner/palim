@@ -46,7 +46,7 @@ const manifest = {
         icon: "PuzzlePieceIcon",
         order: 200,
         badgeKey: "extensionUpdateCount",
-        iconColor: "text-violet-600 dark:text-violet-400",
+        iconColor: "text-pink-600 dark:text-pink-400",
       },
     ],
   },
