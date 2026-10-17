@@ -128,7 +128,7 @@ export default extension;
 
 ## External Extensions
 
-Extensions can also live **outside** the core project tree, in `AGENT_WORK_DIR/.palim/extensions/`. This is useful for project-specific or user-specific extensions that should not be committed to the core repository.
+Extensions can also live **outside** the core project tree, in `<DATA_DIR>/extensions/` (default `.palim/extensions/` in the project root). This is useful for project-specific or user-specific extensions that should not be committed to the core repository.
 
 ```text
 .palim/extensions/
@@ -147,6 +147,8 @@ Extensions can also live **outside** the core project tree, in `AGENT_WORK_DIR/.
 ```
 
 External extensions use the exact same `Extension` interface and `@ext/types` / `@ext/sdk` imports as built-in extensions. The system handles TypeScript resolution and dependency management automatically.
+
+External extensions run in the server process, outside the agent sandbox, so their directory must not be writable by the agent. Palim refuses to start when `DATA_DIR` resolves inside `AGENT_WORK_DIR`, which the sandbox mounts read-write.
 
 ### How It Works
 
@@ -267,7 +269,7 @@ At runtime, external extensions are loaded via dynamic `import()` from the core 
 
 External extensions are discovered at boot by scanning `EXTERNAL_EXTENSIONS_DIR` for `*/index.ts` patterns. They go through the same validation, dependency resolution (topological sort), and initialization flow as built-in extensions.
 
-**Hot loading:** a filesystem watcher picks up changes in `.palim/extensions/` at runtime (debounced by one second):
+**Hot loading:** a filesystem watcher picks up changes in `<DATA_DIR>/extensions/` at runtime (debounced by one second):
 
 - A new folder with an `index.ts` is loaded; a removed folder (or removed `index.ts`) is unloaded.
 - A changed `index.ts` reloads the extension (unload, then load).

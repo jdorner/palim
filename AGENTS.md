@@ -48,11 +48,10 @@ The web UI is served at `http://localhost:3000` by default (configurable via `WE
 | `WEB_PORT`             | Web server port                                | `3000`                     |
 | `WEB_PUBLIC_URL`       | Public base URL of the operator UI (links from workflows, `{{run.baseUrl}}`) | - (server origin)  |
 | `TRUSTED_PROXIES`      | Reverse proxy IPs/CIDRs whose `X-Forwarded-For` is trusted | - (header ignored) |
-| `EXTENSIONS_DIR`       | Custom extensions directory                    | `src/extensions`           |
 | `AUTH_ADMIN_USER`      | Username of the admin seeded on first boot     | `admin`                    |
 | `AUTH_ADMIN_PASSWORD`  | Seeded admin password (empty = generate + log) | -                          |
 | `AUTH_SESSION_TTL_MS`  | Login token lifetime (ms)                      | `604800000` (7 days)       |
-| `DATA_DIR`             | Directory for databases and generated content  | `<AGENT_WORK_DIR>/.palim/` |
+| `DATA_DIR`             | Directory for databases, generated content, external extensions (must be outside `AGENT_WORK_DIR`) | `<project>/.palim/` |
 | `HITL_ENABLED`         | Enable human tasks (humanTask step, portal API + app; experimental) | `false` |
 | `PORTAL_PUBLIC_URL`    | Public URL of the portal (deep links, hint for portal accounts) | - |
 | `TELEGRAM_BOT_TOKEN`   | Telegram bot token                             | -                          |
@@ -265,8 +264,10 @@ portal/                      # End-user portal (Svelte 5 + Vite + Tailwind 4), s
                              # `$lib` = frontend/src/lib (reused `@palim/ui` kit), `$shared` = shared/
                              # Built to portal/dist; Palim serves it at /portal/ when present
 
+.palim/                      # Default DATA_DIR: databases, compiled extension UI bundles, external extensions
+                             # (must not be inside WORK_DIR; config.ts refuses to load otherwise)
+
 WORK_DIR/                    # AGENT_WORK_DIR - the agent's workspace (real directory mounted into sandbox)
-├── .palim/                  # Default DATA_DIR: databases, compiled extension UI bundles
 ├── data/wiki/               # Wiki extension pages (default of its "Wiki directory" setting)
 ├── workflows/               # Workflow pipeline definitions (JSON5 DAG)
 └── ...                      # Anything else is user/agent content (e.g. folders watched by file watchers)

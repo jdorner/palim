@@ -1,4 +1,5 @@
 import assert from "node:assert";
+import { existsSync, realpathSync } from "node:fs";
 import { isIP } from "node:net";
 import path, { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -103,22 +104,89 @@ export const TRUSTED_PROXIES: string[] = (() => {
     });
 })();
 
-// Extensions directory - configurable via EXTENSIONS_DIR env var
-export const EXTENSIONS_DIR = process.env.EXTENSIONS_DIR
-  ? resolveConfigPath(process.env.EXTENSIONS_DIR, process.cwd(), "EXTENSIONS_DIR")
-  : path.resolve(PROJECT_DIR, "src/extensions");
+/** Built-in extensions shipped with the project. External extensions live in {@link EXTERNAL_EXTENSIONS_DIR}. */
+export const BUILTIN_EXTENSIONS_DIR = path.resolve(PROJECT_DIR, "src/extensions");
 
 /**
- * Resolves the data directory for database files (bunqueue.db, palim.db).
+ * Resolves a path with symlinks expanded, also for paths that do not exist
+ * yet: the deepest existing ancestor is resolved with `realpath` and the
+ * missing remainder appended.
+ *
+ * @param target - Absolute path
+ * @returns The canonical absolute path
+ */
+function canonicalPath(target: string): string {
+  let existing = path.resolve(target);
+  const rest: string[] = [];
+  while (!existsSync(existing)) {
+    const parent = path.dirname(existing);
+    if (parent === existing) break;
+    rest.unshift(path.basename(existing));
+    existing = parent;
+  }
+  try {
+    return path.join(realpathSync(existing), ...rest);
+  } catch {
+    return path.resolve(target);
+  }
+}
+
+/**
+ * Checks whether `child` is `parent` itself or lies below it, after
+ * resolving symlinks on both sides.
+ *
+ * @param child - Absolute path to test
+ * @param parent - Absolute directory path
+ * @returns True when `child` is inside (or equal to) `parent`
+ */
+export function isPathInside(child: string, parent: string): boolean {
+  const rel = path.relative(canonicalPath(parent), canonicalPath(child));
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
+
+/**
+ * Asserts that a server-owned directory is not reachable from the agent
+ * sandbox. The sandbox mounts all of `WORK_DIR` read-write, so a directory
+ * inside it could be written by the agent: databases, compiled UI bundles
+ * served from the app origin, and hot-loaded extensions that run in the
+ * server process.
+ *
+ * @param name - Env var name (for the error message)
+ * @param dir - Resolved directory
+ * @throws When `dir` resolves inside `WORK_DIR`
+ */
+function assertOutsideWorkDir(name: string, dir: string): void {
+  if (isPathInside(dir, WORK_DIR)) {
+    throw new Error(
+      `${name} (${dir}) must not be inside AGENT_WORK_DIR (${WORK_DIR}): the agent sandbox mounts AGENT_WORK_DIR read-write. Move it outside and update ${name}.`,
+    );
+  }
+}
+
+/**
+ * Resolves the data directory for database files (bunqueue.db, palim.db),
+ * compiled extension UI bundles, and external extensions.
  *
  * If `DATA_DIR` is explicitly set in the environment, resolves it as a directory.
- * Otherwise defaults to `<AGENT_WORK_DIR>/.palim/`.
+ * Otherwise defaults to `<PROJECT_DIR>/.palim/`. It must lie outside
+ * `AGENT_WORK_DIR`, since the agent sandbox can write everything in there.
+ *
+ * @throws When `DATA_DIR` resolves inside `AGENT_WORK_DIR`, or when it is unset
+ *   while a data directory from the former default `<AGENT_WORK_DIR>/.palim/` exists
  */
 export const DATA_DIR: string = (() => {
   if (process.env.DATA_DIR) {
-    return resolveConfigPath(process.env.DATA_DIR, PROJECT_DIR, "DATA_DIR");
+    const dir = resolveConfigPath(process.env.DATA_DIR, PROJECT_DIR, "DATA_DIR");
+    assertOutsideWorkDir("DATA_DIR", dir);
+    return dir;
   }
-  return join(WORK_DIR, ".palim");
+  const legacy = join(WORK_DIR, ".palim");
+  if (existsSync(legacy)) {
+    throw new Error(
+      `Found a data directory inside AGENT_WORK_DIR (${legacy}), which the agent sandbox can write. Move it outside AGENT_WORK_DIR and set DATA_DIR to the new location.`,
+    );
+  }
+  return join(PROJECT_DIR, ".palim");
 })();
 
 /** Directory for dynamically generated/external extensions (e.g. MCP skills). */

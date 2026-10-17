@@ -16,8 +16,8 @@ import {
   AUTH_ADMIN_PASSWORD,
   AUTH_ADMIN_USER,
   AUTH_SESSION_TTL_MS,
+  BUILTIN_EXTENSIONS_DIR,
   DATA_DIR,
-  EXTENSIONS_DIR,
   EXTERNAL_EXTENSIONS_DIR,
   HITL_ENABLED,
   PROJECT_DIR,
@@ -314,7 +314,7 @@ export class AppBootstrap {
     // Create extension registry
     // ---------------------------------------------------------------------------
     const registry = new ExtensionRegistry({
-      extensionDirs: [EXTENSIONS_DIR, EXTERNAL_EXTENSIONS_DIR],
+      extensionDirs: [BUILTIN_EXTENSIONS_DIR, EXTERNAL_EXTENSIONS_DIR],
       workDir: WORK_DIR,
       dataDir: DATA_DIR,
       getCoreQueueFn: (name: CoreQueueName) => coreQueues.get(name),

@@ -134,7 +134,7 @@ async function setEnvValue(key: string, value: string): Promise<void> {
 
 /**
  * Resolves the path of the main SQLite database the same way `src/config.ts`
- * does (`DATA_DIR`, else `<AGENT_WORK_DIR>/.palim/`), relative to the project root.
+ * does (`DATA_DIR`, else `<PROJECT_DIR>/.palim/`), relative to the project root.
  *
  * @param env - Parsed .env values
  * @returns Absolute path to `palim.db`
@@ -146,9 +146,7 @@ function resolveDbPath(env: Map<string, string>): string {
     return isAbsolute(expanded) ? resolve(expanded) : resolve(ROOT, expanded);
   };
   const dataDir = process.env.DATA_DIR || env.get("DATA_DIR");
-  if (dataDir) return join(expand(dataDir), "palim.db");
-  const workDir = process.env.AGENT_WORK_DIR || env.get("AGENT_WORK_DIR") || ".work/";
-  return join(expand(workDir), ".palim", "palim.db");
+  return join(expand(dataDir || ".palim"), "palim.db");
 }
 
 /** Summary of the human (non-system) user accounts already in the database. */
