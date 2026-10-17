@@ -10,7 +10,7 @@ import type { WebSocketMessage } from "../../../shared/websocket";
 import { buildWsConnection, connected, hasConnected } from "./appStore";
 import { forceLogout } from "./auth";
 import { chatStream } from "./chatStreamStore.svelte";
-import { fetchBadgesForEnabledExtensions, fetchExtensions } from "./extensionStore";
+import { fetchBadgesForExtensions, fetchExtensions } from "./extensionStore";
 import { identity } from "./identity.svelte";
 import { modelStore } from "./modelStore.svelte";
 
@@ -138,7 +138,7 @@ class ConnectionManager {
       identity.refresh();
     }
     fetchExtensions().then(() => {
-      fetchBadgesForEnabledExtensions();
+      fetchBadgesForExtensions();
     });
     modelStore.refresh();
     chatStream.loadConversations();
