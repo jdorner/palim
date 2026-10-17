@@ -81,7 +81,7 @@ COPY frontend/src frontend/src
 COPY --from=deps /app/frontend/node_modules frontend/node_modules
 
 # Create persistent directories
-RUN mkdir -p .work/inbox .work/outbox .work/data .db
+RUN mkdir -p .work/inbox .work/outbox .work/data .palim
 
 # Default environment
 ENV NODE_ENV=production
