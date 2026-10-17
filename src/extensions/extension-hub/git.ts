@@ -173,15 +173,23 @@ export function spawnGit(
   return { proc, clear: () => clearTimeout(timer) };
 }
 
+/** Outcome of a finished git process. */
+interface GitRun {
+  stdout: string;
+  stderr: string;
+  code: number;
+  /** Signal that ended the process (set when the timeout killed it). */
+  signal: string | null;
+}
+
 /**
- * Runs a git command and returns its stdout.
+ * Runs a git command to completion without interpreting its exit.
  *
  * @param args - git arguments (without `git`)
  * @param options - Working directory, token, stdin, timeout
- * @returns stdout as text
- * @throws {HubError} 502 when git exits non-zero or times out
+ * @returns Output, exit code, and terminating signal
  */
-export async function runGit(args: string[], options: GitOptions = {}): Promise<string> {
+async function execGit(args: string[], options: GitOptions): Promise<GitRun> {
   const { proc, clear } = spawnGit(args, options);
   try {
     if (options.stdin !== undefined) proc.stdin.write(options.stdin);
@@ -191,14 +199,36 @@ export async function runGit(args: string[], options: GitOptions = {}): Promise<
       new Response(proc.stderr).text(),
       proc.exited,
     ]);
-    if (code !== 0) {
-      const reason = proc.signalCode ? `timed out (${proc.signalCode})` : stderr.trim() || `exit code ${code}`;
-      throw new HubError(502, `git ${args[0]} failed: ${reason}`);
-    }
-    return stdout;
+    return { stdout, stderr, code, signal: proc.signalCode ?? null };
   } finally {
     clear();
   }
+}
+
+/**
+ * Builds the error for a failed git run.
+ *
+ * @param args - git arguments (without `git`)
+ * @param run - The failed run
+ * @returns A 502 error naming the timeout, stderr, or exit code
+ */
+function gitFailure(args: string[], run: GitRun): HubError {
+  const reason = run.signal ? `timed out (${run.signal})` : run.stderr.trim() || `exit code ${run.code}`;
+  return new HubError(502, `git ${args[0]} failed: ${reason}`);
+}
+
+/**
+ * Runs a git command and returns its stdout.
+ *
+ * @param args - git arguments (without `git`)
+ * @param options - Working directory, token, stdin, timeout
+ * @returns stdout as text
+ * @throws {HubError} 502 when git exits non-zero or times out
+ */
+export async function runGit(args: string[], options: GitOptions = {}): Promise<string> {
+  const run = await execGit(args, options);
+  if (run.code !== 0) throw gitFailure(args, run);
+  return run.stdout;
 }
 
 /**
@@ -207,13 +237,12 @@ export async function runGit(args: string[], options: GitOptions = {}): Promise<
  *
  * @param args - git arguments (without `git`)
  * @param options - Working directory, token, timeout
- * @returns stdout, or null when git exited non-zero
+ * @returns stdout, or null when git exited non-zero on its own
+ * @throws {HubError} 502 when git was killed (timed out), so a stalled mirror
+ *   is never reported as a missing ref
  */
 export async function tryGit(args: string[], options: GitOptions = {}): Promise<string | null> {
-  try {
-    return await runGit(args, options);
-  } catch (err) {
-    if (err instanceof HubError) return null;
-    throw err;
-  }
+  const run = await execGit(args, options);
+  if (run.signal) throw gitFailure(args, run);
+  return run.code === 0 ? run.stdout : null;
 }
