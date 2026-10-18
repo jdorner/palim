@@ -16,7 +16,9 @@
  * the step's previous execution (e.g. the previous iteration of an iterator
  * body), else the type's zero value (`""`, `0`, `false`, `null`). Outside an
  * iterator body there is no previous execution, so the validator warns about a
- * self-reference there. Inside one, a variable can accumulate across iterations:
+ * self-reference there unless it names an entry above (see
+ * {@link resolvedSetVariablesFields}). Inside one, a variable can accumulate
+ * across iterations:
  *
  * ```json5
  * {
@@ -48,6 +50,7 @@ const VariableEntrySchema = Type.Object(
   {
     name: Type.String({
       pattern: VARIABLE_NAME_PATTERN,
+      template: false,
       title: "Name",
       description:
         "Variable name (letters, digits, underscore; not starting with a digit). " +
@@ -199,6 +202,27 @@ export function deriveSetVariablesOutputSchema(stepDef: Record<string, unknown>,
  *
  * @returns A {@link StepTypeHandler} for the `set-variables` step type
  */
+/** Matches the value field of a variable entry, as the template validator names it. */
+const VALUE_FIELD_REGEX = /^variables\.(\d+)\.value$/;
+
+/**
+ * Names of the variables already assigned when an entry's value is resolved:
+ * those of the entries above it. Lets the validator accept
+ * `{{steps.<slug>.result.<name>}}` references to earlier entries outside an
+ * iterator body.
+ *
+ * @param stepDef - The step definition
+ * @param field - The template field path (e.g. `variables.2.value`)
+ * @returns The names of the entries before that field's entry (empty for other fields)
+ */
+export function resolvedSetVariablesFields(stepDef: Record<string, unknown>, field: string): string[] {
+  const match = VALUE_FIELD_REGEX.exec(field);
+  if (!match || !Array.isArray(stepDef.variables)) return [];
+  return (stepDef.variables as Partial<VariableEntry>[])
+    .slice(0, Number(match[1]))
+    .flatMap((entry) => (typeof entry?.name === "string" ? [entry.name] : []));
+}
+
 export function createSetVariablesHandler(): StepTypeHandler {
   return {
     schema: SetVariablesStepConfigSchema,
@@ -207,6 +231,7 @@ export function createSetVariablesHandler(): StepTypeHandler {
     icon: "BracketsCurlyIcon",
     category: "action",
     selfReference: true,
+    resolvedSelfFields: resolvedSetVariablesFields,
 
     async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<Record<string, unknown>> {
       const { slug: _slug, type: _type, outputSchema: _os, ...configFields } = stepDef;

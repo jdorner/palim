@@ -119,8 +119,9 @@ export interface StepTypeInfo {
    */
   terminal?: boolean;
   /**
-   * When true, the step may reference its own result inside an iterator body
-   * (reading the previous pass's value). See `StepTypeHandler.selfReference`.
+   * When true, the step may reference its own result (values set earlier in the
+   * same execution, or the previous pass's value inside an iterator body). See
+   * `StepTypeHandler.selfReference`.
    */
   selfReference?: boolean;
   /** JSON Schema describing the step's configuration fields (derived from the handler's TypeBox schema). */

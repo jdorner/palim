@@ -89,8 +89,8 @@ export interface ScopeConfig {
   /** Resolved output schemas from the workflow API */
   outputSchemas?: OutputSchemas;
   /**
-   * Whether a step type may reference its own result inside an iterator body
-   * (the step type's `selfReference` flag). When omitted, no step type may.
+   * Whether a step type may reference its own result (the step type's
+   * `selfReference` flag). When omitted, no step type may.
    */
   allowsSelfReference?: (stepType: string) => boolean;
 }
@@ -485,8 +485,9 @@ export function computeValidResultRefs(
  * Whether `{{steps.<slug>.result}}` is a valid reference from the step being
  * edited: the referenced step must be a preceding dominator (see
  * {@link computeValidResultRefs}), or the current step itself when its type
- * supports self-reference (`config.allowsSelfReference`) and it sits inside an
- * iterator body, where it reads the previous pass's result.
+ * supports self-reference (`config.allowsSelfReference`): it then reads values
+ * set earlier in the same execution (e.g. set-variables entries above the
+ * field) or, inside an iterator body, the previous pass's result.
  *
  * @param config - The scope configuration
  * @param slug - Slug of the referenced step
@@ -496,11 +497,7 @@ function isResultReferenceable(config: ScopeConfig, slug: string): boolean {
   const current = config.steps[config.currentStepIndex];
   if (!current) return false;
   if (slug === current.slug) {
-    return (
-      typeof current.type === "string" &&
-      config.allowsSelfReference?.(current.type) === true &&
-      findEnclosingIterator(config) !== undefined
-    );
+    return typeof current.type === "string" && config.allowsSelfReference?.(current.type) === true;
   }
   return computeValidResultRefs(config.steps, config.edges, current.slug).has(slug);
 }
@@ -631,8 +628,8 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
   if (namespace === "steps") {
     if (path.length === 1) {
       // path=["steps"] -> show all step slugs, sorted alphabetically. The current
-      // step is listed only when it may reference its own result (a self-referencing
-      // step type inside an iterator body).
+      // step is listed only when it may reference its own result (a
+      // self-referencing step type such as set-variables).
       // Config is accessible from any step (static); result only from preceding steps.
       // We show all slugs and rely on backend validation to flag forward result references.
       return config.steps

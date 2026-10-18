@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { type OutputSchema, walkSchemaPath } from "@shared/workflows";
 import fc from "fast-check";
+import { resolvedSetVariablesFields } from "../../core-wf-steps/setVariables";
 import { type TemplateWarning, validateDagWorkflowTemplates } from "./dagTemplateValidation";
-import type { DagWorkflowDefinition } from "./schemas";
+import type { DagStepDef, DagWorkflowDefinition } from "./schemas";
 
 /**
  * Builds a minimal valid DAG workflow definition for template-validation tests.
@@ -661,6 +662,39 @@ describe("validateDagWorkflowTemplates - operator expressions", () => {
       [{ from: "fetch-mails", to: "use" }],
     );
     expect(await validateDagWorkflowTemplates(def)).toEqual([]);
+  });
+});
+
+describe("validateDagWorkflowTemplates - set-variables self-references", () => {
+  const options = {
+    allowsSelfReference: (type: string) => type === "set-variables",
+    resolvedSelfFields: (step: DagStepDef, field: string) =>
+      resolvedSetVariablesFields(step as Record<string, unknown>, field),
+  };
+
+  /** A single set-variables step `vars` with the given entries. */
+  function varsWf(variables: { name: string; value: string }[]): DagWorkflowDefinition {
+    return wf({ vars: { type: "set-variables", variables } as DagStepDef }, []);
+  }
+
+  test("accepts references to entries above, outside an iterator body", async () => {
+    const def = varsWf([
+      { name: "a", value: "1" },
+      { name: "b", value: "2" },
+      { name: "sum", value: "{{steps.vars.result.a + steps.vars.result.b}}" },
+    ]);
+    expect(await validateDagWorkflowTemplates(def, options)).toEqual([]);
+  });
+
+  test("warns about an entry defined below, once per field", async () => {
+    const def = varsWf([
+      { name: "sum", value: "{{steps.vars.result.b + steps.vars.result.b}}" },
+      { name: "b", value: "2" },
+    ]);
+    const warnings = await validateDagWorkflowTemplates(def, options);
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]!.field).toBe("variables.0.value");
+    expect(warnings[0]!.message).toContain("outside an iterator body");
   });
 });
 

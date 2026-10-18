@@ -370,7 +370,7 @@ function parseNumberList(raw: string): number[] {
           placeholder={t("condition.valuesPlaceholder")}
           oninput={(e) => updateValue(key, parseTagList(e.currentTarget.value))}
         >
-        {#if autocompleteEnabled}
+        {#if autocompleteEnabled && prop.template !== false}
           <TemplateAutocomplete
             targetElement={fieldRefs[key] ?? null}
             steps={steps ?? []}
@@ -436,7 +436,7 @@ function parseNumberList(raw: string): number[] {
           value={String(formValues[key] ?? "")}
           oninput={(e) => updateValue(key, (e.target as HTMLTextAreaElement).value)}
         ></textarea>
-        {#if autocompleteEnabled}
+        {#if autocompleteEnabled && prop.template !== false}
           <TemplateAutocomplete
             targetElement={fieldRefs[key] ?? null}
             steps={steps ?? []}
@@ -467,7 +467,7 @@ function parseNumberList(raw: string): number[] {
             <option value={option}></option>
           {/each}
         </datalist>
-        {#if autocompleteEnabled}
+        {#if autocompleteEnabled && prop.template !== false}
           <TemplateAutocomplete
             targetElement={fieldRefs[key] ?? null}
             steps={steps ?? []}
@@ -492,7 +492,7 @@ function parseNumberList(raw: string): number[] {
           maxlength={prop.maxLength as number | undefined}
           oninput={(e) => updateValue(key, (e.target as HTMLInputElement).value)}
         >
-        {#if autocompleteEnabled}
+        {#if autocompleteEnabled && prop.template !== false}
           <TemplateAutocomplete
             targetElement={fieldRefs[key] ?? null}
             steps={steps ?? []}
@@ -561,7 +561,7 @@ function parseNumberList(raw: string): number[] {
                 </button>
               </div>
             </div>
-            {#if autocompleteEnabled}
+            {#if autocompleteEnabled && prop.template !== false}
               <TemplateAutocomplete
                 targetElement={fieldRefs[`${key}[${i}]`] ?? null}
                 steps={steps ?? []}

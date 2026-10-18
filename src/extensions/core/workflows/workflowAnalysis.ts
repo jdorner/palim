@@ -391,6 +391,8 @@ export function createWorkflowAnalyzer(
       resolveStepOutputSchema: (slug) => outputSchemas.steps[slug] ?? null,
       resolveTriggerOutputSchema: () => outputSchemas.trigger,
       allowsSelfReference: (type) => ctx.stepTypes.get(type)?.selfReference === true,
+      resolvedSelfFields: (step, field) =>
+        ctx.stepTypes.get(step.type)?.resolvedSelfFields?.(step as Record<string, unknown>, field) ?? [],
     });
     const pairingWarnings: TemplateWarning[] = validateIteratorPairing(def).map((e) => ({
       stepSlug: "",

@@ -155,7 +155,7 @@ Defines workflow-local variables. Shown as **Set Variables** in the editor. The 
 
     After the iterator's aggregator, `{{steps.acc.result.text}}` holds the value from the last pass.
 
-  Outside an iterator body the step runs only once per run and values don't carry over between runs, so a self-reference to the step's own value always gives the zero value. The validator warns about it, and the editor offers self-references only inside an iterator body. Referencing an earlier entry of the same step is different: that works anywhere.
+  Outside an iterator body the step runs only once per run and values don't carry over between runs, so a self-reference to the step's own value always gives the zero value. The validator warns about it. Referencing an earlier entry of the same step is different: that works anywhere, without a warning (e.g. `{{steps.<slug>.result.a + steps.<slug>.result.b}}` in an entry below `a` and `b`). The editor offers the step's own result fields in autocomplete and in *Available data*.
 - The output schema is derived from the configured entries, so the editor offers `steps.<slug>.result.<name>` completions and the validator flags unknown variable names. A `json` variable whose value is exactly one reference (for example `{{steps.lookup.result.user}}`) inherits that reference's schema, so you can autocomplete into it too. Any other `json` value is unconstrained.
 - Templates nested inside the entries are validated like any other step field (warnings point at e.g. `variables.0.value`), and count as references when deleting a global variable.
 

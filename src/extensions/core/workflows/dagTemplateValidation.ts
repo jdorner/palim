@@ -71,6 +71,13 @@ export interface TemplateValidationOptions {
    * omitted (e.g. no step-type registry available), that check is skipped.
    */
   allowsSelfReference?: (stepType: string) => boolean;
+  /**
+   * The own result fields a step has already set when the given template field
+   * is resolved (the handler's `resolvedSelfFields`). A self-reference to one of
+   * them is valid outside an iterator body; when omitted, every self-reference
+   * outside an iterator body warns.
+   */
+  resolvedSelfFields?: (step: DagStepDef, field: string) => string[];
 }
 
 /** Regex matching `{{...}}` template expressions. */
@@ -433,6 +440,7 @@ export async function validateDagWorkflowTemplates(
     resolveStepOutputSchema,
     resolveTriggerOutputSchema,
     allowsSelfReference,
+    resolvedSelfFields,
   } = options;
 
   const slugs = new Set(Object.keys(definition.steps));
@@ -617,13 +625,18 @@ export async function validateDagWorkflowTemplates(
             //     (always present), so this only applies to result references.
             // A self-reference reads the step's previous result, which only
             // exists inside an iterator body (from the previous pass). Elsewhere
-            // the step runs once per run, so there is never a previous result.
+            // the step runs once per run, so there is never a previous result -
+            // except for fields the step has already set in this execution
+            // (e.g. set-variables entries above the referencing one).
             if (accessor === "result" && referencedSlug === slug && iterPrefixes.size === 0) {
-              warnings.push({
-                stepSlug: slug,
-                field: fieldName,
-                message: `Self-reference "{{${expr}}}" outside an iterator body - there is no previous result (set-variables uses the zero value)`,
-              });
+              const field = parts[3];
+              if (field === undefined || !resolvedSelfFields?.(step, fieldName).includes(field)) {
+                warnings.push({
+                  stepSlug: slug,
+                  field: fieldName,
+                  message: `Self-reference "{{${expr}}}" outside an iterator body - there is no previous result (set-variables uses the zero value; only entries above this one are set)`,
+                });
+              }
               continue;
             }
 
@@ -783,5 +796,13 @@ export async function validateDagWorkflowTemplates(
     }
   }
 
-  return warnings;
+  // An expression referencing the same invalid path several times (e.g.
+  // `a + a`) reports it once per field.
+  const seen = new Set<string>();
+  return warnings.filter((w) => {
+    const id = `${w.stepSlug}\0${w.field}\0${w.message}`;
+    if (seen.has(id)) return false;
+    seen.add(id);
+    return true;
+  });
 }

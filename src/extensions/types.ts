@@ -437,13 +437,26 @@ export interface StepTypeHandler {
 
   /**
    * When true, the step may reference its own result
-   * (`{{steps.<own-slug>.result...}}`) inside an iterator body to read the value
-   * from the previous pass. The handler must give such references a defined
-   * value on the first pass (e.g. `set-variables` supplies zero values), since
-   * no previous result exists yet. The editor offers self-references only for
-   * these step types, and the validator warns about them for all others.
+   * (`{{steps.<own-slug>.result...}}`): values it set earlier in the same
+   * execution (see {@link resolvedSelfFields}) or, inside an iterator body, the
+   * value from the previous pass. The handler must give such references a
+   * defined value on the first pass (e.g. `set-variables` supplies zero values),
+   * since no previous result exists yet. The editor offers self-references only
+   * for these step types, and the validator warns about them for all others.
    */
   selfReference?: boolean;
+
+  /**
+   * For `selfReference` step types: the own result fields already set when the
+   * given template field is resolved within one execution (e.g. `set-variables`
+   * entries defined above the field). The validator accepts self-references to
+   * these fields outside an iterator body, where there is no previous pass.
+   *
+   * @param config - The step definition (config fields)
+   * @param field - The template field path, as reported by the validator (e.g. `variables.2.value`)
+   * @returns The result field names readable from that field
+   */
+  resolvedSelfFields?: (config: Record<string, unknown>, field: string) => string[];
 
   /**
    * Optional palette category hint for the workflow editor's "Add Step" menu.

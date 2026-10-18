@@ -931,10 +931,10 @@ describe("getSuggestions does not drill into results that are not referenceable"
     expect(getSuggestions(config, ["steps", "vars", "result"], "").map((s) => s.label)).toEqual(["sent"]);
   });
 
-  test("set-variables may not reference its own result outside an iterator body", () => {
-    expect(getSuggestions(base, ["steps"], "").map((s) => s.label)).not.toContain("vars");
-    expect(getSuggestions(base, ["steps", "vars"], "").map((s) => s.label)).not.toContain("result");
-    expect(getSuggestions(base, ["steps", "vars", "result"], "")).toEqual([]);
+  test("set-variables may reference its own result outside an iterator body (earlier entries)", () => {
+    expect(getSuggestions(base, ["steps"], "").map((s) => s.label)).toContain("vars");
+    expect(getSuggestions(base, ["steps", "vars"], "").map((s) => s.label)).toContain("result");
+    expect(getSuggestions(base, ["steps", "vars", "result"], "").map((s) => s.label)).toEqual(["sent"]);
   });
 
   test("an unknown step slug yields no suggestions", () => {

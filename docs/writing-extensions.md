@@ -952,6 +952,7 @@ Step labels and config field titles/descriptions are translated through `steps.<
 | `inputSchema` | `TSchema?` | Optional TypeBox schema describing the expected input data from the preceding step. Used for automatic validation and agent repair. |
 | `outputSchema` | `TSchema?` | Optional TypeBox schema describing the shape of the result this step produces. Serialized to JSON Schema by the registry and surfaced to the editor for deep `{{steps.<slug>.result.<path>}}` autocomplete and path validation. Omitting it has no runtime effect. See [Declaring Output Schemas](#declaring-output-schemas). |
 | `selfReference` | `boolean?` | When `true`, a step of this type inside an iterator body may reference its own result (`{{steps.<own-slug>.result...}}`) to read the previous pass's value. The handler must give such references a value on the first pass, when no previous result exists. For example, `set-variables` supplies zero values via `ctx.resolveTemplate(value, { stepResults: { [ctx.stepSlug]: current } })`. The editor offers self-references only for these types, and the validator warns about them for all others. |
+| `resolvedSelfFields` | `(config, field) => string[]` | Optional, for `selfReference` types: the own result fields already set when the given template field (validator path, e.g. `variables.2.value`) is resolved within one execution. The validator accepts self-references to them outside an iterator body, where there is no previous pass. `set-variables` returns the names of the entries above the field. |
 | `validateInput` | `(output, stepDef) => StepInputValidation \| Promise<StepInputValidation>` | Optional method for domain-specific input validation beyond what `inputSchema` can express. Takes precedence over `inputSchema` when both are present. |
 | `execute` | `(stepDef, ctx) => Promise<unknown>` | The execution logic; receives the full step definition and a scoped context |
 
@@ -1272,6 +1273,8 @@ The form renderer uses TypeBox annotations on schema properties to determine lab
 | `Type.Union([Type.Object({ type: Type.Literal("a"), ... }), ...])` (discriminated union) | Type select + the fields of the selected alternative; switching keeps fields that render the same way |
 | `Type.Union([Type.String(), <object or array>, ...])` ("loose" union) | The string member's input (union annotations such as `multiline` apply); a structured value shows a hint to use the JSON view |
 | Anything else | Not supported in form — user is directed to the JSON view |
+
+String inputs get template autocomplete and serve as targets of the *Available data* panel. Set `template: false` on a property that is never resolved as a template (e.g. an identifier such as `set-variables`' `name`) to turn both off for it.
 
 **Template autocomplete** is automatically enabled on text and textarea fields. Typing `{{` opens a suggestion popup with available template expressions (trigger payload, step results, secrets, env vars).
 
