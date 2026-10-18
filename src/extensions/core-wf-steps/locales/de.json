@@ -81,7 +81,7 @@
             "title": "Typ"
           },
           "value": {
-            "description": "Literaler Wert oder {{template}}-Ausdruck. Innerhalb dieses Schritts verweist {{steps.<slug>.result.<name>}} auf den aktuellen Wert der Variable.",
+            "description": "Literaler Wert oder {{template}}-Ausdruck. Innerhalb dieses Schritts verweist {{steps.<slug>.result.<name>}} auf den aktuellen Wert der Variable. Gerechnet wird innerhalb der Klammern: {{steps.<slug>.result.<name> + 1}}.",
             "title": "Wert"
           }
         }

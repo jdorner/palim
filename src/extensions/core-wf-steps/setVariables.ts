@@ -57,7 +57,8 @@ const VariableEntrySchema = Type.Object(
       title: "Value",
       description:
         "Literal value or {{template}} expression. Inside this step, " +
-        "{{steps.<slug>.result.<name>}} refers to the variable's current value.",
+        "{{steps.<slug>.result.<name>}} refers to the variable's current value. " +
+        "Calculate inside the braces: {{steps.<slug>.result.<name> + 1}}.",
     }),
     type: Type.Optional(
       Type.Union([Type.Literal("string"), Type.Literal("number"), Type.Literal("boolean"), Type.Literal("json")], {

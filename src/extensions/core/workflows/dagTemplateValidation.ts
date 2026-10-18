@@ -14,6 +14,7 @@
  * @module
  */
 
+import { isPlainPath, maskStringLiterals } from "@shared/templateExpression";
 import {
   DEFAULT_ENV_ALLOWLIST,
   type OutputSchema,
@@ -22,8 +23,9 @@ import {
   resolveIteratorItemSchema,
   walkSchemaPath,
 } from "@shared/workflows";
+import justin from "subscript/justin";
 import type { DagStepDef, DagWorkflowDefinition } from "./schemas";
-import { findHyphenatedStepRefs } from "./stepRefs";
+import { findHyphenatedStepRefs, quoteHyphenatedStepRefs } from "./stepRefs";
 import type { TemplateSecretResolver } from "./template";
 import { referencesForbiddenKey } from "./templateEval";
 import { TEMPLATE_FUNCTION_NAMES } from "./templateFunctions";
@@ -322,6 +324,29 @@ function findEnclosingIterator(slug: string, definition: DagWorkflowDefinition):
   return null;
 }
 
+/** Literal keywords and operators that the identifier scan must not treat as paths. */
+const EXPRESSION_KEYWORDS = new Set(["true", "false", "null", "undefined", "in", "of", "typeof", "void"]);
+
+/** Matches a `secret.` / `env.` namespace reference outside a member chain. */
+const GUARDED_NAMESPACE_REF = /(?<![A-Za-z0-9_$.])(secret|env)\s*\./;
+
+/**
+ * Parses an expression with the evaluator's grammar to catch syntax errors
+ * (e.g. a dangling operator in `a +`) at load time.
+ *
+ * @param expr - The trimmed expression text (without braces)
+ * @param slugs - The workflow's step slugs (hyphenated ones are quoted first, like the evaluator does)
+ * @returns The parser's error message, or null when the expression parses
+ */
+function checkExpressionSyntax(expr: string, slugs: Iterable<string>): string | null {
+  try {
+    justin(quoteHyphenatedStepRefs(expr, slugs));
+    return null;
+  } catch (err) {
+    return (err instanceof Error ? err.message : String(err)).split("\n")[0]!;
+  }
+}
+
 /** Matches a function-call head: `name(` where `name` is an identifier. */
 const CALL_HEAD = /([A-Za-z_$][A-Za-z0-9_$]*)\s*\(/g;
 
@@ -369,13 +394,16 @@ function decomposeExpression(expr: string, slugs: Iterable<string>): ExprDecompo
   }
 
   // Strip string literals so their contents are not mistaken for paths.
-  const withoutStrings = masked.replace(/"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g, " ");
+  const withoutStrings = maskStringLiterals(masked);
 
   // Extract identifier dot-paths.
   const PATH = /[A-Za-z_$][A-Za-z0-9_$]*(?:\.[A-Za-z0-9_$]+)*/g;
   for (let m = PATH.exec(withoutStrings); m !== null; m = PATH.exec(withoutStrings)) {
     const token = m[0]!;
     const head = token.split(".")[0]!;
+    // Skip the tail of a numeric literal (`1.5e3` yields `e3`) and keywords.
+    if (m.index > 0 && /[0-9.]/.test(withoutStrings[m.index - 1]!)) continue;
+    if (EXPRESSION_KEYWORDS.has(token)) continue;
     // Skip pure function-name references (e.g. "stripDataUri" with no dot path).
     if (fnSet.has(token)) continue;
     // A bare identifier that is a function name (followed by `(`) is not a path.
@@ -454,13 +482,32 @@ export async function validateDagWorkflowTemplates(
           continue;
         }
 
-        // Decompose the expression into the path references it uses and the
-        // functions it calls. Only expressions using function-call syntax (a
-        // `(`) are decomposed; everything else - including a malformed dot-path
-        // like `var.A.` - is validated literally as a single path so its
-        // malformation is still reported exactly as before.
-        const hasCallSyntax = expr.includes("(");
-        const { pathRefs, functionNames } = hasCallSyntax
+        // Decompose an expression (operators, calls, literals) into the path
+        // references it uses and the functions it calls. A plain dot-path -
+        // including a malformed one like `var.A.` - is validated literally as a
+        // single path so its malformation is still reported exactly as before.
+        const isExpression = !isPlainPath(expr);
+        if (isExpression) {
+          const syntaxError = checkExpressionSyntax(expr, slugs);
+          if (syntaxError) {
+            warnings.push({
+              stepSlug: slug,
+              field: fieldName,
+              message: `Invalid expression "{{${expr}}}": ${syntaxError}`,
+            });
+            continue;
+          }
+          const guarded = GUARDED_NAMESPACE_REF.exec(maskStringLiterals(expr));
+          if (guarded) {
+            warnings.push({
+              stepSlug: slug,
+              field: fieldName,
+              message: `"${guarded[1]}" cannot be used inside an expression, only as a plain {{${guarded[1]}.<NAME>}} reference: "{{${expr}}}"`,
+            });
+            continue;
+          }
+        }
+        const { pathRefs, functionNames } = isExpression
           ? decomposeExpression(expr, slugs)
           : { pathRefs: [expr], functionNames: [] };
 

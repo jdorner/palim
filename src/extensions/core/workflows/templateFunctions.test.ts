@@ -5,8 +5,10 @@ import {
   base64Decode,
   base64Encode,
   before,
+  int,
   jsonEscape,
   nowIso,
+  num,
   setClock,
   stripDataUri,
   TEMPLATE_FUNCTION_NAMES,
@@ -172,5 +174,27 @@ describe("shared metadata / runtime registry consistency", () => {
       expect(meta.description.length).toBeGreaterThan(0);
       expect(meta.returnType.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe("num", () => {
+  test("converts numeric strings, numbers, and booleans", () => {
+    expect(num("42")).toBe(42);
+    expect(num(" 1.5 ")).toBe(1.5);
+    expect(num(7)).toBe(7);
+    expect(num(true)).toBe(1);
+  });
+
+  test("yields NaN for empty or non-numeric values", () => {
+    expect(num("")).toBeNaN();
+    expect(num(null)).toBeNaN();
+    expect(num("abc")).toBeNaN();
+  });
+});
+
+describe("int", () => {
+  test("truncates toward zero", () => {
+    expect(int("3.9")).toBe(3);
+    expect(int(-3.9)).toBe(-3);
   });
 });

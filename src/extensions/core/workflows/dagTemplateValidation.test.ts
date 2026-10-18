@@ -610,6 +610,60 @@ describe("validateDagWorkflowTemplates - function-call syntax", () => {
   });
 });
 
+describe("validateDagWorkflowTemplates - operator expressions", () => {
+  /** Builds `vars -> use` where `use` has the given prompt. */
+  function linearWf(prompt: string): DagWorkflowDefinition {
+    return wf(
+      {
+        vars: { type: "agent", prompt: "seed" },
+        use: { type: "agent", prompt },
+      },
+      [{ from: "vars", to: "use" }],
+    );
+  }
+
+  test("accepts arithmetic, comparisons, ternaries, and literals", async () => {
+    const prompts = [
+      "{{ steps.vars.result + 1 }}",
+      "{{ steps.vars.result > 3 ? 'a' : 'b' }}",
+      "{{ num(steps.vars.result) * 1.5e3 }}",
+      "{{ steps.vars.result ?? null }}",
+      "{{ steps.vars.result == true }}",
+    ];
+    for (const prompt of prompts) {
+      expect(await validateDagWorkflowTemplates(linearWf(prompt))).toEqual([]);
+    }
+  });
+
+  test("validates path references in an operator expression", async () => {
+    const warnings = await validateDagWorkflowTemplates(linearWf("{{ steps.nope.result + 1 }}"));
+    expect(warnings.find((w) => w.message.includes('unknown step slug "nope"'))).not.toBeUndefined();
+  });
+
+  test("reports a syntax error", async () => {
+    const warnings = await validateDagWorkflowTemplates(linearWf("{{ steps.vars.result + }}"));
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]!.message).toContain("Invalid expression");
+  });
+
+  test("rejects secret and env inside an expression", async () => {
+    const warnings = await validateDagWorkflowTemplates(linearWf("{{ secret.KEY + 1 }}"));
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]!.message).toContain("cannot be used inside an expression");
+  });
+
+  test("a hyphenated plain path stays a path", async () => {
+    const def = wf(
+      {
+        "fetch-mails": { type: "agent", prompt: "seed" },
+        use: { type: "agent", prompt: "{{steps.fetch-mails.result}} {{steps.fetch-mails.result + 1}}" },
+      },
+      [{ from: "fetch-mails", to: "use" }],
+    );
+    expect(await validateDagWorkflowTemplates(def)).toEqual([]);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Variable-reference validation (var namespace)
 // ---------------------------------------------------------------------------

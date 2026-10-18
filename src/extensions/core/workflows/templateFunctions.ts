@@ -123,6 +123,32 @@ export function trim(value: unknown): string {
 }
 
 /**
+ * Convert a value to a number, so arithmetic on string values (global
+ * variables, payload fields) adds instead of concatenating. Surrounding
+ * whitespace is ignored; an empty or non-numeric value yields `NaN`, which the
+ * resolver reports instead of substituting.
+ *
+ * @param value - The value to convert
+ * @returns The numeric value, or `NaN` when it is not a number
+ */
+export function num(value: unknown): number {
+  if (typeof value === "number") return value;
+  if (typeof value === "boolean") return value ? 1 : 0;
+  const s = toStr(value).trim();
+  return s === "" ? Number.NaN : Number(s);
+}
+
+/**
+ * Convert a value to an integer, truncating toward zero (see {@link num}).
+ *
+ * @param value - The value to convert
+ * @returns The integer value, or `NaN` when it is not a number
+ */
+export function int(value: unknown): number {
+  return Math.trunc(num(value));
+}
+
+/**
  * Return the current time as an ISO 8601 string.
  *
  * Deterministic-testable: honors an injected clock via {@link setClock} so
@@ -173,6 +199,8 @@ export const TEMPLATE_FUNCTIONS: Record<string, (...args: unknown[]) => unknown>
   after,
   before,
   trim,
+  num,
+  int,
   nowIso,
 };
 

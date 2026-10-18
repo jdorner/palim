@@ -10,13 +10,15 @@
  * so it inspects exactly the template-bearing fields the validator checks
  * (agent `prompt`, `if` `condition.ref`, `case` `match`, and every string value
  * nested in a custom step's config). Matching reuses the same `{{...}}` pattern parsing so detection stays
- * aligned with resolution and validation: an expression matches only when it
+ * aligned with resolution and validation: a plain path matches only when it
  * parses to exactly `["var", key]` after trimming, avoiding false positives
- * from `{{var.OTHER}}` or `{{varX...}}`.
+ * from `{{var.OTHER}}` or `{{varX...}}`; an expression (`{{num(var.KEY) + 1}}`)
+ * matches when it contains a `var.KEY` member outside string literals.
  *
  * @module
  */
 
+import { isPlainPath, maskStringLiterals } from "@shared/templateExpression";
 import { getTemplateFields } from "./dagTemplateValidation";
 import type { DagWorkflowDefinition } from "./schemas";
 
@@ -37,13 +39,24 @@ const TEMPLATE_PATTERN = /\{\{([^}]+)\}\}/g;
 function fieldReferencesVariable(fieldValue: string, key: string): boolean {
   TEMPLATE_PATTERN.lastIndex = 0;
   for (let match = TEMPLATE_PATTERN.exec(fieldValue); match !== null; match = TEMPLATE_PATTERN.exec(fieldValue)) {
-    const parts = match[1]!.trim().split(".");
-    if (parts.length === 2 && parts[0] === "var" && parts[1] === key) {
-      return true;
+    const trimmed = match[1]!.trim();
+    if (isPlainPath(trimmed)) {
+      const parts = trimmed.split(".");
+      if (parts.length === 2 && parts[0] === "var" && parts[1] === key) return true;
+      continue;
+    }
+    // An expression (`{{num(var.KEY) + 1}}`): look for `var.KEY` members.
+    const masked = maskStringLiterals(trimmed);
+    VAR_MEMBER.lastIndex = 0;
+    for (let ref = VAR_MEMBER.exec(masked); ref !== null; ref = VAR_MEMBER.exec(masked)) {
+      if (ref[1] === key) return true;
     }
   }
   return false;
 }
+
+/** Matches a `var.<KEY>` member inside an expression (not preceded by an identifier char or `.`). */
+const VAR_MEMBER = /(?<![A-Za-z0-9_$.])var\s*\.\s*([A-Za-z0-9_$]+)/g;
 
 /**
  * Find workflow definitions that reference a given variable key via

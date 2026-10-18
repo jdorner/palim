@@ -210,15 +210,17 @@ function extractTrailingIdentifier(text: string): string | undefined {
 /**
  * Splits a sub-expression into resolved `path` segments and the trailing
  * `prefix` (the text after the last `.`), matching the historical behavior of
- * {@link detectTrigger}. Leading whitespace within the sub-expression (e.g.
- * after a `(` or `,`) is trimmed so `fn( image.da` resolves `image` as a path
- * segment rather than ` image`.
+ * {@link detectTrigger}. Only the trailing operand counts: the path characters
+ * after the last operator or whitespace, so `fn( image.da` resolves `image` as
+ * a path segment and `steps.a.result.n + st` completes `st` as a fresh path.
+ * Hyphens are path characters (as in `isPlainPath`), so `steps.fetch-mails.`
+ * stays one path.
  *
  * @param subExpression - The current sub-expression text under the cursor
  * @returns The resolved path segments and current prefix
  */
 function resolvePathPrefix(subExpression: string): { path: string[]; prefix: string } {
-  const trimmed = subExpression.replace(/^\s+/, "");
+  const trimmed = subExpression.match(/[A-Za-z0-9_$.-]*$/)?.[0] ?? "";
   const segments = trimmed.split(".");
   const prefix = segments[segments.length - 1] ?? "";
   const path = segments.slice(0, -1);

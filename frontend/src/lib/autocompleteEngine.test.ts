@@ -489,3 +489,32 @@ describe("insertReference", () => {
     expect(insertReference(inside, 2, 2, "nowIso", "function")).toEqual({ newText: "{{nowIso()}}", newCursorPos: 9 });
   });
 });
+
+describe("detectTrigger - operator expressions", () => {
+  test("completes the operand after an operator as a fresh path", () => {
+    const text = "{{steps.a.result.n + steps.b.re";
+    const trigger = detectTrigger(text, text.length);
+    expect(trigger.kind).toBe("path");
+    expect(trigger.path).toEqual(["steps", "b"]);
+    expect(trigger.prefix).toBe("re");
+  });
+
+  test("offers values right after an operator", () => {
+    const text = "{{steps.a.result.n * ";
+    const trigger = detectTrigger(text, text.length);
+    expect(trigger.path).toEqual([]);
+    expect(trigger.prefix).toBe("");
+  });
+
+  test("keeps a hyphenated slug in one path", () => {
+    const text = "{{steps.fetch-mails.";
+    expect(detectTrigger(text, text.length).path).toEqual(["steps", "fetch-mails"]);
+  });
+
+  test("inserts a reference after an operator without touching the left operand", () => {
+    const text = "{{steps.a.result.n + st";
+    expect(insertReference(text, text.length, text.length, "steps.b.result.m").newText).toBe(
+      "{{steps.a.result.n + steps.b.result.m}}",
+    );
+  });
+});
