@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   branchFromHandle,
-  draftErrorNodeIds,
+  draftNodeErrors,
   errorsAfterStepRemoval,
   graphEdgesToDraftEdges,
   nextStepId,
@@ -301,7 +301,7 @@ describe("slugErrorsAfterEdit", () => {
   });
 });
 
-describe("draftErrorNodeIds", () => {
+describe("draftNodeErrors", () => {
   const draft: WorkflowDraft = {
     name: "wf",
     description: "",
@@ -325,6 +325,11 @@ describe("draftErrorNodeIds", () => {
       { stepSlug: "c", field: "prompt", message: "w" },
       { stepSlug: "unknown", field: "prompt", message: "dropped" },
     ];
-    expect([...draftErrorNodeIds(draft, errors, warnings)].sort()).toEqual(["n1", "n3"]);
+    expect(draftNodeErrors(draft, errors, warnings)).toEqual(
+      new Map([
+        ["n1", ["x"]],
+        ["n3", ["prompt: w"]],
+      ]),
+    );
   });
 });
