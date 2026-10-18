@@ -293,28 +293,35 @@ describe("ExternalDependencyResolver.installDependencies", () => {
   });
 
   test("returns failure on timeout", async () => {
-    // Create a package.json - we'll use a very short timeout
-    writeFileSync(
-      path.join(EXT_DIR, "package.json"),
-      JSON.stringify({ name: "test-ext", dependencies: { nanoid: "^5.0.0" } }),
-    );
+    // A registry that accepts connections but never answers keeps `bun install`
+    // running until the timeout fires (a cached or fast install could otherwise
+    // finish first). The package name is unique, so no cached manifest applies.
+    const registry = Bun.listen({ hostname: "127.0.0.1", port: 0, socket: { data() {} } });
+    try {
+      writeFileSync(path.join(EXT_DIR, "bunfig.toml"), `[install]\nregistry = "http://127.0.0.1:${registry.port}/"\n`);
+      writeFileSync(
+        path.join(EXT_DIR, "package.json"),
+        JSON.stringify({ name: "test-ext", dependencies: { "palim-test-hanging-registry": "^1.0.0" } }),
+      );
 
-    // Use a 1ms timeout to force timeout
-    const resolver = new ExternalDependencyResolver({
-      coreProjectDir: CORE_DIR,
-      installTimeoutMs: 1,
-    });
-    const analysis = {
-      depsToInstall: new Map([["nanoid", "^5.0.0"]]),
-      hostSatisfied: new Map<string, string>(),
-      versionConflicts: [],
-      missingPeers: [],
-    };
+      const resolver = new ExternalDependencyResolver({
+        coreProjectDir: CORE_DIR,
+        installTimeoutMs: 200,
+      });
+      const analysis = {
+        depsToInstall: new Map([["palim-test-hanging-registry", "^1.0.0"]]),
+        hostSatisfied: new Map<string, string>(),
+        versionConflicts: [],
+        missingPeers: [],
+      };
 
-    const result = await resolver.installDependencies(EXT_DIR, "my-ext", analysis);
-    expect(result.installed).toBe(false);
-    expect(result.error).toContain("timed out");
-    expect(result.error).toContain("my-ext");
+      const result = await resolver.installDependencies(EXT_DIR, "my-ext", analysis);
+      expect(result.installed).toBe(false);
+      expect(result.error).toContain("timed out");
+      expect(result.error).toContain("my-ext");
+    } finally {
+      registry.stop(true);
+    }
   });
 });
 
