@@ -4,8 +4,8 @@
  */
 
 import type { FSWatcher } from "node:fs";
-import { watch as fsWatch } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, watch as fsWatch } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ExtensionInfo, ExtensionUiPage, StepTypeInfo } from "@shared/extensions";
 import { FALLBACK_LOCALE, type Locale } from "@shared/i18n";
@@ -219,8 +219,13 @@ export class ExtensionRegistry {
       if (entry.state === "active") return { status: "active", name, version };
       return { status: "suspended", name, version, enabled: this.isExtensionEnabled(name), error: entry.error ?? null };
     }
+    // A failure only describes the folder while its entry point is still there: a
+    // retry that was already running when the folder was moved out may record one
+    // after `since`, but nothing is loaded from a missing folder.
     const failure = this.loadFailures.get(dir);
-    if (failure && failure.at >= since) return { status: "failed", error: failure.reason };
+    if (failure && failure.at >= since && existsSync(join(dir, "index.ts"))) {
+      return { status: "failed", error: failure.reason };
+    }
     return { status: "unloaded" };
   }
 
