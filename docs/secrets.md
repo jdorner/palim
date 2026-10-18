@@ -63,7 +63,8 @@ If neither source is available or the key is too short, the vault is **not initi
 
 - All `/api/secrets` and `/api/extensions/:name/secrets` endpoints return HTTP 503 ("Secret vault not available")
 - `ctx.secrets.get()` returns `null` with a warning logged
-- `ctx.secrets.set()` throws an error
+- `ctx.secrets.set()` and `ctx.secrets.delete()` throw an error
+- `ctx.secrets.keys()` returns an empty list
 - `{{secret.KEY}}` in workflow templates resolves to the unmodified template string
 
 The startup log makes this explicit:
@@ -155,11 +156,15 @@ await ctx.secrets.set("BOT_TOKEN", "abc123", {
   consumers: ["workflow:*"],  // additional consumers beyond the owner
 });
 
+// Delete a secret, list the extension's secret keys (no values)
+await ctx.secrets.delete("BOT_TOKEN");
+const keys = await ctx.secrets.keys();
+
 // Cross-scope resolve (for trusted core extensions like workflows)
 const value = await ctx.secrets.resolveAs("GITEA_TOKEN", "workflow:daily-check");
 ```
 
-When the vault is unavailable, `get()` returns `null` and `set()` throws.
+When the vault is unavailable, `get()` returns `null`, `keys()` returns `[]`, and `set()`/`delete()` throw.
 
 ### From workflows
 

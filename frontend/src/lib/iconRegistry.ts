@@ -16,6 +16,7 @@ import LinkIcon from "phosphor-svelte/lib/LinkIcon";
 import PaperPlaneTiltIcon from "phosphor-svelte/lib/PaperPlaneTiltIcon";
 import PlugIcon from "phosphor-svelte/lib/PlugIcon";
 import ProhibitIcon from "phosphor-svelte/lib/ProhibitIcon";
+import PuzzlePieceIcon from "phosphor-svelte/lib/PuzzlePieceIcon";
 import ReceiptIcon from "phosphor-svelte/lib/ReceiptIcon";
 import RepeatIcon from "phosphor-svelte/lib/RepeatIcon";
 import RobotIcon from "phosphor-svelte/lib/RobotIcon";
@@ -67,6 +68,7 @@ export const iconRegistry: Record<StepIconName, Component> & Record<string, Comp
   TerminalWindowIcon,
   TrayIcon,
   GlobeIcon,
+  PuzzlePieceIcon,
 };
 
 /**

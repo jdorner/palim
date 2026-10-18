@@ -14,6 +14,7 @@ import { type Component, onDestroy, onMount } from "svelte";
 import { get } from "svelte/store";
 import {
   connected,
+  extensionUpdateCount,
   fetchFileWatcherCount,
   fetchWebhookCount,
   fetchWorkflowCount,
@@ -25,7 +26,8 @@ import { registerClearIdentity, registerDisconnect } from "$lib/auth";
 import { chatStream } from "$lib/chatStreamStore.svelte";
 import { connectionManager } from "$lib/connectionStore.svelte";
 import { dispatchExtensionUiEvent } from "$lib/extensionHost";
-import { extensionNavItems, extensions, fetchBadgesForEnabledExtensions, fetchExtensions } from "$lib/extensionStore";
+import { planLifecycleRefresh } from "$lib/extensionLifecycle";
+import { extensionNavItems, extensions, fetchBadgesForExtensions, fetchExtensions } from "$lib/extensionStore";
 import { i18n, t, tx } from "$lib/i18n.svelte";
 import { resolveIcon } from "$lib/iconRegistry";
 import { identity } from "$lib/identity.svelte";
@@ -33,6 +35,7 @@ import { provideI18n } from "$lib/kitI18n";
 import { readState } from "$lib/readState.svelte";
 import { automationStyle } from "$lib/utils";
 import { workflowStore } from "$lib/workflowRunStore.svelte";
+import type { ExtensionLifecycleEvent } from "$shared/extensions";
 import { resolveLocale } from "$shared/i18n";
 import type { WebSocketMessage } from "../../shared/websocket";
 import PortalAccountNotice from "./components/PortalAccountNotice.svelte";
@@ -121,31 +124,48 @@ function handleMessage(message: WebSocketMessage) {
       break;
     case "extension_ui_event":
       dispatchExtensionUiEvent(message);
+      // The extension hub's nav badge counts available updates.
+      if (message.extension === "extension-hub" && message.event === "updates_changed") {
+        extensionUpdateCount.set((message.data as { count?: number } | undefined)?.count ?? 0);
+      }
       break;
     case "extension_schemas_changed":
       fetchExtensions();
       break;
     case "extension_lifecycle":
-      if (message.action !== "deactivated" && message.action !== "ui_updated") i18n.reloadExtensions();
-      fetchExtensions().then(() => {
-        fetchBadgesForEnabledExtensions();
-        if (message.action === "deactivated") {
-          const currentPath = get(pathname);
-          const allExtensions = get(extensions);
-          const ext = allExtensions.find((e) => e.name === message.name);
-          if (ext?.ui?.navigation) {
-            const isOnExtRoute = ext.ui.navigation.some(
-              (nav) => currentPath === nav.route || currentPath.startsWith(`${nav.route}/`),
-            );
-            if (isOnExtRoute) {
-              navigate("/");
-            }
-          }
-        }
-      });
+      queueLifecycleRefresh(message);
       break;
     default:
       console.warn("Unknown message type:", message);
+  }
+}
+
+/** Lifecycle events arrive in bursts (an update sends four); they share one refresh. */
+const LIFECYCLE_COALESCE_MS = 50;
+let pendingLifecycle: ExtensionLifecycleEvent[] = [];
+let lifecycleTimer: ReturnType<typeof setTimeout> | null = null;
+
+function queueLifecycleRefresh(event: ExtensionLifecycleEvent) {
+  pendingLifecycle.push(event);
+  lifecycleTimer ??= setTimeout(flushLifecycleRefresh, LIFECYCLE_COALESCE_MS);
+}
+
+async function flushLifecycleRefresh() {
+  const plan = planLifecycleRefresh(pendingLifecycle);
+  pendingLifecycle = [];
+  lifecycleTimer = null;
+  if (plan.reloadCatalogs) i18n.reloadExtensions();
+  await fetchExtensions();
+  fetchBadgesForExtensions(plan.badgeExtensions);
+  if (plan.deactivated.size === 0) return;
+  // Leave the routes of an extension that was just deactivated.
+  const currentPath = get(pathname);
+  for (const ext of get(extensions)) {
+    if (!plan.deactivated.has(ext.name) || !ext.ui?.navigation) continue;
+    if (ext.ui.navigation.some((nav) => currentPath === nav.route || currentPath.startsWith(`${nav.route}/`))) {
+      navigate("/");
+      return;
+    }
   }
 }
 
@@ -156,6 +176,7 @@ onMount(() => {
 });
 
 onDestroy(() => {
+  if (lifecycleTimer) clearTimeout(lifecycleTimer);
   connectionManager.disconnect();
 });
 

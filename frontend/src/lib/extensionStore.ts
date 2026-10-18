@@ -1,6 +1,7 @@
 import { derived, get, writable } from "svelte/store";
 import type { ExtensionInfo } from "../../../shared/extensions";
 import {
+  fetchExtensionUpdateCount,
   fetchFileWatcherCount,
   fetchMcpServerCount,
   fetchScheduleCount,
@@ -52,11 +53,17 @@ const badgeFetchMap: Record<string, () => void> = {
   workflowCount: fetchWorkflowCount,
   fileWatcherCount: fetchFileWatcherCount,
   mcpServerCount: fetchMcpServerCount,
+  extensionUpdateCount: fetchExtensionUpdateCount,
 };
 
-/** Fetches badge data for all enabled extensions that declare a badgeKey. */
-export function fetchBadgesForEnabledExtensions(): void {
+/**
+ * Fetches badge data for enabled extensions that declare a badgeKey.
+ *
+ * @param names - Only these extensions (default: all)
+ */
+export function fetchBadgesForExtensions(names?: ReadonlySet<string>): void {
   for (const ext of get(extensions)) {
+    if (names && !names.has(ext.name)) continue;
     if (!ext.enabled || !ext.ui?.navigation) continue;
     for (const nav of ext.ui.navigation) {
       if (nav.badgeKey) badgeFetchMap[nav.badgeKey]?.();

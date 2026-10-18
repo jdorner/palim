@@ -4,8 +4,8 @@
  */
 
 import type { FSWatcher } from "node:fs";
-import { watch as fsWatch } from "node:fs";
-import { dirname } from "node:path";
+import { existsSync, watch as fsWatch } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ExtensionInfo, ExtensionUiPage, StepTypeInfo } from "@shared/extensions";
 import { FALLBACK_LOCALE, type Locale } from "@shared/i18n";
@@ -32,7 +32,15 @@ import { eq } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";
 import type { LoadedExtension } from "../internalTypes";
-import type { AgentProcessorResult, CoreQueueName, Extension, RouteRegistry, RunAgentOptions } from "../types";
+import type {
+  AgentProcessorResult,
+  CoreQueueName,
+  Extension,
+  ExternalExtensionsApi,
+  ExternalFolderStatus,
+  RouteRegistry,
+  RunAgentOptions,
+} from "../types";
 import { resolveDependencyOrder } from "./dependencyResolver";
 import {
   discoverExtensions as discoverExtensionsFn,
@@ -142,6 +150,18 @@ export class ExtensionRegistry {
   /** Extension names to skip during initialization (failed dependency resolution). */
   private skipExtensionNames = new Set<string>();
 
+  /** Import counter for cache-busting module URLs in {@link loadOne}. */
+  private importCounter = 0;
+
+  /** Last failed {@link loadOne} attempt per extension directory (cleared on success). */
+  private readonly loadFailures = new Map<string, { reason: string; at: number }>();
+
+  /** Registry view handed to extensions as `ctx.internal.extensions`. */
+  private readonly externalExtensionsApi: ExternalExtensionsApi;
+
+  /** Reconciles one external extension folder (set by the directory watcher's owner). */
+  private externalSyncFn?: (folder: string) => Promise<void>;
+
   constructor(config: ExtensionRegistryConfig) {
     this.extensionDirs = config.extensionDirs;
     this.workDir = config.workDir;
@@ -149,11 +169,79 @@ export class ExtensionRegistry {
     this.getCoreQueueFn = config.getCoreQueueFn;
     this.onSkillMapChanged = config.onSkillMapChanged;
     this.flowProducer = new FlowProducer({ embedded: true });
+    this.externalExtensionsApi = {
+      externalDir: this.extensionDirs[1] ?? "",
+      list: () =>
+        this.getLoadedExtensionInfo().map((info) => {
+          const entry = this.loaded.find((l) => l.name === info.name);
+          return {
+            name: info.name,
+            version: info.version,
+            source: info.source,
+            dir: entry?.modulePath ? dirname(entry.modulePath) : null,
+            state: entry?.state ?? "suspended",
+            enabled: info.enabled,
+            error: info.error,
+          };
+        }),
+      lastLoadFailure: (dir) => this.loadFailures.get(resolve(dir)) ?? null,
+      sync: async (folder) => {
+        const since = Date.now();
+        await this.externalSyncFn?.(folder);
+        return this.externalFolderStatus(folder, since);
+      },
+    };
+  }
+
+  /**
+   * Returns the manifest name of the extension loaded from a directory.
+   *
+   * @param dir - Extension directory
+   * @returns The manifest name, or null when nothing is loaded from there
+   */
+  loadedNameForDir(dir: string): string | null {
+    const target = resolve(dir);
+    return this.loaded.find((l) => l.modulePath && resolve(dirname(l.modulePath)) === target)?.name ?? null;
+  }
+
+  /**
+   * Reports what is loaded from one folder of the external directory.
+   *
+   * @param folder - Folder name below the external directory
+   * @param since - Load failures recorded before this time (epoch ms) are ignored
+   * @returns The folder's state
+   */
+  private externalFolderStatus(folder: string, since: number): ExternalFolderStatus {
+    const dir = resolve(this.externalExtensionsApi.externalDir, folder);
+    const entry = this.loaded.find((l) => l.modulePath && resolve(dirname(l.modulePath)) === dir);
+    if (entry) {
+      const { name, version } = entry.extension.manifest;
+      if (entry.state === "active") return { status: "active", name, version };
+      return { status: "suspended", name, version, enabled: this.isExtensionEnabled(name), error: entry.error ?? null };
+    }
+    // A failure only describes the folder while its entry point is still there: a
+    // retry that was already running when the folder was moved out may record one
+    // after `since`, but nothing is loaded from a missing folder.
+    const failure = this.loadFailures.get(dir);
+    if (failure && failure.at >= since && existsSync(join(dir, "index.ts"))) {
+      return { status: "failed", error: failure.reason };
+    }
+    return { status: "unloaded" };
   }
 
   /** The built-in extensions directory - used by the skill watcher and exposed to extensions. */
   private get builtinExtensionsDir(): string {
     return this.extensionDirs[0]!;
+  }
+
+  /**
+   * Sets the function behind `ctx.internal.extensions.sync()`, normally the
+   * external directory watcher's `ExtensionWatcher.requestSync()`.
+   *
+   * @param fn - Reconciles one folder of the external extensions directory, resolving once processed
+   */
+  setExternalSync(fn: (folder: string) => Promise<void>): void {
+    this.externalSyncFn = fn;
   }
 
   /**
@@ -602,18 +690,30 @@ export class ExtensionRegistry {
 
     // Resolve external dependencies before importing (tsconfig + npm packages)
     const extensionDir = modulePath.replace(/\/index\.ts$/, "");
+    const fail = (reason: string): false => {
+      this.loadFailures.set(resolve(extensionDir), { reason, at: Date.now() });
+      return false;
+    };
     const externalDir = this.extensionDirs[1];
     if (externalDir && extensionDir.startsWith(externalDir)) {
       const resolver = new ExternalDependencyResolver({ coreProjectDir: PROJECT_DIR });
       const result = await resolver.resolveOne(extensionDir);
       if (result.depsInstalled === false) {
         logger.error(`External dependency resolution failed for "${result.name}": ${result.error ?? "unknown error"}`);
-        return false;
+        return fail(`Dependency resolution failed: ${result.error ?? "unknown error"}`);
       }
     }
 
-    // Import with cache-busting to bypass Bun's module cache
-    const cacheBustedPath = `${modulePath}?v=${Date.now()}`;
+    // The cache-busting query below only renews index.ts itself; its own imports
+    // (sibling modules, package.json, node_modules) stay cached by path. Drop
+    // them so a reload or update picks up every changed file. Under
+    // `bun --watch`/`--hot` this has no effect (Bun keeps its own module
+    // registry there); a restart is needed in that mode.
+    purgeModuleCache(extensionDir);
+
+    // Import with cache-busting to bypass Bun's module cache (the counter keeps
+    // two loads within the same millisecond from sharing a cache entry)
+    const cacheBustedPath = `${modulePath}?v=${Date.now()}-${++this.importCounter}`;
     let ext: Extension | null = null;
 
     try {
@@ -621,13 +721,13 @@ export class ExtensionRegistry {
       const candidate = mod.default ?? mod;
 
       if (!this.validateExtension(candidate, modulePath)) {
-        return false;
+        return fail("Invalid extension module (see server log)");
       }
 
       ext = candidate;
     } catch (err) {
       logger.error(`Failed to import extension module at ${modulePath}:`, err);
-      return false;
+      return fail(`Import failed: ${(err as Error).message ?? err}`);
     }
 
     const name = ext.manifest.name;
@@ -635,7 +735,7 @@ export class ExtensionRegistry {
     // Check for duplicate name
     if (this.loaded.some((l) => l.name === name)) {
       logger.error(`Cannot load extension "${name}": already loaded`);
-      return false;
+      return fail(`An extension named "${name}" is already loaded`);
     }
 
     // Check dependencies against currently loaded extensions
@@ -644,7 +744,7 @@ export class ExtensionRegistry {
     const missingDeps = deps.filter((dep) => !loadedNames.has(dep));
     if (missingDeps.length > 0) {
       logger.error(`Cannot load extension "${name}": missing dependencies: ${missingDeps.join(", ")}`);
-      return false;
+      return fail(`Missing dependencies: ${missingDeps.join(", ")}`);
     }
 
     // Add to loaded list as suspended, then activate
@@ -670,8 +770,9 @@ export class ExtensionRegistry {
       if (failIdx !== -1) {
         this.loaded.splice(failIdx, 1);
       }
-      return false;
+      return fail(`Activation failed: ${(err as Error).message ?? err}`);
     }
+    this.loadFailures.delete(resolve(extensionDir));
 
     // Discover skills for this extension
     const extDir = modulePath.replace(/\/index\.ts$/, "");
@@ -879,6 +980,7 @@ export class ExtensionRegistry {
         variableStore: deps.variableStore,
         hitlService: deps.hitlService,
         portalLaunchers: deps.portalLaunchers,
+        externalExtensionsApi: this.externalExtensionsApi,
         identityApi: deps.userStore
           ? createIdentityApi(deps.userStore, { extensionName, log: (message) => logger.info(message) })
           : undefined,
@@ -997,6 +1099,19 @@ export class ExtensionRegistry {
 
 // ---------------------------------------------------------------------------
 // Re-export from config for backwards-compat (extension consumers may import it)
+/**
+ * Removes every cached module below a directory from Bun's module registry
+ * (`require.cache` covers ES modules too), so the next import reads them again.
+ *
+ * @param dir - Extension directory
+ */
+function purgeModuleCache(dir: string): void {
+  const prefix = `${resolve(dir)}/`;
+  for (const key of Object.keys(require.cache)) {
+    if (key.startsWith(prefix)) delete require.cache[key];
+  }
+}
+
 export { serverOrigin } from "@src/config";
 
 /**

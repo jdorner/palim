@@ -61,6 +61,23 @@ environment:
 
 The `environment` key in compose takes precedence over values from `env_file`, so your local `.env` stays unchanged (pointing at `localhost` for native development) while the container gets the correct host-reachable URL at runtime.
 
+## Extension Hub: git access
+
+The image ships `git` and `openssh-client` for the [Extension Hub](extensions/extension-hub.md), which installs extensions from git repositories.
+
+- **HTTPS** repositories need nothing extra; for private ones, enter an access token in the source dialog (stored in the secret vault).
+- **SSH** repositories need a key and the server's host key. The container runs as root, so either mount them to `/root/.ssh`, or point git at mounted files:
+
+```yaml
+volumes:
+  - ./secrets/palim_deploy_key:/run/secrets/palim_deploy_key:ro
+  - ./secrets/known_hosts:/run/secrets/known_hosts:ro
+environment:
+  GIT_SSH_COMMAND: ssh -i /run/secrets/palim_deploy_key -o UserKnownHostsFile=/run/secrets/known_hosts -o BatchMode=yes
+```
+
+Use a read-only deploy key, and keep `BatchMode=yes` when you set `GIT_SSH_COMMAND` yourself, so a missing key fails instead of waiting for a prompt. Create `known_hosts` with `ssh-keyscan -p <port> <host> > known_hosts`.
+
 ## Volumes
 
 The compose file defines two named volumes:

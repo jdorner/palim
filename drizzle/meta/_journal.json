@@ -120,6 +120,13 @@
       "when": 1790760400000,
       "tag": "0017_add-user-kind",
       "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "6",
+      "when": 1790760500000,
+      "tag": "0018_add-extension-hub",
+      "breakpoints": true
     }
   ]
 }

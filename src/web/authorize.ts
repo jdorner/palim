@@ -170,6 +170,9 @@ const RULES: readonly AuthorizationRule[] = [
   // Converter: enqueues an agent job, equivalent to sending a chat prompt.
   { methods: ["POST"], pattern: /^\/ext\/converter\/convert$/, action: "create", subject: "Session" },
 
+  // Extension hub: sources, installs, and removals put code into the server process.
+  { methods: WRITE_METHODS, pattern: /^\/ext\/extension-hub(\/|$)/, action: "manage", subject: "Extension" },
+
   // Data tables: schema edits, imports, and row writes need datatables:write.
   { methods: WRITE_METHODS, pattern: /^\/ext\/datatables(\/|$)/, action: "manage", subject: "DataTable" },
 ];

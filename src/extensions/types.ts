@@ -783,6 +783,22 @@ export interface ExtensionContext {
      * @param opts - Optional ACL configuration for the new secret
      */
     set(key: string, value: string, opts?: SetSecretOptions): Promise<void>;
+
+    /**
+     * Delete one of this extension's secrets. The deletion is audited.
+     *
+     * @param key - The secret key name
+     * @returns True when the secret existed and was deleted
+     * @throws {Error} When the vault is not configured
+     */
+    delete(key: string): Promise<boolean>;
+
+    /**
+     * List the keys of this extension's secrets (values are not decrypted).
+     *
+     * @returns Secret keys, sorted (empty when the vault is not configured)
+     */
+    keys(): Promise<string[]>;
   };
 
   // -------------------------------------------------------------------------
@@ -1151,8 +1167,82 @@ export interface ExtensionContext {
      * returned function in `shutdown()`.
      */
     identity?: IdentityApi;
+    /**
+     * Read-only view of the extensions loaded from the external extensions
+     * directory, for tooling that installs or updates them there (loading and
+     * unloading itself stays with the directory watcher).
+     */
+    extensions?: ExternalExtensionsApi;
   };
 }
+
+/** A loaded extension as reported by {@link ExternalExtensionsApi.list}. */
+export interface LoadedExtensionStatus {
+  /** Manifest name. */
+  name: string;
+  /** Manifest version. */
+  version: string;
+  /** Where the extension comes from. */
+  source: "core" | "builtin" | "external";
+  /** Absolute path of the extension directory (null when unknown). */
+  dir: string | null;
+  /** Lifecycle state. */
+  state: "active" | "suspended";
+  /** Whether the operator enabled it (disabled extensions stay suspended after a restart). */
+  enabled: boolean;
+  /** Error from the last failed activation, or null. */
+  error: string | null;
+}
+
+/** Privileged view of the extension registry for managing external extensions. */
+export interface ExternalExtensionsApi {
+  /** Absolute path of the external extensions directory. */
+  readonly externalDir: string;
+  /**
+   * Lists every loaded extension.
+   *
+   * @returns One status entry per loaded extension
+   */
+  list(): LoadedExtensionStatus[];
+  /**
+   * Returns why the extension in a directory last failed to load (import,
+   * validation, dependencies), or null when its last load attempt succeeded
+   * or none was made.
+   *
+   * @param dir - Absolute path of the extension directory
+   * @returns The failure reason and its time (epoch ms), or null
+   */
+  lastLoadFailure(dir: string): { reason: string; at: number } | null;
+  /**
+   * Asks the directory watcher to reconcile one folder of the external
+   * directory with the registry (load it if present and not loaded, unload it
+   * if gone, reload it if another tree was moved in) at once, without the
+   * debounce of filesystem events. Use after moving extension folders:
+   * back-to-back renames of the same path may not produce filesystem events.
+   * Resolves once the folder is reconciled (including activation), with what
+   * the registry then holds for it. Without a watcher it reports the current
+   * state at once.
+   *
+   * @param folder - Folder name below {@link externalDir}
+   * @returns The folder's state after the reconciliation
+   */
+  sync(folder: string): Promise<ExternalFolderStatus>;
+}
+
+/**
+ * What the registry holds for one folder of the external extensions
+ * directory, as returned by {@link ExternalExtensionsApi.sync}.
+ *
+ * - `active`: an extension from this folder is loaded and running.
+ * - `suspended`: loaded but not running (disabled by the operator, or its activation failed).
+ * - `failed`: nothing is loaded, and a load attempt made during this sync failed.
+ * - `unloaded`: nothing is loaded from this folder.
+ */
+export type ExternalFolderStatus =
+  | { status: "active"; name: string; version: string }
+  | { status: "suspended"; name: string; version: string; enabled: boolean; error: string | null }
+  | { status: "failed"; error: string }
+  | { status: "unloaded" };
 
 // ---------------------------------------------------------------------------
 // Extension

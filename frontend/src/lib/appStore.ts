@@ -46,6 +46,9 @@ export const fileWatcherCount = writable(0);
 /** Number of configured MCP servers (enabled + disabled). */
 export const mcpServerCount = writable(0);
 
+/** Number of hub-installed extensions with an available update. */
+export const extensionUpdateCount = writable(0);
+
 /**
  * Builds the WebSocket URL and returns connection options.
  * The auth token is passed via the Sec-WebSocket-Protocol header
@@ -85,6 +88,10 @@ export const fetchFileWatcherCount = () => fetchCount("/ext/filewatcher", fileWa
 
 /** Fetches the MCP server count from the API. */
 export const fetchMcpServerCount = () => fetchCount("/ext/mcp/servers", mcpServerCount, (d) => d.servers.length);
+
+/** Fetches the number of available extension updates from the extension hub. */
+export const fetchExtensionUpdateCount = () =>
+  fetchCount("/ext/extension-hub/updates", extensionUpdateCount, (d) => d.count);
 
 /** Fetches the schedule list from the scheduler extension API. */
 export async function fetchScheduleCount() {

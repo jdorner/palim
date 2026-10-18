@@ -1,0 +1,139 @@
+{
+  "actions": {
+    "changeVersion": "Version...",
+    "disable": "Disable",
+    "enable": "Enable",
+    "install": "Install",
+    "uninstall": "Uninstall",
+    "update": "Update"
+  },
+  "catalog": {
+    "addSource": "Add a source",
+    "emptySource": "This source offers no extensions (no folders with index.ts and no <name>@<version> tags).",
+    "fetchError": "Last fetch failed: {error}",
+    "fetchedAt": "fetched {date}",
+    "loading": "Loading catalog...",
+    "noSources": "No extension sources yet. Add a git repository to see the extensions it offers."
+  },
+  "check": {
+    "button": "Check for updates",
+    "running": "Checking...",
+    "sourceError": "Source \"{source}\" could not be fetched: {error}",
+    "upToDate": "All installed extensions are up to date",
+    "updates_one": "{count} update available",
+    "updates_other": "{count} updates available"
+  },
+  "columns": {
+    "actions": "Actions",
+    "enabled": "Enabled",
+    "extension": "Extension",
+    "installed": "Installed",
+    "latest": "Latest",
+    "status": "Status"
+  },
+  "confirm": {
+    "uninstallMessage": "The extension is unloaded and its files are deleted. Its settings and secrets are kept for a later reinstall.",
+    "uninstallTitle": "Uninstall {name}?"
+  },
+  "description": "Install, update, and remove external extensions from git repositories",
+  "dialog": {
+    "branchHead": "Branch {branch} (currently {version})",
+    "commit": "Commit",
+    "customRef": "Other tag, branch, or commit...",
+    "discardChanges": "Replace the local changes",
+    "followsBranch": "updates follow the branch",
+    "installTitle": "Install {name}",
+    "installed": "Installed: {version} ({ref})",
+    "latest": "latest",
+    "modifiedWarning": "The installed files were changed locally. Updating replaces them, and the local changes are lost.",
+    "prerelease": "prerelease",
+    "ref": "Tag, branch, or commit",
+    "refHint": "A branch is followed by update checks; a commit stays pinned.",
+    "refPlaceholder": "e.g. main or 1a2b3c4d",
+    "reinstall": "Reinstall anyway",
+    "sameWarning": "This is the installed commit.",
+    "trustHint": "Extensions run inside the Palim server with full access. Only install code you trust.",
+    "updateTitle": "Change version of {name}",
+    "version": "Version",
+    "working": "Working..."
+  },
+  "nav": {
+    "/ext-page/extension-hub/hub": "Extension Hub"
+  },
+  "notify": {
+    "disabled": "{name} disabled",
+    "enabled": "{name} enabled",
+    "installed": "{name} {version} installed",
+    "stillLoading": "{name} is installed and still loading (installing dependencies); check back shortly",
+    "uninstalled": "{name} uninstalled",
+    "updated": "{name} updated to {version}"
+  },
+  "orphans": {
+    "hint": "Their source or folder in the repository no longer exists, so they cannot be updated.",
+    "title": "Installed from removed sources"
+  },
+  "pages": {
+    "hub": {
+      "title": "Extension Hub"
+    }
+  },
+  "settings": {
+    "checkIntervalMinutes": {
+      "description": "How often all sources are fetched to look for new versions (0 = only on demand)",
+      "title": "Update check interval (minutes)"
+    },
+    "includePrereleases": {
+      "description": "Offer prerelease versions (e.g. 1.2.0-rc.1) as the latest version",
+      "title": "Include prereleases"
+    }
+  },
+  "sources": {
+    "add": "Add source",
+    "addTitle": "Add source",
+    "branch": "Branch",
+    "branchPlaceholder": "default branch of the repository",
+    "clearToken": "Remove the stored token",
+    "defaultBranch": "default",
+    "deleteMessage": "Its local mirror is deleted. Sources with installed extensions cannot be deleted.",
+    "deleteTitle": "Delete source {name}?",
+    "deleted": "Source \"{name}\" deleted",
+    "editTitle": "Edit source {name}",
+    "empty": "No sources yet.",
+    "emptyHint": "A source is a git repository with one folder per extension, each with an index.ts and a package.json.",
+    "fetchFailed": "Fetching the source failed: {error}",
+    "fetching": "Fetching...",
+    "lastFetch": "Last fetch",
+    "loading": "Loading sources...",
+    "name": "Name",
+    "refresh": "Fetch",
+    "refreshed": "Source \"{name}\" fetched",
+    "saved": "Source \"{name}\" saved and fetched",
+    "token": "HTTPS access token",
+    "tokenHint": "Stored encrypted in the secret vault. HTTPS URLs only. Not needed for SSH or public repositories.",
+    "tokenStored": "stored - leave empty to keep",
+    "url": "Repository URL",
+    "urlHint": "SSH (uses the server's SSH keys), HTTPS, or a local path.",
+    "withToken": "with access token"
+  },
+  "status": {
+    "active": "Active",
+    "disabled": "Disabled",
+    "disabledHint": "Loaded, but disabled in the settings: it stays off after a restart",
+    "error": "Error",
+    "local": "Local folder",
+    "localHint": "A hand-placed folder with this name exists; the hub does not overwrite it",
+    "modified": "Modified",
+    "modifiedHint": "Files were changed after installing; updates discard these changes",
+    "notInstallable": "Not installable",
+    "notLoaded": "Not loaded",
+    "notLoadedHint": "The extension is installed but not loaded; see the server log",
+    "updateAvailable": "Update: {version}",
+    "versionMismatch": "Version mismatch",
+    "versionMismatchHint": "The manifest says {manifest}, package.json says {package}. Use version: pkg.version in the manifest."
+  },
+  "tabs": {
+    "catalog": "Catalog",
+    "label": "Extension Hub sections",
+    "sources": "Sources"
+  }
+}

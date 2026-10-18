@@ -2,7 +2,7 @@
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { styleText } from "node:util";
-import { EXTENSIONS_DIR, EXTERNAL_EXTENSIONS_DIR, serverOrigin, WORK_DIR } from "@src/config";
+import { BUILTIN_EXTENSIONS_DIR, EXTERNAL_EXTENSIONS_DIR, serverOrigin, WORK_DIR } from "@src/config";
 import { discoverSkills, loadSkillScripts } from "@src/skills/loader";
 import { createShell } from "@src/tools/sandbox";
 import { setSystemToken } from "@src/utils/fetch";
@@ -190,8 +190,8 @@ async function runInteractive(shell: Bash): Promise<void> {
 async function main(): Promise<void> {
   await login();
 
-  const skillMap = await discoverSkills([EXTENSIONS_DIR, EXTERNAL_EXTENSIONS_DIR]);
-  await loadSkillScripts(skillMap, EXTENSIONS_DIR);
+  const skillMap = await discoverSkills([BUILTIN_EXTENSIONS_DIR, EXTERNAL_EXTENSIONS_DIR]);
+  await loadSkillScripts(skillMap, BUILTIN_EXTENSIONS_DIR);
 
   const shell = await createShell({
     skills: [...skillMap.keys()],

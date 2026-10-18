@@ -371,6 +371,22 @@ export class SecretVault {
   }
 
   /**
+   * List the secret keys stored in a scope (without decryption).
+   *
+   * @param scope - The logical scope (e.g. extension name)
+   * @returns Secret keys, sorted
+   */
+  listKeys(scope: string): string[] {
+    return this.db
+      .select({ secretKey: secretsVault.secretKey })
+      .from(secretsVault)
+      .where(eq(secretsVault.scope, scope))
+      .all()
+      .map((row) => row.secretKey)
+      .sort();
+  }
+
+  /**
    * List secrets for a scope with set/unset status relative to a schema.
    *
    * Checks which keys from the provided schema exist in the database and

@@ -73,6 +73,7 @@ export interface ExtensionTsconfigContent {
     verbatimModuleSyntax: boolean;
     noEmit: boolean;
     skipLibCheck: boolean;
+    resolveJsonModule: boolean;
     typeRoots: string[];
     paths: Record<string, string[]>;
   };
@@ -138,6 +139,8 @@ export function generateExtensionTsconfig(extensionDir: string, coreProjectDir: 
       verbatimModuleSyntax: true,
       noEmit: true,
       skipLibCheck: true,
+      // `import pkg from "./package.json"` (manifest version from package.json)
+      resolveJsonModule: true,
       typeRoots: [`${relativeToCoreProject}/node_modules/@types`],
       paths: {
         "@ext/types": [`${relativeToCoreProject}/src/extensions/types.ts`],

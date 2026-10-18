@@ -105,8 +105,7 @@ Workflows can ask people for approvals or input with a `humanTask` step. They an
 | `AUTH_ADMIN_PASSWORD` | Password for the seeded admin (empty = generate a one-time password and log it once) | - |
 | `AUTH_SESSION_TTL_MS` | Login token lifetime in ms | `604800000` (7 days) |
 | `PORTAL_PUBLIC_URL` | Public URL of the [portal](docs/portal.md) | - |
-| `DATA_DIR` | Directory for databases and generated content | `<AGENT_WORK_DIR>/.palim/` |
-| `EXTENSIONS_DIR` | Custom extensions directory | `src/extensions` |
+| `DATA_DIR` | Directory for databases, generated content, and external extensions (must be outside `AGENT_WORK_DIR`) | `<project>/.palim/` |
 | `SECRETS_MASTER_KEY` | Derivation key for SecretVault encryption | - |
 
 ### Secrets

@@ -159,6 +159,39 @@ describe("ExtensionRegistry.loadOne", () => {
     expect(info.some((i) => i.name === "test-ext")).toBe(true);
   });
 
+  test("exposes loaded extensions and load failures via ctx.internal.extensions", async () => {
+    const externalDir = join(tempDir, "external");
+    const probeDir = join(externalDir, "probe-ext");
+    mkdirSync(probeDir, { recursive: true });
+    await Bun.write(
+      join(probeDir, "index.ts"),
+      `export default {
+  manifest: { name: "probe-ext", version: "1.0.0" },
+  async initialize(ctx) { globalThis.__probeApi = ctx.internal.extensions; },
+  async shutdown() {},
+};`,
+    );
+    expect(await registry.loadOne(join(probeDir, "index.ts"))).toBe(true);
+    const api = (globalThis as Record<string, unknown>).__probeApi as import("../types").ExternalExtensionsApi;
+    expect(api.externalDir).toBe(externalDir);
+    expect(api.list().find((e) => e.name === "probe-ext")).toMatchObject({
+      dir: probeDir,
+      source: "external",
+      state: "active",
+      enabled: false,
+    });
+
+    const brokenDir = join(externalDir, "broken-ext");
+    mkdirSync(brokenDir, { recursive: true });
+    await Bun.write(join(brokenDir, "index.ts"), "export default { manifest: {} };");
+    expect(await registry.loadOne(join(brokenDir, "index.ts"))).toBe(false);
+    expect(api.lastLoadFailure(brokenDir)?.reason).toContain("Invalid extension module");
+
+    await createTempExtension(externalDir, "broken-ext");
+    expect(await registry.loadOne(join(brokenDir, "index.ts"))).toBe(true);
+    expect(api.lastLoadFailure(brokenDir)).toBeNull();
+  });
+
   test("broadcasts extension_lifecycle loaded event on success", async () => {
     const extDir = await createTempExtension(join(tempDir, "external"), "broadcast-ext");
     const modulePath = join(extDir, "index.ts");

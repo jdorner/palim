@@ -1,10 +1,11 @@
-import { afterAll, afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { mkdirSync, rmSync } from "node:fs";
+import { afterAll, afterEach, beforeEach, describe, expect, spyOn, test } from "bun:test";
+import { mkdirSync, renameSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { WebSocketMessage } from "@shared/websocket";
 import { DATA_DIR } from "@src/config";
 import { closeDb, getDb, schema } from "@src/db";
+import type { ExternalExtensionsApi } from "../types";
 import { ExtensionWatcher } from "./extensionWatcher";
 import type { RegistryInitDeps } from "./registry";
 import { ExtensionRegistry } from "./registry";
@@ -441,6 +442,145 @@ export default {
       expect(info.some((i) => i.name === "reload-ext" && i.version === "2.0.0")).toBe(true);
       expect(registry.getRegisteredTools().some((t) => t.name === "reload-ext_tool_v1")).toBe(false);
       expect(registry.getRegisteredTools().some((t) => t.name === "reload-ext_tool_v2")).toBe(true);
+    });
+
+    test("reload picks up changed sibling modules and package.json", async () => {
+      await watcher.start();
+      const extDir = join(externalDir, "deps-ext");
+      mkdirSync(extDir, { recursive: true });
+      await Bun.write(join(extDir, "package.json"), JSON.stringify({ name: "deps-ext", version: "1.0.0" }));
+      await Bun.write(join(extDir, "dep.ts"), `export const label = "one";`);
+      await Bun.write(
+        join(extDir, "index.ts"),
+        `import pkg from "./package.json";
+import { label } from "./dep.ts";
+export default {
+  manifest: { name: pkg.name, version: pkg.version, description: label },
+  async initialize() {},
+  async shutdown() {},
+};
+`,
+      );
+      await sleep(EVENT_SETTLE_MS);
+      expect(registry.getLoadedExtensionInfo().find((i) => i.name === "deps-ext")).toMatchObject({
+        version: "1.0.0",
+        description: "one",
+      });
+
+      await Bun.write(join(extDir, "package.json"), JSON.stringify({ name: "deps-ext", version: "2.0.0" }));
+      await Bun.write(join(extDir, "dep.ts"), `export const label = "two";`);
+      await Bun.write(join(extDir, "index.ts"), `${await Bun.file(join(extDir, "index.ts")).text()}\n`);
+      await sleep(EVENT_SETTLE_MS);
+      expect(registry.getLoadedExtensionInfo().find((i) => i.name === "deps-ext")).toMatchObject({
+        version: "2.0.0",
+        description: "two",
+      });
+    });
+  });
+
+  describe("requestSync", () => {
+    test("loads a present folder and unloads a removed one without filesystem events", async () => {
+      // Not started: no filesystem events reach the watcher at all.
+      await createTempExtension(externalDir, "sync-ext");
+      watcher.requestSync("sync-ext");
+      await sleep(EVENT_SETTLE_MS);
+      expect(registry.getLoadedExtensionInfo().some((i) => i.name === "sync-ext")).toBe(true);
+
+      rmSync(join(externalDir, "sync-ext"), { recursive: true, force: true });
+      watcher.requestSync("sync-ext");
+      await sleep(EVENT_SETTLE_MS);
+      expect(registry.getLoadedExtensionInfo().some((i) => i.name === "sync-ext")).toBe(false);
+    });
+
+    test("ignores loaded folders and invalid names", async () => {
+      await createTempExtension(externalDir, "steady-ext");
+      watcher.requestSync("steady-ext");
+      await sleep(EVENT_SETTLE_MS);
+      const loadedBefore = registry.getLoadedExtensionInfo().length;
+      watcher.requestSync("steady-ext");
+      watcher.requestSync("../etc");
+      watcher.requestSync(".hidden");
+      await sleep(EVENT_SETTLE_MS);
+      expect(registry.getLoadedExtensionInfo().length).toBe(loadedBefore);
+    });
+
+    test("runs at once instead of waiting for the debounce", async () => {
+      const slow = new ExtensionWatcher({ directory: externalDir, registry, debounceMs: 60_000 });
+      await createTempExtension(externalDir, "quick-ext");
+      await slow.requestSync("quick-ext");
+      expect(registry.loadedNameForDir(join(externalDir, "quick-ext"))).toBe("quick-ext");
+      await slow.stop();
+    });
+
+    test("leaves an unchanged folder alone and reloads an edited entry point", async () => {
+      await createTempExtension(externalDir, "same-ext");
+      await watcher.requestSync("same-ext");
+      const unload = spyOn(registry, "unloadOne");
+      await watcher.requestSync("same-ext");
+      expect(unload).not.toHaveBeenCalled();
+
+      await sleep(20); // a distinct mtime
+      await Bun.write(
+        join(externalDir, "same-ext", "index.ts"),
+        `// edited\n${await Bun.file(join(externalDir, "same-ext", "index.ts")).text()}`,
+      );
+      await watcher.requestSync("same-ext");
+      expect(unload).toHaveBeenCalledTimes(1);
+      expect(registry.loadedNameForDir(join(externalDir, "same-ext"))).toBe("same-ext");
+      unload.mockRestore();
+    });
+
+    test("late filesystem events after a folder swap do not unload or reload the new tree", async () => {
+      await watcher.start();
+      const dir = join(externalDir, "swap-ext");
+      await createTempExtension(externalDir, "swap-ext");
+      await watcher.requestSync("swap-ext");
+
+      const unload = spyOn(registry, "unloadOne");
+      const load = spyOn(registry, "loadOne");
+      // Like an update: move the old tree out, sync, move the new tree in, sync.
+      renameSync(dir, join(tempDir, "old-swap-ext"));
+      await watcher.requestSync("swap-ext");
+      await createTempExtension(tempDir, "swap-ext");
+      renameSync(join(tempDir, "swap-ext"), dir);
+      await watcher.requestSync("swap-ext");
+      expect(unload).toHaveBeenCalledTimes(1);
+      expect(load).toHaveBeenCalledTimes(1);
+
+      // chokidar reports both moves afterwards; they must change nothing.
+      await sleep(EVENT_SETTLE_MS);
+      expect(unload).toHaveBeenCalledTimes(1);
+      expect(load).toHaveBeenCalledTimes(1);
+      expect(registry.loadedNameForDir(dir)).toBe("swap-ext");
+      unload.mockRestore();
+      load.mockRestore();
+    });
+
+    test("resolves once processed, with the registry's state of the folder", async () => {
+      registry.setExternalSync((folder) => watcher.requestSync(folder));
+      const api = (registry as unknown as { externalExtensionsApi: ExternalExtensionsApi }).externalExtensionsApi;
+
+      await createTempExtension(externalDir, "awaited-ext");
+      expect(await api.sync("awaited-ext")).toEqual({ status: "active", name: "awaited-ext", version: "1.0.0" });
+      // Already loaded: nothing queued, the state is reported as is.
+      expect((await api.sync("awaited-ext")).status).toBe("active");
+
+      rmSync(join(externalDir, "awaited-ext"), { recursive: true, force: true });
+      expect(await api.sync("awaited-ext")).toEqual({ status: "unloaded" });
+
+      mkdirSync(join(externalDir, "throwing-ext"));
+      await Bun.write(
+        join(externalDir, "throwing-ext", "index.ts"),
+        `export default {
+  manifest: { name: "throwing-ext", version: "1.0.0" },
+  async initialize() { throw new Error("no luck"); },
+  async shutdown() {},
+};
+`,
+      );
+      const failed = await api.sync("throwing-ext");
+      expect(failed.status).toBe("failed");
+      expect(failed.status === "failed" && failed.error).toContain("no luck");
     });
   });
 });

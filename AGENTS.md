@@ -48,11 +48,10 @@ The web UI is served at `http://localhost:3000` by default (configurable via `WE
 | `WEB_PORT`             | Web server port                                | `3000`                     |
 | `WEB_PUBLIC_URL`       | Public base URL of the operator UI (links from workflows, `{{run.baseUrl}}`) | - (server origin)  |
 | `TRUSTED_PROXIES`      | Reverse proxy IPs/CIDRs whose `X-Forwarded-For` is trusted | - (header ignored) |
-| `EXTENSIONS_DIR`       | Custom extensions directory                    | `src/extensions`           |
 | `AUTH_ADMIN_USER`      | Username of the admin seeded on first boot     | `admin`                    |
 | `AUTH_ADMIN_PASSWORD`  | Seeded admin password (empty = generate + log) | -                          |
 | `AUTH_SESSION_TTL_MS`  | Login token lifetime (ms)                      | `604800000` (7 days)       |
-| `DATA_DIR`             | Directory for databases and generated content  | `<AGENT_WORK_DIR>/.palim/` |
+| `DATA_DIR`             | Directory for databases, generated content, external extensions (must be outside `AGENT_WORK_DIR`) | `<project>/.palim/` |
 | `HITL_ENABLED`         | Enable human tasks (humanTask step, portal API + app; experimental) | `false` |
 | `PORTAL_PUBLIC_URL`    | Public URL of the portal (deep links, hint for portal accounts) | - |
 | `TELEGRAM_BOT_TOKEN`   | Telegram bot token                             | -                          |
@@ -145,6 +144,7 @@ src/
 │   │   └── workflows/       # DAG job pipelines (JSON5: steps map + edges array)
 │   ├── core-wf-steps/       # Core (top-level): built-in workflow step types
 │   ├── datatables/          # Typed data tables (JSON rows), CSV/XLSX import/export, step types, `datatable` program, UI page
+│   ├── extension-hub/       # Install/update external extensions from git sources (bare mirrors, <name>@<semver> tags), UI page
 │   └── <name>/index.ts      # Optional extensions (see list below)
 ├── secrets/
 │   ├── vault.ts             # SecretVault: SQLite-backed AES-256-GCM encrypted storage with per-row ACL
@@ -264,8 +264,10 @@ portal/                      # End-user portal (Svelte 5 + Vite + Tailwind 4), s
                              # `$lib` = frontend/src/lib (reused `@palim/ui` kit), `$shared` = shared/
                              # Built to portal/dist; Palim serves it at /portal/ when present
 
+.palim/                      # Default DATA_DIR: databases, compiled extension UI bundles, external extensions
+                             # (must not be inside WORK_DIR; config.ts refuses to load otherwise)
+
 WORK_DIR/                    # AGENT_WORK_DIR - the agent's workspace (real directory mounted into sandbox)
-├── .palim/                  # Default DATA_DIR: databases, compiled extension UI bundles
 ├── data/wiki/               # Wiki extension pages (default of its "Wiki directory" setting)
 ├── workflows/               # Workflow pipeline definitions (JSON5 DAG)
 └── ...                      # Anything else is user/agent content (e.g. folders watched by file watchers)
@@ -357,7 +359,11 @@ Extensions declare Svelte 5 pages in `manifest.ui.pages` (`{ id, title, entry: "
 
 Extension routes are not mounted on Elysia directly (Elysia cannot add routes after `listen()`). The web server mounts a fixed `/ext/*` catch-all that dispatches through `ExtensionRouter` (`src/web/extensionRouter.ts`); routes are added on registration and removed on deactivate/unload, so enabling, re-enabling, or hot-loading an extension at runtime takes effect immediately. The router parses the body per the route's `parse` option from a clone of the request, so handlers can still read `request` directly.
 
-Current extensions (14): **converter**, **datatables**, **error-analyzer**, **mcp**, **ntfy**, **steering**, **telegram**, **web-fetch**, **wiki** | Core: **core-wf-steps**, **filewatcher**, **scheduler**, **webhooks**, **workflows**
+#### Extension Hub
+
+`src/extensions/extension-hub/` installs external extensions from git repositories (one folder per extension with `index.ts` + a `package.json` named after the folder with a semver `version`; releases are tags `<name>@<version>`). Each source is a bare mirror in `<DATA_DIR>/extension-hub/repos/`; install records live in the DB (`ext_extension_hub_*`, migration `0018`), never in files. Trees are extracted with `git archive` into staging and renamed into `EXTERNAL_EXTENSIONS_DIR`; loading stays with the `ExtensionWatcher`, driven explicitly via `ctx.internal.extensions.sync(folder)` (back-to-back renames of one path may emit no chokidar events), which reconciles the folder at once (no debounce) and resolves with its confirmed state (`active`/`suspended`/`failed`/`unloaded`). The watcher decides from the folder's state, not the event type: a fingerprint (folder and `index.ts` inode, `index.ts` mtime) taken at load tells a replaced or edited tree from late or duplicate chokidar events, which change nothing. Updates swap sequentially (move out, confirm unload, move in, confirm load); an unconfirmed unload aborts before the new tree is moved in, a failed or timed-out load restores the previous tree and keeps its install record, and the old tree is deleted only once the new one is active. A periodic check (`checkIntervalMinutes`) fetches all sources and emits `updates_changed` (feeds the `extensionUpdateCount` nav badge). `registry.loadOne()` purges the extension directory's entries from Bun's module cache (`require.cache`) before importing, so reloads pick up changed sibling modules and `package.json`, not just `index.ts`. This has no effect under `bun --watch`/`--hot` (Bun keeps its own module registry there), so in `bun run dev` hub updates return a restart warning.
+
+Current extensions (15): **converter**, **datatables**, **error-analyzer**, **extension-hub**, **mcp**, **ntfy**, **steering**, **telegram**, **web-fetch**, **wiki** | Core: **core-wf-steps**, **filewatcher**, **scheduler**, **webhooks**, **workflows**
 
 #### Dynamic Schema Enrichment
 
@@ -477,7 +483,7 @@ Palim has two layers of secret management:
 - Extension and workflow secrets managed via the web UI
 - Per-row ACL with consumer identity pattern matching
 - All access attempts are audit-logged to SQLite
-- Extensions access secrets via `ctx.secrets.get(key)` / `ctx.secrets.set(key, value)`
+- Extensions access secrets via `ctx.secrets.get(key)` / `ctx.secrets.set(key, value)`, delete them with `ctx.secrets.delete(key)`, and list their keys with `ctx.secrets.keys()`
 - Workflows access secrets via `{{secret.KEY_NAME}}` template syntax
 - Requires `SECRETS_MASTER_KEY` (or derivation from `.env.keys`) for encryption
 

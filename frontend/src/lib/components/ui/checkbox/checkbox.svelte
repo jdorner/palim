@@ -8,7 +8,7 @@ let {
   checked = $bindable(false),
   onCheckedChange,
   ...restProps
-}: {
+}: Omit<CheckboxPrimitive.RootProps, "class" | "checked" | "onCheckedChange" | "children" | "child"> & {
   class?: string;
   checked?: boolean;
   onCheckedChange?: (checked: boolean | "indeterminate") => void;
