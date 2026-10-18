@@ -259,3 +259,21 @@ export const HITL_ENABLED: boolean = (() => {
   );
   return raw === "true" || raw === "1";
 })();
+
+/**
+ * Default time zone of the workflow template date functions (`formatDate`,
+ * `addDays`, ...). Empty uses the server's time zone. Fails fast on a name the
+ * runtime does not know.
+ */
+export const WORKFLOW_TIMEZONE: string = (() => {
+  const raw = process.env.WORKFLOW_TIMEZONE?.trim() ?? "";
+  if (raw === "") return "";
+  let valid = true;
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: raw });
+  } catch {
+    valid = false;
+  }
+  assert(valid, `Invalid WORKFLOW_TIMEZONE: "${raw}" (must be an IANA time zone such as "Europe/Berlin")`);
+  return raw;
+})();

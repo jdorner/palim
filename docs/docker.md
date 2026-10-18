@@ -39,6 +39,8 @@ Set `WEB_HOST=::` so the server binds to all interfaces (IPv4 and IPv6) inside t
 
 If a reverse proxy (nginx, Caddy, Traefik) sits in front of the container, set `TRUSTED_PROXIES` to its address or network (for example `172.16.0.0/12` for Docker's default bridge networks). Otherwise every client appears with the proxy's IP and shares one rate-limit bucket and login-throttle counter. See [Reverse proxies](api-security-model.md#reverse-proxies).
 
+Containers usually run in UTC. Set `WORKFLOW_TIMEZONE` (for example `Europe/Berlin`) so workflow date functions such as `today()` and `formatDate()` work in your local time.
+
 A [`docker-compose.yml`](../docker-compose.yml) is provided for volume-managed runs with persistent workspace and database data.
 
 ## Connecting to a Local LLM

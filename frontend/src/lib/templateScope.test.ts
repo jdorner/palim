@@ -1376,7 +1376,7 @@ describe("getFunctionSuggestions", () => {
 
   test("filters by case-sensitive startsWith prefix", () => {
     const labels = getFunctionSuggestions("st").map((s) => s.label);
-    expect(labels).toEqual(["startsWith", "stripDataUri"]);
+    expect(labels).toEqual(["startsWith", "stripDataUri", "startOfDay"]);
     expect(getFunctionSuggestions("St")).toEqual([]);
   });
 
