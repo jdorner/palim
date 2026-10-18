@@ -66,6 +66,23 @@ describe("createIdentityApi", () => {
     expect(calls[1]).toEqual(["u1", 5000]);
   });
 
+  test("logs a reused token once and a fresh one again", () => {
+    let token = "tok-1";
+    const { identity, logs } = api({ mint: () => token });
+    identity.mintToken("alice");
+    identity.mintToken("alice");
+    identity.mintToken("alice");
+    expect(logs).toHaveLength(1);
+    token = "tok-2";
+    identity.mintToken("alice");
+    identity.mintToken("zoe");
+    expect(logs).toEqual([
+      'Extension "ext-a" minted a token for user "alice"',
+      'Extension "ext-a" minted a token for user "alice"',
+      'Extension "ext-a" minted a token for user "zoe"',
+    ]);
+  });
+
   test("refuses unknown, disabled, portal, admin, and system accounts without minting", () => {
     let minted = 0;
     const { identity, logs } = api({
