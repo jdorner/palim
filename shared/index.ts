@@ -15,10 +15,11 @@ export type {
   ExtensionUiPage,
   NavigationEntry,
   SecretSchemaEntry,
+  SelfReferenceOrder,
   StepIconName,
   StepTypeInfo,
 } from "./extensions";
-export { STEP_ICON_NAMES } from "./extensions";
+export { resolvedSelfFields, STEP_ICON_NAMES } from "./extensions";
 export type {
   ExtensionUiEvent,
   MountExtensionPage,

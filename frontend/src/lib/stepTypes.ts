@@ -8,7 +8,7 @@
  */
 
 import { get } from "svelte/store";
-import type { StepTypeInfo } from "$shared/extensions";
+import type { SelfReferenceOrder, StepTypeInfo } from "$shared/extensions";
 import { extensions } from "./extensionStore";
 import { translateCore as t, translateExtension } from "./i18nCore";
 
@@ -85,9 +85,8 @@ export function categoryForType(type: string): string | undefined {
 }
 
 /**
- * Whether a step type may reference its own result inside an iterator body
- * (declared by the handler's `selfReference` flag, e.g. `set-variables`).
- * Built-in types never do.
+ * Whether a step type may reference its own result (declared by the handler's
+ * `selfReference` flag, e.g. `set-variables`). Built-in types never do.
  *
  * @param type - The step type identifier
  * @returns True when the registered step type declares `selfReference`
@@ -147,4 +146,20 @@ export function labelForStepType(type: string, triggerType?: string): string {
     default:
       return getCustomStepLabel(type) ?? `${type.charAt(0).toUpperCase()}${type.slice(1)}`;
   }
+}
+
+/**
+ * The order in which a self-referencing step type sets its result fields
+ * (the handler's `selfReferenceOrder`, e.g. `set-variables` entries).
+ *
+ * @param type - The step type identifier
+ * @returns The declared order, or undefined when the type declares none
+ */
+export function selfReferenceOrder(type: string): SelfReferenceOrder | undefined {
+  for (const ext of get(extensions)) {
+    if (!ext.enabled || !ext.ui?.stepTypes) continue;
+    const match = ext.ui.stepTypes.find((st) => st.type === type);
+    if (match) return match.selfReferenceOrder;
+  }
+  return undefined;
 }

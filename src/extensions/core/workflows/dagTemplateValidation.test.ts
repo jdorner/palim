@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
+import { resolvedSelfFields } from "@shared/extensions";
 import { type OutputSchema, walkSchemaPath } from "@shared/workflows";
 import fc from "fast-check";
-import { resolvedSetVariablesFields } from "../../core-wf-steps/setVariables";
 import { type TemplateWarning, validateDagWorkflowTemplates } from "./dagTemplateValidation";
 import type { DagStepDef, DagWorkflowDefinition } from "./schemas";
 
@@ -669,7 +669,7 @@ describe("validateDagWorkflowTemplates - set-variables self-references", () => {
   const options = {
     allowsSelfReference: (type: string) => type === "set-variables",
     resolvedSelfFields: (step: DagStepDef, field: string) =>
-      resolvedSetVariablesFields(step as Record<string, unknown>, field),
+      resolvedSelfFields({ list: "variables", name: "name" }, step as Record<string, unknown>, field),
   };
 
   /** A single set-variables step `vars` with the given entries. */

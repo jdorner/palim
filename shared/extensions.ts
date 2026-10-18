@@ -98,6 +98,44 @@ export const STEP_ICON_NAMES = [
 export type StepIconName = (typeof STEP_ICON_NAMES)[number];
 
 /**
+ * Declares that a step sets its result fields in the order of a config list:
+ * item `i` of `config[list]` sets the result field named `item[name]`, so while
+ * a template field inside item `i` is resolved, only the fields of the items
+ * before it are set (e.g. `set-variables`: `{ list: "variables", name: "name" }`).
+ */
+export interface SelfReferenceOrder {
+  /** Config key of the ordered list. */
+  list: string;
+  /** Key of the result field name within each list item. */
+  name: string;
+}
+
+/**
+ * The own result fields a step has already set when a template field is
+ * resolved, per its {@link SelfReferenceOrder}.
+ *
+ * @param order - The step type's ordering declaration
+ * @param config - The step config (holding `config[order.list]`)
+ * @param fieldPath - Dotted path of the template field (e.g. `variables.2.value`)
+ * @returns The names set by the list items before the field's item (empty for fields outside the list)
+ */
+export function resolvedSelfFields(
+  order: SelfReferenceOrder,
+  config: Record<string, unknown>,
+  fieldPath: string,
+): string[] {
+  const prefix = `${order.list}.`;
+  if (!fieldPath.startsWith(prefix)) return [];
+  const index = Number(fieldPath.slice(prefix.length).split(".")[0]);
+  const items = config[order.list];
+  if (!Number.isInteger(index) || !Array.isArray(items)) return [];
+  return items.slice(0, index).flatMap((item) => {
+    const name = (item as Record<string, unknown> | null)?.[order.name];
+    return typeof name === "string" && name !== "" ? [name] : [];
+  });
+}
+
+/**
  * Metadata about a registered custom workflow step type.
  * Surfaced to the frontend for workflow editor UI rendering.
  */
@@ -124,6 +162,11 @@ export interface StepTypeInfo {
    * `StepTypeHandler.selfReference`.
    */
   selfReference?: boolean;
+  /**
+   * For `selfReference` step types that set their result fields one by one, in
+   * the order of a config list. See `StepTypeHandler.selfReferenceOrder`.
+   */
+  selfReferenceOrder?: SelfReferenceOrder;
   /** JSON Schema describing the step's configuration fields (derived from the handler's TypeBox schema). */
   configSchema?: Record<string, unknown>;
   /**

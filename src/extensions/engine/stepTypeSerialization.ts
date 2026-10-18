@@ -77,6 +77,7 @@ export function serializeStepType(st: RegisteredStepType): StepTypeInfo {
     extensionName: st.extensionName,
     terminal: st.handler.terminal ?? false,
     selfReference: st.handler.selfReference ?? false,
+    selfReferenceOrder: st.handler.selfReferenceOrder,
     category: st.handler.category,
     configSchema: st.handler.schema ? enrichSchema(JSON.parse(JSON.stringify(st.handler.schema))) : undefined,
     outputSchema: resolvedOutputSchema

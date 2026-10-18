@@ -29,6 +29,7 @@ import type {
   QueueJob,
   QueueJobLogs,
   SchedulerInfo,
+  SelfReferenceOrder,
   StepTypeInfo as SerializedStepTypeInfo,
   SessionStorePort,
   SetSecretOptions,
@@ -447,16 +448,13 @@ export interface StepTypeHandler {
   selfReference?: boolean;
 
   /**
-   * For `selfReference` step types: the own result fields already set when the
-   * given template field is resolved within one execution (e.g. `set-variables`
-   * entries defined above the field). The validator accepts self-references to
-   * these fields outside an iterator body, where there is no previous pass.
-   *
-   * @param config - The step definition (config fields)
-   * @param field - The template field path, as reported by the validator (e.g. `variables.2.value`)
-   * @returns The result field names readable from that field
+   * For `selfReference` step types that set their result fields one by one in
+   * the order of a config list (e.g. `set-variables`:
+   * `{ list: "variables", name: "name" }`). Outside an iterator body, a field
+   * inside list item `i` may then reference the fields set by the items before
+   * it; the validator accepts exactly those and the editor offers exactly those.
    */
-  resolvedSelfFields?: (config: Record<string, unknown>, field: string) => string[];
+  selfReferenceOrder?: SelfReferenceOrder;
 
   /**
    * Optional palette category hint for the workflow editor's "Add Step" menu.

@@ -931,10 +931,62 @@ describe("getSuggestions does not drill into results that are not referenceable"
     expect(getSuggestions(config, ["steps", "vars", "result"], "").map((s) => s.label)).toEqual(["sent"]);
   });
 
-  test("set-variables may reference its own result outside an iterator body (earlier entries)", () => {
-    expect(getSuggestions(base, ["steps"], "").map((s) => s.label)).toContain("vars");
-    expect(getSuggestions(base, ["steps", "vars"], "").map((s) => s.label)).toContain("result");
-    expect(getSuggestions(base, ["steps", "vars", "result"], "").map((s) => s.label)).toEqual(["sent"]);
+  describe("set-variables outside an iterator body offers only the entries above the edited field", () => {
+    const entriesSchema = {
+      type: "object" as const,
+      properties: { a: { type: "number" }, b: { type: "number" }, c: { type: "number" } },
+    };
+    const vars: ScopeConfig = {
+      ...base,
+      steps: [
+        {
+          slug: "vars",
+          type: "set-variables",
+          variables: [
+            { name: "a", value: "1" },
+            { name: "b", value: "2" },
+            { name: "c", value: "" },
+          ],
+        },
+        { slug: "notify", type: "ntfy" },
+      ],
+      outputSchemas: { trigger: null, steps: { vars: entriesSchema, notify: schema } },
+      selfReferenceOrder: (type) => (type === "set-variables" ? { list: "variables", name: "name" } : undefined),
+    };
+
+    test("the third entry sees the first two", () => {
+      const config = { ...vars, fieldPath: "variables.2.value" };
+      expect(getSuggestions(config, ["steps"], "").map((s) => s.label)).toContain("vars");
+      expect(getSuggestions(config, ["steps", "vars", "result"], "").map((s) => s.label)).toEqual(["a", "b"]);
+      expect(getSuggestions(config, ["steps", "vars", "result", "c"], "")).toEqual([]);
+    });
+
+    test("the first entry sees none, so the step is not offered", () => {
+      const config = { ...vars, fieldPath: "variables.0.value" };
+      expect(getSuggestions(config, ["steps"], "").map((s) => s.label)).not.toContain("vars");
+      expect(getSuggestions(config, ["steps", "vars", "result"], "")).toEqual([]);
+    });
+
+    test("without a field position nothing is offered", () => {
+      expect(getSuggestions(vars, ["steps"], "").map((s) => s.label)).not.toContain("vars");
+    });
+
+    test("inside an iterator body every entry is offered (previous pass)", () => {
+      const config: ScopeConfig = {
+        ...vars,
+        fieldPath: "variables.0.value",
+        steps: [
+          ...vars.steps,
+          { slug: "loop", type: "iterator", items: "{{trigger.payload}}" },
+          { slug: "done", type: "aggregator", iterator: "loop" },
+        ],
+        edges: [
+          { from: "loop", to: "vars", branch: "each" },
+          { from: "vars", to: "done" },
+        ],
+      };
+      expect(getSuggestions(config, ["steps", "vars", "result"], "").map((s) => s.label)).toEqual(["a", "b", "c"]);
+    });
   });
 
   test("an unknown step slug yields no suggestions", () => {
