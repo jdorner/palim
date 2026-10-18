@@ -26,6 +26,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
+import { WORKFLOW_TIMEZONE } from "@src/config";
 import { setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
 import { resolveAmbientUserId } from "@src/utils/fetch";
 import { registerTriggerOwnerCounter } from "@src/web/triggerOwnership";
@@ -49,6 +50,7 @@ import type { DagWorkflowDefinition } from "./schemas";
 import { initSignalStore } from "./signalStore";
 import * as signalTimers from "./signalTimers";
 import { runJobs, stepData } from "./stepJobs";
+import { setDefaultTimeZone } from "./templateFunctions";
 import { createWorkflowAnalyzer } from "./workflowAnalysis";
 import { watchWorkflowDir } from "./workflowDirWatcher";
 
@@ -58,7 +60,7 @@ import { watchWorkflowDir } from "./workflowDirWatcher";
 
 const manifest = {
   name: "workflows",
-  version: "2.5.0",
+  version: "2.6.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -135,6 +137,7 @@ export function createExtension(): Extension {
 
     async initialize(ctx: ExtensionContext) {
       logger = ctx.log;
+      setDefaultTimeZone(WORKFLOW_TIMEZONE || null);
       const flowProducer = ctx.queues.getFlowProducer();
       const sessionFactory: SessionFactory = { create: (opts) => ctx.sessions.create(opts) };
 

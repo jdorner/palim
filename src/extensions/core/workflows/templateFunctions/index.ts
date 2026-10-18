@@ -22,7 +22,23 @@
  */
 
 import { TEMPLATE_FUNCTION_NAME_LIST } from "../../../../../shared/templateFunctionMeta";
-import { currentClock, nowIso, setClock } from "./date";
+import {
+  addDays,
+  addHours,
+  addMinutes,
+  addMonths,
+  diffDays,
+  diffHours,
+  diffMinutes,
+  endOfDay,
+  formatDate,
+  nowIso,
+  parseDate,
+  startOfDay,
+  timestamp,
+  today,
+  weekday,
+} from "./date";
 import {
   base64Decode,
   base64Encode,
@@ -58,12 +74,12 @@ import {
   upper,
 } from "./string";
 
+export * from "./date";
 export * from "./encoding";
 export * from "./list";
 export * from "./logic";
 export * from "./math";
 export * from "./string";
-export { currentClock, nowIso, setClock };
 
 /**
  * The registry of built-in template functions, keyed by the name authors call
@@ -139,6 +155,20 @@ export const TEMPLATE_FUNCTIONS: Record<string, (...args: unknown[]) => unknown>
   urlDecode,
   // date
   nowIso,
+  today,
+  formatDate,
+  parseDate,
+  addDays,
+  addHours,
+  addMinutes,
+  addMonths,
+  diffDays,
+  diffHours,
+  diffMinutes,
+  startOfDay,
+  endOfDay,
+  weekday,
+  timestamp,
 };
 
 /**

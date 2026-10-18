@@ -101,6 +101,7 @@ Workflows can ask people for approvals or input with a `humanTask` step. They an
 | `WEB_HOST` | Web server bind address | `localhost` |
 | `WEB_PORT` | Web server port | `3000` |
 | `TRUSTED_PROXIES` | Comma-separated IPs/CIDRs of reverse proxies whose `X-Forwarded-For` header is trusted | - (header ignored) |
+| `WORKFLOW_TIMEZONE` | Default time zone of the workflow template date functions (IANA name, e.g. `Europe/Berlin`) | - (server time zone) |
 | `AUTH_ADMIN_USER` | Username of the admin account seeded on first boot | `admin` |
 | `AUTH_ADMIN_PASSWORD` | Password for the seeded admin (empty = generate a one-time password and log it once) | - |
 | `AUTH_SESSION_TTL_MS` | Login token lifetime in ms | `604800000` (7 days) |
