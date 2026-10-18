@@ -71,6 +71,12 @@ interface Props {
   /** Prefix for element ids (nested forms use a distinct prefix to keep ids unique). */
   idPrefix?: string;
   /**
+   * Dotted path of this form's values within the step config (e.g.
+   * `variables.2.`), so template fields know their position (`variables.2.value`)
+   * as the backend validator names it. Nested forms extend it.
+   */
+  pathPrefix?: string;
+  /**
    * Translates field titles and descriptions through a catalog:
    * `<prefix>.<field>.title` / `<prefix>.<field>.description`, falling back to
    * the schema text. With `extension` the extension's catalog is used,
@@ -94,6 +100,7 @@ let {
   itemOptions,
   fieldErrors,
   idPrefix = "step-config-",
+  pathPrefix = "",
   i18nScope,
 }: Props = $props();
 
@@ -219,6 +226,7 @@ let expanded = $state<{
   get: () => string;
   set: (value: string) => void;
   maxlength?: number;
+  fieldPath?: string;
 } | null>(null);
 
 /** Step index the large editor was last reset for (not reactive). */
@@ -241,9 +249,16 @@ $effect(() => {
  * @param get - Reads the current text
  * @param set - Writes edited text
  * @param maxlength - Optional length limit
+ * @param fieldPath - Dotted path of the field within the step config (template scope)
  */
-function openExpanded(title: string, get: () => string, set: (value: string) => void, maxlength?: number) {
-  expanded = { title, get, set, maxlength };
+function openExpanded(
+  title: string,
+  get: () => string,
+  set: (value: string) => void,
+  maxlength?: number,
+  fieldPath?: string,
+) {
+  expanded = { title, get, set, maxlength, fieldPath };
 }
 
 /** Parse a comma-separated number list, dropping tokens that are not numbers. */
@@ -370,9 +385,10 @@ function parseNumberList(raw: string): number[] {
           placeholder={t("condition.valuesPlaceholder")}
           oninput={(e) => updateValue(key, parseTagList(e.currentTarget.value))}
         >
-        {#if autocompleteEnabled}
+        {#if autocompleteEnabled && prop.template !== false}
           <TemplateAutocomplete
             targetElement={fieldRefs[key] ?? null}
+            fieldPath="{pathPrefix}{key}"
             steps={steps ?? []}
             currentStepIndex={currentStepIndex ?? 0}
             secretKeys={secretKeys ?? []}
@@ -423,6 +439,7 @@ function parseNumberList(raw: string): number[] {
                 () => String(formValues[key] ?? ""),
                 (v) => updateValue(key, v),
                 prop.maxLength as number | undefined,
+                `${pathPrefix}${key}`,
               )}
           />
         </div>
@@ -436,9 +453,10 @@ function parseNumberList(raw: string): number[] {
           value={String(formValues[key] ?? "")}
           oninput={(e) => updateValue(key, (e.target as HTMLTextAreaElement).value)}
         ></textarea>
-        {#if autocompleteEnabled}
+        {#if autocompleteEnabled && prop.template !== false}
           <TemplateAutocomplete
             targetElement={fieldRefs[key] ?? null}
+            fieldPath="{pathPrefix}{key}"
             steps={steps ?? []}
             currentStepIndex={currentStepIndex ?? 0}
             secretKeys={secretKeys ?? []}
@@ -467,9 +485,10 @@ function parseNumberList(raw: string): number[] {
             <option value={option}></option>
           {/each}
         </datalist>
-        {#if autocompleteEnabled}
+        {#if autocompleteEnabled && prop.template !== false}
           <TemplateAutocomplete
             targetElement={fieldRefs[key] ?? null}
+            fieldPath="{pathPrefix}{key}"
             steps={steps ?? []}
             currentStepIndex={currentStepIndex ?? 0}
             secretKeys={secretKeys ?? []}
@@ -492,9 +511,10 @@ function parseNumberList(raw: string): number[] {
           maxlength={prop.maxLength as number | undefined}
           oninput={(e) => updateValue(key, (e.target as HTMLInputElement).value)}
         >
-        {#if autocompleteEnabled}
+        {#if autocompleteEnabled && prop.template !== false}
           <TemplateAutocomplete
             targetElement={fieldRefs[key] ?? null}
+            fieldPath="{pathPrefix}{key}"
             steps={steps ?? []}
             currentStepIndex={currentStepIndex ?? 0}
             secretKeys={secretKeys ?? []}
@@ -545,6 +565,8 @@ function parseNumberList(raw: string): number[] {
                           key,
                           listValue(key).map((item, j) => (j === i ? v : item)),
                         ),
+                      undefined,
+                      `${pathPrefix}${key}.${i}`,
                     )}
                 />
                 <button
@@ -561,9 +583,10 @@ function parseNumberList(raw: string): number[] {
                 </button>
               </div>
             </div>
-            {#if autocompleteEnabled}
+            {#if autocompleteEnabled && prop.template !== false}
               <TemplateAutocomplete
                 targetElement={fieldRefs[`${key}[${i}]`] ?? null}
+                fieldPath="{pathPrefix}{key}.{i}"
                 steps={steps ?? []}
                 currentStepIndex={currentStepIndex ?? 0}
                 secretKeys={secretKeys ?? []}
@@ -637,6 +660,7 @@ function parseNumberList(raw: string): number[] {
             {edges}
             fieldErrors={nestedErrors(`${key}.`)}
             idPrefix="{idPrefix}{key}-"
+            pathPrefix="{pathPrefix}{key}."
             i18nScope={nestedScope(key)}
           />
         </div>
@@ -675,6 +699,7 @@ function parseNumberList(raw: string): number[] {
                 {edges}
                 fieldErrors={nestedErrors(`${key}[${i}].`)}
                 idPrefix="{idPrefix}{key}-{i}-"
+                pathPrefix="{pathPrefix}{key}.{i}."
                 i18nScope={nestedScope(key)}
               />
             </div>
@@ -719,6 +744,7 @@ function parseNumberList(raw: string): number[] {
           variableKeys: variableKeys ?? [],
           outputSchemas,
           edges,
+          fieldPath: expanded.fieldPath,
         }
       : undefined}
   />

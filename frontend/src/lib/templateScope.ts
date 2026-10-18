@@ -6,6 +6,7 @@
  * No Svelte or DOM dependencies.
  */
 
+import { resolvedSelfFields, type SelfReferenceOrder } from "../../../shared/extensions";
 import { TEMPLATE_FUNCTION_META } from "../../../shared/templateFunctionMeta";
 import {
   DEFAULT_ENV_ALLOWLIST,
@@ -89,10 +90,21 @@ export interface ScopeConfig {
   /** Resolved output schemas from the workflow API */
   outputSchemas?: OutputSchemas;
   /**
-   * Whether a step type may reference its own result inside an iterator body
-   * (the step type's `selfReference` flag). When omitted, no step type may.
+   * Whether a step type may reference its own result (the step type's
+   * `selfReference` flag). When omitted, no step type may.
    */
   allowsSelfReference?: (stepType: string) => boolean;
+  /**
+   * The order in which a self-referencing step type sets its result fields
+   * (the step type's `selfReferenceOrder`). With {@link fieldPath}, limits the
+   * own result fields offered outside an iterator body to those already set.
+   */
+  selfReferenceOrder?: (stepType: string) => SelfReferenceOrder | undefined;
+  /**
+   * Dotted path of the field being edited within the step config, as the
+   * backend validator names it (e.g. `variables.2.value`).
+   */
+  fieldPath?: string;
 }
 
 /** Fixed set of top-level namespace names. */
@@ -485,8 +497,9 @@ export function computeValidResultRefs(
  * Whether `{{steps.<slug>.result}}` is a valid reference from the step being
  * edited: the referenced step must be a preceding dominator (see
  * {@link computeValidResultRefs}), or the current step itself when its type
- * supports self-reference (`config.allowsSelfReference`) and it sits inside an
- * iterator body, where it reads the previous pass's result.
+ * supports self-reference (`config.allowsSelfReference`): it then reads values
+ * set earlier in the same execution (e.g. set-variables entries above the
+ * field) or, inside an iterator body, the previous pass's result.
  *
  * @param config - The scope configuration
  * @param slug - Slug of the referenced step
@@ -496,13 +509,35 @@ function isResultReferenceable(config: ScopeConfig, slug: string): boolean {
   const current = config.steps[config.currentStepIndex];
   if (!current) return false;
   if (slug === current.slug) {
-    return (
-      typeof current.type === "string" &&
-      config.allowsSelfReference?.(current.type) === true &&
-      findEnclosingIterator(config) !== undefined
-    );
+    const allowed = ownResultFields(config);
+    return allowed === null || allowed.length > 0;
   }
   return computeValidResultRefs(config.steps, config.edges, current.slug).has(slug);
+}
+
+/**
+ * The own result fields the step being edited may reference from the current
+ * field, mirroring the backend validator: inside an iterator body every field
+ * (the previous pass's result); outside one only the fields set earlier in the
+ * same execution, per the step type's `selfReferenceOrder` and the edited
+ * field's position. Step types without `selfReference` get none.
+ *
+ * @param config - The scope configuration
+ * @returns The allowed field names, or null when every field is allowed
+ */
+function ownResultFields(config: ScopeConfig): string[] | null {
+  const current = config.steps[config.currentStepIndex];
+  if (!current || typeof current.type !== "string") return [];
+  if (config.allowsSelfReference?.(current.type) !== true) return [];
+  if (findEnclosingIterator(config) !== undefined) return null;
+  const order = config.selfReferenceOrder?.(current.type);
+  if (!order || config.fieldPath === undefined) return [];
+  // Custom step drafts wrap their fields in a `config` object.
+  const stepConfig =
+    current.config && typeof current.config === "object" && !Array.isArray(current.config)
+      ? (current.config as Record<string, unknown>)
+      : current;
+  return resolvedSelfFields(order, stepConfig, config.fieldPath);
 }
 
 /**
@@ -631,8 +666,8 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
   if (namespace === "steps") {
     if (path.length === 1) {
       // path=["steps"] -> show all step slugs, sorted alphabetically. The current
-      // step is listed only when it may reference its own result (a self-referencing
-      // step type inside an iterator body).
+      // step is listed only when it may reference its own result (a
+      // self-referencing step type such as set-variables).
       // Config is accessible from any step (static); result only from preceding steps.
       // We show all slugs and rely on backend validation to flag forward result references.
       return config.steps
@@ -670,6 +705,14 @@ export function getSuggestions(config: ScopeConfig, path: string[], prefix: stri
       const stepSchema = config.outputSchemas?.steps[slug];
       if (!stepSchema) return [];
       const subPath = path.slice(3); // segments after "result"
+      // The step's own result: only the fields already set at this field.
+      const allowed = slug === config.steps[config.currentStepIndex]?.slug ? ownResultFields(config) : null;
+      if (allowed !== null) {
+        if (subPath.length > 0 && !allowed.includes(subPath[0]!)) return [];
+        if (subPath.length === 0) {
+          return getOutputSchemaSuggestions(stepSchema, subPath, prefix).filter((s) => allowed.includes(s.label));
+        }
+      }
       return getOutputSchemaSuggestions(stepSchema, subPath, prefix);
     }
     if (path.length >= 3 && path[2] === "config") {

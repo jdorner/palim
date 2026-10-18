@@ -1,7 +1,7 @@
 <script lang="ts">
 import { t } from "$lib/i18n.svelte";
 import { computeInsertion, detectTrigger, navigateHighlight, type TriggerContext } from "../lib/autocompleteEngine";
-import { allowsSelfReference } from "../lib/stepTypes";
+import { allowsSelfReference, selfReferenceOrder } from "../lib/stepTypes";
 import {
   type OutputSchemas,
   getSuggestions as querySuggestions,
@@ -28,6 +28,8 @@ interface Props {
   outputSchemas?: OutputSchemas;
   /** DAG edges in slug space, for correct preceding-step (result) precedence */
   edges?: SlugEdge[];
+  /** Dotted path of the field within the step config (e.g. `variables.2.value`), for self-references. */
+  fieldPath?: string;
   /** Callback invoked with the new field value after insertion */
   onChange: (newValue: string) => void;
 }
@@ -41,6 +43,7 @@ let {
   envAllowlist,
   outputSchemas,
   edges,
+  fieldPath,
   onChange,
 }: Props = $props();
 
@@ -65,7 +68,18 @@ const popupId = `template-autocomplete-${uid}`;
 
 /** The scope of this field, from the current props. */
 function scopeConfig(): ScopeConfig {
-  return { steps, currentStepIndex, secretKeys, variableKeys, envAllowlist, outputSchemas, edges, allowsSelfReference };
+  return {
+    steps,
+    currentStepIndex,
+    secretKeys,
+    variableKeys,
+    envAllowlist,
+    outputSchemas,
+    edges,
+    allowsSelfReference,
+    selfReferenceOrder,
+    fieldPath,
+  };
 }
 
 /**

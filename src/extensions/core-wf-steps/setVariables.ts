@@ -16,7 +16,8 @@
  * the step's previous execution (e.g. the previous iteration of an iterator
  * body), else the type's zero value (`""`, `0`, `false`, `null`). Outside an
  * iterator body there is no previous execution, so the validator warns about a
- * self-reference there. Inside one, a variable can accumulate across iterations:
+ * self-reference there unless it names an entry above (`selfReferenceOrder`).
+ * Inside one, a variable can accumulate across iterations:
  *
  * ```json5
  * {
@@ -48,6 +49,7 @@ const VariableEntrySchema = Type.Object(
   {
     name: Type.String({
       pattern: VARIABLE_NAME_PATTERN,
+      template: false,
       title: "Name",
       description:
         "Variable name (letters, digits, underscore; not starting with a digit). " +
@@ -57,7 +59,8 @@ const VariableEntrySchema = Type.Object(
       title: "Value",
       description:
         "Literal value or {{template}} expression. Inside this step, " +
-        "{{steps.<slug>.result.<name>}} refers to the variable's current value.",
+        "{{steps.<slug>.result.<name>}} refers to the variable's current value. " +
+        "Calculate inside the braces: {{steps.<slug>.result.<name> + 1}}.",
     }),
     type: Type.Optional(
       Type.Union([Type.Literal("string"), Type.Literal("number"), Type.Literal("boolean"), Type.Literal("json")], {
@@ -206,6 +209,7 @@ export function createSetVariablesHandler(): StepTypeHandler {
     icon: "BracketsCurlyIcon",
     category: "action",
     selfReference: true,
+    selfReferenceOrder: { list: "variables", name: "name" },
 
     async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<Record<string, unknown>> {
       const { slug: _slug, type: _type, outputSchema: _os, ...configFields } = stepDef;

@@ -81,7 +81,7 @@
             "title": "Type"
           },
           "value": {
-            "description": "Literal value or {{template}} expression. Inside this step, {{steps.<slug>.result.<name>}} refers to the variable's current value.",
+            "description": "Literal value or {{template}} expression. Inside this step, {{steps.<slug>.result.<name>}} refers to the variable's current value. Calculate inside the braces: {{steps.<slug>.result.<name> + 1}}.",
             "title": "Value"
           }
         }

@@ -29,6 +29,7 @@ import type {
   QueueJob,
   QueueJobLogs,
   SchedulerInfo,
+  SelfReferenceOrder,
   StepTypeInfo as SerializedStepTypeInfo,
   SessionStorePort,
   SetSecretOptions,
@@ -437,13 +438,23 @@ export interface StepTypeHandler {
 
   /**
    * When true, the step may reference its own result
-   * (`{{steps.<own-slug>.result...}}`) inside an iterator body to read the value
-   * from the previous pass. The handler must give such references a defined
-   * value on the first pass (e.g. `set-variables` supplies zero values), since
-   * no previous result exists yet. The editor offers self-references only for
-   * these step types, and the validator warns about them for all others.
+   * (`{{steps.<own-slug>.result...}}`): values it set earlier in the same
+   * execution (see {@link resolvedSelfFields}) or, inside an iterator body, the
+   * value from the previous pass. The handler must give such references a
+   * defined value on the first pass (e.g. `set-variables` supplies zero values),
+   * since no previous result exists yet. The editor offers self-references only
+   * for these step types, and the validator warns about them for all others.
    */
   selfReference?: boolean;
+
+  /**
+   * For `selfReference` step types that set their result fields one by one in
+   * the order of a config list (e.g. `set-variables`:
+   * `{ list: "variables", name: "name" }`). Outside an iterator body, a field
+   * inside list item `i` may then reference the fields set by the items before
+   * it; the validator accepts exactly those and the editor offers exactly those.
+   */
+  selfReferenceOrder?: SelfReferenceOrder;
 
   /**
    * Optional palette category hint for the workflow editor's "Add Step" menu.

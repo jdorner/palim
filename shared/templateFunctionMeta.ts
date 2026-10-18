@@ -81,6 +81,18 @@ export const TEMPLATE_FUNCTION_META: readonly TemplateFunctionMeta[] = [
     returnType: "string",
   },
   {
+    name: "num",
+    signature: "num(value)",
+    description: "Convert a value to a number, so arithmetic on text values adds instead of concatenating.",
+    returnType: "number",
+  },
+  {
+    name: "int",
+    signature: "int(value)",
+    description: "Convert a value to an integer (truncated toward zero).",
+    returnType: "number",
+  },
+  {
     name: "nowIso",
     signature: "nowIso()",
     description: "Return the current time as an ISO 8601 string.",

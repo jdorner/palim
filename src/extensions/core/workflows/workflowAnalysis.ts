@@ -7,6 +7,7 @@
  */
 
 import type { ExtensionContext, OutputSchemaContext } from "@ext/types";
+import { resolvedSelfFields } from "@shared/extensions";
 import { type OutputSchema, type OutputSchemas, walkSchemaPath } from "@shared/workflows";
 import type { TSchema } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
@@ -391,6 +392,10 @@ export function createWorkflowAnalyzer(
       resolveStepOutputSchema: (slug) => outputSchemas.steps[slug] ?? null,
       resolveTriggerOutputSchema: () => outputSchemas.trigger,
       allowsSelfReference: (type) => ctx.stepTypes.get(type)?.selfReference === true,
+      resolvedSelfFields: (step, field) => {
+        const order = ctx.stepTypes.get(step.type)?.selfReferenceOrder;
+        return order ? resolvedSelfFields(order, step as Record<string, unknown>, field) : [];
+      },
     });
     const pairingWarnings: TemplateWarning[] = validateIteratorPairing(def).map((e) => ({
       stepSlug: "",

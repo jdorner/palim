@@ -151,6 +151,16 @@ describe("createSetVariablesHandler", () => {
       expect(stepResults.vars).toEqual({ text: "a,b,c," });
     });
 
+    test("a number variable counts up across executions with an expression", async () => {
+      const def = stepDef([{ name: "count", value: "{{steps.vars.result.count + 1}}", type: "number" }]);
+      const stepResults: Record<string, unknown> = {};
+      for (const [i, item] of ["a", "b", "c"].entries()) {
+        const ctx = createContext({ stepResults, iterationContext: { item, itemIndex: i, as: "item" } });
+        stepResults.vars = await handler.execute(def, ctx);
+      }
+      expect(stepResults.vars).toEqual({ count: 3 });
+    });
+
     test("does not mutate the shared step results", async () => {
       const stepResults: Record<string, unknown> = { vars: { text: "x" } };
       await handler.execute(

@@ -28,6 +28,8 @@ export interface ExpandedTemplateContext {
   variableKeys?: string[];
   outputSchemas?: OutputSchemas;
   edges?: SlugEdge[];
+  /** Dotted path of the edited field within the step config. */
+  fieldPath?: string;
 }
 
 interface Props {

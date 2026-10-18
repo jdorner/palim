@@ -39,6 +39,15 @@ describe("findWorkflowsReferencingVariable", () => {
       expect(findWorkflowsReferencingVariable([], "API_URL")).toEqual([]);
     });
 
+    test("finds references inside an expression, not inside string literals", () => {
+      const defs = [
+        wf("expr", { a: { type: "agent", prompt: "{{ num(var.COUNT) + 1 }}" } }),
+        wf("literal", { a: { type: "agent", prompt: "{{ trim('var.COUNT') }}" } }),
+        wf("member", { a: { type: "agent", prompt: "{{ steps.x.var.COUNT + 1 }}" } }),
+      ];
+      expect(findWorkflowsReferencingVariable(defs, "COUNT")).toEqual(["expr"]);
+    });
+
     test("finds references in if condition.ref", () => {
       const defs = [wf("if-wf", { c: { type: "if", condition: { ref: varRef("MODE"), eq: "prod" } } })];
       expect(findWorkflowsReferencingVariable(defs, "MODE")).toEqual(["if-wf"]);

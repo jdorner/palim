@@ -1,8 +1,9 @@
 import { describe, expect, test } from "bun:test";
+import { resolvedSelfFields } from "@shared/extensions";
 import { type OutputSchema, walkSchemaPath } from "@shared/workflows";
 import fc from "fast-check";
 import { type TemplateWarning, validateDagWorkflowTemplates } from "./dagTemplateValidation";
-import type { DagWorkflowDefinition } from "./schemas";
+import type { DagStepDef, DagWorkflowDefinition } from "./schemas";
 
 /**
  * Builds a minimal valid DAG workflow definition for template-validation tests.
@@ -607,6 +608,93 @@ describe("validateDagWorkflowTemplates - function-call syntax", () => {
     const def = iteratorWf('{"data": "{{ jsonEscape(stripDataUri(image.dataUrl)) }}"}');
     const warnings = await validateDagWorkflowTemplates(def);
     expect(warnings).toEqual([]);
+  });
+});
+
+describe("validateDagWorkflowTemplates - operator expressions", () => {
+  /** Builds `vars -> use` where `use` has the given prompt. */
+  function linearWf(prompt: string): DagWorkflowDefinition {
+    return wf(
+      {
+        vars: { type: "agent", prompt: "seed" },
+        use: { type: "agent", prompt },
+      },
+      [{ from: "vars", to: "use" }],
+    );
+  }
+
+  test("accepts arithmetic, comparisons, ternaries, and literals", async () => {
+    const prompts = [
+      "{{ steps.vars.result + 1 }}",
+      "{{ steps.vars.result > 3 ? 'a' : 'b' }}",
+      "{{ num(steps.vars.result) * 1.5e3 }}",
+      "{{ steps.vars.result ?? null }}",
+      "{{ steps.vars.result == true }}",
+    ];
+    for (const prompt of prompts) {
+      expect(await validateDagWorkflowTemplates(linearWf(prompt))).toEqual([]);
+    }
+  });
+
+  test("validates path references in an operator expression", async () => {
+    const warnings = await validateDagWorkflowTemplates(linearWf("{{ steps.nope.result + 1 }}"));
+    expect(warnings.find((w) => w.message.includes('unknown step slug "nope"'))).not.toBeUndefined();
+  });
+
+  test("reports a syntax error", async () => {
+    const warnings = await validateDagWorkflowTemplates(linearWf("{{ steps.vars.result + }}"));
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]!.message).toContain("Invalid expression");
+  });
+
+  test("rejects secret and env inside an expression", async () => {
+    const warnings = await validateDagWorkflowTemplates(linearWf("{{ secret.KEY + 1 }}"));
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]!.message).toContain("cannot be used inside an expression");
+  });
+
+  test("a hyphenated plain path stays a path", async () => {
+    const def = wf(
+      {
+        "fetch-mails": { type: "agent", prompt: "seed" },
+        use: { type: "agent", prompt: "{{steps.fetch-mails.result}} {{steps.fetch-mails.result + 1}}" },
+      },
+      [{ from: "fetch-mails", to: "use" }],
+    );
+    expect(await validateDagWorkflowTemplates(def)).toEqual([]);
+  });
+});
+
+describe("validateDagWorkflowTemplates - set-variables self-references", () => {
+  const options = {
+    allowsSelfReference: (type: string) => type === "set-variables",
+    resolvedSelfFields: (step: DagStepDef, field: string) =>
+      resolvedSelfFields({ list: "variables", name: "name" }, step as Record<string, unknown>, field),
+  };
+
+  /** A single set-variables step `vars` with the given entries. */
+  function varsWf(variables: { name: string; value: string }[]): DagWorkflowDefinition {
+    return wf({ vars: { type: "set-variables", variables } as DagStepDef }, []);
+  }
+
+  test("accepts references to entries above, outside an iterator body", async () => {
+    const def = varsWf([
+      { name: "a", value: "1" },
+      { name: "b", value: "2" },
+      { name: "sum", value: "{{steps.vars.result.a + steps.vars.result.b}}" },
+    ]);
+    expect(await validateDagWorkflowTemplates(def, options)).toEqual([]);
+  });
+
+  test("warns about an entry defined below, once per field", async () => {
+    const def = varsWf([
+      { name: "sum", value: "{{steps.vars.result.b + steps.vars.result.b}}" },
+      { name: "b", value: "2" },
+    ]);
+    const warnings = await validateDagWorkflowTemplates(def, options);
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]!.field).toBe("variables.0.value");
+    expect(warnings[0]!.message).toContain("outside an iterator body");
   });
 });
 

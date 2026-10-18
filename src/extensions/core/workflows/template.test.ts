@@ -569,6 +569,92 @@ describe("resolveTemplates", () => {
       expect(warnings.length).toBe(1);
     });
 
+    describe("operators", () => {
+      test("adds a number to a step result", async () => {
+        ctx.stepResults = { vars: { count: 5 } };
+        const { resolved, warnings } = await resolveTemplates("{{ steps.vars.result.count + 1 }}", ctx);
+        expect(resolved).toBe("6");
+        expect(warnings).toEqual([]);
+      });
+
+      test("supports arithmetic, comparison, ternary, and nullish coalescing", async () => {
+        ctx.stepResults = { vars: { a: 6, b: 4 } };
+        const cases: [string, string][] = [
+          ["{{steps.vars.result.a * steps.vars.result.b}}", "24"],
+          ["{{steps.vars.result.a - steps.vars.result.b}}", "2"],
+          ["{{steps.vars.result.a / steps.vars.result.b}}", "1.5"],
+          ["{{steps.vars.result.a % steps.vars.result.b}}", "2"],
+          ["{{steps.vars.result.a > 5 ? 'big' : 'small'}}", "big"],
+          ["{{steps.vars.result.missing ?? 0}}", "0"],
+          ["{{steps.vars.result.a == 6}}", "true"],
+        ];
+        for (const [template, expected] of cases) {
+          const { resolved } = await resolveTemplates(template, ctx);
+          expect(resolved).toBe(expected);
+        }
+      });
+
+      test("text outside the braces stays literal", async () => {
+        ctx.stepResults = { vars: { count: 5 } };
+        const { resolved } = await resolveTemplates(
+          "{{steps.vars.result.count}} + 1 = {{steps.vars.result.count + 1}}",
+          ctx,
+        );
+        expect(resolved).toBe("5 + 1 = 6");
+      });
+
+      test("num() turns a string variable into a number", async () => {
+        ctx.variableStore = new FakeVariableResolver(new Map([["counter", "41"]]));
+        const concat = await resolveTemplates("{{ var.counter + 1 }}", ctx);
+        expect(concat.resolved).toBe("411");
+        const sum = await resolveTemplates("{{ num(var.counter) + 1 }}", ctx);
+        expect(sum.resolved).toBe("42");
+      });
+
+      test("works on trigger payload and iterator item", async () => {
+        ctx.triggerPayload = { price: 10 };
+        ctx.iterationContext = { item: { qty: 3 }, itemIndex: 2, as: "item" };
+        const { resolved } = await resolveTemplates("{{trigger.payload.price * item.qty}} #{{itemIndex + 1}}", ctx);
+        expect(resolved).toBe("30 #3");
+      });
+
+      test("a hyphenated plain path is not read as subtraction", async () => {
+        ctx.stepResults = { "fetch-mails": { count: 2 } };
+        const plain = await resolveTemplates("{{steps.fetch-mails.result.count}}", ctx);
+        expect(plain.resolved).toBe("2");
+        const sum = await resolveTemplates("{{steps.fetch-mails.result.count + 1}}", ctx);
+        expect(sum.resolved).toBe("3");
+      });
+
+      test("arithmetic on a missing value yields NaN and warns", async () => {
+        ctx.stepResults = { vars: {} };
+        const { resolved, warnings } = await resolveTemplates("{{steps.vars.result.missing + 1}}", ctx);
+        expect(resolved).toBe("NaN");
+        expect(warnings[0]).toContain("NaN");
+      });
+
+      test("division by zero yields Infinity and warns", async () => {
+        const { resolved, warnings } = await resolveTemplates("{{ 1 / 0 }}", ctx);
+        expect(resolved).toBe("Infinity");
+        expect(warnings[0]).toContain("Infinity");
+      });
+
+      test("secret and env cannot be used inside an expression", async () => {
+        for (const template of ["{{ secret.API_KEY + 1 }}", "{{ trim(env.NODE_ENV) }}"]) {
+          const { resolved, warnings } = await resolveTemplates(template, ctx);
+          expect(resolved).toBe(`{{${template.slice(2, -2).trim()}}}`);
+          expect(warnings[0]).toContain("cannot be used inside an expression");
+        }
+      });
+
+      test("a dangling operator leaves the expression literal and warns", async () => {
+        ctx.stepResults = { vars: { count: 5 } };
+        const { resolved, warnings } = await resolveTemplates("{{steps.vars.result.count +}}", ctx);
+        expect(resolved).toBe("{{steps.vars.result.count +}}");
+        expect(warnings.length).toBe(1);
+      });
+    });
+
     describe("sandbox", () => {
       test("constructor escape does not return host process and is left literal + warned", async () => {
         const hostProcess = (globalThis as { process?: unknown }).process;

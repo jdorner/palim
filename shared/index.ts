@@ -15,10 +15,11 @@ export type {
   ExtensionUiPage,
   NavigationEntry,
   SecretSchemaEntry,
+  SelfReferenceOrder,
   StepIconName,
   StepTypeInfo,
 } from "./extensions";
-export { STEP_ICON_NAMES } from "./extensions";
+export { resolvedSelfFields, STEP_ICON_NAMES } from "./extensions";
 export type {
   ExtensionUiEvent,
   MountExtensionPage,
@@ -57,6 +58,7 @@ export type {
 } from "./portal";
 export { DEFAULT_HUMAN_TASK_OUTCOMES, HUMAN_TASK_PRIORITIES, HUMAN_TASK_STATUSES } from "./portal";
 export type { ScheduleEntry } from "./schedules";
+export { isPlainPath, maskStringLiterals } from "./templateExpression";
 export type { TemplateFunctionMeta } from "./templateFunctionMeta";
 export { TEMPLATE_FUNCTION_META, TEMPLATE_FUNCTION_NAME_LIST } from "./templateFunctionMeta";
 export type { GlobalVariableEntry } from "./variables";

@@ -11,6 +11,7 @@
  * LLM outputs) can exfiltrate sensitive env vars through chained step results.
  */
 
+import { isPlainPath, maskStringLiterals } from "@shared/templateExpression";
 import { DEFAULT_ENV_ALLOWLIST, RUN_TEMPLATE_FIELDS, type RunTemplateInfo } from "@shared/workflows";
 import type { TemplateVariableResolver } from "@src/variables";
 import { quoteHyphenatedStepRefs } from "./stepRefs";
@@ -159,6 +160,21 @@ export async function resolveTemplates(
     if (referencesForbiddenKey(trimmed)) {
       warnings.push(`Forbidden key reference in template expression: ${trimmed}`);
       resolved += `{{${trimmed}}}`;
+      continue;
+    }
+
+    // Anything that is not a plain dot-path (operators, function calls,
+    // literals) goes to the safe evaluator; only plain paths take the
+    // namespace branches below.
+    if (!isPlainPath(trimmed)) {
+      const evaluated = evaluateTemplateExpression(trimmed, ctx);
+      if (evaluated.ok) {
+        if (evaluated.warning) warnings.push(evaluated.warning);
+        resolved += evaluated.text;
+      } else {
+        warnings.push(evaluated.warning);
+        resolved += `{{${trimmed}}}`;
+      }
       continue;
     }
 
@@ -312,33 +328,6 @@ export async function resolveTemplates(
       }
     }
 
-    // Fallback for expressions that are not plain namespace references.
-    //
-    // Only expressions that use function-call / operator syntax are routed to
-    // the safe evaluator. A plain dot-path that reached this point (e.g. an
-    // unknown namespace like `unknown.thing`, or a malformed `var.A.B`) is NOT
-    // evaluated: it retains the historical "unrecognized -> left literal +
-    // warning" behavior, so existing workflows do not silently change meaning.
-    //
-    // The evaluator runs against a NON-SENSITIVE scope only. Guarded namespaces
-    // (secret, env) are intentionally NOT included: they are resolved above by
-    // the dedicated branches and must never be reachable from arbitrary
-    // expression logic. The scope exposes the same non-sensitive namespaces the
-    // path branches use (trigger, steps, var) plus the iterator alias and
-    // itemIndex when inside an iterator body.
-    if (isExpressionSyntax(trimmed)) {
-      const evalScope = buildExpressionScopeNamespaces(ctx);
-      const knownSlugs = Object.keys(evalScope.steps as Record<string, unknown>);
-      const evalResult = evaluateExpression(quoteHyphenatedStepRefs(trimmed, knownSlugs), evalScope);
-      if (evalResult.ok) {
-        resolved += stringify(evalResult.value);
-      } else {
-        warnings.push(evalResult.warning ?? `Unrecognized template expression: ${trimmed}`);
-        resolved += `{{${trimmed}}}`;
-      }
-      continue;
-    }
-
     warnings.push(`Unrecognized template expression: ${trimmed}`);
     resolved += `{{${trimmed}}}`;
   }
@@ -347,18 +336,48 @@ export async function resolveTemplates(
   return { resolved, warnings };
 }
 
+/** Matches a `secret.` / `env.` namespace reference outside a member chain. */
+const GUARDED_NAMESPACE_REF = /(?<![A-Za-z0-9_$.])(secret|env)\s*\./;
+
 /**
- * Determines whether a trimmed expression uses function-call syntax (and
- * therefore requires the safe evaluator). A dot-path - even a malformed one
- * like `var.A.` - is NOT routed to the evaluator: it retains the historical
- * namespace-branch / unrecognized-expression behavior, so existing workflows
- * keep their exact warning semantics.
+ * Evaluates an expression body (operators, function calls, literals) with the
+ * safe evaluator and stringifies the result.
  *
- * @param trimmed - The trimmed expression text (without braces)
- * @returns True when the expression uses function-call syntax
+ * The evaluator runs against a NON-SENSITIVE scope only. Guarded namespaces
+ * (secret, env) are never placed in the scope; an expression using them is
+ * rejected with a dedicated warning. A non-finite numeric result (`NaN`, e.g.
+ * arithmetic on a missing value, or `Infinity`) is substituted as is, with a
+ * warning.
+ *
+ * @param trimmed - The trimmed expression body (without braces)
+ * @param ctx - The template resolution context
+ * @returns The substitution text (plus a warning for a non-finite number), or a warning when the expression is left literal
  */
-function isExpressionSyntax(trimmed: string): boolean {
-  return trimmed.includes("(");
+function evaluateTemplateExpression(
+  trimmed: string,
+  ctx: TemplateContext,
+): { ok: true; text: string; warning?: string } | { ok: false; warning: string } {
+  const guarded = GUARDED_NAMESPACE_REF.exec(maskStringLiterals(trimmed));
+  if (guarded) {
+    return {
+      ok: false,
+      warning: `"${guarded[1]}" cannot be used inside an expression, only as a plain {{${guarded[1]}.<NAME>}} reference: ${trimmed}`,
+    };
+  }
+  const evalScope = buildExpressionScopeNamespaces(ctx);
+  const knownSlugs = Object.keys(evalScope.steps as Record<string, unknown>);
+  const result = evaluateExpression(quoteHyphenatedStepRefs(trimmed, knownSlugs), evalScope);
+  if (!result.ok) {
+    return { ok: false, warning: result.warning ?? `Unrecognized template expression: ${trimmed}` };
+  }
+  if (typeof result.value === "number" && !Number.isFinite(result.value)) {
+    return {
+      ok: true,
+      text: String(result.value),
+      warning: `Template expression evaluated to ${result.value} (missing value or non-numeric operand?): ${trimmed}`,
+    };
+  }
+  return { ok: true, text: stringify(result.value) };
 }
 
 /**
