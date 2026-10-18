@@ -459,6 +459,20 @@ export async function validateDagWorkflowTemplates(
   const ancestors = computeAncestors(definition);
   const dominators = computeDominators(definition);
 
+  // An iterator alias named like a built-in function hides that function in
+  // the iterator body (the alias wins at runtime).
+  for (const [slug, step] of Object.entries(definition.steps)) {
+    if (step.type !== "iterator") continue;
+    const alias = (step as { as?: string }).as;
+    if (alias && TEMPLATE_FUNCTION_NAMES.has(alias)) {
+      warnings.push({
+        stepSlug: slug,
+        field: "as",
+        message: `Loop variable "${alias}" has the name of a template function, which it hides inside the iterator body - choose another name`,
+      });
+    }
+  }
+
   for (const [slug, step] of Object.entries(definition.steps)) {
     const fields = getTemplateFields(step);
 

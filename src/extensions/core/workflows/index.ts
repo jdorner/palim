@@ -58,7 +58,7 @@ import { watchWorkflowDir } from "./workflowDirWatcher";
 
 const manifest = {
   name: "workflows",
-  version: "2.4.0",
+  version: "2.5.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,

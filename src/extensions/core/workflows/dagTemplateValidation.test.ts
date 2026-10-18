@@ -665,6 +665,24 @@ describe("validateDagWorkflowTemplates - operator expressions", () => {
   });
 });
 
+describe("validateDagWorkflowTemplates - iterator alias named like a function", () => {
+  test("warns about the alias and accepts new functions", async () => {
+    const def = wf(
+      {
+        loop: { type: "iterator", items: "{{trigger.payload}}", as: "first" } as DagStepDef,
+        body: { type: "agent", prompt: "{{ upper(first.name) }} {{ if(itemIndex > 0, 1, 2) }}" },
+        done: { type: "aggregator", iterator: "loop" } as DagStepDef,
+      },
+      [
+        { from: "loop", to: "body", branch: "each" },
+        { from: "body", to: "done" },
+      ],
+    );
+    const warnings = await validateDagWorkflowTemplates(def);
+    expect(warnings.map((w) => [w.stepSlug, w.field])).toEqual([["loop", "as"]]);
+  });
+});
+
 describe("validateDagWorkflowTemplates - set-variables self-references", () => {
   const options = {
     allowsSelfReference: (type: string) => type === "set-variables",
