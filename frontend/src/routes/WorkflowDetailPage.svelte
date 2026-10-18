@@ -1,10 +1,12 @@
 <script lang="ts">
 import type { Edge } from "@xyflow/svelte";
 import { Tabs } from "bits-ui";
+import { blockNavigation } from "sv-router";
 import { onDestroy, onMount } from "svelte";
 import { onReconnect } from "$lib/appStore";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
+import { AlertDialog } from "$lib/components/ui/alert-dialog";
 import { detailPanelMode } from "$lib/detailPanelMode.svelte";
 import { extensions } from "$lib/extensionStore";
 import { t } from "$lib/i18n.svelte";
@@ -136,10 +138,44 @@ async function loadEditorMeta() {
   metaLoading = false;
 }
 
+/** The draft as it was when edit mode was entered (JSON), to detect unsaved changes. */
+let editBaseline = $state<string | null>(null);
+
+/** Whether the edit draft differs from the version edit mode started from. */
+let hasUnsavedChanges = $derived(
+  editMode && editDraft !== null && editBaseline !== null && JSON.stringify(editDraft) !== editBaseline,
+);
+
+/** Resolves the pending discard confirmation; `null` while no dialog is open. */
+let discardConfirm = $state<((ok: boolean) => void) | null>(null);
+
+/** Asks the user whether to discard unsaved changes. Resolves `true` to discard. */
+function confirmDiscard(): Promise<boolean> {
+  // A newer request supersedes (cancels) a pending one.
+  discardConfirm?.(false);
+  return new Promise((resolve) => {
+    discardConfirm = resolve;
+  });
+}
+
+function settleDiscard(ok: boolean) {
+  const resolve = discardConfirm;
+  discardConfirm = null;
+  resolve?.(ok);
+}
+
+// Route changes ask before discarding unsaved edits; closing or reloading the
+// tab gets the browser's own prompt (it cannot wait for an async dialog).
+$effect(() => {
+  if (!hasUnsavedChanges) return;
+  return blockNavigation({ beforeUnload: () => false, onNavigate: confirmDiscard });
+});
+
 /** Enter edit mode with a deep copy of the current workflow data. */
 function enterEditMode() {
   if (!workflow) return;
   editDraft = draftFromWorkflow(workflow);
+  editBaseline = JSON.stringify(editDraft);
   saveError = null;
   saveErrorDetails = [];
   validationErrors = new Map();
@@ -162,10 +198,17 @@ function resyncSelectionWithWorkflow() {
   }
 }
 
+/** Cancel edit mode, asking first when there are unsaved changes. */
+async function requestCancelEdit() {
+  if (hasUnsavedChanges && !(await confirmDiscard())) return;
+  cancelEdit();
+}
+
 /** Cancel edit mode, discard changes. */
 function cancelEdit() {
   editMode = false;
   editDraft = null;
+  editBaseline = null;
   saveError = null;
   saveErrorDetails = [];
   validationErrors = new Map();
@@ -593,6 +636,7 @@ async function saveWorkflow() {
     await fetchWorkflow();
     editMode = false;
     editDraft = null;
+    editBaseline = null;
     validationErrors = new Map();
     clearHistory();
     resyncSelectionWithWorkflow();
@@ -781,6 +825,8 @@ const unsubReconnect = onReconnect(refreshRuns);
 function handleKeydown(e: KeyboardEvent) {
   // Escape already handled by a nested control (open dropdown, autocomplete).
   if (e.key === "Escape" && e.defaultPrevented) return;
+  // The discard dialog handles its own keys.
+  if (discardConfirm) return;
 
   // Escape closes an open floating panel first; a second press leaves edit mode.
   if (e.key === "Escape" && detailPanelMode.current === "floating" && sidebarOpen) {
@@ -793,7 +839,7 @@ function handleKeydown(e: KeyboardEvent) {
 
   if (e.key === "Escape") {
     e.preventDefault();
-    cancelEdit();
+    requestCancelEdit();
     return;
   }
 
@@ -856,7 +902,7 @@ onDestroy(() => {
       onUndo={undo}
       onRedo={redo}
       onSave={saveWorkflow}
-      onCancelEdit={cancelEdit}
+      onCancelEdit={requestCancelEdit}
       onEdit={enterEditMode}
       onRun={triggerRun}
       onDelete={deleteWorkflow}
@@ -967,6 +1013,15 @@ onDestroy(() => {
     }}
   />
 {/if}
+
+<AlertDialog
+  open={discardConfirm !== null}
+  title={t("workflows.discardChangesTitle")}
+  description={t("workflows.discardChangesMessage")}
+  confirmLabel={t("workflows.discardChanges")}
+  onConfirm={() => settleDiscard(true)}
+  onCancel={() => settleDiscard(false)}
+/>
 
 <!-- Step/trigger detail content, rendered either in the docked sidebar or
      in a floating panel anchored beneath the selected node. -->
