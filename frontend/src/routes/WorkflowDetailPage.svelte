@@ -601,7 +601,23 @@ function onStepSlugInput(index: number, value: string) {
   );
 }
 
-/** Save the edited workflow. */
+/** The pending "save with template issues" confirmation; `null` while no dialog is open. */
+let saveIssuesConfirm = $state<{ count: number; resolve: (ok: boolean) => void } | null>(null);
+
+/** Asks the user whether to save despite `count` template issues. Resolves `true` to save. */
+function confirmSaveWithIssues(count: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    saveIssuesConfirm = { count, resolve };
+  });
+}
+
+function settleSaveIssues(ok: boolean) {
+  const pending = saveIssuesConfirm;
+  saveIssuesConfirm = null;
+  pending?.resolve(ok);
+}
+
+/** Save the edited workflow, asking first when the draft has template issues. */
 async function saveWorkflow() {
   if (!editDraft || !workflow) return;
 
@@ -617,10 +633,17 @@ async function saveWorkflow() {
   saveErrorDetails = [];
 
   try {
+    const definition = serializeWorkflowDraft(editDraft);
+    // Analyze exactly what is saved: the live draft analysis is debounced and
+    // may lag behind the latest edit.
+    const analysis = await fetchWorkflowAnalysis(definition);
+    const issueCount = analysis?.valid ? analysis.warnings.length : 0;
+    if (issueCount > 0 && !(await confirmSaveWithIssues(issueCount))) return;
+
     const res = await authFetch(`/ext/workflows/${workflow.name}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(serializeWorkflowDraft(editDraft)),
+      body: JSON.stringify(definition),
     });
 
     if (!res.ok) {
@@ -1021,6 +1044,16 @@ onDestroy(() => {
   confirmLabel={t("workflows.discardChanges")}
   onConfirm={() => settleDiscard(true)}
   onCancel={() => settleDiscard(false)}
+/>
+
+<AlertDialog
+  open={saveIssuesConfirm !== null}
+  title={t("workflows.saveWithIssuesTitle")}
+  description={t("workflows.saveWithIssuesMessage", { count: saveIssuesConfirm?.count ?? 0 })}
+  confirmLabel={t("workflows.saveAnyway")}
+  confirmVariant="default"
+  onConfirm={() => settleSaveIssues(true)}
+  onCancel={() => settleSaveIssues(false)}
 />
 
 <!-- Step/trigger detail content, rendered either in the docked sidebar or
