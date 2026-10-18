@@ -36,7 +36,7 @@ export interface IdentityUserLookup {
 export interface IdentityApiOptions {
   /** The extension the API is handed to (used in logs and owner-counter keys). */
   extensionName: string;
-  /** Receives one line per minted token (audit trail). */
+  /** Receives one line per newly minted token (audit trail; reused tokens are not logged). */
   log: (message: string) => void;
   /** Token minter (defaults to the process-wide {@link mintIdentityToken}). */
   mint?: (userId: string, ttlMs?: number) => string | null;
@@ -55,6 +55,12 @@ export interface IdentityApiOptions {
  */
 export function createIdentityApi(users: IdentityUserLookup, options: IdentityApiOptions): IdentityApi {
   const { extensionName, log, mint = mintIdentityToken } = options;
+  /**
+   * Last token logged per user id. The minter hands out its cached token while
+   * enough lifetime remains, so callers minting per request (an MCP client sends
+   * several per connection) would otherwise log the same token over and over.
+   */
+  const lastLogged = new Map<string, string>();
 
   const isUsable = (user: UserRecord | undefined): user is UserRecord =>
     user !== undefined &&
@@ -76,7 +82,10 @@ export function createIdentityApi(users: IdentityUserLookup, options: IdentityAp
       const user = users.getUserByUsername(username);
       if (!isUsable(user)) return null;
       const token = mint(user.id, ttlMs ?? DEFAULT_TTL_MS);
-      if (token) log(`Extension "${extensionName}" minted a token for user "${username}"`);
+      if (token && lastLogged.get(user.id) !== token) {
+        lastLogged.set(user.id, token);
+        log(`Extension "${extensionName}" minted a token for user "${username}"`);
+      }
       return token;
     },
 
