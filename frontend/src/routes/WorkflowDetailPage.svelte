@@ -12,10 +12,16 @@ import { extensions } from "$lib/extensionStore";
 import { t } from "$lib/i18n.svelte";
 import { localizeStepType } from "$lib/stepTypes";
 import { UndoHistory } from "$lib/undoHistory";
-import { applyWorkflowEvent, normalizeWorkflow, type StepDef, type WorkflowDetail } from "$lib/workflowDetail";
 import {
-  draftErrorNodeIds,
+  applyWorkflowEvent,
+  normalizeWorkflow,
+  type StepDef,
+  type WorkflowDetail,
+  warningsBySlug,
+} from "$lib/workflowDetail";
+import {
   draftFromWorkflow,
+  draftNodeErrors,
   errorsAfterStepRemoval,
   graphEdgesToDraftEdges,
   nextStepId,
@@ -704,33 +710,35 @@ let activeWarnings = $derived(editMode && draftAnalysis?.valid ? draftAnalysis.w
 let activeOutputSchemas = $derived(editMode && draftAnalysis ? draftAnalysis.outputSchemas : workflow?.outputSchemas);
 
 /**
- * Slugs of steps that have a template/config warning, derived from the
- * workflow's `warnings`. Passed to the graph so the offending nodes render a
- * red error badge. Only meaningful in read-only view mode (warnings are not
- * produced for the in-progress edit draft).
+ * Template/config warning messages per step slug, derived from the workflow's
+ * `warnings`. Passed to the graph so the offending nodes render a red error
+ * badge listing them. Used in read-only view mode (edit mode keys by node id,
+ * see {@link errorNodeIds}).
  */
-let errorSlugs = $derived(new Set((workflow?.warnings ?? []).map((w) => w.stepSlug)));
+let errorSlugs = $derived(warningsBySlug(workflow?.warnings ?? []));
 
 /**
- * Synthetic node ids of draft steps that render an error badge in edit mode
- * (live validation errors plus {@link activeWarnings}). Empty outside edit mode.
+ * Error messages per synthetic node id of draft steps that render an error
+ * badge in edit mode (live validation errors plus {@link activeWarnings}).
+ * Empty outside edit mode.
  */
 let errorNodeIds = $derived(
-  editMode && editDraft ? draftErrorNodeIds(editDraft, validationErrors, activeWarnings) : new Set<string>(),
+  editMode && editDraft ? draftNodeErrors(editDraft, validationErrors, activeWarnings) : new Map<string, string[]>(),
 );
 
 /**
- * Whether the trigger node should render an error badge. In edit mode this
- * reflects live draft `validationErrors` for the trigger (keys `trigger.*`). In read-only view mode it reflects backend template
- * `warnings` targeting the trigger (identified by the reserved `__trigger__`
- * stepSlug). Keeps the trigger node visually consistent with step nodes, which
- * already show a badge for their own config errors.
+ * Error messages of the trigger node; non-empty renders its error badge. In
+ * edit mode these are live draft `validationErrors` for the trigger (keys
+ * `trigger.*`) plus {@link activeWarnings} targeting it; in read-only view mode
+ * the backend template `warnings` targeting the trigger (identified by the
+ * reserved `__trigger__` stepSlug). Keeps the trigger node visually consistent
+ * with step nodes, which already show a badge for their own config errors.
  */
-let triggerHasError = $derived.by(() => {
-  if (editMode) {
-    return [...validationErrors.keys()].some((key) => key.startsWith("trigger."));
-  }
-  return (workflow?.warnings ?? []).some((w) => w.stepSlug === "__trigger__");
+let triggerErrors = $derived.by(() => {
+  const warnings = warningsBySlug(activeWarnings).get("__trigger__") ?? [];
+  if (!editMode) return warnings;
+  const errors = [...validationErrors].filter(([key]) => key.startsWith("trigger.")).map(([, message]) => message);
+  return [...errors, ...warnings];
 });
 
 const name = $derived((route.params as { name?: string }).name ?? "");
@@ -989,7 +997,7 @@ onDestroy(() => {
               {customStepTypes}
               errorSlugs={editMode ? undefined : errorSlugs}
               errorNodeIds={editMode ? errorNodeIds : undefined}
-              {triggerHasError}
+              {triggerErrors}
               onNodeClick={onStepClick}
               {onTriggerClick}
               onPaneClick={() => {

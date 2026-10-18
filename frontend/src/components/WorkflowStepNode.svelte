@@ -17,8 +17,8 @@ interface Props {
     category?: string;
     selected?: boolean;
     terminal?: boolean;
-    /** Whether this step has a configuration/template error (shows red badge). */
-    hasError?: boolean;
+    /** Configuration/template error messages; a non-empty list shows a red badge with them as tooltip. */
+    errors?: string[];
   };
 }
 
@@ -87,8 +87,8 @@ let ringClass = $derived(data.selected ? "ring-2 ring-primary" : `ring-2 ${statu
 
   <!-- Config/template error badge: red circle with white exclamation mark,
        pinned to the top-right corner of the card. -->
-  {#if data.hasError}
-    <div class="absolute -right-2 -top-2 z-30 rounded-full bg-white leading-none" title={t("graph.configErrorTitle")}>
+  {#if data.errors?.length}
+    <div class="absolute -right-2 -top-2 z-30 rounded-full bg-white leading-none" title={data.errors.join("\n")}>
       <WarningCircleIcon size={18} weight="fill" class="text-red-500" aria-label={t("graph.configError")} />
     </div>
   {/if}

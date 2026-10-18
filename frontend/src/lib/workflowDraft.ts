@@ -7,7 +7,7 @@ import { BUILTIN_STEP_TYPES } from "$shared/workflowBuilder";
 import type { OutputSchemaShorthand } from "$shared/workflows";
 import { translateCore as t } from "./i18nCore";
 import { buildInitialValues } from "./schemaForm";
-import type { WorkflowDetail, WorkflowWarning } from "./workflowDetail";
+import { type WorkflowDetail, type WorkflowWarning, warningMessage } from "./workflowDetail";
 import {
   computeOrphanedStepIndices,
   disconnectedStepError,
@@ -480,32 +480,34 @@ export function slugErrorsAfterEdit(
 }
 
 /**
- * Synthetic node ids of draft steps that should show an error badge: steps with
- * a live validation error (`steps[<index>].…`) and steps a backend warning
- * names by slug. Matching on the id keeps the badge on the right node while a
- * slug is temporarily empty or duplicated; warnings for unknown slugs are dropped.
+ * Error messages per synthetic node id of draft steps that should show an error
+ * badge: steps with a live validation error (`steps[<index>].…`) and steps a
+ * backend warning names by slug. Matching on the id keeps the badge on the right
+ * node while a slug is temporarily empty or duplicated; warnings for unknown
+ * slugs are dropped.
  *
  * @param draft - The edit draft
  * @param errors - Live validation errors
  * @param warnings - Backend warnings for the draft (or the saved workflow until analyzed)
- * @returns The node ids to badge
+ * @returns The messages of each node to badge, keyed by node id
  */
-export function draftErrorNodeIds(
+export function draftNodeErrors(
   draft: WorkflowDraft,
   errors: Map<string, string>,
   warnings: WorkflowWarning[],
-): Set<string> {
-  const ids = new Set<string>();
-  for (const key of errors.keys()) {
+): Map<string, string[]> {
+  const byId = new Map<string, string[]>();
+  const add = (id: string, message: string) => byId.set(id, [...(byId.get(id) ?? []), message]);
+  for (const [key, message] of errors) {
     const match = key.match(/^steps\[(\d+)\]\./);
     if (!match) continue;
     const id = draft.steps[Number.parseInt(match[1]!, 10)]?.id;
-    if (id) ids.add(id);
+    if (id) add(id, message);
   }
   const slugToId = new Map(draft.steps.map((s) => [s.slug, s.id]));
   for (const w of warnings) {
     const id = slugToId.get(w.stepSlug);
-    if (id) ids.add(id);
+    if (id) add(id, warningMessage(w));
   }
-  return ids;
+  return byId;
 }

@@ -390,7 +390,6 @@
     "addStep": "Schritt hinzufügen",
     "aggregatorShape": "Form des Aggregator-Knotens",
     "configError": "Konfigurationsfehler",
-    "configErrorTitle": "Dieser Schritt hat einen Konfigurationsfehler",
     "insertStep": "Hier Schritt einfügen",
     "iteratorShape": "Form des Iterator-Knotens"
   },

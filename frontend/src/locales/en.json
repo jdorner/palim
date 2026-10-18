@@ -390,7 +390,6 @@
     "addStep": "Add Step",
     "aggregatorShape": "Aggregator node shape",
     "configError": "Configuration error",
-    "configErrorTitle": "This step has a configuration error",
     "insertStep": "Insert step here",
     "iteratorShape": "Iterator node shape"
   },

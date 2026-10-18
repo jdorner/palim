@@ -43,6 +43,29 @@ export function warningLocation(warning: WorkflowWarning): string {
   return `${slug}.${warning.field}`;
 }
 
+/**
+ * Formats a warning for a node tooltip, where the step is already known:
+ * `<field>: <message>`.
+ *
+ * @param warning - The warning to format
+ * @returns The field-prefixed message, e.g. `prompt: Unknown step "x"`
+ */
+export function warningMessage(warning: WorkflowWarning): string {
+  return `${warning.field}: ${warning.message}`;
+}
+
+/**
+ * Groups warnings by step slug (the trigger's under `__trigger__`).
+ *
+ * @param warnings - The warnings to group
+ * @returns The formatted messages (see {@link warningMessage}) per slug
+ */
+export function warningsBySlug(warnings: WorkflowWarning[]): Map<string, string[]> {
+  const bySlug = new Map<string, string[]>();
+  for (const w of warnings) bySlug.set(w.stepSlug, [...(bySlug.get(w.stepSlug) ?? []), warningMessage(w)]);
+  return bySlug;
+}
+
 export interface WorkflowRunSummary {
   runId: string;
   status: string;

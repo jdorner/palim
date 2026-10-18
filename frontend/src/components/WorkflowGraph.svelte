@@ -79,26 +79,27 @@ interface Props {
    */
   statusMap?: Record<string, StepStatus>;
   /**
-   * Set of step slugs that have a configuration/template error. Nodes whose
-   * slug is in this set render a red error badge (circle with exclamation mark)
-   * so the offending step is identifiable directly in the graph. Populated from
-   * the workflow's template `warnings` in the read-only view.
+   * Configuration/template error messages per step slug. Nodes with messages
+   * render a red error badge (circle with exclamation mark) whose tooltip lists
+   * them, so the offending step and the problem are identifiable directly in
+   * the graph. Populated from the workflow's template `warnings` in the
+   * read-only view.
    */
-  errorSlugs?: Set<string>;
+  errorSlugs?: Map<string, string[]>;
   /**
-   * Set of synthetic node ids that have a configuration error. Used in edit
-   * mode, where a step's slug may be empty or duplicated mid-edit and is thus
-   * an unreliable key; the synthetic id is stable. Nodes whose id is in this
-   * set render the same red error badge. Populated from the draft's inline
-   * `validationErrors` (keyed by step index -> synthetic id) while editing.
+   * Configuration error messages per synthetic node id. Used in edit mode,
+   * where a step's slug may be empty or duplicated mid-edit and is thus an
+   * unreliable key; the synthetic id is stable. Nodes with messages render the
+   * same red error badge. Populated from the draft's inline `validationErrors`
+   * (keyed by step index -> synthetic id) and warnings while editing.
    */
-  errorNodeIds?: Set<string>;
+  errorNodeIds?: Map<string, string[]>;
   /**
-   * Whether the trigger node has a configuration error (e.g. a missing/invalid
-   * ref). When true the trigger node renders the same red error badge as step
-   * nodes so trigger misconfiguration is visible directly on the canvas.
+   * Configuration error messages of the trigger node (e.g. a missing/invalid
+   * ref). When non-empty the trigger node renders the same red error badge as
+   * step nodes so trigger misconfiguration is visible directly on the canvas.
    */
-  triggerHasError?: boolean;
+  triggerErrors?: string[];
   onNodeClick?: (step: StepInfo, index: number) => void;
   /** Fired when the trigger node is clicked. */
   onTriggerClick?: () => void;
@@ -142,7 +143,7 @@ let {
   statusMap,
   errorSlugs,
   errorNodeIds,
-  triggerHasError = false,
+  triggerErrors = [],
   onNodeClick,
   onTriggerClick,
   onPaneClick,
@@ -235,7 +236,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
   // Merge runtime status and selection state into node data
   const nodesWithStatus = layout.nodes.map((node) => {
     if (node.id === "__trigger__") {
-      return { ...node, data: { ...node.data, selected: triggerSelected, hasError: triggerHasError } };
+      return { ...node, data: { ...node.data, selected: triggerSelected, errors: triggerErrors } };
     }
 
     // Inject addStep node callbacks and custom types (root + branch)
@@ -270,7 +271,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
     // Node IDs are step slugs in the DAG model. Resolve status/selection by slug.
     const isTerminal = terminalTypes.has(node.data.type as string);
     const slug = node.data.slug as string;
-    const hasError = (errorSlugs?.has(slug) ?? false) || (errorNodeIds?.has(node.id) ?? false);
+    const errors = [...(errorSlugs?.get(slug) ?? []), ...(errorNodeIds?.get(node.id) ?? [])];
     const iconId = iconIdByType.get(node.data.type as string);
     const category = categoryByType.get(node.data.type as string);
 
@@ -283,7 +284,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
           status,
           selected: node.id === selectedStepId,
           terminal: isTerminal,
-          hasError,
+          errors,
           iconId,
           category,
         },
@@ -298,7 +299,7 @@ function computeGraphLayout(): { nodes: Node[]; edges: Edge[] } {
         status: step?.status ?? node.data.status ?? "waiting",
         selected: node.id === selectedStepId,
         terminal: isTerminal,
-        hasError,
+        errors,
         iconId,
         category,
       },
