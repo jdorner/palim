@@ -522,7 +522,7 @@ export default {
       await sleep(20); // a distinct mtime
       await Bun.write(
         join(externalDir, "same-ext", "index.ts"),
-        "// edited\n" + (await Bun.file(join(externalDir, "same-ext", "index.ts")).text()),
+        `// edited\n${await Bun.file(join(externalDir, "same-ext", "index.ts")).text()}`,
       );
       await watcher.requestSync("same-ext");
       expect(unload).toHaveBeenCalledTimes(1);
