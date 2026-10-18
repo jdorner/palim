@@ -163,13 +163,22 @@ export function spawnGit(
   options: GitOptions = {},
 ): { proc: Bun.Subprocess<"pipe", "pipe", "pipe">; clear: () => void } {
   const cmd = options.cwd ? ["git", "-C", options.cwd, ...args] : ["git", ...args];
+  // git runs in its own process group: its helpers (ssh, aliases, hooks) inherit
+  // the output pipes, so killing git alone would leave the reads waiting for them.
   const proc = Bun.spawn(cmd, {
     env: gitEnv(options.token),
     stdin: "pipe",
     stdout: "pipe",
     stderr: "pipe",
+    detached: true,
   });
-  const timer = setTimeout(() => proc.kill(), options.timeoutMs ?? GIT_TIMEOUT_MS);
+  const timer = setTimeout(() => {
+    try {
+      process.kill(-proc.pid, "SIGTERM");
+    } catch {
+      proc.kill(); // group already gone
+    }
+  }, options.timeoutMs ?? GIT_TIMEOUT_MS);
   return { proc, clear: () => clearTimeout(timer) };
 }
 
