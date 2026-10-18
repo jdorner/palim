@@ -7,21 +7,31 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
 export const PROJECT_DIR = path.resolve(__dirname, "..");
+
+/**
+ * Resolves a directory path from the environment. A leading `~` or `~/` is
+ * expanded to the home directory (dotenv files do not expand it), and relative
+ * paths are resolved against `base`.
+ *
+ * @param raw - Path as written in the environment
+ * @param base - Directory that relative paths are resolved against
+ * @param varName - Environment variable name, used in the error message
+ * @param home - Home directory used for `~` expansion
+ * @returns The absolute, normalized path
+ * @throws {AssertionError} When `raw` starts with `~` but no home directory is known
+ */
+export function resolveConfigPath(raw: string, base: string, varName: string, home = process.env.HOME): string {
+  let expanded = raw;
+  if (raw === "~" || raw.startsWith("~/")) {
+    assert(home, `${varName} uses ~ but $HOME is not set`);
+    expanded = path.join(home, raw.slice(1));
+  }
+  return path.resolve(base, expanded);
+}
+
 export const WORK_DIR = (() => {
   assert(process.env.AGENT_WORK_DIR, "AGENT_WORK_DIR environment variable is required");
-
-  const raw = process.env.AGENT_WORK_DIR;
-  let expanded = raw;
-  if (raw.startsWith("~/")) {
-    assert(process.env.HOME, "AGENT_WORK_DIR uses ~ but $HOME is not set");
-    expanded = path.join(process.env.HOME, raw.slice(2));
-  }
-
-  if (path.isAbsolute(expanded)) {
-    return path.resolve(expanded);
-  } else {
-    return path.resolve(PROJECT_DIR, expanded);
-  }
+  return resolveConfigPath(process.env.AGENT_WORK_DIR, PROJECT_DIR, "AGENT_WORK_DIR");
 })();
 export const API_BASE_URL = process.env.OPENAI_API_BASE_URL || "";
 
@@ -95,7 +105,7 @@ export const TRUSTED_PROXIES: string[] = (() => {
 
 // Extensions directory - configurable via EXTENSIONS_DIR env var
 export const EXTENSIONS_DIR = process.env.EXTENSIONS_DIR
-  ? path.resolve(process.env.EXTENSIONS_DIR)
+  ? resolveConfigPath(process.env.EXTENSIONS_DIR, process.cwd(), "EXTENSIONS_DIR")
   : path.resolve(PROJECT_DIR, "src/extensions");
 
 /**
@@ -106,7 +116,7 @@ export const EXTENSIONS_DIR = process.env.EXTENSIONS_DIR
  */
 export const DATA_DIR: string = (() => {
   if (process.env.DATA_DIR) {
-    return path.resolve(PROJECT_DIR, process.env.DATA_DIR);
+    return resolveConfigPath(process.env.DATA_DIR, PROJECT_DIR, "DATA_DIR");
   }
   return join(WORK_DIR, ".palim");
 })();
