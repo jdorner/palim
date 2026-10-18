@@ -68,6 +68,8 @@ export function referencesForbiddenKey(expr: string): boolean {
 /**
  * Builds the null-prototype evaluation scope from a set of whitelisted,
  * non-sensitive namespace values plus the registered built-in functions.
+ * Namespace values win over functions of the same name, so an iterator alias
+ * such as `first` stays readable (the validator warns about such aliases).
  *
  * The returned object has no prototype, so property lookups for keys not
  * explicitly set (e.g. `constructor`, `toString`) resolve to `undefined`
@@ -78,11 +80,11 @@ export function referencesForbiddenKey(expr: string): boolean {
  */
 export function buildEvalScope(namespaces: Record<string, unknown>): Record<string, unknown> {
   const scope: Record<string, unknown> = Object.create(null);
-  for (const [key, value] of Object.entries(namespaces)) {
-    scope[key] = value;
-  }
   for (const [name, fn] of Object.entries(TEMPLATE_FUNCTIONS)) {
     scope[name] = fn;
+  }
+  for (const [key, value] of Object.entries(namespaces)) {
+    scope[key] = value;
   }
   return scope;
 }

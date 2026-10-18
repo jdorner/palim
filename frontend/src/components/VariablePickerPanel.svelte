@@ -92,6 +92,7 @@ function toggle(node: ScopeTreeNode) {
 }
 
 function insert(node: ScopeTreeNode) {
+  if (node.kind === "category") return;
   variablePicker.insert(node.kind === "function" ? node.label : node.path.join("."), node.kind);
 }
 
@@ -138,15 +139,26 @@ function portal(node: HTMLElement) {
           <v.icon size={10} weight="bold" aria-hidden="true" />
         </span>
       {/if}
-      <button
-        type="button"
-        class="min-w-0 truncate rounded px-1.5 py-0.5 font-mono text-[11px] bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
-        title={node.description ?? (node.kind === "function" ? node.label : `{{${node.path.join(".")}}}`)}
-        onmousedown={(e) => e.preventDefault()}
-        onclick={() => insert(node)}
-      >
-        {node.kind === "function" ? `${node.label}()` : node.label}
-      </button>
+      {#if node.kind === "category"}
+        <button
+          type="button"
+          class="min-w-0 truncate text-[11px] font-medium text-muted-foreground hover:text-foreground"
+          onmousedown={(e) => e.preventDefault()}
+          onclick={() => toggle(node)}
+        >
+          {node.label}
+        </button>
+      {:else}
+        <button
+          type="button"
+          class="min-w-0 truncate rounded px-1.5 py-0.5 font-mono text-[11px] bg-primary/10 text-primary hover:bg-primary hover:text-primary-foreground transition-colors"
+          title={node.description ?? (node.kind === "function" ? node.label : `{{${node.path.join(".")}}}`)}
+          onmousedown={(e) => e.preventDefault()}
+          onclick={() => insert(node)}
+        >
+          {node.kind === "function" ? `${node.label}()` : node.label}
+        </button>
+      {/if}
       {#if node.kind === "function" && node.signature}
         <span class="truncate text-[10px] text-muted-foreground font-mono">{node.signature}</span>
       {:else if node.schemaType}

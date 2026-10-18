@@ -655,6 +655,21 @@ describe("resolveTemplates", () => {
       });
     });
 
+    test("an iterator alias wins over a function of the same name", async () => {
+      ctx.iterationContext = { item: { id: 7 }, itemIndex: 0, as: "first" };
+      const { resolved } = await resolveTemplates("{{ first.id + 1 }}", ctx);
+      expect(resolved).toBe("8");
+    });
+
+    test("if and choose work in templates", async () => {
+      ctx.stepResults = { vars: { n: 5, status: "error" } };
+      const { resolved } = await resolveTemplates(
+        '{{ if(steps.vars.result.n > 1, "big", "small") }} {{ choose(steps.vars.result.status, "ok", "✓", "error", "✗") }}',
+        ctx,
+      );
+      expect(resolved).toBe("big ✗");
+    });
+
     describe("sandbox", () => {
       test("constructor escape does not return host process and is left literal + warned", async () => {
         const hostProcess = (globalThis as { process?: unknown }).process;

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import * as fc from "fast-check";
-import { TEMPLATE_FUNCTION_NAME_LIST } from "../../../shared/templateFunctionMeta";
+import { TEMPLATE_FUNCTION_CATEGORIES, TEMPLATE_FUNCTION_NAME_LIST } from "../../../shared/templateFunctionMeta";
 import { getEnumOptions, isEnum } from "./schemaForm";
 import {
   buildScopeTree,
@@ -1375,8 +1375,9 @@ describe("getFunctionSuggestions", () => {
   });
 
   test("filters by case-sensitive startsWith prefix", () => {
-    const labels = getFunctionSuggestions("s").map((s) => s.label);
-    expect(labels).toEqual(["stripDataUri"]);
+    const labels = getFunctionSuggestions("st").map((s) => s.label);
+    expect(labels).toEqual(["startsWith", "stripDataUri"]);
+    expect(getFunctionSuggestions("St")).toEqual([]);
   });
 
   test("returns nothing for a prefix that matches no function", () => {
@@ -1687,7 +1688,10 @@ describe("buildScopeTree", () => {
   test("variables leave out empty namespaces; functions come from the shared table", () => {
     expect(byId("variables").map((n) => n.label)).toEqual(["secret", "env", "run"]);
     expect(byId("variables")[0]!.children!.map((n) => n.path.join("."))).toEqual(["secret.API_KEY"]);
-    const functions = byId("functions");
+    const categories = byId("functions");
+    expect(categories.every((n) => n.kind === "category")).toBe(true);
+    expect(categories.map((n) => n.path[0])).toEqual([...TEMPLATE_FUNCTION_CATEGORIES]);
+    const functions = categories.flatMap((n) => n.children ?? []);
     expect(functions.map((n) => n.label)).toEqual([...TEMPLATE_FUNCTION_NAME_LIST]);
     expect(functions.every((n) => n.kind === "function")).toBe(true);
   });

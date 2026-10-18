@@ -7,7 +7,7 @@
  */
 
 import { resolvedSelfFields, type SelfReferenceOrder } from "../../../shared/extensions";
-import { TEMPLATE_FUNCTION_META } from "../../../shared/templateFunctionMeta";
+import { TEMPLATE_FUNCTION_CATEGORIES, TEMPLATE_FUNCTION_META } from "../../../shared/templateFunctionMeta";
 import {
   DEFAULT_ENV_ALLOWLIST,
   isObjectSchemaNode,
@@ -796,8 +796,11 @@ export interface ScopeTreeNode {
   label: string;
   /** Path segments of the expression this node inserts (e.g. ["steps", "fetch", "result", "id"]). */
   path: string[];
-  /** `"function"` for built-in functions (inserted as a call). */
-  kind: "value" | "function";
+  /**
+   * `"function"` for built-in functions (inserted as a call), `"category"` for a
+   * function group heading (not insertable, only expands).
+   */
+  kind: "value" | "function" | "category";
   /** Step type, for step nodes (`steps.<slug>.result`). */
   stepType?: string;
   /** JSON Schema `type`, when declared. */
@@ -883,7 +886,7 @@ function executionOrder<T extends { slug: string }>(steps: T[], edges: SlugEdge[
  *   before this one (same DAG rule as autocomplete) in execution order, and the
  *   iterator loop variable inside an iterator body
  * - **variables**: global variables, secrets, allowlisted env vars, run fields
- * - **functions**: built-in template functions
+ * - **functions**: built-in template functions, grouped by category
  *
  * Empty namespaces are left out.
  *
@@ -924,13 +927,26 @@ export function buildScopeTree(config: ScopeConfig): ScopeTreeGroup[] {
     if (children) variables.push({ label: ns, path: [ns], kind: "value", children });
   }
 
-  const functions: ScopeTreeNode[] = getFunctionSuggestions("").map((s) => ({
-    label: s.label,
-    path: [s.label],
-    kind: "function",
-    ...(s.signature ? { signature: s.signature } : {}),
-    ...(s.description ? { description: s.description } : {}),
-  }));
+  const functionNodes = new Map<string, ScopeTreeNode>(
+    getFunctionSuggestions("").map((s) => [
+      s.label,
+      {
+        label: s.label,
+        path: [s.label],
+        kind: "function",
+        ...(s.signature ? { signature: s.signature } : {}),
+        ...(s.description ? { description: s.description } : {}),
+      },
+    ]),
+  );
+  const functions: ScopeTreeNode[] = TEMPLATE_FUNCTION_CATEGORIES.map((category) => ({
+    label: translateCore(`templateFunctionCategories.${category}` as CoreKey, { default: category }),
+    path: [category],
+    kind: "category" as const,
+    children: TEMPLATE_FUNCTION_META.filter((meta) => meta.category === category).map(
+      (meta) => functionNodes.get(meta.name)!,
+    ),
+  })).filter((node) => node.children.length > 0);
 
   return [
     { id: "data", nodes: data },
