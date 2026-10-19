@@ -16,7 +16,7 @@
  */
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { serverOrigin } from "@src/config";
+import { serverOrigin } from "../config";
 
 /**
  * Supplies the bearer token to attach to internal requests.
