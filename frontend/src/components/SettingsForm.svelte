@@ -286,6 +286,7 @@ function handleKeydown(event: KeyboardEvent) {
           items={prop.availableItems as string[]}
           selected={Array.isArray(formValues[key]) ? (formValues[key] as string[]) : []}
           placeholder={t("schemaForm.selectItems")}
+          allowCustom={prop.allowCustomItems === true}
           onchange={(val) => updateValue(key, val)}
         />
       {:else if inputType === "tags"}
