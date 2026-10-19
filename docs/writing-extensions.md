@@ -1252,6 +1252,7 @@ The form renderer uses TypeBox annotations on schema properties to determine lab
 | `minimum` / `maximum` | Number input constraints | `minimum: 1` |
 | `minLength` / `maxLength` | String length constraints | `minLength: 1` |
 | `dynamicItems` | Names a provider that populates available items at runtime (arrays only) | `dynamicItems: "all-skill-names"` |
+| `allowCustomItems` | Lets a multiselect also accept free-form entries besides the offered items (arrays only; also honored in extension settings) | `allowCustomItems: true` |
 
 **Supported property types:**
 
