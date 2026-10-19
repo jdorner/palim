@@ -10,6 +10,7 @@ import {
   getRecordValueSchema,
   getVariants,
   hasNonTextValue,
+  moveItem,
   parseTagList,
   type SchemaProperty,
 } from "./schemaForm";
@@ -298,5 +299,33 @@ describe("discriminated unions", () => {
     expect(next).toEqual({ type: "score", instructions: "Pick one", criteria: [] });
     const edit = { ...before, instructions: "Changed" };
     expect(applyFormEdit(question, before, edit)).toBe(edit);
+  });
+});
+
+describe("moveItem", () => {
+  test("moves an item down", () => {
+    expect(moveItem(["a", "b", "c"], 0, 1)).toEqual(["b", "a", "c"]);
+  });
+
+  test("moves an item up", () => {
+    expect(moveItem(["a", "b", "c"], 2, 1)).toEqual(["a", "c", "b"]);
+  });
+
+  test("moves an item across several positions", () => {
+    expect(moveItem(["a", "b", "c", "d"], 0, 3)).toEqual(["b", "c", "d", "a"]);
+  });
+
+  test("does not mutate the input", () => {
+    const list = ["a", "b"];
+    moveItem(list, 0, 1);
+    expect(list).toEqual(["a", "b"]);
+  });
+
+  test("returns an unchanged copy for out-of-range or equal indexes", () => {
+    const list = ["a", "b"];
+    expect(moveItem(list, 0, -1)).toEqual(["a", "b"]);
+    expect(moveItem(list, 1, 2)).toEqual(["a", "b"]);
+    expect(moveItem(list, 1, 1)).toEqual(["a", "b"]);
+    expect(moveItem(list, 0, 2)).not.toBe(list);
   });
 });

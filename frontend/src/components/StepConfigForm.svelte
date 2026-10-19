@@ -5,7 +5,8 @@
   extension's TypeBox handler schema). Supports text, number, boolean, enum,
   textarea, multiselect, tags, and password field types, plus complex fields:
   number and string lists, key/value records, nested objects, discriminated
-  unions, and lists and records of objects (rendering this form recursively).
+  unions, and lists and records of objects (rendering this form recursively;
+  list items can be reordered with up/down buttons).
   Loose unions (e.g. `string | object`) are edited as text; a structured value
   in such a field falls back to the JSON view.
 
@@ -13,6 +14,8 @@
   String fields support template autocomplete when autocomplete context is provided.
 -->
 <script lang="ts">
+import ArrowDownIcon from "phosphor-svelte/lib/ArrowDownIcon";
+import ArrowUpIcon from "phosphor-svelte/lib/ArrowUpIcon";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import { untrack } from "svelte";
@@ -30,6 +33,7 @@ import {
   getProperties,
   getRecordValueSchema,
   hasNonTextValue,
+  moveItem,
   parseTagList,
   type SchemaProperty,
 } from "$lib/schemaForm";
@@ -669,19 +673,44 @@ function parseNumberList(raw: string): number[] {
         {@const itemSchema = prop.items as SchemaProperty}
         <div class="space-y-2">
           {#each listValue(key) as item, i (i)}
+            {@const count = listValue(key).length}
             <div class="relative rounded-md border border-border bg-muted/40 p-2 pr-8">
-              <button
-                type="button"
-                class="absolute top-1.5 right-1.5 rounded p-1 text-muted-foreground hover:text-destructive hover:bg-muted"
-                aria-label={t("schemaForm.removeItem", { index: i + 1 })}
-                onclick={() =>
-                  updateValue(
-                    key,
-                    listValue(key).filter((_, j) => j !== i),
-                  )}
-              >
-                <TrashIcon class="w-3.5 h-3.5" aria-hidden="true" />
-              </button>
+              <div class="absolute top-1.5 right-1.5 flex flex-col">
+                <button
+                  type="button"
+                  class="rounded p-1 text-muted-foreground hover:text-destructive hover:bg-muted"
+                  aria-label={t("schemaForm.removeItem", { index: i + 1 })}
+                  onclick={() =>
+                    updateValue(
+                      key,
+                      listValue(key).filter((_, j) => j !== i),
+                    )}
+                >
+                  <TrashIcon class="w-3.5 h-3.5" aria-hidden="true" />
+                </button>
+                {#if count > 1}
+                  <button
+                    type="button"
+                    class="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+                    disabled={isReadonly || i === 0}
+                    aria-label={t("schemaForm.moveItemUp", { index: i + 1 })}
+                    title={t("schemaForm.moveItemUp", { index: i + 1 })}
+                    onclick={() => updateValue(key, moveItem(listValue(key), i, i - 1))}
+                  >
+                    <ArrowUpIcon class="w-3.5 h-3.5" aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded p-1 text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-40 disabled:pointer-events-none"
+                    disabled={isReadonly || i === count - 1}
+                    aria-label={t("schemaForm.moveItemDown", { index: i + 1 })}
+                    title={t("schemaForm.moveItemDown", { index: i + 1 })}
+                    onclick={() => updateValue(key, moveItem(listValue(key), i, i + 1))}
+                  >
+                    <ArrowDownIcon class="w-3.5 h-3.5" aria-hidden="true" />
+                  </button>
+                {/if}
+              </div>
               <StepConfigForm
                 schema={getFormSchema(itemSchema, item)}
                 values={(item ?? {}) as Record<string, unknown>}

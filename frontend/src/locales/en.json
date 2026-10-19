@@ -586,6 +586,8 @@
     "addItem": "Add item",
     "anyNotSet": "Any (not set)",
     "complexField": "Complex field - use \"JSON view\" to configure.",
+    "moveItemDown": "Move item {index} down",
+    "moveItemUp": "Move item {index} up",
     "no": "No",
     "noFields": "No configuration fields defined for this step type.",
     "removeItem": "Remove item {index}",
