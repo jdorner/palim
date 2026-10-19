@@ -440,3 +440,46 @@ describe("generateExtensionTsconfig - Property 10: Tsconfig generation resilienc
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Public surface import graph
+// ---------------------------------------------------------------------------
+
+describe("generateExtensionTsconfig - public surface resolves without core aliases", () => {
+  // The generated tsconfig maps only the public `@ext/*` aliases, so every core
+  // file an external extension's type check pulls in must import other core
+  // files relatively. A single `@src/...` import fails `tsc` in every extension.
+  test("files reachable from @ext/types, @ext/sdk, and @ext/ui use no @src/@shared imports", async () => {
+    const srcDir = path.resolve(import.meta.dir, "../..");
+    const entries = ["extensions/types.ts", "extensions/sdk.ts", "extensions/ui/index.ts"].map((p) =>
+      path.join(srcDir, p),
+    );
+    const specifierPattern = /(?:from|import)\s*\(?\s*["']([^"']+)["']/g;
+    // Block and whole-line comments, so `{@link import("...")}` in JSDoc is not followed
+    const commentPattern = /\/\*[\s\S]*?\*\/|^\s*\/\/.*$/gm;
+    const visited = new Set<string>();
+    const offenders: string[] = [];
+    const queue = [...entries];
+
+    while (queue.length > 0) {
+      const file = queue.pop() as string;
+      if (visited.has(file)) continue;
+      visited.add(file);
+      const code = (await Bun.file(file).text()).replace(commentPattern, "");
+      for (const [, specifier] of code.matchAll(specifierPattern)) {
+        if (!specifier) continue;
+        if (specifier.startsWith("@src/") || specifier.startsWith("@shared/")) {
+          offenders.push(`${path.relative(srcDir, file)}: ${specifier}`);
+        } else if (specifier.startsWith(".")) {
+          const base = path.resolve(path.dirname(file), specifier);
+          const candidates = [base, `${base}.ts`, path.join(base, "index.ts")];
+          const resolved = candidates.find((c) => c.endsWith(".ts") && Bun.file(c).size > 0);
+          if (resolved) queue.push(resolved);
+        }
+      }
+    }
+
+    expect(visited.size).toBeGreaterThan(entries.length);
+    expect(offenders).toEqual([]);
+  });
+});
