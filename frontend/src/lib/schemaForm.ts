@@ -465,3 +465,19 @@ export function buildInitialValues(
   }
   return vals;
 }
+
+/**
+ * Move a list item to another position.
+ *
+ * @param list - The list to reorder (not mutated)
+ * @param from - Current index of the item
+ * @param to - Target index of the item
+ * @returns A new list with the item moved (an unchanged copy when an index is out of range)
+ */
+export function moveItem<T>(list: readonly T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) return [...list];
+  const next = [...list];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item as T);
+  return next;
+}

@@ -586,6 +586,8 @@
     "addItem": "Eintrag hinzufügen",
     "anyNotSet": "Beliebig (nicht gesetzt)",
     "complexField": "Komplexes Feld – zum Konfigurieren die „JSON-Ansicht“ verwenden.",
+    "moveItemDown": "Eintrag {index} nach unten verschieben",
+    "moveItemUp": "Eintrag {index} nach oben verschieben",
     "no": "Nein",
     "noFields": "Für diesen Schritttyp sind keine Konfigurationsfelder definiert.",
     "removeItem": "Eintrag {index} entfernen",
