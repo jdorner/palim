@@ -1,7 +1,7 @@
 # ============================================================
 # Stage 1: Install dependencies and build frontend and portal
 # ============================================================
-FROM docker.io/oven/bun:1.3-debian AS builder
+FROM docker.io/oven/bun:1.4-debian AS builder
 
 WORKDIR /app
 
@@ -32,7 +32,7 @@ RUN cd portal && bun run build
 # tarball is extracted exactly once. Raising the open-file-descriptor limit for
 # the install avoids intermittent "Fail extracting tarball" errors,
 # where Bun extracts many files concurrently (just-bash unpacks ~900 files).
-FROM docker.io/oven/bun:1.3-debian AS deps
+FROM docker.io/oven/bun:1.4-debian AS deps
 
 WORKDIR /app
 
@@ -48,7 +48,7 @@ RUN cd frontend && bun install --frozen-lockfile --production
 # ============================================================
 # Stage 3: Production image
 # ============================================================
-FROM docker.io/oven/bun:1.3-debian
+FROM docker.io/oven/bun:1.4-debian
 
 # git and ssh for the Extension Hub, which installs extensions from git
 # repositories (tar, also needed, is part of the base image)
