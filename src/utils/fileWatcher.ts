@@ -73,8 +73,8 @@ export class FileWatcher extends EventEmitter<FileWatcherEvents> {
     const polling = this.options.usePolling ?? false;
     this.watcher = chokidar.watch(this.fileOrPath.toString(), {
       persistent: true,
-      usePolling: polling,
-      interval: polling ? (this.options.pollingInterval ?? 500) : undefined,
+      backend: polling ? "polling" : "auto",
+      pollingInterval: polling ? (this.options.pollingInterval ?? 500) : undefined,
       ignoreInitial: !this.options.processExistingOnStart,
       depth: this.options.recursive === true ? undefined : 0,
     });
