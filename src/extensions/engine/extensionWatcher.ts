@@ -119,9 +119,9 @@ export class ExtensionWatcher {
       persistent: true,
       ignoreInitial: true,
       depth: 8, // <name>/index.ts for reloads, nested <name>/ui/** for UI rebuilds, <name>/locales/* for catalogs
-      usePolling: false,
-      // Ignore node_modules and hidden files within extension directories
-      ignored: ["**/node_modules/**", "**/.git/**", "**/tsconfig.json", "**/tsconfig.json.tmp"],
+      // Ignore node_modules, .git, and generated tsconfig files within extension
+      // directories. Chokidar has no glob support; regexes see forward slashes.
+      ignored: [/\/(node_modules|\.git)(\/|$)/, /\/tsconfig\.json(\.tmp)?$/],
     });
 
     this.watcher.on("add", (filePath) => this.handleUiChange(filePath) || this.handleEntryPoint(filePath));
