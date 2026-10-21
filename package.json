@@ -2,7 +2,7 @@
   "dependencies": {
     "@casl/ability": "^7.0.2",
     "@date-fns/tz": "^1.5.0",
-    "@dotenvx/dotenvx": "^2.38.0",
+    "@dotenvx/dotenvx": "^2.38.2",
     "@elysia/cors": "^1.4.2",
     "@elysiajs/static": "^1.4.10",
     "@mariozechner/pi-agent-core": "^0.73.1",
