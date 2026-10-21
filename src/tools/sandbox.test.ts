@@ -1,4 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { buildPushCommand } from "./sandbox";
 
 /**
@@ -145,5 +148,40 @@ describe("buildPushCommand", () => {
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain("PALIM_SESSION_ID");
     });
+  });
+});
+
+describe("createShell file access", () => {
+  // Regression (Bun 1.4): the first node:fs/promises file handle of a process
+  // creates a FinalizationRegistry, which just-bash blocks during exec, so every
+  // read and write in the sandbox failed. Needs a fresh process: any handle
+  // opened earlier in the test run would mask the bug.
+  test("reads and writes work-dir files when the first file handle is opened in the sandbox", async () => {
+    const workDir = await mkdtemp(path.join(tmpdir(), "sandbox-fh-"));
+    try {
+      await Bun.write(path.join(workDir, "tasks.md"), "- [ ] goblin\n");
+      const script = `
+        import { createShell } from "./src/tools/sandbox";
+        const sh = await createShell({ skills: [], resolveSkill: () => undefined, workDir: process.env.SANDBOX_TEST_WORK_DIR });
+        const result = await sh.exec("cat tasks.md && echo '- [x] troll' >> tasks.md && cat tasks.md");
+        process.stdout.write(JSON.stringify(result));
+      `;
+      const proc = Bun.spawn([process.execPath, "-e", script], {
+        cwd: path.resolve(import.meta.dir, "../.."),
+        env: { ...process.env, SANDBOX_TEST_WORK_DIR: workDir },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const [stdout, stderr] = await Promise.all([new Response(proc.stdout).text(), new Response(proc.stderr).text()]);
+      expect(await proc.exited, stderr).toBe(0);
+
+      const result = JSON.parse(stdout);
+      expect(result.stderr).toBe("");
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("- [ ] goblin\n- [ ] goblin\n- [x] troll\n");
+      expect(await Bun.file(path.join(workDir, "tasks.md")).text()).toBe("- [ ] goblin\n- [x] troll\n");
+    } finally {
+      await rm(workDir, { recursive: true, force: true });
+    }
   });
 });
