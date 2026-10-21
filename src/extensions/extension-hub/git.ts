@@ -188,7 +188,7 @@ interface GitRun {
   stderr: string;
   code: number;
   /** Signal that ended the process (set when the timeout killed it). */
-  signal: string | null;
+  signal: NodeJS.Signals | number | null;
 }
 
 /**
