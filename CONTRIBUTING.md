@@ -14,7 +14,7 @@ bun run dev
 
 Requirements:
 
-- **Bun** 1.3.14+
+- **Bun** 1.4.3+
 - **An LLM endpoint** (with OpenAI-compatible API)
 
 ## Code Style

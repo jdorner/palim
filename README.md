@@ -34,7 +34,7 @@ You define a working directory where the agent has full read/write access. This 
 
 ## Quick Start
 
-**Prerequisites:** [Bun >=1.3.14 and <1.5.0](https://bun.sh/) and any OpenAI-compatible LLM endpoint.
+**Prerequisites:** [Bun >=1.4.3 and <1.5.0](https://bun.sh/) and any OpenAI-compatible LLM endpoint.
 
 ```bash
 bun install        # Install dependencies
@@ -220,7 +220,7 @@ Key architectural decisions:
 
 | Layer | Technology |
 | ----- | ---------- |
-| Runtime | [Bun >=1.3.14 and <1.5.0](https://bun.sh) |
+| Runtime | [Bun >=1.4.3 and <1.5.0](https://bun.sh) |
 | Language | TypeScript 7.0 (strict mode) |
 | Frontend | [Svelte 5](https://svelte.dev/) + Vite 8 + Tailwind CSS 4 |
 | Database | SQLite (Bun native) via [Drizzle ORM](https://orm.drizzle.team/) |

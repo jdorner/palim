@@ -40,7 +40,7 @@ let fileHandlesPrimed: Promise<void> | undefined;
  * reuses it afterwards. just-bash's defense-in-depth blocks that constructor
  * while a command runs, so if the first handle is opened inside `exec`, every
  * open fails for the rest of the process (reported as `ENOENT` / `EIO`, after
- * `O_TRUNC` already emptied the file on writes). Harmless on Bun 1.3.
+ * `O_TRUNC` already emptied the file on writes).
  *
  * @returns Resolves once a handle has been opened and closed
  */
