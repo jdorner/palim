@@ -5,11 +5,11 @@ services:
       - "3000:3000"
     volumes:
       - app-work:/app/.work
-      - app-db:/app/.db
+      - app-db:/app/.palim
       # To use host directories instead of named volumes, comment out the lines
       # above and uncomment below (adjust paths to your setup):
       # - ~/palim-work:/app/.work
-      # - ~/palim-db:/app/.db
+      # - ~/palim-db:/app/.palim
     env_file:
       - path: .env
         required: false

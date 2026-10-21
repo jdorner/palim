@@ -8,27 +8,30 @@ The agent operates inside a sandboxed shell powered by just-bash. The configured
 
 ## Quick Start
 
+**Prerequisites:** [Bun >=1.3.14 and <1.4.0](https://bun.sh/) and an OpenAI-compatible LLM endpoint.
+
 ```bash
 # Install dependencies
 bun install
 
-# Interactive first-time setup (creates .env, prompts for LLM config, generates admin password, builds frontend)
+# Interactive first-time setup (creates .env, prompts for LLM config, generates admin password, builds frontend and portal)
 bun run setup
 
 # Or manually:
 cp .env.example .env
 # Edit .env with your values
 cd frontend && bun install && bun run build && cd ..
+cd portal && bun install && bun run build && cd ..
 
 # Start the agent
 bun run start
 ```
 
-The web UI is served at `http://localhost:3000` by default (configurable via `WEB_SCHEME`, `WEB_HOST`, and `WEB_PORT`).
+The portal build is needed only to serve the optional HITL portal, but `bun run setup` includes it. The web UI is served at `http://localhost:3000` by default (configurable via `WEB_SCHEME`, `WEB_HOST`, and `WEB_PORT`).
 
 ## Runtime & Tooling
 
-- **Runtime:** Bun 1.3.14+
+- **Runtime:** Bun >=1.3.14 and <1.4.0
 - **Language:** TypeScript 7.0.2+ (ESNext, bundler module resolution, strict mode)
 - **LLM:** llama.cpp on `localhost:11434` (OpenAI-compatible API, supports llama-swap proxy). Dynamic model discovery in `src/models.ts`.
 - **Linter/Formatter:** Biome (`bun run check`). Config in `biome.json`.
@@ -48,6 +51,7 @@ The web UI is served at `http://localhost:3000` by default (configurable via `WE
 | `WEB_PORT`             | Web server port                                | `3000`                     |
 | `WEB_PUBLIC_URL`       | Public base URL of the operator UI (links from workflows, `{{run.baseUrl}}`) | - (server origin)  |
 | `TRUSTED_PROXIES`      | Reverse proxy IPs/CIDRs whose `X-Forwarded-For` is trusted | - (header ignored) |
+| `WORKFLOW_ENV_ALLOWLIST` | Comma-separated additional names permitted in `{{env.NAME}}` templates | - |
 | `WORKFLOW_TIMEZONE`    | Default time zone of the template date functions (IANA name, validated at boot) | - (server zone) |
 | `AUTH_ADMIN_USER`      | Username of the admin seeded on first boot     | `admin`                    |
 | `AUTH_ADMIN_PASSWORD`  | Seeded admin password (empty = generate + log) | -                          |
@@ -55,6 +59,7 @@ The web UI is served at `http://localhost:3000` by default (configurable via `WE
 | `DATA_DIR`             | Directory for databases, generated content, external extensions (must be outside `AGENT_WORK_DIR`) | `<project>/.palim/` |
 | `HITL_ENABLED`         | Enable human tasks (humanTask step, portal API + app; experimental) | `false` |
 | `PORTAL_PUBLIC_URL`    | Public URL of the portal (deep links, hint for portal accounts) | - |
+| `SECRETS_MASTER_KEY`   | 32-byte SecretVault encryption key; optional when derivable from `.env.keys` | - |
 | `TELEGRAM_BOT_TOKEN`   | Telegram bot token                             | -                          |
 | `EXT_TELEGRAM_CHAT_ID` | Default Telegram chat ID                       | -                          |
 | `EXT_TELEGRAM_MAX_IMAGE_SIZE_MB` | Max size of incoming Telegram images (MB, ≤ 20) | `20`              |

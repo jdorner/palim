@@ -34,7 +34,7 @@ You define a working directory where the agent has full read/write access. This 
 
 ## Quick Start
 
-**Prerequisites:** [Bun 1.3.14+](https://bun.sh/) and any OpenAI-compatible LLM endpoint.
+**Prerequisites:** [Bun >=1.3.14 and <1.4.0](https://bun.sh/) and any OpenAI-compatible LLM endpoint.
 
 ```bash
 bun install        # Install dependencies
@@ -42,7 +42,7 @@ bun run setup      # Interactive first-time configuration
 bun run start      # Start Palim
 ```
 
-The setup script creates your `.env`, asks for your LLM endpoint and API key, generates the admin password, and builds the frontend. The admin credentials are printed at the end - once running, open `http://localhost:3000` and log in with them.
+The setup script creates your `.env`, asks for your LLM endpoint and API key, generates the admin password, and builds the frontend and portal. The admin credentials are printed at the end - once running, open `http://localhost:3000` and log in with them.
 
 After first start, check Settings > Extensions in the web UI to enable the capabilities you want (optional extensions are disabled by default).
 
@@ -50,7 +50,7 @@ After first start, check Settings > Extensions in the web UI to enable the capab
 
 - **Conversational AI** - Multi-turn sessions with streamed responses and persistent chat history
 - **Local LLM support** - Use any inference engine with an OpenAI-compatible API (llama.cpp, llama-swap, vLLM, etc.)
-- **Extension system** - 14 built-in extensions covering webhooks, scheduling, Telegram, workflows, data tables, wiki, MCP bridging, ntfy notifications, and more. Extensions can add their own Svelte pages to the web UI
+- **Extension system** - 15 built-in extensions covering webhooks, scheduling, Telegram, workflows, data tables, wiki, MCP bridging, ntfy notifications, and more. Extensions can add their own Svelte pages to the web UI
 - **Sandboxed execution** - The agent's shell runs inside a virtual filesystem where only `AGENT_WORK_DIR` is mounted - file operations are real, but the agent cannot access anything outside that directory
 
 ## Scope
@@ -62,7 +62,7 @@ After first start, check Settings > Extensions in the web UI to enable the capab
 
 ## Extensions
 
-Palim ships with 14 built-in extensions (9 optional, 5 core):
+Palim ships with 15 built-in extensions (10 optional, 5 core):
 
 | Extension | Type | Purpose |
 | --------- | ---- | ------- |
@@ -74,6 +74,7 @@ Palim ships with 14 built-in extensions (9 optional, 5 core):
 | `converter` | Optional | Converts files (PDFs, images) to markdown via vision LLM |
 | `datatables` | Optional | Typed data tables with CSV/Excel import and export, a UI page, workflow step types, and a `datatable` agent command |
 | `error-analyzer` | Optional | Automatic failure analysis and error reporting for jobs and workflows |
+| `extension-hub` | Optional | Install, update, and remove external extensions from git repositories |
 | `mcp` | Optional | Bridges MCP (Model Context Protocol) servers into the skill system |
 | `ntfy` | Optional | Sends push notifications via ntfy.sh, exposed as a workflow step type |
 | `steering` | Optional | Injects additional system prompt text to steer agent behavior |
@@ -85,7 +86,7 @@ Core extensions cannot be deactivated. Optional extensions are disabled by defau
 
 Per-extension documentation lives in [docs/extensions/](docs/extensions/). For writing your own extensions, see [docs/writing-extensions.md](docs/writing-extensions.md).
 
-Workflows can ask people for approvals or input with a `humanTask` step. They answer in the **portal**, a separate mobile-first end-user app served at `/portal/`; see [docs/portal.md](docs/portal.md).
+The `humanTask` workflow step and `/portal/` are experimental and disabled by default. Set `HITL_ENABLED=true` and restart Palim to enable them; see [docs/portal.md](docs/portal.md).
 
 ## Configuration
 
@@ -100,11 +101,14 @@ Workflows can ask people for approvals or input with a `humanTask` step. They an
 | `WEB_SCHEME` | URL scheme (`http` or `https`) | `http` |
 | `WEB_HOST` | Web server bind address | `localhost` |
 | `WEB_PORT` | Web server port | `3000` |
+| `WEB_PUBLIC_URL` | Public operator UI origin used by `{{run.baseUrl}}` and `{{run.url}}` | - (server origin) |
 | `TRUSTED_PROXIES` | Comma-separated IPs/CIDRs of reverse proxies whose `X-Forwarded-For` header is trusted | - (header ignored) |
+| `WORKFLOW_ENV_ALLOWLIST` | Comma-separated additions to the safe workflow `env` namespace | - |
 | `WORKFLOW_TIMEZONE` | Default time zone of the workflow template date functions (IANA name, e.g. `Europe/Berlin`) | - (server time zone) |
 | `AUTH_ADMIN_USER` | Username of the admin account seeded on first boot | `admin` |
 | `AUTH_ADMIN_PASSWORD` | Password for the seeded admin (empty = generate a one-time password and log it once) | - |
 | `AUTH_SESSION_TTL_MS` | Login token lifetime in ms | `604800000` (7 days) |
+| `HITL_ENABLED` | Enable the experimental human-task/portal feature | `false` |
 | `PORTAL_PUBLIC_URL` | Public URL of the [portal](docs/portal.md) | - |
 | `DATA_DIR` | Directory for databases, generated content, and external extensions (must be outside `AGENT_WORK_DIR`) | `<project>/.palim/` |
 | `SECRETS_MASTER_KEY` | Derivation key for SecretVault encryption | - |
@@ -156,9 +160,12 @@ Build the frontend and run the backend:
 
 ```bash
 bun install --frozen-lockfile
-cd frontend && bun install --frozen-lockfile && bun run build
+cd frontend && bun install --frozen-lockfile && bun run build && cd ..
+cd portal && bun install --frozen-lockfile && bun run build && cd ..
 bun run start
 ```
+
+The portal build is needed only to serve the optional HITL portal, but `bun run setup` includes it.
 
 Recommendations:
 
@@ -168,7 +175,7 @@ Recommendations:
 
 ## Docker / Podman
 
-A multi-stage [Dockerfile](Dockerfile) and [`docker-compose.yml`](docker-compose.yml) are provided for containerized deployment. Works with both Docker and Podman.
+A multi-stage [Dockerfile](Dockerfile) and [`docker-compose.yml`](docker-compose.yml) are provided for containerized deployment. Works with both Docker and Podman. The Compose setup persists the workspace and default `DATA_DIR`.
 
 ```bash
 bun run setup          # Create .env (if you haven't already)
@@ -188,7 +195,7 @@ src/
 ├── jobs/          # Job queue definitions (agent, chat)
 ├── queue/         # ManagedQueue abstraction over bunqueue
 ├── web/           # Elysia HTTP server, WebSocket, REST routes
-├── extensions/    # Plugin system (14 built-in extensions)
+├── extensions/    # Plugin system (15 built-in extensions: 10 optional, 5 core)
 │   └── core/      # Non-deactivatable infrastructure extensions
 ├── secrets/       # Encrypted vault, ACL, audit logging
 ├── variables/     # Plaintext global variable store (no ACL, no encryption)
@@ -213,7 +220,7 @@ Key architectural decisions:
 
 | Layer | Technology |
 | ----- | ---------- |
-| Runtime | [Bun 1.3.14+](https://bun.sh) |
+| Runtime | [Bun >=1.3.14 and <1.4.0](https://bun.sh) |
 | Language | TypeScript 7.0 (strict mode) |
 | Frontend | [Svelte 5](https://svelte.dev/) + Vite 8 + Tailwind CSS 4 |
 | Database | SQLite (Bun native) via [Drizzle ORM](https://orm.drizzle.team/) |

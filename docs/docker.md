@@ -87,7 +87,7 @@ The compose file defines two named volumes:
 | Volume | Mounted at | Purpose |
 | ------ | ---------- | ------- |
 | `app-work` | `/app/.work` | Agent workspace (tasks, inbox, wiki, workflows) |
-| `app-db` | `/app/.db` | SQLite databases (bunqueue, palim) |
+| `app-db` | `/app/.palim` | Default `DATA_DIR` containing SQLite databases (bunqueue, palim) |
 
 Data in these volumes persists across container restarts and image rebuilds.
 
@@ -98,7 +98,7 @@ If you prefer to mount directories from your host (e.g. to access workspace file
 ```yaml
 volumes:
   - ~/palim-work:/app/.work
-  - ~/palim-db:/app/.db
+  - ~/palim-db:/app/.palim
 ```
 
 Or with `docker run`:
@@ -108,7 +108,7 @@ docker run \
   --env-file .env \
   -e WEB_HOST='::' \
   -v ~/palim-work:/app/.work \
-  -v ~/palim-db:/app/.db \
+  -v ~/palim-db:/app/.palim \
   -p 3000:3000 \
   --name palim \
   -it palim
