@@ -74,7 +74,7 @@ const VariableEntrySchema = Type.Object(
 );
 
 /** TypeBox schema for the set-variables step configuration (excluding slug and type). */
-export const SetVariablesStepConfigSchema = Type.Object(
+const SetVariablesStepConfigSchema = Type.Object(
   {
     variables: Type.Array(VariableEntrySchema, {
       minItems: 1,

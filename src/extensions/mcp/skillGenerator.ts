@@ -21,7 +21,7 @@ const MCP_SKILLS_BASE = "mcp-skills";
  * @param dataDir - The data directory (DATA_DIR)
  * @returns Absolute path to `DATA_DIR/extensions/mcp-skills/skills/`
  */
-export function getSkillsDir(dataDir: string): string {
+function getSkillsDir(dataDir: string): string {
   return join(dataDir, "extensions", MCP_SKILLS_BASE, "skills");
 }
 
@@ -45,7 +45,7 @@ function getServerSkillDir(dataDir: string, serverName: string): string {
  * @param tools - Array of tool definitions
  * @returns Hex-encoded SHA-512 hash string
  */
-export function computeToolsHash(tools: McpToolDefinition[]): string {
+function computeToolsHash(tools: McpToolDefinition[]): string {
   const sorted = [...tools].sort((a, b) => a.name.localeCompare(b.name));
   const canonical = JSON.stringify(sorted);
   const hasher = new Bun.CryptoHasher("sha512");
@@ -60,7 +60,7 @@ export function computeToolsHash(tools: McpToolDefinition[]): string {
  * @param tools - Tool definitions from introspection
  * @returns SKILL.md file content
  */
-export function generateSkillMd(serverName: string, tools: McpToolDefinition[]): string {
+function generateSkillMd(serverName: string, tools: McpToolDefinition[]): string {
   const skillName = `mcp-${serverName}`;
   const toolNames = tools.map((t) => t.name).join(", ");
   const description = `MCP bridge: ${serverName} (${toolNames})`;
@@ -105,7 +105,7 @@ Always run \`${skillName} <tool> --help\` before calling a tool for the first ti
  * @param serverName - The MCP server name
  * @returns Script file content
  */
-export function generateScript(serverName: string): string {
+function generateScript(serverName: string): string {
   const skillName = `mcp-${serverName}`;
 
   return `/**

@@ -24,9 +24,6 @@ export const HUMAN_TASK_STATUSES: readonly HumanTaskStatus[] = ["open", "complet
 /** Priority of a human task. */
 export type HumanTaskPriority = "low" | "normal" | "high";
 
-/** All human task priorities. */
-export const HUMAN_TASK_PRIORITIES: readonly HumanTaskPriority[] = ["low", "normal", "high"];
-
 /** Visual style of an outcome button. */
 export type HumanTaskOutcomeStyle = "primary" | "danger" | "default";
 

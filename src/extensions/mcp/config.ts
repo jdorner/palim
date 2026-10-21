@@ -22,17 +22,6 @@ export function getAllServers(db: BunSQLiteDatabase<Record<string, unknown>>): M
 }
 
 /**
- * Retrieves all enabled MCP server definitions.
- *
- * @param db - Drizzle database instance
- * @returns Array of enabled server definitions
- */
-export function getEnabledServers(db: BunSQLiteDatabase<Record<string, unknown>>): McpServerDefinition[] {
-  const rows = db.select().from(mcpServers).where(eq(mcpServers.enabled, true)).all();
-  return rows.map((row) => parseServerRow(row as unknown as McpServerRow));
-}
-
-/**
  * Retrieves a single server by name.
  *
  * @param db - Drizzle database instance

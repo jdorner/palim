@@ -13,7 +13,7 @@
 import { HubError } from "./errors";
 
 /** Default timeout for local git commands. */
-export const GIT_TIMEOUT_MS = 30_000;
+const GIT_TIMEOUT_MS = 30_000;
 
 /** Timeout for commands that talk to the remote (clone, fetch). */
 export const GIT_NETWORK_TIMEOUT_MS = 120_000;

@@ -6,7 +6,6 @@
  */
 
 export {
-  canUseLauncher,
   createPortalLauncherRegistry,
   describeRunAsUser,
   PortalLauncherError,

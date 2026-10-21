@@ -13,10 +13,10 @@ import type { ColumnDef, ColumnType, FileFormat, ImportPreview, RowRecord, Table
 import { COLUMN_KEY_PATTERN, slugify } from "./types";
 
 /** Maximum accepted upload size. */
-export const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
+const MAX_IMPORT_BYTES = 20 * 1024 * 1024;
 
 /** Maximum number of data rows per import. */
-export const MAX_IMPORT_ROWS = 100_000;
+const MAX_IMPORT_ROWS = 100_000;
 
 /** Rows sampled per column for type inference. */
 const INFERENCE_SAMPLE = 1000;
@@ -52,7 +52,7 @@ export interface SheetData {
  * @returns The detected format
  * @throws {DataTableError} 400 for unsupported formats
  */
-export function detectFormat(bytes: Uint8Array, filename: string): FileFormat {
+function detectFormat(bytes: Uint8Array, filename: string): FileFormat {
   const lower = filename.toLowerCase();
   const isZip = bytes[0] === 0x50 && bytes[1] === 0x4b;
   if (isZip) {

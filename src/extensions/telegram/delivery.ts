@@ -20,7 +20,7 @@ export const DEFAULT_MESSAGE_FORMAT: MessageFormat = "markdown";
 export const PLAIN_TEXT_LIMIT = 4096;
 
 /** Maximum rich message text length. */
-export const RICH_MESSAGE_LIMIT = 32768;
+const RICH_MESSAGE_LIMIT = 32768;
 
 /** HTTP status Telegram returns when rate limiting; falling back would hit the same limit. */
 const TOO_MANY_REQUESTS = 429;

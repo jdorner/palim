@@ -35,7 +35,7 @@ const FIRST_CHECK_DELAY_MS = 30_000;
 
 const manifest = {
   name: "extension-hub",
-  version: "0.1.0",
+  version: "0.1.1",
   description: "Install, update, and remove external extensions from git repositories",
   ui: {
     pages: [{ id: "hub", title: "Extension Hub", entry: "ui/ExtensionHubPage.svelte" }],

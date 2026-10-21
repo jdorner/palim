@@ -95,7 +95,7 @@ export interface PortalLauncherRegistry {
  * @param viewer - The caller
  * @returns True when visible
  */
-export function canUseLauncher(def: PortalLauncherDef, viewer: PortalLauncherViewer): boolean {
+function canUseLauncher(def: PortalLauncherDef, viewer: PortalLauncherViewer): boolean {
   if (viewer.isAdmin || def.roles.length === 0) return true;
   return def.roles.some((role) => viewer.roleNames.includes(role));
 }

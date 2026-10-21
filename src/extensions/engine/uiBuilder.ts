@@ -31,7 +31,7 @@ import type { BunPlugin } from "bun";
 import { compileModule, compile as compileSvelte, VERSION as SVELTE_VERSION } from "svelte/compiler";
 
 /** URL prefix under which compiled bundles are served. */
-export const EXT_UI_URL_PREFIX = "/ext-ui";
+const EXT_UI_URL_PREFIX = "/ext-ui";
 
 /** Directory of the extension UI SDK (`@ext/ui`). */
 const EXT_UI_SDK = path.resolve(PROJECT_DIR, "src/extensions/ui/index.ts");
@@ -228,7 +228,7 @@ function getCoreFingerprint(): Promise<string> {
  * @param pages - Declared pages
  * @returns Short hex hash
  */
-export async function computeUiHash(dir: string, pages: UiPageDeclaration[]): Promise<string> {
+async function computeUiHash(dir: string, pages: UiPageDeclaration[]): Promise<string> {
   const hash = createHash("sha256");
   hash.update(await getCoreFingerprint());
   hash.update(JSON.stringify(pages));

@@ -72,7 +72,7 @@ export function getDiscoveredModulePath(ext: Extension): string | undefined {
  * @param modulePath - Absolute path to the extension's index.ts
  * @returns The validated Extension object, or null if import/validation failed
  */
-export async function loadExtensionModule(modulePath: string): Promise<Extension | null> {
+async function loadExtensionModule(modulePath: string): Promise<Extension | null> {
   try {
     const mod = await import(modulePath);
     const ext: Extension = mod.default ?? mod;

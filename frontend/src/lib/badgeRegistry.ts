@@ -12,7 +12,7 @@ import {
 const scheduleCount: Readable<number> = derived(schedules, ($s) => $s.length);
 
 /** Maps badge key strings from extension manifests to reactive count stores. */
-export const badgeRegistry: Record<string, Readable<number>> = {
+const badgeRegistry: Record<string, Readable<number>> = {
   mcpServerCount,
   webhookCount,
   fileWatcherCount,

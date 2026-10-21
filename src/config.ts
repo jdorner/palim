@@ -39,7 +39,7 @@ export const API_BASE_URL = process.env.OPENAI_API_BASE_URL || "";
 // Default scheme http (use https for reverse-proxy / TLS termination)
 const rawScheme = process.env.WEB_SCHEME || "http";
 assert(rawScheme === "http" || rawScheme === "https", `Invalid WEB_SCHEME: "${rawScheme}" (must be "http" or "https")`);
-export const WEB_SCHEME: "http" | "https" = rawScheme;
+const WEB_SCHEME: "http" | "https" = rawScheme;
 // Default host localhost, or use WEB_HOST env variable
 export const WEB_HOST = process.env.WEB_HOST ? process.env.WEB_HOST : "localhost";
 // Default port 3000, or use WEB_PORT env variable
@@ -61,7 +61,7 @@ export function serverOrigin(): string {
  * reverse proxy or another host name than `WEB_HOST`. Empty when not
  * configured. A trailing slash is removed.
  */
-export const WEB_PUBLIC_URL: string = (() => {
+const WEB_PUBLIC_URL: string = (() => {
   const raw = process.env.WEB_PUBLIC_URL?.trim() ?? "";
   if (!raw) return "";
   assert(/^https?:\/\/[^\s]+$/.test(raw), `Invalid WEB_PUBLIC_URL: "${raw}" (must be an http(s) URL)`);

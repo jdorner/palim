@@ -317,23 +317,10 @@ let cachedModels: ModelMetadata[] = [];
 
 /**
  * The active model provider used for resolving capabilities.
- * Initially unset - call {@link detectAndSetProvider} during boot to auto-detect,
- * or {@link setModelProvider} to set manually.
- * Falls back to {@link LlamaCppProvider} if never configured.
+ * Defaults to {@link LlamaCppProvider}; {@link detectAndSetProvider} replaces
+ * it during boot.
  */
 let activeProvider: ModelProvider = new LlamaCppProvider(API_BASE_URL);
-
-/**
- * Replaces the active model provider strategy.
- * Clears the capabilities cache since the new provider may resolve differently.
- *
- * @param provider - The new provider to use for capability resolution
- */
-export function setModelProvider(provider: ModelProvider): void {
-  logger.info(`Switching model provider to "${provider.name}"`);
-  activeProvider = provider;
-  capabilitiesCache.clear();
-}
 
 /**
  * Returns the currently active model provider.

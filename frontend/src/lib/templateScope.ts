@@ -437,7 +437,7 @@ export function getConfigSuggestions(
  * @param currentSlug - Slug of the step currently being edited
  * @returns Set of valid result-reference slugs (includes `currentSlug`; callers exclude it)
  */
-export function computeValidResultRefs(
+function computeValidResultRefs(
   steps: Array<{ slug: string }>,
   edges: SlugEdge[] | undefined,
   currentSlug: string | undefined,

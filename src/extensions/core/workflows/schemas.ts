@@ -51,7 +51,7 @@ export type { OutputSchemaShorthand, OutputSchemaShorthandValue } from "@shared/
  * file anyone with work-dir access can write): it is bound to the operator who
  * last saved the workflow in the editor (`portalRunAs.ts`).
  */
-export const PortalTriggerConfigSchema = Type.Object(
+const PortalTriggerConfigSchema = Type.Object(
   {
     title: Type.Optional(Type.String({ maxLength: 200 })),
     description: Type.Optional(Type.String({ maxLength: 2000 })),
@@ -73,7 +73,7 @@ export const PortalTriggerConfigSchema = Type.Object(
 export type PortalTriggerConfig = Static<typeof PortalTriggerConfigSchema>;
 
 /** Trigger configuration - how a workflow is started. */
-export const TriggerSchema = Type.Object(
+const TriggerSchema = Type.Object(
   {
     type: Type.Union([
       Type.Literal("webhook"),
@@ -94,7 +94,7 @@ export const TriggerSchema = Type.Object(
  * Prompt field accepts a single string or an array of strings.
  * Arrays are joined with `\n` at load time via {@link normalizePrompt}.
  */
-export const PromptSchema = Type.Union([Type.String({ minLength: 1 }), Type.Array(Type.String(), { minItems: 1 })]);
+const PromptSchema = Type.Union([Type.String({ minLength: 1 }), Type.Array(Type.String(), { minItems: 1 })]);
 
 // ---------------------------------------------------------------------------
 // Control Flow Schemas
@@ -166,12 +166,12 @@ export function normalizePrompt(prompt: string | string[]): string {
 // ---------------------------------------------------------------------------
 
 /** Slug pattern for DAG step map keys (same constraints as before). */
-export const DagSlugPattern = "^[a-z][a-z0-9-]*$";
+const DagSlugPattern = "^[a-z][a-z0-9-]*$";
 
 /**
  * An agent step definition for DAG format (no slug field — slug is the map key).
  */
-export const DagAgentStepSchema = Type.Object(
+const DagAgentStepSchema = Type.Object(
   {
     type: Type.Literal("agent"),
     prompt: PromptSchema,
@@ -189,7 +189,7 @@ export const DagAgentStepSchema = Type.Object(
  * labels only override the TEXT shown on the branch edge in the graph editor.
  * Either may be omitted, in which case the default "then"/"else" text is used.
  */
-export const IfBranchLabelsSchema = Type.Object(
+const IfBranchLabelsSchema = Type.Object(
   {
     // biome-ignore lint/suspicious/noThenProperty: "then" is the workflow branch keyword, not a thenable
     then: Type.Optional(Type.String({ maxLength: 64 })),
@@ -310,7 +310,7 @@ export const DagEmitStepSchema = Type.Object(
  * that collects results and drives iteration. The `each` branch edge
  * connects to the first body step.
  */
-export const DagIteratorStepSchema = Type.Object(
+const DagIteratorStepSchema = Type.Object(
   {
     type: Type.Literal("iterator"),
     items: Type.String({ minLength: 1, description: "Template expression resolving to a JSON array" }),
@@ -327,7 +327,7 @@ export const DagIteratorStepSchema = Type.Object(
  * or completing when all items are exhausted. Has regular (unlabeled) outgoing
  * edges to downstream steps.
  */
-export const DagAggregatorStepSchema = Type.Object(
+const DagAggregatorStepSchema = Type.Object(
   {
     type: Type.Literal("aggregator"),
     iterator: Type.String({ minLength: 1, description: "Slug of the paired iterator node" }),
@@ -341,7 +341,7 @@ export const DagAggregatorStepSchema = Type.Object(
  * Requires `type`; allows any additional properties since the extension's
  * own schema handles detailed validation.
  */
-export const DagGenericStepSchema = Type.Intersect([
+const DagGenericStepSchema = Type.Intersect([
   Type.Object({
     type: Type.String({ minLength: 1 }),
   }),
@@ -478,7 +478,7 @@ export const EdgeSchema = Type.Object(
 export type Edge = Static<typeof EdgeSchema>;
 
 /** Maximum length of a workflow's `group` name. */
-export const WORKFLOW_GROUP_MAX_LENGTH = 64;
+const WORKFLOW_GROUP_MAX_LENGTH = 64;
 
 /**
  * Root DAG workflow definition schema.

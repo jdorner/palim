@@ -12,7 +12,7 @@ import { insertReference } from "./autocompleteEngine";
 import type { ScopeConfig } from "./templateScope";
 
 /** Attribute marking the panel's on/off button, whose focus keeps the target. */
-export const PICKER_TOGGLE_ATTR = "data-variable-picker-toggle";
+const PICKER_TOGGLE_ATTR = "data-variable-picker-toggle";
 
 /** A field the picker can insert into. */
 export interface PickerTarget {

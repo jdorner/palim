@@ -107,7 +107,7 @@ src/
 │   ├── monitor.ts           # Real-time job state push to WS clients
 │   ├── auth.ts              # Bearer token auth middleware, client IP resolution (trusted proxies)
 │   ├── loginThrottle.ts     # Per-IP + per-username login failure lockouts
-│   ├── chatEvents.ts        # Agent event to chat WS event mappingg
+│   ├── chatEvents.ts        # Agent event to chat WS event mapping
 │   ├── sessionChatMap.ts    # In-memory session-to-chat mapping for push routing
 │   ├── portalEvents.ts      # PortalEventHub: per-user SSE fan-out of HITL task changes (/api/portal/events)
 │   └── routes/
@@ -176,9 +176,9 @@ src/
 │   ├── types.ts             # Alias-free contract (HitlApi, CreateTaskInput, TaskRecord), re-exported via @ext/types
 │   └── index.ts             # Re-exports
 ├── skills/
+│   ├── loader.ts            # Skill discovery (all extension directories, or one on hot-load)
 │   ├── skills.ts            # Skill directory loading and system prompt building
-│   ├── frontmatter.ts       # YAML frontmatter parsing for skill markdown
-│   └── index.ts             # Re-exports
+│   └── frontmatter.ts       # YAML frontmatter parsing for skill markdown
 ├── types/
 │   └── subscript-justin.d.ts # Ambient types for the subscript Justin preset
 ├── tools/
@@ -194,14 +194,13 @@ src/
     └── validation.ts        # Shared validation helpers
 
 shared/                      # Types + pure helpers shared between backend and frontend,
-│                            # split into domain modules and re-exported from index.ts
-├── index.ts                 # Barrel re-export of all shared modules
+│                            # split into domain modules (imported directly, no barrel)
 ├── chat.ts                  # ChatWebSocketEvent, TokenUsage
 ├── extensions.ts            # ExtensionInfo, ExtensionLifecycleEvent, ExtensionUiContribution, ExtensionUiPage, NavigationEntry, ...
 ├── extensionUi.ts           # PalimHost (host API for extension pages), MountExtensionPage, ExtensionUiEvent
 ├── i18n.ts                  # Pure i18n runtime: SUPPORTED_LOCALES, createTranslator (fallback, {param}, plurals), createFormatters, resolveLocale
 ├── jobs.ts                  # JobEntry, LogEntry
-├── models.ts                # AvailableModel, ModelIntent, SelectedModelResponse, MODEL_INTENTS
+├── models.ts                # AvailableModel, ModelIntent, SelectedModelResponse
 ├── portal.ts                # Portal wire types: HumanTask, HumanTaskDetail, HumanTaskCounts, outcomes, statuses
 ├── schedules.ts             # ScheduleEntry
 ├── variables.ts             # GlobalVariableEntry

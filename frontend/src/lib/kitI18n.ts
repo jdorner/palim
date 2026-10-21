@@ -17,7 +17,7 @@ import { type Readable, readable } from "svelte/store";
 import { createFormatters, FALLBACK_LOCALE, type I18n, interpolate } from "$shared/i18n";
 
 /** Context key under which the active {@link I18n} store is provided. */
-export const I18N_CONTEXT_KEY = Symbol.for("palim.i18n");
+const I18N_CONTEXT_KEY = Symbol.for("palim.i18n");
 
 /** Used when no provider is mounted (e.g. isolated component tests): returns defaults or keys. */
 const FALLBACK_I18N: Readable<I18n> = readable({

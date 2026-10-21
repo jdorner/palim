@@ -184,7 +184,7 @@ function cleanupTempFiles(tempFiles: string[]): void {
 
 const manifest = {
   name: "converter",
-  version: "1.2.0",
+  version: "1.2.1",
   description: "Converts files (PDFs, images) to markdown via vision LLM",
   settingsSchema: Type.Object({
     resizeImagePx: Type.Number({

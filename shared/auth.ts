@@ -76,7 +76,7 @@ export type PermissionSet = readonly Permission[];
  * Permissions a portal account may hold. Portal accounts only reach the
  * portal API, so their roles must not grant anything beyond these.
  */
-export const PORTAL_SAFE_PERMISSIONS: readonly Permission[] = [
+const PORTAL_SAFE_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.HITL_RESPOND,
   PERMISSIONS.HITL_MANAGE,
   PERMISSIONS.PORTAL_START,
@@ -102,11 +102,8 @@ export function isPortalSafePermissionSet(permissions: PermissionSet | null): bo
  */
 export type UserKind = "operator" | "portal";
 
-/** All account kinds. */
-export const USER_KINDS: readonly UserKind[] = ["operator", "portal"];
-
 /** API path prefixes a portal account may call. */
-export const PORTAL_PATH_PREFIXES: readonly string[] = ["/api/auth/", "/api/portal/", "/api/i18n/"];
+const PORTAL_PATH_PREFIXES: readonly string[] = ["/api/auth/", "/api/portal/", "/api/i18n/"];
 
 /**
  * Whether a request path is reachable by a portal account.

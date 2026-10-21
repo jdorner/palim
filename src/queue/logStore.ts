@@ -197,7 +197,7 @@ export function startLogPurgeTimer(
 /**
  * Stop the periodic log purge timer.
  */
-export function stopLogPurgeTimer(): void {
+function stopLogPurgeTimer(): void {
   if (_purgeTimer) {
     clearInterval(_purgeTimer);
     _purgeTimer = null;

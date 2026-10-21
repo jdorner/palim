@@ -34,7 +34,7 @@ export interface SourceInfo extends SourceRecord {
 }
 
 /** An API error carrying the HTTP status and server details. */
-export class ApiError extends Error {
+class ApiError extends Error {
   readonly status: number;
   readonly details: unknown;
 

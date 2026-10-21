@@ -13,7 +13,7 @@
 import { HubError } from "./errors";
 
 /** Prefix of the secret keys holding source tokens. */
-export const TOKEN_KEY_PREFIX = "SOURCE_TOKEN_";
+const TOKEN_KEY_PREFIX = "SOURCE_TOKEN_";
 
 /** The subset of `ctx.secrets` the token helpers use. */
 export interface TokenSecrets {

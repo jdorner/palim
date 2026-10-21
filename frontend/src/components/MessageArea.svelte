@@ -387,9 +387,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
         {#each msg.segments as seg, si (si)}
           {#if seg.type === "text"}
             <div class="flex justify-start">
-              <div
-                class="rounded-lg px-4 py-2 text-sm bg-muted text-foreground prose prose-sm dark:prose-invert max-w-none"
-              >
+              <div class="rounded-lg px-4 py-2 text-sm bg-muted text-foreground">
                 <ChatMarkdown content={seg.content} />
               </div>
             </div>
@@ -413,7 +411,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
                 </button>
                 {#if isThinkingExpanded(`${msg.id}-${si}`)}
                   <div
-                    class="mt-1 rounded-lg px-4 py-2 text-sm border border-border/50 bg-muted/30 text-muted-foreground prose prose-sm dark:prose-invert max-w-none italic"
+                    class="mt-1 rounded-lg px-4 py-2 text-sm border border-border/50 bg-muted/30 text-muted-foreground italic"
                   >
                     <ChatMarkdown content={seg.content} />
                   </div>
@@ -524,9 +522,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
     {#each streamSegments as seg, i (i)}
       {#if seg.type === "text"}
         <div class="flex justify-start">
-          <div
-            class="rounded-lg px-4 py-2 text-sm bg-muted text-foreground prose prose-sm dark:prose-invert max-w-none"
-          >
+          <div class="rounded-lg px-4 py-2 text-sm bg-muted text-foreground">
             <ChatMarkdown content={seg.content} streaming={i === streamSegments.length - 1} />
           </div>
         </div>
@@ -551,7 +547,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
             </button>
             {#if isThinkingExpanded(`stream-${i}`)}
               <div
-                class="mt-1 rounded-lg px-4 py-2 text-sm border border-border/50 bg-muted/30 text-muted-foreground prose prose-sm dark:prose-invert max-w-none italic"
+                class="mt-1 rounded-lg px-4 py-2 text-sm border border-border/50 bg-muted/30 text-muted-foreground italic"
               >
                 <ChatMarkdown content={seg.content} streaming={isActiveThinking} />
               </div>
@@ -594,7 +590,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
          (no segments yet, or the last segment is a tool-call group) -->
     {#if streamSegments.length === 0 || streamSegments[streamSegments.length - 1]?.type === "tools"}
       <div class="flex justify-start">
-        <div class="max-w-[80%] rounded-lg px-4 py-2 text-sm bg-muted text-foreground prose prose-sm dark:prose-invert">
+        <div class="max-w-[80%] rounded-lg px-4 py-2 text-sm bg-muted text-foreground">
           <div class="flex items-center gap-2 text-xs text-muted-foreground">
             <span class="inline-flex gap-1">
               <span

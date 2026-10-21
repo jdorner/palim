@@ -92,7 +92,7 @@ export function emptyShapeRow(): ShapeFieldRow {
  * @param row - The row
  * @returns True when every property still has its initial value
  */
-export function isBlankFormRow(row: FormFieldRow): boolean {
+function isBlankFormRow(row: FormFieldRow): boolean {
   return (
     !row.key.trim() &&
     row.type === "text" &&
@@ -110,7 +110,7 @@ export function isBlankFormRow(row: FormFieldRow): boolean {
  * @param row - The row
  * @returns True when every property still has its initial value
  */
-export function isBlankShapeRow(row: ShapeFieldRow): boolean {
+function isBlankShapeRow(row: ShapeFieldRow): boolean {
   return !row.key.trim() && row.type === "string" && !row.array && row.children.length === 0;
 }
 

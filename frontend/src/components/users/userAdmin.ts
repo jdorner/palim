@@ -63,7 +63,7 @@ export function isSystemUser(user: UserRow): boolean {
  * @param users - All user rows.
  * @returns The users that count toward the "at least one admin" invariant.
  */
-export function activeAdmins(users: readonly UserRow[]): UserRow[] {
+function activeAdmins(users: readonly UserRow[]): UserRow[] {
   return users.filter((u) => !u.disabled && u.roles.includes(ROLE_ADMIN) && !isSystemUser(u));
 }
 

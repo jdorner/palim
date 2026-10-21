@@ -54,7 +54,7 @@ export function setClock(clock: (() => number) | null): void {
  *
  * @returns Milliseconds since epoch from the active clock
  */
-export function currentClock(): number {
+function currentClock(): number {
   return _clock();
 }
 
@@ -73,7 +73,7 @@ const zoneValidity = new Map<string, boolean>();
  * @param zone - The time zone name
  * @returns True when it is usable
  */
-export function isValidTimeZone(zone: string): boolean {
+function isValidTimeZone(zone: string): boolean {
   if (zone === "") return false;
   let valid = zoneValidity.get(zone);
   if (valid === undefined) {

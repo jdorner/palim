@@ -21,7 +21,7 @@ import de from "../locales/de.json";
 import en from "../locales/en.json";
 
 /** Portal message catalogs by locale. */
-export const CATALOGS: Record<Locale, typeof en> = { en, de };
+const CATALOGS: Record<Locale, typeof en> = { en, de };
 
 /** Builds an {@link I18n} snapshot for a locale. */
 function snapshot(locale: Locale): I18n {

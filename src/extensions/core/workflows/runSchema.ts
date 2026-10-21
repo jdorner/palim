@@ -1,8 +1,8 @@
 /**
  * Drizzle schema for the `workflow_runs` table.
  *
- * Persists workflow run state across segment boundaries, enabling
- * segment-based dispatch with durable step results and run status.
+ * Persists DAG workflow run state: run status, step results, step statuses,
+ * and edge states, so runs survive restarts.
  *
  * @module
  */
@@ -12,9 +12,7 @@ import { index, integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
 /**
  * Workflow run records.
  *
- * Each row represents a single execution of a workflow definition,
- * tracking accumulated step results, execution cursor, and run status
- * across segment dispatches.
+ * Each row represents a single execution of a workflow definition.
  */
 export const workflowRuns = sqliteTable(
   "workflow_runs",
@@ -25,14 +23,10 @@ export const workflowRuns = sqliteTable(
     workflowName: text("workflow_name").notNull(),
     /** Run status: running, waiting-signal, completed, failed. */
     status: text("status").notNull().default("running"),
-    /** JSON-encoded accumulated step results keyed by slug. */
+    /** JSON-encoded step results keyed by slug, plus `__statuses` and `__edges` (see `dagRunStore.ts`). */
     stepResults: text("step_results").notNull().default("{}"),
     /** JSON-encoded trigger payload (nullable). */
     triggerPayload: text("trigger_payload"),
-    /** Zero-based execution cursor (points to current/next segment). */
-    currentStepIndex: integer("current_step_index").notNull().default(0),
-    /** JSON-encoded ordered step slug array. */
-    fullStepOrder: text("full_step_order").notNull(),
     /** Failure reason (null unless status is failed). */
     failureReason: text("failure_reason"),
     /** Id of the user who initiated the run (trigger creator or starter); null for user-less runs. */

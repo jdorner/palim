@@ -16,7 +16,7 @@ import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
 /** Configuration schema of the `convert` step. */
-export const ConvertStepConfigSchema = Type.Object({
+const ConvertStepConfigSchema = Type.Object({
   file: Type.String({
     title: "File",
     description: "Path of the image or PDF, relative to the work directory. Supports {{template}} expressions.",

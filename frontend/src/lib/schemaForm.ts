@@ -175,7 +175,7 @@ function isFormObject(prop: unknown): boolean {
  * @param prop - The schema to normalize
  * @returns The string member merged with the union's annotations, or `prop`
  */
-export function normalizeLooseUnion(prop: SchemaProperty): SchemaProperty {
+function normalizeLooseUnion(prop: SchemaProperty): SchemaProperty {
   if (!Array.isArray(prop.anyOf) || isEnum(prop)) return prop;
   const member = findStringMember(prop.anyOf as SchemaProperty[]);
   if (!member) return prop;

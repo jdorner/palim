@@ -31,7 +31,7 @@ const ColumnSchema = Type.Object(
 );
 
 /** Schema for a filter condition. */
-export const FilterSchema = Type.Object(
+const FilterSchema = Type.Object(
   {
     column: Type.String({ minLength: 1 }),
     op: Type.Union(FILTER_OPS.map((op) => Type.Literal(op))),
@@ -122,7 +122,7 @@ function check<T extends TSchema>(schema: T, body: unknown): Static<T> {
  *
  * @throws {DataTableError} 400 when malformed
  */
-export function parseFilterParam(raw: string | null): Filter[] | undefined {
+function parseFilterParam(raw: string | null): Filter[] | undefined {
   if (!raw) return undefined;
   let parsed: unknown;
   try {
@@ -173,7 +173,7 @@ function formField(body: unknown, name: string): string | undefined {
  * @returns The import result
  * @throws {DataTableError} for invalid files, options, or target tables
  */
-export async function runImport(
+async function runImport(
   store: DataTableStore,
   bytes: Uint8Array,
   filename: string,
