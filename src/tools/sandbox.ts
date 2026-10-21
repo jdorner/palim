@@ -1,3 +1,4 @@
+import { open } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { Type } from "@sinclair/typebox";
 import {
@@ -27,6 +28,26 @@ export const WORK_DIR_MAX_FILE_READ_BYTES = 100 * 1024 * 1024;
 
 const SANDBOX_HOME_DIR = "/home/user" as const;
 const SANDBOX_SKILLS_DIR = "/skills" as const;
+
+/** Pending or settled result of {@link primeFileHandles}, shared by all shells. */
+let fileHandlesPrimed: Promise<void> | undefined;
+
+/**
+ * Opens and closes one `node:fs/promises` file handle outside any sandbox
+ * execution, once per process.
+ *
+ * Bun 1.4 creates a `FinalizationRegistry` for file handles on first use and
+ * reuses it afterwards. just-bash's defense-in-depth blocks that constructor
+ * while a command runs, so if the first handle is opened inside `exec`, every
+ * open fails for the rest of the process (reported as `ENOENT` / `EIO`, after
+ * `O_TRUNC` already emptied the file on writes). Harmless on Bun 1.3.
+ *
+ * @returns Resolves once a handle has been opened and closed
+ */
+function primeFileHandles(): Promise<void> {
+  fileHandlesPrimed ??= open(import.meta.path, "r").then((handle) => handle.close());
+  return fileHandlesPrimed;
+}
 
 /** A registered shell program entry. */
 interface ProgramEntry {
@@ -305,6 +326,8 @@ export async function createShell(options: CreateShellOptions): Promise<Bash> {
   const agentWorkDir = join(SANDBOX_HOME_DIR, "work");
 
   const hostWorkDir = options.workDir ?? WORK_DIR;
+
+  await primeFileHandles();
 
   const basefs = new InMemoryFs();
   basefs.mkdirSync("/tmp", { recursive: true });

@@ -8,7 +8,7 @@ The agent operates inside a sandboxed shell powered by just-bash. The configured
 
 ## Quick Start
 
-**Prerequisites:** [Bun >=1.3.14 and <1.4.0](https://bun.sh/) and an OpenAI-compatible LLM endpoint.
+**Prerequisites:** [Bun >=1.3.14 and <1.5.0](https://bun.sh/) and an OpenAI-compatible LLM endpoint.
 
 ```bash
 # Install dependencies
@@ -31,7 +31,7 @@ The portal build is needed only to serve the optional HITL portal, but `bun run 
 
 ## Runtime & Tooling
 
-- **Runtime:** Bun >=1.3.14 and <1.4.0
+- **Runtime:** Bun >=1.3.14 and <1.5.0
 - **Language:** TypeScript 7.0.2+ (ESNext, bundler module resolution, strict mode)
 - **LLM:** llama.cpp on `localhost:11434` (OpenAI-compatible API, supports llama-swap proxy). Dynamic model discovery in `src/models.ts`.
 - **Linter/Formatter:** Biome (`bun run check`). Config in `biome.json`.
