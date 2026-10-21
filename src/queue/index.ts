@@ -1,4 +1,4 @@
-export { closeLogStore, getLogStore, startLogPurgeTimer, stopLogPurgeTimer } from "./logStore";
+export { closeLogStore, getLogStore, startLogPurgeTimer } from "./logStore";
 export { ManagedQueue } from "./managedQueue";
 export type {
   JobInfo,

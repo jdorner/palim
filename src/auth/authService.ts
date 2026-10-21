@@ -21,7 +21,7 @@ import { type AppAbility, buildAbility } from "./ability";
 import type { UserRecord, UserStore } from "./userStore";
 
 /** Default lifetime of an issued session token, in milliseconds (7 days). */
-export const DEFAULT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Number of random bytes in an opaque session token. */
 const TOKEN_BYTES = 32;

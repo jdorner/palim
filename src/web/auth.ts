@@ -15,7 +15,7 @@ import { TRUSTED_PROXIES } from "@src/config";
 import type { Server } from "bun";
 
 /** WebSocket auth protocol prefix - clients send the token as `auth-<token>`. */
-export const WS_AUTH_PREFIX = "auth-";
+const WS_AUTH_PREFIX = "auth-";
 
 /**
  * Request-scoped registry of resolved principals.

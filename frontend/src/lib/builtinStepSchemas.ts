@@ -26,7 +26,7 @@ const EVENT_NAME_PATTERN = "^[a-z][a-z0-9._-]*$";
  * arrives. The optional `inputSchema` is a JSON Schema object and is therefore
  * left as a complex field (edited via "Edit as JSON").
  */
-export const WaitForConfigSchema: Record<string, unknown> = {
+const WaitForConfigSchema: Record<string, unknown> = {
   type: "object",
   required: ["event"],
   properties: {
@@ -71,7 +71,7 @@ export const WaitForConfigSchema: Record<string, unknown> = {
 /**
  * Config schema for the `emit` step: sends a named signal to waiting workflows.
  */
-export const EmitConfigSchema: Record<string, unknown> = {
+const EmitConfigSchema: Record<string, unknown> = {
   type: "object",
   required: ["event"],
   properties: {
@@ -109,7 +109,7 @@ export const EmitConfigSchema: Record<string, unknown> = {
  * waits for a person to answer it. `form` is a JSON Schema object, edited by
  * the field builder (`FieldListEditor`) instead of the generic form.
  */
-export const HumanTaskConfigSchema: Record<string, unknown> = {
+const HumanTaskConfigSchema: Record<string, unknown> = {
   type: "object",
   required: ["title", "assignees"],
   properties: {
@@ -196,7 +196,7 @@ export const HumanTaskConfigSchema: Record<string, unknown> = {
  * `paths` lists the branch key names; the actual branch targets are wired
  * through graph edges (`branch: "<key>"`), not stored on the step.
  */
-export const CaseConfigSchema: Record<string, unknown> = {
+const CaseConfigSchema: Record<string, unknown> = {
   type: "object",
   required: ["match"],
   properties: {
@@ -223,7 +223,7 @@ export const CaseConfigSchema: Record<string, unknown> = {
 /**
  * Config schema for the `iterator` step: splits an array into per-item execution.
  */
-export const IteratorConfigSchema: Record<string, unknown> = {
+const IteratorConfigSchema: Record<string, unknown> = {
   type: "object",
   required: ["items"],
   properties: {
@@ -245,7 +245,7 @@ export const IteratorConfigSchema: Record<string, unknown> = {
 /**
  * Config schema for the `aggregator` step: collects per-iteration results.
  */
-export const AggregatorConfigSchema: Record<string, unknown> = {
+const AggregatorConfigSchema: Record<string, unknown> = {
   type: "object",
   required: ["iterator"],
   properties: {
@@ -262,7 +262,7 @@ export const AggregatorConfigSchema: Record<string, unknown> = {
  * Registry mapping a built-in control-flow step type to its config schema.
  * Types absent from this map (currently only `if`) use a bespoke form instead.
  */
-export const BUILTIN_STEP_CONFIG_SCHEMAS: Record<string, Record<string, unknown>> = {
+const BUILTIN_STEP_CONFIG_SCHEMAS: Record<string, Record<string, unknown>> = {
   waitFor: WaitForConfigSchema,
   humanTask: HumanTaskConfigSchema,
   emit: EmitConfigSchema,
@@ -294,7 +294,7 @@ const DEDICATED_FIELDS: Record<string, readonly string[]> = {
  * @param type - The step type identifier
  * @returns The field names (empty when none)
  */
-export function dedicatedFields(type: string): readonly string[] {
+function dedicatedFields(type: string): readonly string[] {
   return DEDICATED_FIELDS[type] ?? [];
 }
 

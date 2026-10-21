@@ -148,7 +148,7 @@ export function validateSlug(value: string): ValidationResult {
  * @param value - The workflow name to validate
  * @returns Validation result with error message if invalid
  */
-export function validateWorkflowName(value: string): ValidationResult {
+function validateWorkflowName(value: string): ValidationResult {
   if (!value || value.length === 0) {
     return { valid: false, error: t("validation.nameRequired") };
   }

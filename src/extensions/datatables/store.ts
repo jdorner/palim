@@ -34,7 +34,7 @@ import {
 export type DataTableDb = BunSQLiteDatabase<Record<string, unknown>>;
 
 /** Maximum rows returned by a single query. */
-export const MAX_QUERY_LIMIT = 1000;
+const MAX_QUERY_LIMIT = 1000;
 
 /** Maximum number of row errors included in error details. */
 const MAX_REPORTED_ERRORS = 20;
@@ -170,7 +170,7 @@ function rowValidationError(rowErrors: RowError[], verb = "validation"): DataTab
  * @returns The normalized columns
  * @throws {DataTableError} 400 when invalid
  */
-export function normalizeColumns(columns: readonly ColumnDef[], keyColumn?: string | null): ColumnDef[] {
+function normalizeColumns(columns: readonly ColumnDef[], keyColumn?: string | null): ColumnDef[] {
   if (columns.length === 0) throw new DataTableError(400, "A table needs at least one column");
   if (columns.length > MAX_COLUMNS) throw new DataTableError(400, `A table can have at most ${MAX_COLUMNS} columns`);
   const seen = new Set<string>();

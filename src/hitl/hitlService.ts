@@ -90,7 +90,7 @@ export class HitlError extends Error {
 const OUTCOME_ID_PATTERN = "^[a-z][a-z0-9_-]*$";
 
 /** Input schema of {@link HitlService.createTask}. */
-export const CreateTaskInputSchema = Type.Object(
+const CreateTaskInputSchema = Type.Object(
   {
     source: Type.Object({
       kind: Type.String({ minLength: 1, maxLength: 64 }),

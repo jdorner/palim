@@ -28,7 +28,7 @@ import { fileTypeFromBuffer } from "file-type";
 import { getPrincipal } from "../../auth";
 
 /** Work-dir-relative directory that portal uploads are saved under. */
-export const PORTAL_UPLOAD_DIR = "uploads/portal";
+const PORTAL_UPLOAD_DIR = "uploads/portal";
 
 /** Longest file name kept for a saved upload. */
 const MAX_FILENAME_LENGTH = 120;
@@ -56,10 +56,7 @@ export function sanitizeUploadName(name: string): string {
  * @param data - The validated form data
  * @returns The data with all declared properties present
  */
-export function withDeclaredFields(
-  schema: Record<string, unknown>,
-  data: Record<string, unknown>,
-): Record<string, unknown> {
+function withDeclaredFields(schema: Record<string, unknown>, data: Record<string, unknown>): Record<string, unknown> {
   const properties = schema.properties;
   if (typeof properties !== "object" || properties === null) return data;
   const filled: Record<string, unknown> = {};

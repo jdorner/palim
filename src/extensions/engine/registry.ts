@@ -12,7 +12,7 @@ import { FALLBACK_LOCALE, type Locale } from "@shared/i18n";
 import type { WebSocketMessage } from "@shared/websocket";
 import type { AuthResolver, UserStore } from "@src/auth";
 import { createIdentityApi } from "@src/auth/identityApi";
-import { PROJECT_DIR, serverOrigin } from "@src/config";
+import { PROJECT_DIR } from "@src/config";
 import { getDb, schema } from "@src/db";
 import type { HitlService } from "@src/hitl";
 import type { PortalLauncherRegistry } from "@src/portal";
@@ -1097,8 +1097,6 @@ export class ExtensionRegistry {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Re-export from config for backwards-compat (extension consumers may import it)
 /**
  * Removes every cached module below a directory from Bun's module registry
  * (`require.cache` covers ES modules too), so the next import reads them again.
@@ -1110,21 +1108,4 @@ function purgeModuleCache(dir: string): void {
   for (const key of Object.keys(require.cache)) {
     if (key.startsWith(prefix)) delete require.cache[key];
   }
-}
-
-export { serverOrigin } from "@src/config";
-
-/**
- * Constructs the HTTP base URL for an extension's routes.
- *
- * Extension routes are served at `/ext/{extensionName}/`, so this returns
- * e.g. `http://localhost:3000/ext/introspection`. Skill scripts should
- * receive this via the {@link SkillScriptContext.baseUrl} parameter of
- * `registerSkill` rather than importing host/port from config directly.
- *
- * @param extensionName - The extension name (matches the route prefix)
- * @returns Fully-qualified base URL with no trailing slash
- */
-export function getExtensionBaseUrl(extensionName: string): string {
-  return `${serverOrigin()}/ext/${extensionName}`;
 }

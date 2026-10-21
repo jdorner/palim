@@ -33,7 +33,7 @@ import { Value } from "@sinclair/typebox/value";
 import { formatValidationErrors } from "@src/utils/validation";
 
 /** TypeBox schema for the chunk step configuration (excluding slug and type). */
-export const ChunkStepConfigSchema = Type.Object(
+const ChunkStepConfigSchema = Type.Object(
   {
     input: Type.String({
       minLength: 1,

@@ -8,7 +8,7 @@
  */
 
 export type { AbilityPrincipal, AppAbility, PermissionSet } from "./ability";
-export { abilityFromSerialized, buildAbility, ownedSubject } from "./ability";
+export { buildAbility, ownedSubject } from "./ability";
 export type {
   AuthResolver,
   AuthServiceOptions,
@@ -16,7 +16,7 @@ export type {
   PasswordCost,
   ResolvedPrincipal,
 } from "./authService";
-export { AuthService, DEFAULT_SESSION_TTL_MS, hashToken, serializeAbility } from "./authService";
+export { AuthService, hashToken, serializeAbility } from "./authService";
 export type { UserChange } from "./guards";
 export {
   checkRoleAssignment,

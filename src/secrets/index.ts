@@ -8,5 +8,4 @@
  * @module
  */
 
-export { matchesPattern } from "./acl";
 export type { SecretAclEntry, SecretAuditRecord, SecretResolution, SetSecretOptions } from "./types";

@@ -64,6 +64,12 @@ describe("migration 0010 (user management)", () => {
     expect(columnNames("workflow_runs").has("created_by_user_id")).toBe(true);
   });
 
+  test("drops the legacy run cursor columns from workflow_runs (migration 0019)", () => {
+    const columns = columnNames("workflow_runs");
+    expect(columns.has("current_step_index")).toBe(false);
+    expect(columns.has("full_step_order")).toBe(false);
+  });
+
   test("enforces unique username", () => {
     const now = Date.now();
     sqlite.run(

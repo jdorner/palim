@@ -41,7 +41,7 @@ import type { StepIconName } from "../../../shared/extensions";
  * here is a compile error. Extra keys beyond the step-icon set are permitted
  * for navigation-only icons (e.g. GlobeIcon).
  */
-export const iconRegistry: Record<StepIconName, Component> & Record<string, Component> = {
+const iconRegistry: Record<StepIconName, Component> & Record<string, Component> = {
   BracketsCurlyIcon,
   BroadcastIcon,
   ChatTextIcon,

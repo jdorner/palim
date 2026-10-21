@@ -20,7 +20,7 @@ let { content, contentType }: Props = $props();
       <span>{t("chat.push")}</span>
     </div>
     {#if contentType === "text/markdown"}
-      <div class="prose prose-sm dark:prose-invert max-w-none">
+      <div>
         <ChatMarkdown {content} />
       </div>
     {:else}

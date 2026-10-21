@@ -45,7 +45,7 @@ export function hitlViewerFor(principal: ResolvedPrincipal): HitlViewer {
  * @param principal - The authenticated principal
  * @returns True when the principal may see and answer tasks
  */
-export function canUseHitl(principal: ResolvedPrincipal): boolean {
+function canUseHitl(principal: ResolvedPrincipal): boolean {
   return principal.ability.can("update", "HumanTask");
 }
 

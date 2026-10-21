@@ -4,7 +4,7 @@ import { getToken } from "$lib/auth";
 import { disabledExtensionRoutes } from "$lib/extensionStore";
 import { identity } from "$lib/identity.svelte";
 
-export const { p, navigate, isActive, route } = createRouter({
+export const { navigate, route } = createRouter({
   "/": () => import("./routes/ChatPage.svelte"),
   "/jobs": () => import("./routes/JobsPage.svelte"),
   "/chat": () => import("./routes/ChatPage.svelte"),

@@ -13,7 +13,6 @@ export { createUserDirectory } from "./directory";
 export {
   type CompleteTaskInput,
   type CreateTaskInput,
-  CreateTaskInputSchema,
   createHitlService,
   type HitlChange,
   type HitlDirectory,

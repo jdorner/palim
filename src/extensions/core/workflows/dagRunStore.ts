@@ -120,13 +120,8 @@ export function initDagRunStore(database: BunSQLiteDatabase<Record<string, unkno
 /**
  * Converts a database row to a {@link DagWorkflowRun}.
  *
- * The DAG Run Store reuses the `workflow_runs` table but interprets columns
- * differently:
- * - `fullStepOrder` stores JSON-encoded `edgeStates` record
- * - `currentStepIndex` is unused (always 0)
- * - `stepResults` stores both step results and step statuses as a combined JSON
- *
- * Format of stepResults column for DAG runs:
+ * The `stepResults` column holds step results, step statuses, and edge states
+ * as one combined JSON object:
  * `{ "__statuses": {...}, "__edges": {...}, ...stepResults }`
  *
  * @param row - Raw row from the workflow_runs table
@@ -209,8 +204,6 @@ export function create(
     status: run.status,
     stepResults: serializeState(run),
     triggerPayload: run.triggerPayload != null ? JSON.stringify(run.triggerPayload) : null,
-    currentStepIndex: 0,
-    fullStepOrder: JSON.stringify([]), // unused for DAG runs
     failureReason: run.failureReason,
     createdByUserId: run.createdByUserId ?? null,
     createdAt: now,
@@ -409,17 +402,6 @@ export function getReadySteps(run: DagWorkflowRun, incomingEdgeMap: Map<string, 
   }
 
   return ready;
-}
-
-/**
- * Retrieves all DAG runs with the given status.
- *
- * @param status - The status to filter by
- * @returns Array of matching runs
- */
-export function getByStatus(status: DagRunStatus): DagWorkflowRun[] {
-  const rows = db.select().from(workflowRuns).where(eq(workflowRuns.status, status)).all();
-  return rows.map(rowToRun);
 }
 
 /**

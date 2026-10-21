@@ -54,7 +54,7 @@ export interface ReleaseTag {
  * @param version - The candidate version
  * @returns True for e.g. `1.2.3` and `1.2.3-rc.1`
  */
-export function isSemver(version: string): boolean {
+function isSemver(version: string): boolean {
   return SEMVER_PATTERN.test(version);
 }
 
@@ -141,7 +141,7 @@ export function releaseTag(name: string, version: string): string {
  * @param text - Markdown paragraph
  * @returns Plain text
  */
-export function stripMarkdown(text: string): string {
+function stripMarkdown(text: string): string {
   return text
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")

@@ -27,7 +27,7 @@ export interface SessionFactory {
 }
 
 /** Queue name used for all workflow step jobs. */
-export const DAG_WORKFLOW_STEPS_QUEUE = "workflows:steps";
+const DAG_WORKFLOW_STEPS_QUEUE = "workflows:steps";
 
 /** Data payload carried by each DAG workflow step job. */
 export interface DagStepJobData {

@@ -32,7 +32,7 @@ export function localizeStepType<T extends Pick<StepTypeInfo, "type" | "label" |
  * @param type - The step type identifier (e.g. "excel")
  * @returns The label, or undefined if not found in any enabled extension
  */
-export function getCustomStepLabel(type: string): string | undefined {
+function getCustomStepLabel(type: string): string | undefined {
   const allExtensions = get(extensions);
   for (const ext of allExtensions) {
     if (!ext.enabled || !ext.ui?.stepTypes) continue;

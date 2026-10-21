@@ -764,7 +764,7 @@ function normalizeBranch(branch: string | null): string | null {
  * @param outcome - Load outcome
  * @returns Warnings (empty when consistent or not yet loaded)
  */
-export function versionWarnings(name: string, packageVersion: string, outcome: LoadOutcome): string[] {
+function versionWarnings(name: string, packageVersion: string, outcome: LoadOutcome): string[] {
   if (outcome.status !== "loaded" || outcome.version === packageVersion) return [];
   return [
     `"${name}": manifest version ${outcome.version} differs from package.json version ${packageVersion}; ` +

@@ -32,7 +32,7 @@ export const SseConfigSchema = Type.Object({
 });
 
 /** Schema for validating server name format. */
-export const ServerNameSchema = Type.String({
+const ServerNameSchema = Type.String({
   minLength: 1,
   maxLength: 64,
   pattern: "^[a-z][a-z0-9-]*$",

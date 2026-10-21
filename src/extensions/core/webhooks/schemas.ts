@@ -6,11 +6,7 @@
 import { Type } from "@sinclair/typebox";
 
 /** Schema for the webhook auth type field. */
-export const WebhookAuthTypeSchema = Type.Union([
-  Type.Literal("hmac-sha256"),
-  Type.Literal("bearer"),
-  Type.Literal("none"),
-]);
+const WebhookAuthTypeSchema = Type.Union([Type.Literal("hmac-sha256"), Type.Literal("bearer"), Type.Literal("none")]);
 
 /** Schema for creating a webhook via REST or the agent tool. */
 export const CreateWebhookPayload = Type.Object(

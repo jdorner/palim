@@ -90,7 +90,7 @@ export interface DagGraphTopology {
  * @param definition - The DAG workflow definition
  * @returns Precomputed graph topology
  */
-export function buildGraphTopology(definition: DagWorkflowDefinition): DagGraphTopology {
+function buildGraphTopology(definition: DagWorkflowDefinition): DagGraphTopology {
   return {
     incomingEdges: buildIncomingEdgeMap(definition),
     outgoingEdges: buildOutgoingEdgeMap(definition),
@@ -310,7 +310,7 @@ async function evaluateIfNode(
  * @param outEdges - The case node's outgoing edges
  * @returns The fallback branch key, or null when the node has no fallback
  */
-export function caseFallbackBranch(stepDef: DagCaseStep, outEdges: readonly Edge[]): string | null {
+function caseFallbackBranch(stepDef: DagCaseStep, outEdges: readonly Edge[]): string | null {
   const hasEdge = (branch: string) => outEdges.some((e) => e.branch === branch);
   if (stepDef.default && hasEdge(stepDef.default)) return stepDef.default;
   if (hasEdge("default")) return "default";
@@ -666,7 +666,7 @@ export function computeBodyTerminalSlugs(definition: DagWorkflowDefinition, body
  * @param bodySlugs - Set of body step slugs to reset
  * @param bodyEdgeIds - Set of body edge IDs to reset
  */
-export function resetBodySubgraph(runId: string, bodySlugs: Set<string>, bodyEdgeIds: Set<string>): void {
+function resetBodySubgraph(runId: string, bodySlugs: Set<string>, bodyEdgeIds: Set<string>): void {
   for (const slug of bodySlugs) {
     dagRunStore.updateStepStatus(runId, slug, "pending");
   }
@@ -684,7 +684,7 @@ export function resetBodySubgraph(runId: string, bodySlugs: Set<string>, bodyEdg
  * advances the cursor, and either resets the body for the next iteration
  * or completes with collected results.
  */
-export async function evaluateAggregatorNode(
+async function evaluateAggregatorNode(
   runId: string,
   stepSlug: string,
   _stepDef: DagAggregatorStep,
@@ -1485,7 +1485,7 @@ export async function handleDagStepFailure(
  * @param reason - Failure reason
  * @param deps - Dependencies (only log and broadcast needed)
  */
-export function failRun(
+function failRun(
   runId: string,
   stepSlug: string,
   reason: string,
