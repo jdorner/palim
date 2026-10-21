@@ -38,11 +38,24 @@ interface FileWatcherOptions {
    * @default 500
    */
   pollingInterval?: number;
+  /**
+   * How long (ms) a file's size must stay unchanged before `new` / `change`
+   * is emitted.
+   *
+   * @default 1500
+   */
+  stabilityThreshold?: number;
+  /**
+   * Interval (ms) between size checks while a file is settling.
+   *
+   * @default 200
+   */
+  stabilityPollInterval?: number;
 }
 
-/** Minimum time (ms) a file's size must remain stable before emitting. */
+/** Default minimum time (ms) a file's size must remain stable before emitting. */
 const STABILITY_THRESHOLD = 1500;
-/** Interval (ms) between size checks for write stabilization. */
+/** Default interval (ms) between size checks for write stabilization. */
 const STABILITY_POLL_INTERVAL = 200;
 
 /**
@@ -68,7 +81,11 @@ export class FileWatcher extends EventEmitter<FileWatcherEvents> {
     super();
   }
 
-  /** Start watching the configured path for file system events. */
+  /**
+   * Start watching the configured path for file system events.
+   *
+   * @returns Resolves once the initial scan is done and changes are being observed
+   */
   public async start() {
     const polling = this.options.usePolling ?? false;
     this.watcher = chokidar.watch(this.fileOrPath.toString(), {
@@ -98,6 +115,11 @@ export class FileWatcher extends EventEmitter<FileWatcherEvents> {
       log.error("File watcher error:", message);
       this.emit("error", message);
     });
+
+    // Without this, files arriving right after start() can be missed.
+    // Chokidar emits ready for missing and unreadable paths too.
+    const watcher = this.watcher;
+    await new Promise<void>((resolve) => watcher.once("ready", () => resolve()));
   }
 
   /**
@@ -140,12 +162,12 @@ export class FileWatcher extends EventEmitter<FileWatcherEvents> {
           return;
         }
 
-        if (Date.now() - entry.stableSince >= STABILITY_THRESHOLD) {
+        if (Date.now() - entry.stableSince >= (this.options.stabilityThreshold ?? STABILITY_THRESHOLD)) {
           // Stable long enough — emit and clean up
           this.cancelPending(filePath);
           this.emit(event, filePath);
         }
-      }, STABILITY_POLL_INTERVAL),
+      }, this.options.stabilityPollInterval ?? STABILITY_POLL_INTERVAL),
     };
 
     this.pendingFiles.set(filePath, entry);
