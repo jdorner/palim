@@ -170,6 +170,8 @@ Template expressions support function calls to transform values inline, in addit
 "body": "{\"data\": \"{{ jsonEscape(stripDataUri(image.dataUrl)) }}\"}"
 ```
 
+There is no pipe/filter syntax: write `join(steps.a.result.list, ", ")`, not `steps.a.result.list | join(", ")`. Bitwise operators (`|`, `&`, `^`, `~`, `<<`, `>>`) are rejected; use `||` and `&&` for logic.
+
 Available built-in functions:
 
 | Function | Description | Example |
