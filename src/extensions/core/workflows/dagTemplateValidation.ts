@@ -14,7 +14,7 @@
  * @module
  */
 
-import { isPlainPath, maskStringLiterals } from "@shared/templateExpression";
+import { bitwiseOperatorHint, findBitwiseOperator, isPlainPath, maskStringLiterals } from "@shared/templateExpression";
 import {
   DEFAULT_ENV_ALLOWLIST,
   type OutputSchema,
@@ -516,6 +516,15 @@ export async function validateDagWorkflowTemplates(
               stepSlug: slug,
               field: fieldName,
               message: `Invalid expression "{{${expr}}}": ${syntaxError}`,
+            });
+            continue;
+          }
+          const bitwise = findBitwiseOperator(expr);
+          if (bitwise) {
+            warnings.push({
+              stepSlug: slug,
+              field: fieldName,
+              message: `Unsupported operator in "{{${expr}}}": ${bitwiseOperatorHint(bitwise)}`,
             });
             continue;
           }

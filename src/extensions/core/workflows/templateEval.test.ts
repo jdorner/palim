@@ -37,6 +37,19 @@ describe("buildEvalScope", () => {
 });
 
 describe("evaluateExpression", () => {
+  describe("bitwise operators", () => {
+    test("rejects pipe syntax instead of silently evaluating to 0", () => {
+      const r = evaluateExpression('list | join(", ")', { list: ["a", "b"] });
+      expect(r.ok).toBe(false);
+      expect(r.warning).toContain("not a filter");
+    });
+
+    test("still evaluates || and | inside a string", () => {
+      expect(evaluateExpression('x || "-"', { x: "" }).value).toBe("-");
+      expect(evaluateExpression('join(list, " | ")', { list: ["a", "b"] }).value).toBe("a | b");
+    });
+  });
+
   describe("evaluation", () => {
     test("evaluates a path lookup", () => {
       const r = evaluateExpression("image.dataUrl", { image: { dataUrl: "hello" } });

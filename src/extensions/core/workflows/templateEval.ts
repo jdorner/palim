@@ -21,6 +21,7 @@
  *    and are never placed in the scope, so they are unreachable here.
  */
 
+import { bitwiseOperatorHint, findBitwiseOperator } from "@shared/templateExpression";
 import justin from "subscript/justin";
 import { TEMPLATE_FUNCTIONS } from "./templateFunctions";
 
@@ -105,7 +106,9 @@ export interface EvalResult {
  * Enforces the sandbox: rejects forbidden-key references, evaluates against a
  * null-prototype scope, and never throws - a parse or runtime failure is
  * reported as `{ ok: false, warning }` so the caller can leave the expression
- * literal.
+ * literal. Bitwise operators are rejected the same way (see
+ * {@link findBitwiseOperator}), so a mistaken `list | join(", ")` stays
+ * literal instead of silently evaluating to `0`.
  *
  * @param expr - The expression text (without surrounding braces)
  * @param namespaces - Whitelisted, non-sensitive scope values
@@ -114,6 +117,13 @@ export interface EvalResult {
 export function evaluateExpression(expr: string, namespaces: Record<string, unknown>): EvalResult {
   if (referencesForbiddenKey(expr)) {
     return { ok: false, warning: `Forbidden key reference in template expression: ${expr}` };
+  }
+  const bitwise = findBitwiseOperator(expr);
+  if (bitwise) {
+    return {
+      ok: false,
+      warning: `Unsupported operator in template expression "${expr}": ${bitwiseOperatorHint(bitwise)}`,
+    };
   }
 
   const scope = buildEvalScope(namespaces);

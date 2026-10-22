@@ -647,6 +647,33 @@ describe("validateDagWorkflowTemplates - operator expressions", () => {
     expect(warnings[0]!.message).toContain("Invalid expression");
   });
 
+  test("rejects pipe/filter syntax with a hint to call the function", async () => {
+    const warnings = await validateDagWorkflowTemplates(linearWf('{{ steps.vars.result | join(", ") }}'));
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]!.message).toContain("Unsupported operator");
+    expect(warnings[0]!.message).toContain('join(list, ", ")');
+  });
+
+  test("rejects the other bitwise operators", async () => {
+    for (const op of ["&", "^", "<<", ">>"]) {
+      const warnings = await validateDagWorkflowTemplates(linearWf(`{{ steps.vars.result ${op} 1 }}`));
+      expect(warnings.map((w) => w.message)).toEqual([expect.stringContaining(`bitwise operator "${op}"`)]);
+    }
+    const tilde = await validateDagWorkflowTemplates(linearWf("{{ ~steps.vars.result }}"));
+    expect(tilde.length).toBe(1);
+  });
+
+  test("accepts logical operators and | inside string literals", async () => {
+    const prompts = [
+      "{{ steps.vars.result || 'none' }}",
+      "{{ steps.vars.result && true }}",
+      '{{ join(split(steps.vars.result, "|"), " | ") }}',
+    ];
+    for (const prompt of prompts) {
+      expect(await validateDagWorkflowTemplates(linearWf(prompt))).toEqual([]);
+    }
+  });
+
   test("rejects secret and env inside an expression", async () => {
     const warnings = await validateDagWorkflowTemplates(linearWf("{{ secret.KEY + 1 }}"));
     expect(warnings.length).toBe(1);

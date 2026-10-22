@@ -38,3 +38,32 @@ const STRING_LITERAL = /"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`/g;
 export function maskStringLiterals(expr: string): string {
   return expr.replace(STRING_LITERAL, (m) => " ".repeat(m.length));
 }
+
+/** Matches a bitwise operator: a shift, `^`, `~`, or a single (not doubled) `|` / `&`. */
+const BITWISE_OPERATOR = /<<|>>>?|\^|~|(?<![|&])[|&](?![|&])/;
+
+/**
+ * Finds a bitwise operator (`|`, `&`, `^`, `~`, `<<`, `>>`, `>>>`) outside
+ * string literals. Templates have no use for them, and they are easy to hit by
+ * mistake: `steps.a.result.list | join(", ")` (filter syntax from other
+ * template languages) evaluates as a bitwise OR and silently yields `0`.
+ *
+ * @param expr - The expression body (without braces)
+ * @returns The first bitwise operator found, or null when there is none
+ */
+export function findBitwiseOperator(expr: string): string | null {
+  return BITWISE_OPERATOR.exec(maskStringLiterals(expr))?.[0] ?? null;
+}
+
+/**
+ * Explains why a bitwise operator is rejected, with the function-call form to
+ * use instead of pipe/filter syntax.
+ *
+ * @param operator - The operator returned by {@link findBitwiseOperator}
+ * @returns A sentence for warnings and validation messages
+ */
+export function bitwiseOperatorHint(operator: string): string {
+  return operator === "|"
+    ? `"|" is a bitwise OR, not a filter: templates have no pipe syntax. Call the function instead, e.g. join(list, ", ")`
+    : `the bitwise operator "${operator}" is not supported in templates`;
+}
