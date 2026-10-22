@@ -44,6 +44,7 @@ Extensions are self-contained modules that hook into the agent system. Each exte
 - [Dependencies](#dependencies)
 - [Custom Workflow Step Types](#custom-workflow-step-types)
   - [Registering a Step Type](#registering-a-step-type)
+  - [Documenting a Step Type](#documenting-a-step-type)
   - [StepTypeHandler Interface](#steptypehandler-interface)
   - [Declaring Output Schemas](#declaring-output-schemas)
   - [Input Validation (Pre-Transition Checks)](#input-validation-pre-transition-checks)
@@ -943,6 +944,21 @@ export default extension;
 
 Step labels, descriptions, and config field titles/descriptions are translated through `steps.<type>.label`, `steps.<type>.description`, and `steps.<type>.config.<prop>.title` / `.description` in the extension's catalogs (see [Translations](#manifest-and-schema-metadata)).
 
+### Documenting a Step Type
+
+The agent learns about step types from the sandbox `workflow` command, not from a static skill. `workflow step-types` lists every available type (engine and extension-registered) with its `description`, `workflow step-types --search "<terms>"` filters that list by keyword, and `workflow step-types <type>` shows one type in full: its config fields and result fields (rendered from `schema` and `outputSchema`, including their `description`s) followed by the handler's `docs`.
+
+Put a JSON5 example and anything the schemas can't say into `docs`: when to use the step, defaults, pitfalls, and how its result is typically consumed. Don't repeat the field list. Keeping the Markdown in a file next to the handler avoids escaping code fences in a template literal:
+
+```typescript
+async initialize(ctx) {
+  const docs = await Bun.file(`${import.meta.dir}/stepDocs/excel.md`).text();
+  ctx.stepTypes.register("excel", { ...handler, docs });
+}
+```
+
+`docs` is English only and is not translated.
+
 ### StepTypeHandler Interface
 
 | Field | Type | Description |
@@ -950,6 +966,7 @@ Step labels, descriptions, and config field titles/descriptions are translated t
 | `schema` | `TObject` | TypeBox schema for validating the step config (excluding `slug` and `type`) |
 | `label` | `string` | Human-readable label shown in the workflow editor dropdown and graph nodes |
 | `description` | `string?` | Optional one- or two-sentence explanation of what the step does, shown in the detail pane of the editor's step picker (and matched by its search field) |
+| `docs` | `string?` | Optional Markdown reference for workflow authors and the agent: a JSON5 example, field semantics beyond the field descriptions, and runtime behavior. Shown by `workflow step-types <type>` and searched by `workflow step-types --search`. See [Documenting a Step Type](#documenting-a-step-type). |
 | `icon` | `StepIconName?` | Optional icon identifier - one of the `StepIconName` keys in the frontend icon registry (`frontend/src/lib/iconRegistry.ts`), e.g. `"TableIcon"`. NOT an emoji or arbitrary string. Omitting it falls back to a generic gear icon. |
 | `inputSchema` | `TSchema?` | Optional TypeBox schema describing the expected input data from the preceding step. Used for automatic validation and agent repair. |
 | `outputSchema` | `TSchema?` | Optional TypeBox schema describing the shape of the result this step produces. Serialized to JSON Schema by the registry and surfaced to the editor for deep `{{steps.<slug>.result.<path>}}` autocomplete and path validation. Omitting it has no runtime effect. See [Declaring Output Schemas](#declaring-output-schemas). |

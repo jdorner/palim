@@ -147,6 +147,12 @@ export interface StepTypeInfo {
   /** Optional explanation of what the step does (shown in the editor's step picker). */
   description?: string;
   /**
+   * Optional Markdown usage reference for workflow authors: examples, field
+   * semantics, and behavior. Shown by the sandbox `workflow step-types <type>`
+   * command; not translated.
+   */
+  docs?: string;
+  /**
    * Optional icon identifier. A key into the frontend icon registry
    * (`frontend/src/lib/iconRegistry.ts`), e.g. `"TableIcon"`, not an emoji.
    */

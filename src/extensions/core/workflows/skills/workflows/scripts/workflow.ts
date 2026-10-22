@@ -1,7 +1,7 @@
 /**
  * Registers the `workflow` shell command for managing workflow JSON5 definitions.
  *
- * Subcommands: list, read, write, validate, delete, trigger, runs, logs, cancel
+ * Subcommands: list, step-types, read, write, validate, delete, trigger, runs, logs, cancel
  */
 
 import {
@@ -63,7 +63,16 @@ export function buildWorkflowCommand(scriptCtx: SkillScriptContext) {
       },
       {
         name: "step-types",
-        description: "List available custom (extension-registered) workflow step types",
+        description:
+          "List all workflow step types (engine and extensions), show one type's fields, examples, and behavior, or search them",
+        args: [{ name: "type", required: false, description: "Step type to show in full (e.g. http-request)" }],
+        options: [
+          {
+            name: "search",
+            short: "s",
+            description: "Only list step types matching all of these keywords (quote several words)",
+          },
+        ],
         handler: buildStepTypesHandler(scriptCtx),
       },
       {
@@ -453,48 +462,178 @@ interface SchemaProperty {
   type?: string;
   description?: string;
   title?: string;
+  const?: unknown;
+  anyOf?: SchemaProperty[];
+  items?: SchemaProperty;
+}
+
+/** An object JSON Schema (subset we render). */
+interface ObjectSchema {
+  properties?: Record<string, SchemaProperty>;
+  required?: string[];
 }
 
 /** Response shape for a single entry from GET /ext/workflows/meta/step-types */
 interface StepTypeMetaEntry {
   type: string;
   label: string;
+  description?: string;
+  docs?: string;
   extensionName: string;
   terminal?: boolean;
   category?: string;
-  configSchema?: { properties?: Record<string, SchemaProperty>; required?: string[] };
-  outputSchema?: unknown;
+  configSchema?: ObjectSchema;
+  outputSchema?: ObjectSchema;
+}
+
+/** Owner of the engine-evaluated step types, listed first in the index. */
+const ENGINE_OWNER = "workflows";
+
+/**
+ * Describes a JSON Schema property's type for a field line, e.g. `string`,
+ * `array of string`, or `"GET" | "POST"` for a union of literals.
+ *
+ * @param def - The property schema
+ * @returns A short type description (`any` when none is declared)
+ */
+function describeType(def: SchemaProperty | undefined): string {
+  if (def?.anyOf?.length && def.anyOf.every((v) => v.const !== undefined)) {
+    return def.anyOf.map((v) => JSON.stringify(v.const)).join(" | ");
+  }
+  if (def?.type === "array" && def.items) return `array of ${describeType(def.items)}`;
+  return def?.type ?? "any";
 }
 
 /**
- * Formats a step type's config schema into per-field description lines, e.g.:
+ * Formats an object schema into per-field description lines, e.g.:
  *
  *   - command (string, required): Shell command to execute in the sandbox...
- *   - skills (array): Skill names to mount...
+ *   - skills (array of string): Skill names to mount...
  *
  * Includes each field's `description` (falling back to `title`) so an author
  * knows what to put in each field without opening the extension source. Returns
  * an empty array when the schema declares no properties.
  *
- * @param configSchema - The serialized JSON Schema for the step's config
+ * @param schema - The serialized JSON Schema (a step's config or result)
  * @param indent - Leading whitespace applied to each rendered line
- * @returns One formatted line per config field
+ * @returns One formatted line per field
  */
-function formatConfigFields(configSchema: StepTypeMetaEntry["configSchema"], indent: string): string[] {
-  const properties = configSchema?.properties;
+function formatSchemaFields(schema: ObjectSchema | undefined, indent: string): string[] {
+  const properties = schema?.properties;
   if (!properties || typeof properties !== "object") return [];
-  const required = new Set(configSchema?.required ?? []);
+  const required = new Set(schema?.required ?? []);
   return Object.entries(properties).map(([key, def]) => {
-    const type = def?.type ?? "any";
     const req = required.has(key) ? ", required" : "";
     const desc = def?.description ?? def?.title;
     const descSuffix = desc ? `: ${desc}` : "";
-    return `${indent}- ${key} (${type}${req})${descSuffix}`;
+    return `${indent}- ${key} (${describeType(def)}${req})${descSuffix}`;
   });
 }
 
+/**
+ * Renders the compact index: one line per step type, grouped by owning
+ * extension (engine types first).
+ *
+ * @param entries - The step types to list
+ * @returns The index lines
+ */
+function formatStepTypeIndex(entries: StepTypeMetaEntry[]): string[] {
+  const groups = new Map<string, StepTypeMetaEntry[]>();
+  for (const entry of entries) {
+    groups.set(entry.extensionName, [...(groups.get(entry.extensionName) ?? []), entry]);
+  }
+  const owners = [...groups.keys()].sort((a, b) =>
+    a === ENGINE_OWNER ? -1 : b === ENGINE_OWNER ? 1 : a.localeCompare(b),
+  );
+  const width = typeColumnWidth(entries);
+  const lines: string[] = [];
+  for (const owner of owners) {
+    lines.push("", owner === ENGINE_OWNER ? "Engine (agent and control flow):" : `From extension ${owner}:`);
+    for (const entry of groups.get(owner) ?? []) lines.push(formatIndexLine(entry, width));
+  }
+  return lines;
+}
+
+/**
+ * Renders search results as a flat list in rank order, naming each type's owner.
+ *
+ * @param entries - The matching step types, best first
+ * @returns The result lines
+ */
+function formatStepTypeMatches(entries: StepTypeMetaEntry[]): string[] {
+  const width = typeColumnWidth(entries);
+  return entries.map((entry) => `${formatIndexLine(entry, width)} (${entry.extensionName})`);
+}
+
+/** Width of the type column: the longest type plus a gap. */
+function typeColumnWidth(entries: StepTypeMetaEntry[]): number {
+  return Math.max(0, ...entries.map((e) => e.type.length)) + 2;
+}
+
+/** One index line: type, description (or label), and the terminal flag. */
+function formatIndexLine(entry: StepTypeMetaEntry, width: number): string {
+  const terminal = entry.terminal ? " [terminal]" : "";
+  return `  ${entry.type.padEnd(width)}${entry.description ?? entry.label}${terminal}`;
+}
+
+/**
+ * Renders the full reference of one step type: summary, config fields,
+ * result fields, and the Markdown docs.
+ *
+ * @param entry - The step type
+ * @returns The rendered reference
+ */
+function formatStepTypeDetail(entry: StepTypeMetaEntry): string {
+  const flags = [entry.terminal ? "terminal" : "", entry.category ?? ""].filter(Boolean).join(", ");
+  const lines = [`${entry.type} - ${entry.label} (from ${entry.extensionName})${flags ? ` [${flags}]` : ""}`];
+  if (entry.description) lines.push(entry.description);
+
+  const configLines = formatSchemaFields(entry.configSchema, "  ");
+  if (configLines.length > 0) lines.push("", "Config fields:", ...configLines);
+
+  const resultLines = formatSchemaFields(entry.outputSchema, "  ");
+  if (resultLines.length > 0) lines.push("", "Result fields ({{steps.<slug>.result.<field>}}):", ...resultLines);
+  else if (entry.outputSchema) lines.push("", "Produces a result ({{steps.<slug>.result}}).");
+
+  if (entry.docs?.trim()) lines.push("", entry.docs.trim());
+  return lines.join("\n");
+}
+
+/**
+ * Ranks step types against search terms. Every term must occur (case-
+ * insensitively) in the type, label, description, owning extension, a config
+ * field name or description, or the docs. Matches in the type, label, or
+ * description rank before matches found only in fields or docs.
+ *
+ * @param entries - The step types to search
+ * @param query - Whitespace-separated search terms
+ * @returns The matching step types, best first
+ */
+function searchStepTypes(entries: StepTypeMetaEntry[], query: string): StepTypeMetaEntry[] {
+  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
+  const scored: Array<{ entry: StepTypeMetaEntry; score: number }> = [];
+  for (const entry of entries) {
+    const summary = [entry.type, entry.label, entry.description ?? "", entry.extensionName].join(" ").toLowerCase();
+    const fields = Object.entries(entry.configSchema?.properties ?? {}).map(
+      ([key, def]) => `${key} ${def?.title ?? ""} ${def?.description ?? ""}`,
+    );
+    const detail = [...fields, entry.docs ?? ""].join(" ").toLowerCase();
+    let score = 0;
+    for (const term of terms) {
+      if (summary.includes(term)) score += 2;
+      else if (detail.includes(term)) score += 1;
+      else {
+        score = -1;
+        break;
+      }
+    }
+    if (score >= 0) scored.push({ entry, score });
+  }
+  return scored.sort((a, b) => b.score - a.score).map((s) => s.entry);
+}
+
 function buildStepTypesHandler(scriptCtx: SkillScriptContext) {
-  return async (_ctx: CommandContext): Promise<ExecResult> => {
+  return async (_ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
     let entries: StepTypeMetaEntry[];
     try {
       const resp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/meta/step-types`);
@@ -506,28 +645,42 @@ function buildStepTypesHandler(scriptCtx: SkillScriptContext) {
       return { exitCode: 1, stdout: "", stderr: formatFetchError(err as Error) };
     }
 
-    const lines: string[] = [
-      "Built-in step types (always available): agent, if, case, iterator, aggregator, waitFor, emit",
-      "",
-    ];
+    const type = args.get("type");
+    if (type) {
+      const entry = entries.find((e) => e.type === type);
+      if (entry) return { exitCode: 0, stdout: formatStepTypeDetail(entry), stderr: "" };
+      const similar = searchStepTypes(entries, type)
+        .map((e) => e.type)
+        .slice(0, 5);
+      const hint = similar.length > 0 ? ` Similar: ${similar.join(", ")}.` : "";
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `Error: Unknown step type "${type}".${hint} Run 'workflow step-types' for the full list.`,
+      };
+    }
 
-    if (entries.length === 0) {
-      lines.push("No custom step types are registered by extensions.");
+    const query = args.option("search").trim();
+    if (query) {
+      const matches = searchStepTypes(entries, query);
+      if (matches.length === 0) {
+        return {
+          exitCode: 0,
+          stdout: `No step types match "${query}". Run 'workflow step-types' for the full list.`,
+          stderr: "",
+        };
+      }
+      const lines = [`Step types matching "${query}" (best first):`, ...formatStepTypeMatches(matches)];
+      lines.push("", "Run 'workflow step-types <type>' for fields, examples, and behavior.");
       return { exitCode: 0, stdout: lines.join("\n"), stderr: "" };
     }
 
-    lines.push("Custom step types (registered by extensions):");
-    for (const entry of entries) {
-      const flags = [entry.terminal ? "terminal" : "", entry.category ?? ""].filter(Boolean).join(", ");
-      const flagSuffix = flags ? ` [${flags}]` : "";
-      lines.push("", `  ${entry.type} - ${entry.label} (from ${entry.extensionName})${flagSuffix}`);
-      const fieldLines = formatConfigFields(entry.configSchema, "      ");
-      if (fieldLines.length > 0) {
-        lines.push("    config fields:", ...fieldLines);
-      }
-      if (entry.outputSchema) lines.push("    produces a result (usable via {{steps.<slug>.result}})");
-    }
-
+    const lines = [`Available workflow step types (${entries.length}):`, ...formatStepTypeIndex(entries)];
+    lines.push(
+      "",
+      "Run 'workflow step-types <type>' for fields, examples, and behavior.",
+      "Run 'workflow step-types --search <terms>' to find step types by keyword.",
+    );
     return { exitCode: 0, stdout: lines.join("\n"), stderr: "" };
   };
 }

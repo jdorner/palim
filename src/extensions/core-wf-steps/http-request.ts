@@ -103,7 +103,7 @@ export function createHttpRequestHandler(): StepTypeHandler {
       }),
     }),
     label: "HTTP Request",
-    description: "Sends an HTTP request and returns the response status, headers, and body.",
+    description: "Sends an HTTP request and returns the response status and body.",
     icon: "GlobeIcon",
 
     async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<HttpRequestResult> {

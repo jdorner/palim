@@ -427,6 +427,16 @@ export interface StepTypeHandler {
   description?: string;
 
   /**
+   * Optional Markdown usage reference for workflow authors (and the agent):
+   * a JSON5 example, field semantics beyond the schema's field descriptions,
+   * and runtime behavior. Shown by the sandbox `workflow step-types <type>`
+   * command and searched by `workflow step-types --search`. English only.
+   * Config fields and the output shape are rendered from `schema` and
+   * `outputSchema`, so don't repeat them here.
+   */
+  docs?: string;
+
+  /**
    * Optional icon identifier for graph node and palette rendering.
    *
    * Must be one of the {@link StepIconName} keys registered in the frontend

@@ -4,13 +4,13 @@ description: How to author workflow JSON5 definitions - schema, graph edges, pro
 ---
 # Writing Workflows
 
-Detailed authoring reference for workflow JSON5 definitions. For an overview of what workflows are and the CLI commands, read the `workflows` skill first. For each step type's fields and behavior, read the `workflow-step-types` skill (`skill read workflow-step-types`).
+Detailed authoring reference for workflow JSON5 definitions. For an overview of what workflows are and the CLI commands, read the `workflows` skill first. For each step type's fields, examples, and behavior, run `workflow step-types <type>`.
 
 ## Workflow authoring checklist
 
 When creating or modifying a workflow, be sure to follow these steps meticulously in the order listed.
 
-1. **Discover step types.** Run `workflow step-types` to list what is available in this deployment (built-in plus extension-registered), including each type's config fields. Do not rely on assumptions about what exists
+1. **Discover step types.** Run `workflow step-types` to list what is available in this deployment (engine plus extension-registered), or `workflow step-types --search "<terms>"` to find one by keyword. Read `workflow step-types <type>` for every type you use. Do not rely on assumptions about what exists
 2. **Choose the most deterministic step type per step.** For each step, pick the most deterministic type that does the job (see the determinism principle above). Reserve `agent` steps for work that genuinely needs an LLM
 3. **Replace `agent` steps where possible.** For any `agent` step, re-check whether a deterministic type (or a command run in a command-running step type) could do the same work. Prefer it
 4. **Ensure the trigger's ref exists.** For a `webhook`, `schedule`, or `filewatcher` trigger, create the referenced webhook/schedule/watcher FIRST - the workflow will not start if `trigger.ref` does not match an existing ref (Manual and portal triggers take no ref.)

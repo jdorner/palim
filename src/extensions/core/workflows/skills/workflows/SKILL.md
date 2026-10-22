@@ -20,7 +20,7 @@ A workflow is a set of named `steps` plus an `edges` array that wires them toget
 This skill covers the concept and the CLI. For the details, read the companion skills:
 
 - **Authoring a definition** (schema, edges, prompts, per-step tools/skills, template variables, secrets, triggers, worked examples, execution model): run `skill read workflow-writing`
-- **Step type reference** (every step type's fields and behavior: `agent`, `http-request`, `fail`, `set-variables`, `if`, `case`, `iterator`/`aggregator`, `waitFor`, `humanTask`, `emit`): run `skill read workflow-step-types`
+- **Step type reference** (every step type's fields, examples, and behavior, including types added by extensions): run `workflow step-types`, then `workflow step-types <type>`
 
 ## When to use
 
@@ -37,12 +37,14 @@ This skill covers the concept and the CLI. For the details, read the companion s
 
 ```sh
 workflow list                          # list all workflow definitions
-workflow step-types                    # list available step types (built-in + extension-registered)
+workflow step-types                    # list all step types (engine + extension-registered), one line each
+workflow step-types "<type>"           # full reference of one step type: fields, result, examples, behavior
+workflow step-types --search "<terms>" # find step types by keyword (e.g. "email", "loop", "notify")
 ```
 
 Whenever the result is user-facing, present it as a table.
 
-Use `workflow step-types` to discover which step types are available in this deployment, including any contributed by external extensions. Built-in control-flow/agent types are always available; the command additionally lists custom types with their config fields.
+Use `workflow step-types` to discover which step types are available in this deployment, including any contributed by external extensions. Before using a step type in a definition, read its reference with `workflow step-types <type>`.
 
 ```sh
 workflow read "<name>"                 # display full JSON5 content

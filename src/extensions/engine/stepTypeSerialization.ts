@@ -74,6 +74,7 @@ export function serializeStepType(st: RegisteredStepType): StepTypeInfo {
     type: st.type,
     label: st.handler.label,
     description: st.handler.description,
+    docs: st.handler.docs,
     icon: st.handler.icon,
     extensionName: st.extensionName,
     terminal: st.handler.terminal ?? false,

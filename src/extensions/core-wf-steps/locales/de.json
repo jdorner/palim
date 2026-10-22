@@ -64,7 +64,7 @@
           "title": "URL"
         }
       },
-      "description": "Sendet eine HTTP-Anfrage und liefert Status, Header und Body der Antwort.",
+      "description": "Sendet eine HTTP-Anfrage und liefert Status und Body der Antwort.",
       "label": "HTTP-Anfrage"
     },
     "noop": {
