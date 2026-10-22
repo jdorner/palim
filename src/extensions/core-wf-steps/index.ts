@@ -21,7 +21,7 @@
  * step types are fundamental workflow building blocks.
  */
 
-import type { Extension, ExtensionContext, ExtensionManifest } from "@ext/types";
+import type { Extension, ExtensionContext, ExtensionManifest, StepTypeHandler } from "@ext/types";
 import { createChunkHandler } from "./chunk";
 import { createFailHandler } from "./fail";
 import { createHttpRequestHandler } from "./http-request";
@@ -31,21 +31,32 @@ import { createStartWorkflowHandler, WORKFLOW_NAMES_PROVIDER } from "./start-wor
 
 const manifest = {
   name: "core-wf-steps",
-  version: "1.2.0",
+  version: "1.3.0",
   description: "Built-in workflow step types (HTTP Request, etc.)",
   dependencies: ["workflows"],
   core: true,
 } satisfies ExtensionManifest;
 
+/**
+ * Attaches the Markdown usage reference in `stepDocs/<type>.md` to a handler.
+ *
+ * @param type - Step type identifier (the doc file's base name)
+ * @param handler - The step type handler
+ * @returns The handler with `docs` set
+ */
+async function withDocs(type: string, handler: StepTypeHandler): Promise<StepTypeHandler> {
+  return { ...handler, docs: await Bun.file(`${import.meta.dir}/stepDocs/${type}.md`).text() };
+}
+
 const extension: Extension = {
   manifest,
 
   async initialize(ctx: ExtensionContext) {
-    ctx.stepTypes.register("http-request", createHttpRequestHandler());
-    ctx.stepTypes.register("fail", createFailHandler());
-    ctx.stepTypes.register("noop", createNoopHandler());
-    ctx.stepTypes.register("chunk", createChunkHandler());
-    ctx.stepTypes.register("set-variables", createSetVariablesHandler());
+    ctx.stepTypes.register("http-request", await withDocs("http-request", createHttpRequestHandler()));
+    ctx.stepTypes.register("fail", await withDocs("fail", createFailHandler()));
+    ctx.stepTypes.register("noop", await withDocs("noop", createNoopHandler()));
+    ctx.stepTypes.register("chunk", await withDocs("chunk", createChunkHandler()));
+    ctx.stepTypes.register("set-variables", await withDocs("set-variables", createSetVariablesHandler()));
 
     // Populate the start-workflow step's "Workflow Name" dropdown in the editor
     // with the current set of loaded workflow names, resolved at request time.
@@ -53,9 +64,12 @@ const extension: Extension = {
 
     ctx.stepTypes.register(
       "start-workflow",
-      createStartWorkflowHandler(
-        (name, payload) => ctx.workflows.dispatch(name, payload),
-        () => ctx.workflows.names(),
+      await withDocs(
+        "start-workflow",
+        createStartWorkflowHandler(
+          (name, payload) => ctx.workflows.dispatch(name, payload),
+          () => ctx.workflows.names(),
+        ),
       ),
     );
   },

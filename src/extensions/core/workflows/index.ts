@@ -42,6 +42,7 @@ import { type DagStepJobData, dispatchDagWorkflow, type SessionFactory } from ".
 import { loadDagWorkflows, loadSingleWorkflow } from "./dagLoader";
 import { initDagRunStore } from "./dagRunStore";
 import { createDagStepProcessor } from "./dagWorker";
+import { readStepDocs } from "./engineStepTypes";
 import { cancelRunTasks, installHumanTaskSource } from "./humanTaskSource";
 import { countPortalWorkflowsRunAs, createPortalLauncherProvider } from "./portalLaunchers";
 import { createReloadScheduler, type ReloadScheduler } from "./reloadScheduler";
@@ -60,7 +61,7 @@ import { watchWorkflowDir } from "./workflowDirWatcher";
 
 const manifest = {
   name: "workflows",
-  version: "2.7.0",
+  version: "2.8.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -218,7 +219,10 @@ export function createExtension(): Extension {
         : null;
 
       // Register the DAG emit step type handler
-      ctx.stepTypes.register("emit", createDagEmitHandler({ coordinatorDeps }));
+      ctx.stepTypes.register("emit", {
+        ...createDagEmitHandler({ coordinatorDeps }),
+        docs: await readStepDocs("emit"),
+      });
 
       // Timeout timers live in memory: re-arm the ones of runs still parked on a
       // signal from before the restart (elapsed deadlines fire immediately).

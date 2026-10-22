@@ -10,6 +10,7 @@ import { Value } from "@sinclair/typebox/value";
 import { resolveHandlerOutputSchema } from "@src/extensions/engine/stepTypeSerialization";
 import * as dagRunStore from "../dagRunStore";
 import { validateCfEdges, validateDag } from "../dagValidation";
+import { listEngineStepTypes } from "../engineStepTypes";
 import { inferSchemaFromRuns, type SchemaSampleSource } from "../schemaSample";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema } from "../schemas";
 import { fetchTriggerRefs } from "../triggerRefs";
@@ -42,20 +43,18 @@ export function registerMetaRoutes(deps: WorkflowRouteDeps): void {
   });
 
   /**
-   * Returns read-only metadata for every custom (extension-registered)
-   * workflow step type, sorted by type. Backs the `workflow step-types`
-   * command so authors can discover step types contributed by external
-   * extensions without a static, hand-maintained list.
-   *
-   * Note: the engine's built-in control-flow/agent step types are not
-   * included here (they are not registered through the step-type registry).
+   * Returns read-only metadata, including docs, for every available workflow
+   * step type: the engine-evaluated ones (agent, control flow) followed by the
+   * extension-registered ones sorted by type. Backs the `workflow step-types`
+   * command, so the agent sees step types of external extensions without a
+   * static, hand-maintained list.
    */
   ctx.routes.register("GET", "/meta/step-types", async () => {
-    const stepTypes = ctx.stepTypes
+    const registered = ctx.stepTypes
       .list()
       .slice()
       .sort((a, b) => a.type.localeCompare(b.type));
-    return Response.json(stepTypes);
+    return Response.json([...(await listEngineStepTypes({ hitl: deps.hitl !== undefined })), ...registered]);
   });
 
   /**

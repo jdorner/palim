@@ -71,6 +71,7 @@ export default {
     ctx.stepTypes.register("with-output", {
       schema: ${JSON.stringify(withOutputConfig)},
       label: "With Output",
+      docs: "Use it like this.",
       outputSchema: ${JSON.stringify(withOutputSchema)},
       execute: async () => ({ status: 200, body: "ok" }),
     });
@@ -129,7 +130,7 @@ function enableExtension(name: string): void {
 function stepTypesByType(
   registry: ExtensionRegistry,
   extensionName: string,
-): Map<string, { configSchema?: Record<string, unknown>; outputSchema?: Record<string, unknown> }> {
+): Map<string, { configSchema?: Record<string, unknown>; outputSchema?: Record<string, unknown>; docs?: string }> {
   const info = registry.getLoadedExtensionInfo();
   const ext = info.find((e) => e.name === extensionName);
   const stepTypes = ext?.ui?.stepTypes ?? [];
@@ -180,6 +181,13 @@ describe("ExtensionRegistry.getLoadedExtensionInfo (step-type outputSchema seria
 
     expect(withoutOutput).toBeDefined();
     expect(withoutOutput!.outputSchema).toBeUndefined();
+  });
+
+  test("a handler's docs pass through to StepTypeInfo.docs", () => {
+    const byType = stepTypesByType(registry, "step-types-ext");
+
+    expect(byType.get("with-output")!.docs).toBe("Use it like this.");
+    expect(byType.get("without-output")!.docs).toBeUndefined();
   });
 
   test("outputSchema is distinct from configSchema", () => {

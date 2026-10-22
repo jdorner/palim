@@ -158,12 +158,22 @@ describe("workflow command", () => {
           return Response.json({ valid: errors.length === 0, errors });
         }
 
-        // GET /meta/step-types - custom step type metadata
+        // GET /meta/step-types - engine and extension step type metadata
         if (reqPath === "/meta/step-types" && req.method === "GET") {
           return Response.json([
             {
+              type: "iterator",
+              label: "Iterator",
+              description: "Runs the steps inside it once for each item of a list.",
+              docs: 'Wire the body with `branch: "each"` edges, e.g. one request per item.',
+              extensionName: "workflows",
+              category: "control-flow",
+            },
+            {
               type: "http-request",
               label: "HTTP Request",
+              description: "Sends an HTTP request.",
+              docs: "Omit `headers` when you have none.",
               extensionName: "core-wf-steps",
               terminal: false,
               category: "action",
@@ -171,11 +181,17 @@ describe("workflow command", () => {
                 type: "object",
                 properties: {
                   url: { type: "string", description: "The URL to request" },
-                  method: { type: "string", description: "HTTP method (defaults to POST)" },
+                  method: {
+                    anyOf: [{ const: "GET" }, { const: "POST" }],
+                    description: "HTTP method (defaults to POST)",
+                  },
                 },
                 required: ["url"],
               },
-              outputSchema: { type: "object", properties: { status: { type: "number" } } },
+              outputSchema: {
+                type: "object",
+                properties: { status: { type: "number", description: "HTTP status code" } },
+              },
             },
             {
               type: "fail",
@@ -353,46 +369,78 @@ describe("workflow command", () => {
   // ---------------------------------------------------------------------------
 
   describe("step-types", () => {
-    test("lists built-in and custom step types with config fields", async () => {
+    test("lists engine and extension step types, one line each, grouped by owner", async () => {
       const result = await command(["step-types"], makeCtx());
       expect(result.exitCode).toBe(0);
-      // Built-in control-flow/agent types are always noted.
-      expect(result.stdout).toContain("Built-in step types");
-      expect(result.stdout).toContain("agent");
-      expect(result.stdout).toContain("iterator");
-      // Custom types from the registry, with owning extension.
-      expect(result.stdout).toContain("http-request - HTTP Request (from core-wf-steps)");
-      expect(result.stdout).toContain("url (string, required)");
-      expect(result.stdout).toContain("method (string)");
-      // Per-field descriptions are included so the author knows what each field means.
-      expect(result.stdout).toContain("The URL to request");
-      expect(result.stdout).toContain("HTTP method (defaults to POST)");
-      expect(result.stdout).toContain("produces a result");
-      // Terminal / category flags surface, with the field description.
-      expect(result.stdout).toContain("fail - Fail (from core-wf-steps)");
-      expect(result.stdout).toContain("terminal");
-      expect(result.stdout).toContain("Error message to fail with");
+      expect(result.stdout).toContain("Available workflow step types (3):");
+      expect(result.stdout).toContain("Engine (agent and control flow):");
+      expect(result.stdout).toMatch(/iterator\s+Runs the steps inside it once for each item of a list\./);
+      expect(result.stdout).toContain("From extension core-wf-steps:");
+      expect(result.stdout).toMatch(/http-request\s+Sends an HTTP request\./);
+      // Falls back to the label without a description; terminal types are flagged.
+      expect(result.stdout).toMatch(/fail\s+Fail \[terminal\]/);
+      // Engine types come before extension types.
+      expect(result.stdout.indexOf("iterator")).toBeLessThan(result.stdout.indexOf("http-request"));
+      // The index stays compact: no fields or docs.
+      expect(result.stdout).not.toContain("The URL to request");
+      expect(result.stdout).not.toContain("Omit `headers`");
+      expect(result.stdout).toContain("workflow step-types <type>");
 
       const req = received.find((r) => r.path === "/meta/step-types");
       expect(req).toBeDefined();
       expect(req!.method).toBe("GET");
     });
 
-    test("shows a message when no custom step types are registered", async () => {
-      // Point at a server that returns an empty array for the endpoint.
-      const emptyServer = Bun.serve({
-        port: 0,
-        fetch: () => Response.json([]),
-      });
-      try {
-        const cmd = buildWorkflowCommand(makeScriptCtx(`http://localhost:${emptyServer.port}`));
-        const result = await cmd(["step-types"], makeCtx());
-        expect(result.exitCode).toBe(0);
-        expect(result.stdout).toContain("Built-in step types");
-        expect(result.stdout).toContain("No custom step types are registered");
-      } finally {
-        emptyServer.stop();
-      }
+    test("shows one step type in full: fields, result, and docs", async () => {
+      const result = await command(["step-types", "http-request"], makeCtx());
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("http-request - HTTP Request (from core-wf-steps) [action]");
+      expect(result.stdout).toContain("Config fields:");
+      expect(result.stdout).toContain("- url (string, required): The URL to request");
+      expect(result.stdout).toContain('- method ("GET" | "POST"): HTTP method (defaults to POST)');
+      expect(result.stdout).toContain("- status (number): HTTP status code");
+      expect(result.stdout).toContain("Omit `headers` when you have none.");
+    });
+
+    test("shows an engine step type's docs", async () => {
+      const result = await command(["step-types", "iterator"], makeCtx());
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("iterator - Iterator (from workflows) [control-flow]");
+      expect(result.stdout).toContain('Wire the body with `branch: "each"` edges');
+      expect(result.stdout).not.toContain("Config fields:");
+    });
+
+    test("rejects an unknown step type and suggests similar ones", async () => {
+      const result = await command(["step-types", "http"], makeCtx());
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Unknown step type "http"');
+      expect(result.stderr).toContain("Similar: http-request");
+    });
+
+    test("searches summaries, fields, and docs, ranking summary matches first", async () => {
+      const byDocs = await command(["step-types", "--search", "headers"], makeCtx());
+      expect(byDocs.exitCode).toBe(0);
+      expect(byDocs.stdout).toContain('Step types matching "headers"');
+      expect(byDocs.stdout).toContain("http-request");
+      expect(byDocs.stdout).not.toMatch(/iterator\s/);
+
+      // Every term must match.
+      const allTerms = await command(["step-types", "-s", "request url"], makeCtx());
+      expect(allTerms.stdout).toContain("http-request");
+      expect(allTerms.stdout).not.toMatch(/iterator\s/);
+
+      // "request" is in http-request's summary but only in the iterator's docs:
+      // a flat list, summary match first, each line naming its owner.
+      const ranked = await command(["step-types", "--search", "request"], makeCtx());
+      expect(ranked.stdout).toMatch(/http-request\s+Sends an HTTP request\. \(core-wf-steps\)/);
+      expect(ranked.stdout).toMatch(/iterator\s+.*\(workflows\)/);
+      expect(ranked.stdout.indexOf("http-request")).toBeLessThan(ranked.stdout.indexOf("iterator"));
+    });
+
+    test("reports when no step type matches the search", async () => {
+      const result = await command(["step-types", "--search", "nonexistent"], makeCtx());
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('No step types match "nonexistent"');
     });
 
     test("reports an error when the endpoint fails", async () => {
