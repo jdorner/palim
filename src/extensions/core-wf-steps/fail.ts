@@ -37,6 +37,7 @@ export function createFailHandler(): StepTypeHandler {
     schema: FailStepConfigSchema,
     outputSchema: Type.Object({}),
     label: "Fail Workflow",
+    description: "Stops the run and marks it as failed with a message.",
     icon: "ProhibitIcon",
     terminal: true,
 

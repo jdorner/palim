@@ -46,6 +46,7 @@
           "title": "Topic"
         }
       },
+      "description": "Sendet eine Push-Benachrichtigung an ein ntfy-Topic.",
       "label": "Benachrichtigen (ntfy)"
     }
   }

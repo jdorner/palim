@@ -13,16 +13,24 @@ import { extensions } from "./extensionStore";
 import { translateCore as t, translateExtension } from "./i18nCore";
 
 /**
- * Returns a step type with its label translated through the owning extension's
- * catalog (`steps.<type>.label`), falling back to the registered label.
+ * Returns a step type with its label and description translated through the
+ * owning extension's catalog (`steps.<type>.label` / `steps.<type>.description`),
+ * falling back to the registered English text.
  *
  * @param stepType - The registered step type
- * @returns A copy with the localized label
+ * @returns A copy with the localized label and description
  */
-export function localizeStepType<T extends Pick<StepTypeInfo, "type" | "label" | "extensionName">>(stepType: T): T {
+export function localizeStepType<T extends Pick<StepTypeInfo, "type" | "label" | "description" | "extensionName">>(
+  stepType: T,
+): T {
+  const { extensionName, type, description } = stepType;
   return {
     ...stepType,
-    label: translateExtension(stepType.extensionName, `steps.${stepType.type}.label`, stepType.label),
+    label: translateExtension(extensionName, `steps.${type}.label`, stepType.label),
+    description:
+      description === undefined
+        ? undefined
+        : translateExtension(extensionName, `steps.${type}.description`, description),
   };
 }
 

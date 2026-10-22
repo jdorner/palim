@@ -206,6 +206,7 @@ export function createSetVariablesHandler(): StepTypeHandler {
     schema: SetVariablesStepConfigSchema,
     outputSchema: deriveSetVariablesOutputSchema,
     label: "Set Variables",
+    description: "Computes named values from template expressions for later steps to use.",
     icon: "BracketsCurlyIcon",
     category: "action",
     selfReference: true,

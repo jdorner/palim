@@ -35,6 +35,7 @@
           "title": "Nachricht"
         }
       },
+      "description": "Sendet eine Nachricht an einen Telegram-Chat.",
       "label": "Benachrichtigen (Telegram)"
     }
   }

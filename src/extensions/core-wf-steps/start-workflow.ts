@@ -142,6 +142,7 @@ export function createStartWorkflowHandler(dispatch: WorkflowDispatchFn, listNam
       workflowRunId: Type.String({ description: "Unique identifier for the dispatched workflow run." }),
     }),
     label: "Start Workflow",
+    description: "Starts another workflow with an optional payload, without waiting for it to finish.",
     icon: "FlowArrowIcon",
 
     /**

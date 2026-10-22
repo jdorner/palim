@@ -420,6 +420,13 @@ export interface StepTypeHandler {
   label: string;
 
   /**
+   * Optional one- or two-sentence explanation of what the step does, shown in
+   * the workflow editor's step picker. English; translated in the client via
+   * the extension catalog key `steps.<type>.description`.
+   */
+  description?: string;
+
+  /**
    * Optional icon identifier for graph node and palette rendering.
    *
    * Must be one of the {@link StepIconName} keys registered in the frontend
@@ -553,6 +560,8 @@ export interface StepTypeInfo {
   type: string;
   /** Human-readable label (e.g. "Excel Writer"). */
   label: string;
+  /** Optional explanation of what the step does (shown in the step picker). */
+  description?: string;
   /**
    * Optional icon identifier. One of the {@link StepIconName} keys into the
    * frontend icon registry (`frontend/src/lib/iconRegistry.ts`), not an emoji.

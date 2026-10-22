@@ -907,6 +907,7 @@ const handler: StepTypeHandler = {
     rowCount: Type.Number({ description: "Number of data rows written." }),
   }),
   label: "Excel Writer",
+  description: "Writes rows to an Excel file in the work directory.",
   icon: "TableIcon", // a StepIconName from the frontend icon registry
 
   async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext) {
@@ -940,7 +941,7 @@ const extension: Extension = {
 export default extension;
 ```
 
-Step labels and config field titles/descriptions are translated through `steps.<type>.label` and `steps.<type>.config.<prop>.title` / `.description` in the extension's catalogs (see [Translations](#manifest-and-schema-metadata)).
+Step labels, descriptions, and config field titles/descriptions are translated through `steps.<type>.label`, `steps.<type>.description`, and `steps.<type>.config.<prop>.title` / `.description` in the extension's catalogs (see [Translations](#manifest-and-schema-metadata)).
 
 ### StepTypeHandler Interface
 
@@ -948,6 +949,7 @@ Step labels and config field titles/descriptions are translated through `steps.<
 | --- | --- | --- |
 | `schema` | `TObject` | TypeBox schema for validating the step config (excluding `slug` and `type`) |
 | `label` | `string` | Human-readable label shown in the workflow editor dropdown and graph nodes |
+| `description` | `string?` | Optional one- or two-sentence explanation of what the step does, shown in the detail pane of the editor's step picker (and matched by its search field) |
 | `icon` | `StepIconName?` | Optional icon identifier - one of the `StepIconName` keys in the frontend icon registry (`frontend/src/lib/iconRegistry.ts`), e.g. `"TableIcon"`. NOT an emoji or arbitrary string. Omitting it falls back to a generic gear icon. |
 | `inputSchema` | `TSchema?` | Optional TypeBox schema describing the expected input data from the preceding step. Used for automatic validation and agent repair. |
 | `outputSchema` | `TSchema?` | Optional TypeBox schema describing the shape of the result this step produces. Serialized to JSON Schema by the registry and surfaced to the editor for deep `{{steps.<slug>.result.<path>}}` autocomplete and path validation. Omitting it has no runtime effect. See [Declaring Output Schemas](#declaring-output-schemas). |
@@ -1565,6 +1567,7 @@ Manifest and schema metadata stays English in the code. The host translates it t
 | `settings.<prop>.title` / `.description` | A settings field |
 | `secrets.<KEY>.description`, `secretGroups.<group>` | Secret descriptions and group headings |
 | `steps.<type>.label` | A workflow step type label |
+| `steps.<type>.description` | A workflow step type description (step picker) |
 | `steps.<type>.config.<prop>.title` / `.description` | A step config field; nested fields extend the path (`config.where.column.title`) |
 
 See `src/extensions/datatables/locales/` for a complete example.

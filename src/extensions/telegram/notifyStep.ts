@@ -86,6 +86,7 @@ export function createNotifyStepHandler(send: TelegramSendFn): StepTypeHandler {
       chatId: Type.String({ description: "The chat ID the message was delivered to." }),
     }),
     label: "Notify (Telegram)",
+    description: "Sends a message to a Telegram chat.",
     icon: "PaperPlaneTiltIcon",
 
     async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<NotifyStepResult> {

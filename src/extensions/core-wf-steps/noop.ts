@@ -26,6 +26,7 @@ export function createNoopHandler(): StepTypeHandler {
     schema: NoopStepConfigSchema,
     outputSchema: Type.Object({}),
     label: "End Branch",
+    description: "Ends a branch without doing anything, e.g. the path of an if or case that needs no action.",
     icon: "FlagCheckeredIcon",
     terminal: true,
 

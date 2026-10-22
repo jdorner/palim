@@ -10,7 +10,7 @@ interface Props extends NodeProps {
     /** Callback when a step type is selected from the menu. */
     onSelectType?: (type: string) => void;
     /** Custom step types from extensions (passed from parent). */
-    customStepTypes?: Array<{ type: string; label: string; icon?: string; category?: string }>;
+    customStepTypes?: Array<{ type: string; label: string; description?: string; icon?: string; category?: string }>;
   };
 }
 
@@ -60,6 +60,12 @@ function selectType(type: string) {
   data.onSelectType?.(type);
 }
 
+/** Close the menu without a choice (Escape) and return focus to the "+" button. */
+function closeMenu() {
+  menuOpen = false;
+  buttonRef?.focus();
+}
+
 function handleClickOutside(e: MouseEvent) {
   if (!menuOpen) return;
   const target = e.target as HTMLElement;
@@ -99,9 +105,9 @@ function portal(node: HTMLElement) {
   <div
     use:portal
     bind:this={menuRef}
-    class="fixed z-9999 min-w-52 max-h-80 overflow-y-auto rounded-xl border border-border bg-background p-1.5 shadow-lg text-sm"
+    class="fixed z-9999 rounded-xl border border-border bg-background p-1.5 shadow-lg text-sm"
     style="left: {menuPos.x}px; top: {menuPos.y}px; transform: translateX(-50%);"
   >
-    <StepTypePicker customStepTypes={data.customStepTypes ?? []} onselect={selectType} />
+    <StepTypePicker customStepTypes={data.customStepTypes ?? []} onselect={selectType} onclose={closeMenu} />
   </div>
 {/if}

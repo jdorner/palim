@@ -15,6 +15,7 @@
           "title": "Payload"
         }
       },
+      "description": "Sends a signal to runs that are waiting for it in a Wait For step.",
       "label": "Emit Signal"
     }
   }

@@ -84,6 +84,7 @@ export function createConvertStepHandler(convertBytes: ConvertBytesFn): StepType
   return {
     schema: ConvertStepConfigSchema,
     label: "Convert to Markdown",
+    description: "Converts an image or PDF from the work directory to markdown with the vision model.",
     icon: "FileTextIcon",
     outputSchema: Type.Object({
       markdown: Type.String({ description: "The converted markdown." }),
