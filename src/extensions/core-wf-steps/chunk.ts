@@ -158,6 +158,7 @@ export function createChunkHandler(): StepTypeHandler {
       itemCount: Type.Number({ description: "Total number of items across all batches." }),
     }),
     label: "Chunk",
+    description: "Splits a text (by line) or a list into fixed-size batches, typically for an iterator.",
     icon: "KnifeIcon",
     category: "action",
 

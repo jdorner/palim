@@ -216,6 +216,7 @@ export function createNotifyStepHandler(send: NtfySendFn): StepTypeHandler {
       topic: Type.String({ description: "The topic the notification was delivered to." }),
     }),
     label: "Notify (ntfy)",
+    description: "Sends a push notification to an ntfy topic.",
     icon: "BroadcastIcon",
 
     async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<NotifyStepResult> {

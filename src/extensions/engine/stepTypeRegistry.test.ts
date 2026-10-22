@@ -183,6 +183,7 @@ describe("serializeStepType", () => {
     const handler: StepTypeHandler = {
       schema: Type.Object({ url: Type.String() }),
       label: "HTTP",
+      description: "Calls an HTTP endpoint.",
       icon: "LinkIcon",
       terminal: false,
       category: "action",
@@ -195,6 +196,7 @@ describe("serializeStepType", () => {
     expect(info).toEqual({
       type: "http",
       label: "HTTP",
+      description: "Calls an HTTP endpoint.",
       icon: "LinkIcon",
       extensionName: "core-wf-steps",
       terminal: false,

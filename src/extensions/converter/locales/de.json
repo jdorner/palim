@@ -13,6 +13,7 @@
   "steps": {
     "convert": {
       "label": "Konvertiere nach Markdown",
+      "description": "Wandelt ein Bild oder PDF aus dem Arbeitsverzeichnis mit dem Vision-Modell in Markdown um.",
       "config": {
         "file": {
           "title": "Datei",

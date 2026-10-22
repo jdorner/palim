@@ -20,6 +20,7 @@
           "title": "Trim Items"
         }
       },
+      "description": "Splits a text (by line) or a list into fixed-size batches, typically for an iterator.",
       "label": "Chunk"
     },
     "fail": {
@@ -29,6 +30,7 @@
           "title": "Error Message"
         }
       },
+      "description": "Stops the run and marks it as failed with a message.",
       "label": "Fail Workflow"
     },
     "http-request": {
@@ -62,9 +64,11 @@
           "title": "URL"
         }
       },
+      "description": "Sends an HTTP request and returns the response status, headers, and body.",
       "label": "HTTP Request"
     },
     "noop": {
+      "description": "Ends a branch without doing anything, e.g. the path of an if or case that needs no action.",
       "label": "End Branch"
     },
     "set-variables": {
@@ -86,6 +90,7 @@
           }
         }
       },
+      "description": "Computes named values from template expressions for later steps to use.",
       "label": "Set Variables"
     },
     "start-workflow": {
@@ -99,6 +104,7 @@
           "title": "Workflow Name"
         }
       },
+      "description": "Starts another workflow with an optional payload, without waiting for it to finish.",
       "label": "Start Workflow"
     }
   }

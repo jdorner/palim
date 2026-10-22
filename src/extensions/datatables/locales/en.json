@@ -156,6 +156,7 @@
           }
         }
       },
+      "description": "Deletes the rows that match the conditions.",
       "label": "Delete Rows"
     },
     "datatable-insert": {
@@ -173,6 +174,7 @@
           "title": "Values"
         }
       },
+      "description": "Adds rows to a data table.",
       "label": "Insert Rows"
     },
     "datatable-query": {
@@ -207,6 +209,7 @@
           }
         }
       },
+      "description": "Reads the rows that match the conditions, sorted and limited.",
       "label": "Query Table"
     },
     "datatable-truncate": {
@@ -216,6 +219,7 @@
           "title": "Table"
         }
       },
+      "description": "Deletes all rows of a data table.",
       "label": "Truncate Table"
     },
     "datatable-update": {
@@ -243,6 +247,7 @@
           }
         }
       },
+      "description": "Changes column values of the rows that match the conditions.",
       "label": "Update Rows"
     },
     "datatable-upsert": {
@@ -264,6 +269,7 @@
           "title": "Values"
         }
       },
+      "description": "Updates rows matched by a key column and inserts the ones that do not exist yet.",
       "label": "Upsert Rows"
     }
   },

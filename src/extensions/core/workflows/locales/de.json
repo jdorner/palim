@@ -15,6 +15,7 @@
           "title": "Nutzdaten"
         }
       },
+      "description": "Sendet ein Signal an Läufe, die in einem „Auf Signal warten“-Schritt darauf warten.",
       "label": "Signal senden"
     }
   }

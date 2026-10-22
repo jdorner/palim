@@ -13,6 +13,7 @@
   "steps": {
     "convert": {
       "label": "Convert to Markdown",
+      "description": "Converts an image or PDF from the work directory to markdown with the vision model.",
       "config": {
         "file": {
           "title": "File",

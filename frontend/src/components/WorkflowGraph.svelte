@@ -71,7 +71,14 @@ interface Props {
    * scaled. Omit to render no panel (e.g. when details live in a sidebar).
    */
   nodePanel?: Snippet;
-  customStepTypes?: Array<{ type: string; label: string; icon?: string; terminal?: boolean; category?: string }>;
+  customStepTypes?: Array<{
+    type: string;
+    label: string;
+    description?: string;
+    icon?: string;
+    terminal?: boolean;
+    category?: string;
+  }>;
   /**
    * Optional slug-based status map for runtime status overlay.
    * When provided, node status is resolved by slug lookup instead of by array index.

@@ -144,6 +144,8 @@ export interface StepTypeInfo {
   type: string;
   /** Human-readable label (e.g. "Excel Writer"). */
   label: string;
+  /** Optional explanation of what the step does (shown in the editor's step picker). */
+  description?: string;
   /**
    * Optional icon identifier. A key into the frontend icon registry
    * (`frontend/src/lib/iconRegistry.ts`), e.g. `"TableIcon"`, not an emoji.

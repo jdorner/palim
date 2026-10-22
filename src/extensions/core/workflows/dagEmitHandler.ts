@@ -71,6 +71,7 @@ export function createDagEmitHandler(deps: DagEmitHandlerDeps): StepTypeHandler 
   return {
     schema: EmitStepConfigSchema,
     label: "Emit Signal",
+    description: "Sends a signal to runs that are waiting for it in a Wait For step.",
     icon: "BroadcastIcon",
 
     async execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<EmitStepResult> {

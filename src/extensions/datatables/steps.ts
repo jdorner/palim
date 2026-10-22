@@ -320,6 +320,7 @@ export function createStepHandlers(store: DataTableStore): Record<string, StepTy
     "datatable-insert": {
       schema: InsertConfig,
       label: "Insert Rows",
+      description: "Adds rows to a data table.",
       icon: "TableIcon",
       validateInput,
       outputSchema: Type.Object({
@@ -347,6 +348,7 @@ export function createStepHandlers(store: DataTableStore): Record<string, StepTy
     "datatable-update": {
       schema: UpdateConfig,
       label: "Update Rows",
+      description: "Changes column values of the rows that match the conditions.",
       icon: "TableIcon",
       validateInput,
       outputSchema: Type.Object({ updated: Type.Integer({ description: "Number of updated rows" }) }),
@@ -370,6 +372,7 @@ export function createStepHandlers(store: DataTableStore): Record<string, StepTy
     "datatable-delete": {
       schema: DeleteConfig,
       label: "Delete Rows",
+      description: "Deletes the rows that match the conditions.",
       icon: "TableIcon",
       validateInput,
       outputSchema: Type.Object({ deleted: Type.Integer({ description: "Number of deleted rows" }) }),
@@ -396,6 +399,7 @@ export function createStepHandlers(store: DataTableStore): Record<string, StepTy
     "datatable-truncate": {
       schema: TruncateConfig,
       label: "Truncate Table",
+      description: "Deletes all rows of a data table.",
       icon: "TableIcon",
       validateInput,
       outputSchema: Type.Object({ deleted: Type.Integer({ description: "Number of deleted rows" }) }),
@@ -411,6 +415,7 @@ export function createStepHandlers(store: DataTableStore): Record<string, StepTy
     "datatable-upsert": {
       schema: UpsertConfig,
       label: "Upsert Rows",
+      description: "Updates rows matched by a key column and inserts the ones that do not exist yet.",
       icon: "TableIcon",
       validateInput,
       outputSchema: Type.Object({
@@ -440,6 +445,7 @@ export function createStepHandlers(store: DataTableStore): Record<string, StepTy
     "datatable-query": {
       schema: QueryConfig,
       label: "Query Table",
+      description: "Reads the rows that match the conditions, sorted and limited.",
       icon: "TableIcon",
       validateInput,
       outputSchema: (stepDef) => {

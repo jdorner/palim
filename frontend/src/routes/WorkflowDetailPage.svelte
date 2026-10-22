@@ -480,6 +480,11 @@ let edgeInsertContext = $state<{
   position: { x: number; y: number };
 } | null>(null);
 
+// The edge insert picker only makes sense while editing; close it however edit mode ends.
+$effect(() => {
+  if (!editMode) edgeInsertContext = null;
+});
+
 /**
  * Called when the user clicks the "+" button on an edge. Opens the type picker.
  */

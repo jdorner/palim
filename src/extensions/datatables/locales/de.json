@@ -156,6 +156,7 @@
           }
         }
       },
+      "description": "Löscht die Zeilen, die den Bedingungen entsprechen.",
       "label": "Zeilen löschen"
     },
     "datatable-insert": {
@@ -173,6 +174,7 @@
           "title": "Werte"
         }
       },
+      "description": "Fügt Zeilen in eine Datentabelle ein.",
       "label": "Zeilen einfügen"
     },
     "datatable-query": {
@@ -207,6 +209,7 @@
           }
         }
       },
+      "description": "Liest die Zeilen, die den Bedingungen entsprechen, sortiert und begrenzt.",
       "label": "Tabelle abfragen"
     },
     "datatable-truncate": {
@@ -216,6 +219,7 @@
           "title": "Tabelle"
         }
       },
+      "description": "Löscht alle Zeilen einer Datentabelle.",
       "label": "Tabelle leeren"
     },
     "datatable-update": {
@@ -243,6 +247,7 @@
           }
         }
       },
+      "description": "Ändert Spaltenwerte der Zeilen, die den Bedingungen entsprechen.",
       "label": "Zeilen aktualisieren"
     },
     "datatable-upsert": {
@@ -264,6 +269,7 @@
           "title": "Werte"
         }
       },
+      "description": "Aktualisiert Zeilen anhand einer Schlüsselspalte und fügt fehlende neu ein.",
       "label": "Zeilen einfügen/aktualisieren"
     }
   },
