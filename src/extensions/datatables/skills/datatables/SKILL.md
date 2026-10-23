@@ -1,7 +1,9 @@
 ---
+
 name: datatables
 description: Read and write structured data tables (lists, lookups, collected records) with the `datatable` command
 ---
+
 # Data Tables
 
 Data tables are typed, structured tables that users define in the **Data Tables** page.

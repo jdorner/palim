@@ -34,10 +34,10 @@ Default: `300000` (5 minutes)
 
 Each setting can also be overridden via environment variable (highest precedence):
 
-| Setting | Environment Variable |
-| --- | --- |
-| Image Size | `EXT_CONVERTER_RESIZE_IMAGE_PX` |
-| Timeout | `EXT_CONVERTER_CONVERSION_TIMEOUT_MS` |
+| Setting    | Environment Variable                  |
+| ---------- | ------------------------------------- |
+| Image Size | `EXT_CONVERTER_RESIZE_IMAGE_PX`       |
+| Timeout    | `EXT_CONVERTER_CONVERSION_TIMEOUT_MS` |
 
 ## Workflow Step: convert
 
@@ -52,11 +52,11 @@ Converts a file from the work directory to markdown, without an agent step in be
 }
 ```
 
-| Field | Description |
-| --- | --- |
-| `file` | Image or PDF, relative to the work directory. Supports `{{template}}` expressions. Files outside the work directory can't be read. |
-| `prompt` | Optional instructions replacing the default OCR prompt. |
-| `output` | Optional path to also write the markdown to. Folders are created as needed. |
+| Field    | Description                                                                                                                        |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `file`   | Image or PDF, relative to the work directory. Supports `{{template}}` expressions. Files outside the work directory can't be read. |
+| `prompt` | Optional instructions replacing the default OCR prompt.                                                                            |
+| `output` | Optional path to also write the markdown to. Folders are created as needed.                                                        |
 
 The result is `{ markdown, file, output }`, so later steps use `{{steps.read-receipt.result.markdown}}`. The step fails for missing files and unsupported file types, and when the conversion times out (see the Timeout setting).
 
@@ -65,7 +65,6 @@ The result is `{ markdown, file, output }`, so later steps use `{{steps.read-rec
 ### POST /ext/converter/convert
 
 Accepts JSON. Files are passed as base64-encoded bytes.
-
 - `data` (required) - Array of base64-encoded file contents
 - `filenames` (optional) - Display names aligned positionally with `data`, used only for job labels and logs; does not affect the conversion
 - `prompt` (optional) - Custom system prompt overriding the default OCR instructions
@@ -79,7 +78,6 @@ When multiple `data` entries are supplied, they are merged into a single convers
 ```
 
 **Error responses:**
-
 - `400` - Validation error (e.g. missing `data`)
 - `415` - Unsupported file type
 

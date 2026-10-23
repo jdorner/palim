@@ -320,10 +320,7 @@ function goToPage(n: number) {
 }
 </script>
 
-{#snippet cellValue(
-  row: RowRecord,
-  col: ColumnDef,
-)}
+{#snippet cellValue(row: RowRecord, col: ColumnDef)}
   {#if row[col.key] === null || row[col.key] === undefined}
     <span class="text-muted-foreground/50">-</span>
   {:else}

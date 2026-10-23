@@ -123,9 +123,7 @@ function updatePortal(patch: Partial<PortalTriggerConfig>, extra: Partial<DraftT
   The icon is resolved by trigger subtype (manual/webhook/schedule/filewatcher)
   via visualForStepType, matching the graph trigger node.
 -->
-{#snippet triggerChip(
-  triggerType: string,
-)}
+{#snippet triggerChip(triggerType: string)}
   {@const v = visualForStepType("trigger", { triggerType })}
   <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-white {v.tileClass}">
     <v.icon size={11} weight="bold" aria-hidden="true" />
@@ -133,9 +131,7 @@ function updatePortal(patch: Partial<PortalTriggerConfig>, extra: Partial<DraftT
   {translateCore(`triggerTypes.${triggerType}` as CoreKey, { default: triggerType })}
 {/snippet}
 
-{#snippet runAsInfo(
-  editing: boolean,
-)}
+{#snippet runAsInfo(editing: boolean)}
   <div class="flex flex-col gap-0.5">
     <span class="text-xs font-medium text-muted-foreground">{t("triggerPanel.portalRunAs")}</span>
     {#if portalRunAs}

@@ -31,9 +31,7 @@ let pages = $derived(ext?.ui?.pages ?? []);
 let page = $derived(pageId ? pages.find((p) => p.id === pageId) : pages[0]);
 </script>
 
-{#snippet message(
-  text: string,
-)}
+{#snippet message(text: string)}
   <div class="flex items-center justify-center h-full">
     <p class="text-sm text-muted-foreground">{text}</p>
   </div>

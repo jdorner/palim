@@ -66,7 +66,6 @@ The `environment` key in compose takes precedence over values from `env_file`, s
 ## Extension Hub: git access
 
 The image ships `git` and `openssh-client` for the [Extension Hub](extensions/extension-hub.md), which installs extensions from git repositories.
-
 - **HTTPS** repositories need nothing extra; for private ones, enter an access token in the source dialog (stored in the secret vault).
 - **SSH** repositories need a key and the server's host key. The container runs as root, so either mount them to `/root/.ssh`, or point git at mounted files:
 
@@ -84,10 +83,10 @@ Use a read-only deploy key, and keep `BatchMode=yes` when you set `GIT_SSH_COMMA
 
 The compose file defines two named volumes:
 
-| Volume | Mounted at | Purpose |
-| ------ | ---------- | ------- |
-| `app-work` | `/app/.work` | Agent workspace (tasks, inbox, wiki, workflows) |
-| `app-db` | `/app/.palim` | Default `DATA_DIR` containing SQLite databases (bunqueue, palim) |
+| Volume     | Mounted at    | Purpose                                                          |
+| ---------- | ------------- | ---------------------------------------------------------------- |
+| `app-work` | `/app/.work`  | Agent workspace (tasks, inbox, wiki, workflows)                  |
+| `app-db`   | `/app/.palim` | Default `DATA_DIR` containing SQLite databases (bunqueue, palim) |
 
 Data in these volumes persists across container restarts and image rebuilds.
 
@@ -119,7 +118,6 @@ Note: the container runs as root, so files created inside will be owned by `root
 ## Environment Variables
 
 The container reads environment variables from two sources (in order of precedence):
-
 1. **`environment`** in `docker-compose.yml` - explicit overrides (highest priority)
 2. **`env_file`** - your `.env` file injected at runtime
 

@@ -24,9 +24,7 @@ let {
   )}
   {...restProps}
 >
-  {#snippet children({
-    checked: _isChecked,
-  })}
+  {#snippet children({ checked: _isChecked })}
     {#if _isChecked}
       <div class="flex items-center justify-center text-current"><CheckIcon class="h-4 w-4" /></div>
     {/if}

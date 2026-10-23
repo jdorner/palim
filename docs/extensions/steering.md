@@ -24,8 +24,8 @@ Change this to define the agent's personality, add rules, or inject context that
 
 ## Environment Variable Override
 
-| Setting | Environment Variable |
-| --- | --- |
+| Setting           | Environment Variable  |
+| ----------------- | --------------------- |
 | Additional Prompt | `EXT_STEERING_PROMPT` |
 
 ## Tips

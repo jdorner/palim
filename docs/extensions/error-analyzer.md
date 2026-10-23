@@ -14,11 +14,11 @@ All settings are configurable in the web UI under **Settings > Extensions > Erro
 
 Controls which failure sources trigger automatic analysis. Palim has three independent failure paths that never overlap:
 
-| Source | What it monitors | Examples |
-| --- | --- | --- |
-| `agents` | One-shot agent prompt jobs dispatched to the core agents queue | Scheduled tasks, telegram replies, file watcher triggers |
-| `chat` | Interactive conversational sessions (streamed via WebSocket) | User chat messages that fail during processing |
-| `workflows` | Individual steps within multi-step workflow pipelines | A failing step in `daily-wiki-lint` or `report-rotation` |
+| Source      | What it monitors                                               | Examples                                                 |
+| ----------- | -------------------------------------------------------------- | -------------------------------------------------------- |
+| `agents`    | One-shot agent prompt jobs dispatched to the core agents queue | Scheduled tasks, telegram replies, file watcher triggers |
+| `chat`      | Interactive conversational sessions (streamed via WebSocket)   | User chat messages that fail during processing           |
+| `workflows` | Individual steps within multi-step workflow pipelines          | A failing step in `daily-wiki-lint` or `report-rotation` |
 
 These sources are mutually exclusive: a workflow step failure only appears under `workflows` (it runs on the workflow extension's own queue, not the core `agents` queue). Disabling `agents` does not suppress workflow step failures, and vice versa.
 
@@ -37,7 +37,6 @@ Reports are named `<timestamp>_<jobId>.md` and written by the analysis agent int
 ### System Prompt Override
 
 Custom system prompt for the analysis agent. Only change this if you want to modify report structure or analysis behavior. The default prompt instructs the agent to:
-
 - Analyze root causes using available tools
 - Write a structured markdown report
 - Never attempt to fix anything
@@ -46,18 +45,17 @@ Custom system prompt for the analysis agent. Only change this if you want to mod
 
 Each setting can also be overridden via environment variable (highest precedence):
 
-| Setting | Environment Variable |
-| --- | --- |
+| Setting          | Environment Variable                  |
+| ---------------- | ------------------------------------- |
 | Monitored Queues | `EXT_ERROR_ANALYZER_MONITORED_QUEUES` |
-| Reports Path | `EXT_ERROR_ANALYZER_REPORTS_PATH` |
-| System Prompt | `EXT_ERROR_ANALYZER_OVERRIDE_PROMPT` |
+| Reports Path     | `EXT_ERROR_ANALYZER_REPORTS_PATH`     |
+| System Prompt    | `EXT_ERROR_ANALYZER_OVERRIDE_PROMPT`  |
 
 For the array setting, provide a JSON array string: `'["agents","workflows"]'`
 
 ## Report Structure
 
 Each generated report contains:
-
 1. **Error Summary** - What failed, which queue, the error message
 2. **Root Cause Analysis** - Why it failed (investigated via tools)
 3. **Relevant Context** - Original prompt, tools used, workflow context

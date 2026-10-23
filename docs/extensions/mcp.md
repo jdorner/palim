@@ -25,14 +25,13 @@ Default: `false`
 
 ## Environment Variable Override
 
-| Setting | Environment Variable |
-| --- | --- |
-| Auto-sync | `EXT_MCP_AUTO_SYNC` |
+| Setting   | Environment Variable |
+| --------- | -------------------- |
+| Auto-sync | `EXT_MCP_AUTO_SYNC`  |
 
 ## Web UI
 
 The extension registers an **MCP Servers** page in the sidebar where you can:
-
 - Add new MCP servers (command, args, env)
 - Enable/disable individual servers
 - Trigger manual sync to regenerate skills
@@ -41,7 +40,6 @@ The extension registers an **MCP Servers** page in the sidebar where you can:
 ## Server Configuration
 
 Each MCP server entry consists of:
-
 - **Command** - The executable to run (e.g. `uvx`, `npx`)
 - **Args** - Command arguments (e.g. `["some-mcp-server@latest"]`)
 - **Env** - Environment variables passed to the server process
@@ -50,7 +48,6 @@ Each MCP server entry consists of:
 ## Generated Skills
 
 After syncing, each server gets:
-
 - A `SKILL.md` describing available tools
 - Proxy scripts in the skill's `scripts/` directory that the agent calls via `exec`
 

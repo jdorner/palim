@@ -10,8 +10,8 @@ Enable the extension in the web UI under **Settings > Extensions** by toggling t
 
 A Telegram bot token is required. Create one via [@BotFather](https://t.me/BotFather) and store it in the extension's secrets (Settings > Extensions > Telegram > Secrets).
 
-| Secret | Description |
-| --- | --- |
+| Secret               | Description                         |
+| -------------------- | ----------------------------------- |
 | `TELEGRAM_BOT_TOKEN` | Bot token from BotFather (required) |
 
 The extension will not start without this secret set.
@@ -27,7 +27,6 @@ The extension will not start without this secret set.
 ## Formatting
 
 Outgoing messages (agent replies, the `send_telegram_message` tool, and the `notify-telegram` workflow step) are rendered as Markdown by default. They are sent as Telegram rich messages, which support GitHub Flavored Markdown: headings, bold/italic, links, lists, task lists, tables, quotes, and fenced code blocks.
-
 - If Telegram rejects a rich message (for example in a chat type that does not support it, or malformed content), the message is sent again as plain text, and a warning is logged.
 - Plain text longer than Telegram's 4096-character limit is split into several messages at paragraph or line boundaries.
 - Set the **Message format** setting to `plain` to disable Markdown rendering.
@@ -35,7 +34,6 @@ Outgoing messages (agent replies, the `send_telegram_message` tool, and the `not
 ## Images
 
 Photos and images sent as files (uncompressed) are downloaded and passed to the LLM together with the message caption.
-
 - Messages with images run on the model selected for the **vision** intent (Settings > Models). If no vision-capable model is available, the default model is used and the image is replaced with a placeholder.
 - Albums (several photos sent at once) are combined into a single message and a single agent job.
 - Images larger than the **Max image size** setting are rejected, and the bot replies with an error instead of queuing a job.
@@ -65,25 +63,23 @@ Default: `markdown`
 
 ## Environment Variable Override
 
-| Setting | Environment Variable |
-| --- | --- |
-| Default Chat ID | `EXT_TELEGRAM_CHAT_ID` |
+| Setting             | Environment Variable             |
+| ------------------- | -------------------------------- |
+| Default Chat ID     | `EXT_TELEGRAM_CHAT_ID`           |
 | Max Image Size (MB) | `EXT_TELEGRAM_MAX_IMAGE_SIZE_MB` |
-| Message Format | `EXT_TELEGRAM_FORMAT` |
+| Message Format      | `EXT_TELEGRAM_FORMAT`            |
 
 ## Agent Tool
 
 The extension registers a `send_telegram_message` tool that the agent can use to proactively send messages:
 
 **Parameters:**
-
 - `message` (required) - The text to send (Markdown supported)
 - `chat_id` (optional) - Target chat ID. Falls back to the configured default.
 
 ## Workflow Step
 
 The `notify-telegram` step sends a message without an LLM call. Fields:
-
 - `message` (required) - The text to send. Supports `{{template}}` expressions.
 - `chatId` (optional) - Target chat ID. Falls back to the configured default.
 - `format` (optional) - `markdown` or `plain`. Overrides the **Message format** setting; use `plain` when templated values may contain Markdown characters such as `_` or `*`.

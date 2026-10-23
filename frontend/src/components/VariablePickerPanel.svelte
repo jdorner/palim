@@ -107,10 +107,7 @@ function portal(node: HTMLElement) {
 }
 </script>
 
-{#snippet treeRows(
-  list: ScopeTreeNode[],
-  depth: number,
-)}
+{#snippet treeRows(list: ScopeTreeNode[], depth: number)}
   {#each list as node (keyOf(node))}
     {@const open = searching || expanded.has(keyOf(node))}
     <div class="flex items-center gap-1 py-0.5 min-w-0" style="padding-left: {depth * 14}px">

@@ -19,15 +19,15 @@ The extension registers a **Schedules** page in the sidebar where you can create
 
 Each schedule has:
 
-| Field | Description |
-| --- | --- |
-| `id` | Unique scheduler identifier (used as trigger ref in workflows) |
-| `name` | Human-readable label |
-| `description` | What this schedule does |
-| `pattern` | Cron expression (e.g. `0 8 * * *` for daily at 8am) |
-| `every` | Interval in milliseconds (alternative to cron) |
-| `limit` | Maximum number of executions (omit for infinite) |
-| `tz` | IANA timezone for cron patterns (e.g. `Europe/Berlin`) |
+| Field         | Description                                                    |
+| ------------- | -------------------------------------------------------------- |
+| `id`          | Unique scheduler identifier (used as trigger ref in workflows) |
+| `name`        | Human-readable label                                           |
+| `description` | What this schedule does                                        |
+| `pattern`     | Cron expression (e.g. `0 8 * * *` for daily at 8am)            |
+| `every`       | Interval in milliseconds (alternative to cron)                 |
+| `limit`       | Maximum number of executions (omit for infinite)               |
+| `tz`          | IANA timezone for cron patterns (e.g. `Europe/Berlin`)         |
 
 Provide either `pattern` (cron) or `every` (interval), not both.
 
@@ -75,7 +75,6 @@ minute hour day-of-month month day-of-week
 ```
 
 Examples:
-
 - `0 8 * * *` - Every day at 8:00
 - `*/15 * * * *` - Every 15 minutes
 - `0 9 * * 1-5` - Weekdays at 9:00

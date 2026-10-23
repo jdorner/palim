@@ -26,15 +26,15 @@ Makes an outbound HTTP request. The response becomes the step result. In a workf
 
 #### Configuration
 
-| Field | Type | Required | Default | Description |
-| --- | --- | --- | --- | --- |
-| `url` | string | Yes | - | Request URL. Supports `{{template}}` expressions. |
-| `method` | string | No | `POST` | HTTP method: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD` |
-| `headers` | object | No | - | Custom request headers (key-value). Values support `{{template}}` expressions. |
-| `body` | string | No | - | Request body. Supports `{{template}}` expressions. |
-| `timeout` | number | No | `30000` | Request timeout in milliseconds (1000-300000). |
-| `responseFormat` | string | No | `text` | How to parse the response: `json` or `text`. |
-| `expectedStatus` | number[] | No | - | Acceptable HTTP status codes. If empty, any 2xx is accepted. |
+| Field            | Type     | Required | Default | Description                                                                    |
+| ---------------- | -------- | -------- | ------- | ------------------------------------------------------------------------------ |
+| `url`            | string   | Yes      | -       | Request URL. Supports `{{template}}` expressions.                              |
+| `method`         | string   | No       | `POST`  | HTTP method: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`                   |
+| `headers`        | object   | No       | -       | Custom request headers (key-value). Values support `{{template}}` expressions. |
+| `body`           | string   | No       | -       | Request body. Supports `{{template}}` expressions.                             |
+| `timeout`        | number   | No       | `30000` | Request timeout in milliseconds (1000-300000).                                 |
+| `responseFormat` | string   | No       | `text`  | How to parse the response: `json` or `text`.                                   |
+| `expectedStatus` | number[] | No       | -       | Acceptable HTTP status codes. If empty, any 2xx is accepted.                   |
 
 #### Behavior
 
@@ -69,9 +69,9 @@ Immediately aborts the workflow run with a configurable error message. This is a
 
 #### Configuration
 
-| Field | Type | Required | Default | Description |
-| --- | --- | --- | --- | --- |
-| `message` | string | No | `Workflow aborted by fail step` | Message included in the failure. Supports `{{template}}` expressions. |
+| Field     | Type   | Required | Default                         | Description                                                           |
+| --------- | ------ | -------- | ------------------------------- | --------------------------------------------------------------------- |
+| `message` | string | No       | `Workflow aborted by fail step` | Message included in the failure. Supports `{{template}}` expressions. |
 
 #### Behavior
 
@@ -126,12 +126,12 @@ Defines workflow-local variables. Shown as **Set Variables** in the editor. The 
 
 #### Configuration
 
-| Field | Type | Required | Default | Description |
-| --- | --- | --- | --- | --- |
-| `variables` | array | Yes | - | Variables to set, evaluated in order (at least one). |
-| `variables[].name` | string | Yes | - | Variable name. Letters, digits and `_`, not starting with a digit. Names must be unique within the step. |
-| `variables[].value` | string | Yes | - | Literal value or `{{template}}` expression. |
-| `variables[].type` | `string` \| `number` \| `boolean` \| `json` | No | `string` | Type the resolved value is converted to. |
+| Field               | Type                                        | Required | Default  | Description                                                                                              |
+| ------------------- | ------------------------------------------- | -------- | -------- | -------------------------------------------------------------------------------------------------------- |
+| `variables`         | array                                       | Yes      | -        | Variables to set, evaluated in order (at least one).                                                     |
+| `variables[].name`  | string                                      | Yes      | -        | Variable name. Letters, digits and `_`, not starting with a digit. Names must be unique within the step. |
+| `variables[].value` | string                                      | Yes      | -        | Literal value or `{{template}}` expression.                                                              |
+| `variables[].type`  | `string` \| `number` \| `boolean` \| `json` | No       | `string` | Type the resolved value is converted to.                                                                 |
 
 #### Behavior
 
@@ -155,7 +155,7 @@ Defines workflow-local variables. Shown as **Set Variables** in the editor. The 
 
     After the iterator's aggregator, `{{steps.acc.result.text}}` holds the value from the last pass.
 
-  Outside an iterator body the step runs only once per run and values don't carry over between runs, so a self-reference to the step's own value always gives the zero value. The validator warns about it. Referencing an earlier entry of the same step is different: that works anywhere, without a warning (e.g. `{{steps.<slug>.result.a + steps.<slug>.result.b}}` in an entry below `a` and `b`). Autocomplete and *Available data* offer exactly the entries above the field you are editing (inside an iterator body: all entries).
+  Outside an iterator body the step runs only once per run and values don't carry over between runs, so a self-reference to the step's own value always gives the zero value. The validator warns about it. Referencing an earlier entry of the same step is different: that works anywhere, without a warning (e.g. `{{steps.<slug>.result.a + steps.<slug>.result.b}}` in an entry below `a` and `b`). Autocomplete and _Available data_ offer exactly the entries above the field you are editing (inside an iterator body: all entries).
 - The output schema is derived from the configured entries, so the editor offers `steps.<slug>.result.<name>` completions and the validator flags unknown variable names. A `json` variable whose value is exactly one reference (for example `{{steps.lookup.result.user}}`) inherits that reference's schema, so you can autocomplete into it too. Any other `json` value is unconstrained.
 - Templates nested inside the entries are validated like any other step field (warnings point at e.g. `variables.0.value`), and count as references when deleting a global variable.
 
@@ -183,10 +183,10 @@ This is deliberately not a sub-workflow. There is no join, no result propagation
 
 #### Configuration
 
-| Field | Type | Required | Default | Description |
-| --- | --- | --- | --- | --- |
-| `workflowName` | string | Yes | - | Name of the workflow to start. Supports `{{template}}` expressions. |
-| `payload` | string | No | - | Payload passed to the started workflow. Supports `{{template}}` expressions. Parsed as JSON when possible, otherwise forwarded as a raw string. |
+| Field          | Type   | Required | Default | Description                                                                                                                                     |
+| -------------- | ------ | -------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `workflowName` | string | Yes      | -       | Name of the workflow to start. Supports `{{template}}` expressions.                                                                             |
+| `payload`      | string | No       | -       | Payload passed to the started workflow. Supports `{{template}}` expressions. Parsed as JSON when possible, otherwise forwarded as a raw string. |
 
 In the workflow editor, the `workflowName` field is populated with a dropdown of the currently loaded workflow names. This is backed by the `workflow-names` dynamic item provider, which resolves `ctx.workflows.names()` at request time (so it reflects hot-reloads). You can still type a `{{template}}` expression to pick the target at runtime.
 

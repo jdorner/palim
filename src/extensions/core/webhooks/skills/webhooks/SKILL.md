@@ -1,7 +1,9 @@
 ---
+
 name: webhooks
 description: Manage webhook endpoints that let external services trigger workflows via events
 ---
+
 # Webhook Management
 
 ## Overview
@@ -27,7 +29,6 @@ ONLY report success to the user once the verification step confirms the intended
 ## Response Formatting Guidelines
 
 When listing webhooks using `webhook list`, ensure you provide a comprehensive overview. This includes:
-
 - The webhook slug/ID
 - The human-readable name
 - The authentication type (e.g., none, hmac-sha256, bearer)

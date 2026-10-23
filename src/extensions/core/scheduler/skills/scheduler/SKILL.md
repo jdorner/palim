@@ -1,7 +1,9 @@
 ---
+
 name: scheduler
 description: Create and manage cron and interval-based scheduled tasks
 ---
+
 # Scheduler
 
 ## Overview

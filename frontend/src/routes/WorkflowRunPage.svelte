@@ -407,10 +407,7 @@ onDestroy(() => {
 {/snippet}
 
 <!-- Centered placeholder for a step panel without content. -->
-{#snippet emptyState(
-  Icon: typeof InfoIcon,
-  message: string,
-)}
+{#snippet emptyState(Icon: typeof InfoIcon, message: string)}
   <div class="flex h-full min-h-32 flex-col items-center justify-center gap-2 text-center text-muted-foreground">
     <Icon size={28} weight="duotone" class="opacity-70" aria-hidden="true" />
     <p class="text-sm">{message}</p>

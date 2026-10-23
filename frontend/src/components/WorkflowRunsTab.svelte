@@ -81,18 +81,13 @@ async function cancelRun(runId: string) {
 }
 </script>
 
-{#snippet runLink(
-  runId: string,
-)}
+{#snippet runLink(runId: string)}
   <a href="#/workflows/{workflowName}/runs/{runId}" class="text-left">
     <code class="text-xs font-mono font-medium">{runId.slice(0, 8)}</code>
   </a>
 {/snippet}
 
-{#snippet rerunButton(
-  runId: string,
-  size: "xs" | "sm",
-)}
+{#snippet rerunButton(runId: string, size: "xs" | "sm")}
   {#if rerunError?.runId === runId}
     <span class="text-xs text-destructive" title={rerunError.message}>{t("runs.rerunFailed")}</span>
   {/if}

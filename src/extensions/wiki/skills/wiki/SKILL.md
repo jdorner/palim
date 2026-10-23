@@ -1,7 +1,9 @@
 ---
+
 name: wiki
 description: A personal knowledge base for LLMs
 ---
+
 # LLM Wiki
 
 A personal knowledge base maintained by you (LLM).
@@ -14,7 +16,6 @@ You are an LLM which maintains the wiki.
 ## Hard Rules (axioms)
 
 These are non-negotiable constraints. Treat them as axioms.
-
 - `assert: data/raw_folder_is_immutable`
 - `assert: data/wiki/index.md_and_log.md_always_updated`
 - `assert: page_names_lowercase_with_hyphens`
@@ -34,7 +35,6 @@ data/wiki/log.md   -- append-only record of all operations
 ## Ingest workflow
 
 When the user adds a new source to `data/raw/` and asks you to ingest it:
-
 1. Read the full source document
 2. Discuss key takeaways with the user before writing anything
 3. Create a summary page in `data/wiki/` named after the source
@@ -52,7 +52,6 @@ Every wiki page should follow this structure:
 ```markdown
 # Page Title
 
-
 **Summary**: One to two sentences describing this page.
 
 
@@ -61,9 +60,7 @@ Every wiki page should follow this structure:
 
 **Last updated**: Date of most recent update. Use the date command to get the current date.
 
-
 ---
-
 
 Main content goes here. Use clear headings and short paragraphs.
 
@@ -72,7 +69,6 @@ Link to related concepts using [[wiki-links]] throughout the text.
 
 
 ## Related pages
-
 
 - [[related-concept-1]]
 - [[related-concept-2]]
@@ -88,7 +84,6 @@ Link to related concepts using [[wiki-links]] throughout the text.
 ## Question answering
 
 When the user asks a question:
-
 1. Use `wiki search <query>` to quickly find relevant pages in the index.
 2. Read the relevant pages identified from the search results.
 3. Synthesize an answer based on the wiki content.
@@ -128,7 +123,6 @@ wiki search machine learning --limit 10   -- more results
 ```
 
 The semantic search is especially useful when:
-
 - You don't know the exact wording used in the wiki pages
 - You want to ask a question like "what does the user prefer for breakfast?"
 - A concept is described differently across pages (synonyms, paraphrases)
@@ -144,7 +138,6 @@ Show statistics: how many wiki files exist and how many search documents are ind
 ## Personal Information & Memory
 
 The user may share personal information (e.g., name, location, preferences).
-
 - **ALWAYS** save personal facts to the wiki immediately — do not just say "I'll remember that."
 - **ALWAYS** check for existing entries (`wiki search <term>`) before creating duplicates.
 - **ALWAYS** perform the wiki tool call in the same turn before replying to the user.
@@ -152,7 +145,6 @@ The user may share personal information (e.g., name, location, preferences).
 ## Lint
 
 When the user asks you to lint or audit the wiki:
-
 - Check for contradictions between pages
 - Find orphan pages (no inbound links from other pages)
 - Identify concepts mentioned in pages that lack their own page

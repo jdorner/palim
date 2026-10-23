@@ -1,7 +1,9 @@
 ---
+
 name: converter
 description: Convert files (PDFs, images) to markdown text using a vision LLM
 ---
+
 # Converter
 
 ## Overview
@@ -9,7 +11,6 @@ description: Convert files (PDFs, images) to markdown text using a vision LLM
 The converter skill provides a `convert` shell command that transforms files into markdown text. It uses a vision LLM to extract and structure text content from PDFs and images.
 
 Supported file types:
-
 - PDF documents (each page is converted to an image and processed)
 - Images: PNG, JPEG, WebP, GIF, BMP, TIFF, HEIC, HEIF
 
@@ -44,7 +45,6 @@ When `--file` is omitted, input is read from stdin (pipe or redirect).
 `--file` may be repeated. When multiple files are supplied they are merged into a single conversion: all images are sent to the vision model together as pages of one document, producing one combined markdown result. Use this for multiple photos of the same document.
 
 **Options:**
-
 - `-f`, `--file` — Path to a file to convert (repeatable)
 - `-o`, `--output` — Write result to this path instead of stdout
 - `-p`, `--prompt` — Custom system prompt overriding the default OCR instructions. When omitted, the default prompt extracts all visible text and preserves document structure as markdown.

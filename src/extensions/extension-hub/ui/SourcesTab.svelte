@@ -79,9 +79,7 @@ function saved() {
 }
 </script>
 
-{#snippet lastFetch(
-  source: SourceInfo,
-)}
+{#snippet lastFetch(source: SourceInfo)}
   <span class="text-sm text-muted-foreground">
     {source.lastFetchedAt ? $i18n.format.date(source.lastFetchedAt) : $i18n.t("common.never")}
   </span>
@@ -90,9 +88,7 @@ function saved() {
   {/if}
 {/snippet}
 
-{#snippet repository(
-  source: SourceInfo,
-)}
+{#snippet repository(source: SourceInfo)}
   <div class="truncate font-mono text-xs" title={source.url}>{source.url}</div>
   {#if source.hasToken}
     <p class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
@@ -101,9 +97,7 @@ function saved() {
   {/if}
 {/snippet}
 
-{#snippet actions(
-  source: SourceInfo,
-)}
+{#snippet actions(source: SourceInfo)}
   <Button size="sm" variant="outline" disabled={busy !== null} onclick={() => refresh(source)}>
     <ArrowsClockwiseIcon size={14} class="mr-1.5 {busy === source.id ? "animate-spin" : ""}" aria-hidden="true" />
     {$i18n.t("sources.refresh")}

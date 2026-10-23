@@ -32,7 +32,6 @@ The body steps between them are regular top-level nodes — they show up in the 
 ```
 
 **Template variables inside the loop body:**
-
 - `{{<as>}}` (e.g. `{{image}}`) — the current array element
 - `{{<as>.<field>}}` (e.g. `{{image.dataUrl}}`) — dot-path into the current element
 - `{{itemIndex}}` — zero-based iteration index

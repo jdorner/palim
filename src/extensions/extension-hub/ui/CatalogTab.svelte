@@ -162,9 +162,7 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
 
 <!-- Cell snippets, shared by the table and the card layout -->
 
-{#snippet nameCell(
-  entry: CatalogEntry,
-)}
+{#snippet nameCell(entry: CatalogEntry)}
   {@const reason = problem(entry)}
   <span class="font-medium">{entry.name}</span>
   {#if entry.description}
@@ -182,11 +180,7 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
   column: release = tag icon + version, branch = branch icon + name + version,
   pinned commit = commit icon + short SHA + version. The full ref is the tooltip.
 -->
-{#snippet versionRef(
-  kind: InstalledView["refKind"],
-  ref: string,
-  version: string | null,
-)}
+{#snippet versionRef(kind: InstalledView["refKind"], ref: string, version: string | null)}
   <span class="inline-flex items-center gap-1 whitespace-nowrap text-xs" title={ref}>
     {#if kind === "tag"}
       <TagIcon size={12} class="text-muted-foreground" aria-hidden="true" />
@@ -206,9 +200,7 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
   </span>
 {/snippet}
 
-{#snippet installedCell(
-  installed: InstalledView | null,
-)}
+{#snippet installedCell(installed: InstalledView | null)}
   {#if installed}
     {@render versionRef(installed.refKind, installed.ref, installed.version)}
   {:else}
@@ -216,9 +208,7 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
   {/if}
 {/snippet}
 
-{#snippet availableCell(
-  entry: CatalogEntry,
-)}
+{#snippet availableCell(entry: CatalogEntry)}
   {#if entry.latest}
     {@render versionRef("tag", entry.latest.tag, entry.latest.version)}
   {:else if entry.head}
@@ -228,10 +218,7 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
   {/if}
 {/snippet}
 
-{#snippet statusChips(
-  entry: Partial<Pick<CatalogEntry, "update" | "blockedByLocal">>,
-  installed: InstalledView | null,
-)}
+{#snippet statusChips(entry: Partial<Pick<CatalogEntry, "update" | "blockedByLocal">>, installed: InstalledView | null)}
   <div class="flex flex-wrap justify-center gap-1">
     {#if entry.update}
       <Badge class="whitespace-nowrap"
@@ -273,10 +260,7 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
   </div>
 {/snippet}
 
-{#snippet enabledCell(
-  name: string,
-  installed: InstalledView | null,
-)}
+{#snippet enabledCell(name: string, installed: InstalledView | null)}
   {#if installed?.loaded && !installed.loaded.error}
     {@const loaded = installed.loaded}
     <ToggleSwitch
@@ -290,17 +274,13 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
   {/if}
 {/snippet}
 
-{#snippet uninstallButton(
-  name: string,
-)}
+{#snippet uninstallButton(name: string)}
   <Button size="sm" variant="destructive" disabled={busy !== null} onclick={() => uninstall(name)}>
     <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("actions.uninstall")}
   </Button>
 {/snippet}
 
-{#snippet actions(
-  entry: CatalogEntry,
-)}
+{#snippet actions(entry: CatalogEntry)}
   {#if busy === entry.name}
     <span class="text-xs text-muted-foreground">{$i18n.t("dialog.working")}</span>
   {:else if entry.installed}

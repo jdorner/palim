@@ -14,7 +14,7 @@ Human tasks and the portal are experimental and off by default. Turn them on in 
 HITL_ENABLED=true
 ```
 
-While it is off, the workflow editor does not offer the *Human task* step, workflows that use one show a warning and fail when the step is reached, the portal API answers `503`, and `/portal/` is not served. Existing tasks and portal accounts are kept and come back when you turn it on again.
+While it is off, the workflow editor does not offer the _Human task_ step, workflows that use one show a warning and fail when the step is reached, the portal API answers `503`, and `/portal/` is not served. Existing tasks and portal accounts are kept and come back when you turn it on again.
 
 ### Build
 
@@ -43,7 +43,6 @@ Set `PORTAL_PUBLIC_URL` in `.env` to the address users open, e.g. `https://palim
 ## Portal Accounts
 
 Create the people who use the portal on the **Users** page:
-
 1. Set the kind to **Portal**. A portal account can only reach the portal API: no other API routes, no WebSocket, no operator data.
 2. Give it the built-in role **portal-user** (`hitl:respond`).
 3. To assign tasks to groups instead of single people, create custom roles (e.g. `accounting`) with only portal permissions (`hitl:*`, `portal:start`) and add them to the accounts. Portal accounts can't hold roles with other permissions.
@@ -57,7 +56,6 @@ Operator accounts can use the portal too. The built-in `user` role includes `hit
 After signing in, the inbox lists the open tasks assigned to you, directly or through one of your roles, with priority and due date. **Done** lists the tasks you answered. The list updates live while the portal is open, and the badge in the navigation shows how many tasks are open.
 
 A task page shows:
-
 - the description (markdown) and any context values the workflow attached,
 - a form, when the workflow asks for data,
 - a comment field (required for some tasks),
@@ -134,12 +132,12 @@ A workflow with a `portal` trigger appears under **Start** in the portal. People
 
 The upload is saved under `uploads/portal/<id>/` in the work directory. The run gets:
 
-| Path | Value |
-| --- | --- |
-| `trigger.payload.file` | `{ path, name, mimeType, size }` (`path` relative to the work directory), or `null` without a file |
-| `trigger.payload.data` | The form fields; empty optional fields are `null` |
-| `trigger.payload.submittedBy` | `{ id, username, displayName }` of the portal user |
-| `trigger.payload.submittedAt` | ISO timestamp |
+| Path                          | Value                                                                                              |
+| ----------------------------- | -------------------------------------------------------------------------------------------------- |
+| `trigger.payload.file`        | `{ path, name, mimeType, size }` (`path` relative to the work directory), or `null` without a file |
+| `trigger.payload.data`        | The form fields; empty optional fields are `null`                                                  |
+| `trigger.payload.submittedBy` | `{ id, username, displayName }` of the portal user                                                 |
+| `trigger.payload.submittedAt` | ISO timestamp                                                                                      |
 
 For example, an agent step can convert the photo with `convert --file {{trigger.payload.file.path}}` (converter skill).
 
@@ -151,16 +149,16 @@ Users with `hitl:manage` see all tasks, can answer any of them, and can cancel o
 
 ## API
 
-| Method | Path | Purpose |
-| --- | --- | --- |
-| `GET` | `/api/portal/tasks` | Tasks visible to you (`scope=mine\|completed\|all`, `status`, `limit`, `cursor`) |
-| `GET` | `/api/portal/tasks/counts` | Open and due-soon counts |
-| `GET` | `/api/portal/tasks/:id` | Task with history (`404` when not visible to you) |
-| `POST` | `/api/portal/tasks/:id/complete` | Answer: `outcome`, `data`, `comment`, `version` (`409` already answered or changed, `422` invalid answer) |
-| `POST` | `/api/portal/tasks/:id/cancel` | Cancel (`hitl:manage`) |
-| `PATCH` | `/api/portal/tasks/:id/assignees` | Reassign (`hitl:manage`) |
-| `GET` | `/api/portal/events` | Server-sent events: `ready`, `task_created`, `task_updated`, `task_removed` |
-| `GET` | `/api/portal/workflows` | Workflows you may start (`portal:start`) |
-| `POST` | `/api/portal/workflows/:name/start` | Start one: multipart `file` and `data` (JSON string). `413` too large, `415` file type not accepted, `422` invalid data, `409` no usable run-as account |
+| Method  | Path                                | Purpose                                                                                                                                                 |
+| ------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET`   | `/api/portal/tasks`                 | Tasks visible to you (`scope=mine\|completed\|all`, `status`, `limit`, `cursor`)                                                                        |
+| `GET`   | `/api/portal/tasks/counts`          | Open and due-soon counts                                                                                                                                |
+| `GET`   | `/api/portal/tasks/:id`             | Task with history (`404` when not visible to you)                                                                                                       |
+| `POST`  | `/api/portal/tasks/:id/complete`    | Answer: `outcome`, `data`, `comment`, `version` (`409` already answered or changed, `422` invalid answer)                                               |
+| `POST`  | `/api/portal/tasks/:id/cancel`      | Cancel (`hitl:manage`)                                                                                                                                  |
+| `PATCH` | `/api/portal/tasks/:id/assignees`   | Reassign (`hitl:manage`)                                                                                                                                |
+| `GET`   | `/api/portal/events`                | Server-sent events: `ready`, `task_created`, `task_updated`, `task_removed`                                                                             |
+| `GET`   | `/api/portal/workflows`             | Workflows you may start (`portal:start`)                                                                                                                |
+| `POST`  | `/api/portal/workflows/:name/start` | Start one: multipart `file` and `data` (JSON string). `413` too large, `415` file type not accepted, `422` invalid data, `409` no usable run-as account |
 
 All routes need a bearer token from `POST /api/auth/login`. The event stream also takes it in the `Authorization` header, so read it with a streaming `fetch` rather than `EventSource`.
