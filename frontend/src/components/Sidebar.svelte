@@ -71,9 +71,7 @@ const badgeCounts = derived(
 );
 </script>
 
-{#snippet extensionNavItem(
-  item: (typeof $extensionNavItems)[number],
-)}
+{#snippet extensionNavItem(item: (typeof $extensionNavItems)[number])}
   {@const IconComponent = resolveIcon(item.icon)}
   {@const isActive = $pathname === item.route || $pathname.startsWith(`${item.route}/`)}
   {@const badgeCount = $badgeCounts.get(item.route) ?? 0}

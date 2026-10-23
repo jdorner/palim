@@ -12,7 +12,7 @@
     "@sinclair/typebox": "^0.34.52",
     "@tailwindcss/node": "^4.3.3",
     "@tailwindcss/oxide": "^4.3.3",
-    "bunqueue": "^2.9.16",
+    "bunqueue": "^2.9.18",
     "chokidar": "^6.0.0",
     "date-fns": "^4.4.0",
     "drizzle-orm": "^0.45.3",
@@ -53,8 +53,8 @@
     "test": "AGENT=1 bun test src/"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.15",
-    "@types/bun": "1.4.3",
+    "@biomejs/biome": "2.6.2",
+    "@types/bun": "1.4.4",
     "@types/heic-decode": "^2.0.0",
     "@types/turndown": "^5.0.6",
     "drizzle-kit": "^0.31.10",

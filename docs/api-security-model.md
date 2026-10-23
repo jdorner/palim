@@ -49,11 +49,11 @@ Extensions, skill scripts and workflows also call the API internally. They never
 
 On first boot, while the users table is empty, Palim seeds an **admin account** and assigns it everything that previously had no owner (existing chat sessions, file watchers, webhooks).
 
-| Variable | Purpose | Default |
-| -------- | ------- | ------- |
-| `AUTH_ADMIN_USER` | Username of the seeded admin | `admin` |
-| `AUTH_ADMIN_PASSWORD` | Password of the seeded admin. When empty, a strong one-time password is generated and printed to the log once. | — |
-| `AUTH_SESSION_TTL_MS` | Lifetime of a login token | `604800000` (7 days) |
+| Variable              | Purpose                                                                                                        | Default              |
+| --------------------- | -------------------------------------------------------------------------------------------------------------- | -------------------- |
+| `AUTH_ADMIN_USER`     | Username of the seeded admin                                                                                   | `admin`              |
+| `AUTH_ADMIN_PASSWORD` | Password of the seeded admin. When empty, a strong one-time password is generated and printed to the log once. | —                    |
+| `AUTH_SESSION_TTL_MS` | Lifetime of a login token                                                                                      | `604800000` (7 days) |
 
 These only apply to seeding. Once any user exists, changing them has no effect. Manage further accounts on the **Users** page (or via `/api/users`).
 
@@ -83,13 +83,13 @@ Chat streams (`chat_event`, `push_message`) go only to the chat's owner, keyed b
 
 These endpoints need no token:
 
-| Endpoint | Reason |
-| -------- | ------ |
-| `GET /health` | Health checks |
-| `POST /api/auth/login` | Login |
-| `POST /ext/webhooks/receive/:slug` | External webhook delivery, authenticated per webhook (see below) |
+| Endpoint                                            | Reason                                                                                |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------- |
+| `GET /health`                                       | Health checks                                                                         |
+| `POST /api/auth/login`                              | Login                                                                                 |
+| `POST /ext/webhooks/receive/:slug`                  | External webhook delivery, authenticated per webhook (see below)                      |
 | Extension routes registered with `{ public: true }` | Browser or machine callbacks (e.g. OAuth redirects) that verify the caller themselves |
-| Static files (`/`, `/assets/...`) | Frontend bundle |
+| Static files (`/`, `/assets/...`)                   | Frontend bundle                                                                       |
 
 An extension makes a route public by passing `{ public: true }` to `ctx.routes.register`. Only that method and path pattern are exempt. The handler must authenticate the caller itself, for example with a webhook signature or a one-time OAuth `state` nonce. Requests to a disabled extension are still rejected.
 
@@ -109,10 +109,10 @@ The counters are kept in memory and reset when Palim restarts.
 
 All `/api/`, `/ext/` and `/ws` requests are rate limited per minute:
 
-| Caller | Bucket | Limit |
-| ------ | ------ | ----- |
-| Valid bearer token | Per token | 1000 |
-| Everyone else (login, public extension routes such as webhooks, WebSocket upgrades, invalid tokens) | Per client IP | 60 |
+| Caller                                                                                              | Bucket        | Limit |
+| --------------------------------------------------------------------------------------------------- | ------------- | ----- |
+| Valid bearer token                                                                                  | Per token     | 1000  |
+| Everyone else (login, public extension routes such as webhooks, WebSocket upgrades, invalid tokens) | Per client IP | 60    |
 
 Buckets are per token rather than per user, so a user's browser session and the internal token their agent jobs run with (see [Internal calls](#internal-calls)) are counted separately. A runaway agent loop gets `429` responses without slowing down the user's web UI. These request limits (not the login throttle) are disabled when `NODE_ENV=development`.
 
@@ -133,7 +133,6 @@ Only list proxies that put the address of the connection they received as the la
 ### Roles and permissions
 
 Every signed-in user may read everything without any permission: workflow definitions and runs, jobs and their logs, triggers, secret metadata and audit logs, variables, models, extensions and data tables. There are three exceptions:
-
 - **Chat sessions** are private to their owner.
 - **Chat jobs** are private to the user who started them, admins included. They are left out of the job feed (see [WebSocket](#websocket)), and the per-job routes (`GET /api/jobs/:id/logs`, `GET /api/jobs/:id/chain`, `POST /api/jobs/:id/cancel`, `POST /api/jobs/:id/retry`) answer `404` to anyone else. Bulk cleanup (`POST /api/queues/clean`) still removes finished jobs of every user by state.
 - **Users and roles** are listed only for holders of `users:manage`.
@@ -142,31 +141,31 @@ Secret values are never returned by the API, so open reads don't expose them.
 
 Writes need a permission. Permissions are `<domain>:<action>` strings. A role is a named set of permissions, and a user's effective permissions are the union of their roles.
 
-| Permission | Grants |
-| ---------- | ------ |
-| `chat:write` | Create chat sessions and send messages in, clear or delete your own sessions |
-| `workflows:write` | Start workflow runs and cancel, signal or delete any run |
+| Permission         | Grants                                                                                                                                                                           |
+| ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `chat:write`       | Create chat sessions and send messages in, clear or delete your own sessions                                                                                                     |
+| `workflows:write`  | Start workflow runs and cancel, signal or delete any run                                                                                                                         |
 | `workflows:manage` | Create, edit and delete workflow definitions. Definitions are shared, and runs started by other users' triggers execute them with those users' authority, so this is admin-level |
-| `jobs:write` | Cancel, retry and clean jobs |
-| `triggers:write` | Create, edit and delete any schedule, file watcher or webhook |
-| `secrets:write` | Manage secrets |
-| `variables:write` | Manage global variables |
-| `models:write` | Change the selected model |
-| `extensions:write` | Enable, disable and configure extensions |
-| `datatables:write` | Create, edit, import and delete data tables and their rows |
-| `users:manage` | Manage users, roles and role permissions |
-| `hitl:respond` | See and answer the human tasks assigned to you, directly or through one of your roles |
-| `hitl:manage` | See and answer all human tasks, cancel and reassign them |
-| `portal:start` | Start the workflows offered to you in the portal (workflows with a `portal` trigger, optionally limited to roles) |
+| `jobs:write`       | Cancel, retry and clean jobs                                                                                                                                                     |
+| `triggers:write`   | Create, edit and delete any schedule, file watcher or webhook                                                                                                                    |
+| `secrets:write`    | Manage secrets                                                                                                                                                                   |
+| `variables:write`  | Manage global variables                                                                                                                                                          |
+| `models:write`     | Change the selected model                                                                                                                                                        |
+| `extensions:write` | Enable, disable and configure extensions                                                                                                                                         |
+| `datatables:write` | Create, edit, import and delete data tables and their rows                                                                                                                       |
+| `users:manage`     | Manage users, roles and role permissions                                                                                                                                         |
+| `hitl:respond`     | See and answer the human tasks assigned to you, directly or through one of your roles                                                                                            |
+| `hitl:manage`      | See and answer all human tasks, cancel and reassign them                                                                                                                         |
+| `portal:start`     | Start the workflows offered to you in the portal (workflows with a `portal` trigger, optionally limited to roles)                                                                |
 
 Four roles are built in:
 
-| Role | Permissions |
-| ---- | ----------- |
-| `admin` | Everything (superuser) |
-| `user` | `chat:write`, `workflows:write`, `jobs:write`, `triggers:write`, `datatables:write`, `hitl:respond`. No workflow definition edits, secrets, variables, models, extension settings or user management. |
-| `portal-user` | `hitl:respond` only. Meant for portal accounts. |
-| `system` | Reserved for the built-in `system` account: `chat:write` only. Never `users:manage` or `secrets:write`. |
+| Role          | Permissions                                                                                                                                                                                           |
+| ------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `admin`       | Everything (superuser)                                                                                                                                                                                |
+| `user`        | `chat:write`, `workflows:write`, `jobs:write`, `triggers:write`, `datatables:write`, `hitl:respond`. No workflow definition edits, secrets, variables, models, extension settings or user management. |
+| `portal-user` | `hitl:respond` only. Meant for portal accounts.                                                                                                                                                       |
+| `system`      | Reserved for the built-in `system` account: `chat:write` only. Never `users:manage` or `secrets:write`.                                                                                               |
 
 Built-in role permissions are defined in code and re-applied on every boot, so they can't be edited. Create custom roles for other combinations.
 
@@ -181,7 +180,6 @@ Built-in role permissions are defined in code and re-applied on every boot, so t
 Every account has a **kind**: `operator` (the default) uses the Palim web interface and API as described above. `portal` is for end users who only use the portal to answer the human tasks assigned to them. Set the kind when creating a user, or change it later, on the **Users** page (`kind` on `/api/users`).
 
 A portal account is fenced in at the authentication layer, whatever its roles grant:
-
 - It may only call `/api/auth/*`, `/api/portal/*` and `/api/i18n/*`. Every other `/api/` and `/ext/` request answers `403`, reads included.
 - It gets none of the open reads that operator accounts have.
 - It can't open the WebSocket (`4003`); the portal has its own event stream, `GET /api/portal/events`.
@@ -198,7 +196,6 @@ Schedules, file watchers and webhooks record an owner, and the runs they start a
 ### Admin safety rules
 
 User administration refuses changes that would lock everyone out (`409 Conflict`):
-
 - At least one **enabled** user must always hold the `admin` role.
 - You can't disable your own account or remove your own `admin` role. Another admin has to do it.
 - The `system` account can't be modified, and the `system` role can't be assigned to anyone.
@@ -216,7 +213,6 @@ It re-enables the account (creating it if missing), makes it an operator account
 ## Internal calls
 
 Extensions (`ctx.fetch`) and skill scripts (`SkillScriptContext.fetch`) get a fetch wrapper instead of a token. For each request, the wrapper does the following:
-
 - **Local server URLs** get an `Authorization` header with the **identity of the current job**. That is the user who started the chat, agent job or workflow run. Workflow steps get a short-lived token minted for the run's creator.
 - **Confinement**: local requests are limited to the extension's own routes (`/ext/<name>/*`) plus `/api/push`. Anything else returns a `403` without reaching the network, so an extension can't call admin or secret endpoints on the user's behalf.
 - **External URLs** pass through unchanged and never carry a token.
@@ -228,7 +224,6 @@ In short, extension and skill code never sees a raw token, can't widen its reach
 ## Webhook endpoint security
 
 Webhook receive endpoints are public but authenticate **per webhook**, independent of user accounts:
-
 - `hmac-sha256`: signature validation (for example GitHub-style `X-Hub-Signature-256`)
 - `bearer`: static token in a configurable header
 - `none`: no authentication (only for trusted internal sources)
@@ -239,31 +234,31 @@ Signatures and tokens are compared in constant time. Each webhook's secret is st
 
 Boot-time configuration lives in `.env`. When a `.env.keys` file is present, dotenvx decrypts an encrypted `.env` at startup; otherwise values are read as plaintext.
 
-| File | Contents | Committed |
-| ---- | -------- | --------- |
-| `.env.example` | Template with all variables documented | ✅ |
-| `.env` | Configuration (encrypted when `.env.keys` exists) | ✅ only when encrypted |
-| `.env.keys` | Private decryption keys | ❌ (gitignored) |
+| File           | Contents                                          | Committed              |
+| -------------- | ------------------------------------------------- | ---------------------- |
+| `.env.example` | Template with all variables documented            | ✅                     |
+| `.env`         | Configuration (encrypted when `.env.keys` exists) | ✅ only when encrypted |
+| `.env.keys`    | Private decryption keys                           | ❌ (gitignored)        |
 
 Extension and workflow secrets are stored in the SecretVault (SQLite, AES-256-GCM) with per-secret consumer ACLs and an audit log. Any signed-in user can read secret metadata; changing secrets requires `secrets:write`. The agent sandbox has no direct access to either. See [Secrets](secrets.md) for details.
 
 ## Threat model summary
 
-| Threat | Mitigation |
-| ------ | ---------- |
-| Unauthenticated API access | Bearer token required on all `/api/` and `/ext/` routes; fails closed if auth is unavailable |
-| Password guessing | Login lockouts per IP and per username with exponential back-off |
-| Request floods and runaway agent loops | Per-token and per-IP rate limits; forged `X-Forwarded-For` ignored unless sent by a trusted proxy |
-| Stolen database | Only token hashes and argon2id password hashes are stored |
-| A user exceeding their role | Central route rule table for all writes |
-| Seeing other users' conversations | Ownership checks on chat sessions and chat jobs; WebSocket chat-stream and chat-job events delivered only to the owner |
-| Borrowing another user's authority through a trigger | Editing a trigger re-binds it to the editor |
-| Extension or skill acting as a "confused deputy" | Internal fetch runs as the initiating user and is confined to the extension's own routes |
-| Token leakage to external services | Token injected only for local-origin URLs |
-| Background work with excess privilege | Dedicated `system` principal without user-management or secret-write permissions |
-| Admin lockout | Last-admin and self-lockout rules; `bun run reset-admin` for recovery |
-| Disabled or departed users | Disabling revokes all tokens immediately |
-| Webhook forgery | Per-webhook HMAC or bearer validation, constant-time comparison |
-| Secret file compromise | Optional dotenvx encryption of `.env`; SecretVault encryption at rest |
-| Unauthorized secret reads by extensions | Per-secret ACL and audit log |
-| End users seeing operational data | Portal accounts are fenced to the portal API, get no open reads, no WebSocket, and only portal-safe roles (`hitl:*`, `portal:start`) |
+| Threat                                               | Mitigation                                                                                                                           |
+| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Unauthenticated API access                           | Bearer token required on all `/api/` and `/ext/` routes; fails closed if auth is unavailable                                         |
+| Password guessing                                    | Login lockouts per IP and per username with exponential back-off                                                                     |
+| Request floods and runaway agent loops               | Per-token and per-IP rate limits; forged `X-Forwarded-For` ignored unless sent by a trusted proxy                                    |
+| Stolen database                                      | Only token hashes and argon2id password hashes are stored                                                                            |
+| A user exceeding their role                          | Central route rule table for all writes                                                                                              |
+| Seeing other users' conversations                    | Ownership checks on chat sessions and chat jobs; WebSocket chat-stream and chat-job events delivered only to the owner               |
+| Borrowing another user's authority through a trigger | Editing a trigger re-binds it to the editor                                                                                          |
+| Extension or skill acting as a "confused deputy"     | Internal fetch runs as the initiating user and is confined to the extension's own routes                                             |
+| Token leakage to external services                   | Token injected only for local-origin URLs                                                                                            |
+| Background work with excess privilege                | Dedicated `system` principal without user-management or secret-write permissions                                                     |
+| Admin lockout                                        | Last-admin and self-lockout rules; `bun run reset-admin` for recovery                                                                |
+| Disabled or departed users                           | Disabling revokes all tokens immediately                                                                                             |
+| Webhook forgery                                      | Per-webhook HMAC or bearer validation, constant-time comparison                                                                      |
+| Secret file compromise                               | Optional dotenvx encryption of `.env`; SecretVault encryption at rest                                                                |
+| Unauthorized secret reads by extensions              | Per-secret ACL and audit log                                                                                                         |
+| End users seeing operational data                    | Portal accounts are fenced to the portal API, get no open reads, no WebSocket, and only portal-safe roles (`hitl:*`, `portal:start`) |

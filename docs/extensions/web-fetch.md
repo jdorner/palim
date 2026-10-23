@@ -23,11 +23,9 @@ web fetch [options] "<url>"
 ```
 
 **Arguments:**
-
 - `url` - Full URL to fetch (must start with `http://` or `https://`)
 
 **Options:**
-
 - `-m`, `--max-length <n>` - Max characters to return (default: 12000)
 - `-H`, `--header "Name: Value"` - HTTP header to send (repeatable)
 

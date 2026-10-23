@@ -24,8 +24,8 @@ Maximum allowed webhook payload size in bytes.
 
 Default: `1048576` (1 MB)
 
-| Setting | Environment Variable |
-| --- | --- |
+| Setting          | Environment Variable            |
+| ---------------- | ------------------------------- |
 | Max Payload Size | `EXT_WEBHOOKS_MAX_PAYLOAD_SIZE` |
 
 ## Receiver URL
@@ -40,11 +40,11 @@ Provide this URL to the external service that should trigger events.
 
 ## Authentication Types
 
-| Type | Description | Header |
-| --- | --- | --- |
-| `hmac-sha256` | GitHub-style HMAC signature verification | `X-Hub-Signature-256` (default) |
-| `bearer` | Simple bearer token comparison | `Authorization` (default) |
-| `none` | No authentication (development mode only) | - |
+| Type          | Description                               | Header                          |
+| ------------- | ----------------------------------------- | ------------------------------- |
+| `hmac-sha256` | GitHub-style HMAC signature verification  | `X-Hub-Signature-256` (default) |
+| `bearer`      | Simple bearer token comparison            | `Authorization` (default)       |
+| `none`        | No authentication (development mode only) | -                               |
 
 For `hmac-sha256` and `bearer`, a secret (minimum 8 characters) must be provided at creation time.
 
@@ -54,14 +54,14 @@ In non-development environments (`NODE_ENV` is not `development`), `authType: "n
 
 Each webhook registration has:
 
-| Field | Description |
-| --- | --- |
-| `slug` | Unique identifier (used in the receiver URL and as trigger ref) |
-| `name` | Human-readable label |
-| `authType` | Authentication method: `hmac-sha256`, `bearer`, or `none` |
-| `secret` | Shared secret for authentication (not returned in API responses) |
-| `headerName` | HTTP header containing the auth value (auto-set by default) |
-| `enabled` | Toggle the webhook on/off |
+| Field        | Description                                                      |
+| ------------ | ---------------------------------------------------------------- |
+| `slug`       | Unique identifier (used in the receiver URL and as trigger ref)  |
+| `name`       | Human-readable label                                             |
+| `authType`   | Authentication method: `hmac-sha256`, `bearer`, or `none`        |
+| `secret`     | Shared secret for authentication (not returned in API responses) |
+| `headerName` | HTTP header containing the auth value (auto-set by default)      |
+| `enabled`    | Toggle the webhook on/off                                        |
 
 ## HTTP API
 

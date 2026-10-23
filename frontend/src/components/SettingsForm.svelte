@@ -207,9 +207,7 @@ function handleKeydown(event: KeyboardEvent) {
 
 <svelte:window onkeydown={handleKeydown} />
 
-{#snippet infoTip(
-  description: string,
-)}
+{#snippet infoTip(description: string)}
   <Tooltip.Root delayDuration={0}>
     <Tooltip.Trigger class="inline-flex items-center cursor-help text-muted-foreground/60 hover:text-muted-foreground">
       <InfoIcon class="w-4 h-4" />

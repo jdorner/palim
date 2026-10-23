@@ -19,13 +19,13 @@ The extension registers a **Workflows** page in the sidebar where you can view w
 
 ## Trigger Types
 
-| Type | Description | Source |
-| --- | --- | --- |
-| `manual` | Triggered via API or UI | User action |
-| `webhook` | Triggered by an incoming webhook | Webhooks extension |
-| `schedule` | Triggered by a cron/interval schedule | Scheduler extension |
-| `filewatcher` | Triggered by a file system event | File Watcher extension |
-| `portal` | Started by a person in the portal, usually with an uploaded photo or file | [Portal](../portal.md#starting-workflows) |
+| Type          | Description                                                               | Source                                    |
+| ------------- | ------------------------------------------------------------------------- | ----------------------------------------- |
+| `manual`      | Triggered via API or UI                                                   | User action                               |
+| `webhook`     | Triggered by an incoming webhook                                          | Webhooks extension                        |
+| `schedule`    | Triggered by a cron/interval schedule                                     | Scheduler extension                       |
+| `filewatcher` | Triggered by a file system event                                          | File Watcher extension                    |
+| `portal`      | Started by a person in the portal, usually with an uploaded photo or file | [Portal](../portal.md#starting-workflows) |
 
 For webhook, schedule, and file watcher triggers, the `ref` field must match the slug/ID of the corresponding webhook, schedule, or file watcher. Manual and portal triggers take no ref; a portal trigger has a `portal` object instead (title, accepted files, roles, form fields).
 
@@ -96,7 +96,6 @@ A `humanTask` step asks a person: it creates a task in the [portal](../portal.md
 ### Signals
 
 Each `waitFor` step that is reached creates a signal record for exactly that step of that run. How it can be resumed:
-
 - **Direct delivery** reaches one specific waiting step: by run and step (`POST /ext/workflows/runs/:runId/steps/:slug/signal`) or by signal ID (`POST /ext/workflows/signals/:signalId`). Steps can hand out their own address with `{{run.id}}`, e.g. as a callback URL in an `http-request` step.
 - **`emit`** reaches waiting steps that opt in with `scope: "broadcast"` (the default `instance` scope ignores `emit` entirely) and whose event matches, across runs. Narrow it down with:
   - `correlate` on both steps - a `waitFor` with a correlation key (e.g. `"{{trigger.payload.orderId}}"`, resolved when the wait is reached) only accepts an `emit` with the same key; a `waitFor` without a key accepts any `emit` of the event
@@ -201,7 +200,6 @@ Cancel all steps of a workflow run.
 ## Agent Skill
 
 The extension provides a `workflows` skill with sandbox commands:
-
 - `workflow list` - List all workflow definitions
 - `workflow read "<name>"` - Read a workflow's JSON5 definition
 - `workflow runs "<name>"` - List recent runs for a workflow
@@ -210,7 +208,6 @@ The extension provides a `workflows` skill with sandbox commands:
 ## Template Variables
 
 Agent step prompts support template variables:
-
 - `{{trigger.payload}}` - The trigger event payload (webhook body, file path, etc.)
 - `{{secret.KEY_NAME}}` - Resolve a secret from the vault
 - `{{steps.<slug>.result}}` - Result from any completed step (resolved from the run store, so any ancestor works, not just the direct predecessor)
@@ -219,7 +216,7 @@ Agent step prompts support template variables:
 - `{{run.url}}` - Link to the current run's page in the operator UI
 - `{{env.<VAR>}}` - An allowlisted environment variable, read from the process environment as is. Built-in defaults (e.g. `WEB_SCHEME` = `http`) don't apply, and an unset variable resolves to an empty string with a warning. For links into the UI, use `{{run.baseUrl}}` instead of assembling `{{env.WEB_SCHEME}}://{{env.WEB_HOST}}:{{env.WEB_PORT}}`.
 
-Anything inside `{{...}}` that is not a plain dot-path is evaluated as an expression: arithmetic, comparisons, `?:`, `??`, and function calls, e.g. `{{ steps.vars.result.count + 1 }}` or `{{ trim(trigger.payload.name) }}`. Only the part inside the braces is evaluated: `{{steps.vars.result.count}} + 1` gives `5 + 1`. Hyphens belong to paths, so subtract with spaces (`{{ a - b }}`). Global variables are text, so convert them before calculating: `{{ num(var.counter) + 1 }}`. `secret` and `env` can only be used as plain references, not inside expressions. Built-in functions cover math (`round`, `formatNumber`, ...), text (`upper`, `replace`, `padStart`, ...), lists (`count`, `sum`, `pluck`, `sort`, ...), logic (`if`, `choose`, `isEmpty`, ...), JSON/encoding (`toJson`, `parseJson`, `urlEncode`, ...), and dates (`today`, `formatDate`, `addDays`, `diffDays`, ...; in the time zone `WORKFLOW_TIMEZONE`, else the server's); *Available data* in the editor lists them by category. To update a value (e.g. a counter in an iterator body), use a `set-variables` step with type `number` and a self-reference like `{{ steps.<slug>.result.count + 1 }}`.
+Anything inside `{{...}}` that is not a plain dot-path is evaluated as an expression: arithmetic, comparisons, `?:`, `??`, and function calls, e.g. `{{ steps.vars.result.count + 1 }}` or `{{ trim(trigger.payload.name) }}`. Only the part inside the braces is evaluated: `{{steps.vars.result.count}} + 1` gives `5 + 1`. Hyphens belong to paths, so subtract with spaces (`{{ a - b }}`). Global variables are text, so convert them before calculating: `{{ num(var.counter) + 1 }}`. `secret` and `env` can only be used as plain references, not inside expressions. Built-in functions cover math (`round`, `formatNumber`, ...), text (`upper`, `replace`, `padStart`, ...), lists (`count`, `sum`, `pluck`, `sort`, ...), logic (`if`, `choose`, `isEmpty`, ...), JSON/encoding (`toJson`, `parseJson`, `urlEncode`, ...), and dates (`today`, `formatDate`, `addDays`, `diffDays`, ...; in the time zone `WORKFLOW_TIMEZONE`, else the server's); _Available data_ in the editor lists them by category. To update a value (e.g. a counter in an iterator body), use a `set-variables` step with type `number` and a self-reference like `{{ steps.<slug>.result.count + 1 }}`.
 
 To link to another run, combine the base URL with its workflow name and run ID, e.g. `{{run.baseUrl}}/#/workflows/{{trigger.payload.workflow.workflowName}}/runs/{{trigger.payload.workflow.workflowRunId}}`.
 

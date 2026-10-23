@@ -26,7 +26,6 @@ Creates a task for people in the portal and pauses its own branch until one of t
 ```
 
 The step result (`{{steps.review.result.*}}`):
-
 - `outcome` - the chosen outcome id, or `"expired"` when the task timed out with `onTimeout: "expire"`
 - `data` - the form data (null without a form)
 - `comment` - the comment (null if none)

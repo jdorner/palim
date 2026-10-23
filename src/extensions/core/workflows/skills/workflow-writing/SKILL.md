@@ -1,7 +1,9 @@
 ---
+
 name: workflow-writing
 description: How to author workflow JSON5 definitions - schema, graph edges, prompts, template variables, secrets, triggers, and the execution model
 ---
+
 # Writing Workflows
 
 Detailed authoring reference for workflow JSON5 definitions. For an overview of what workflows are and the CLI commands, read the `workflows` skill first. For each step type's fields, examples, and behavior, run `workflow step-types <type>`.
@@ -9,7 +11,6 @@ Detailed authoring reference for workflow JSON5 definitions. For an overview of 
 ## Workflow authoring checklist
 
 When creating or modifying a workflow, be sure to follow these steps meticulously in the order listed.
-
 1. **Discover step types.** Run `workflow step-types` to list what is available in this deployment (engine plus extension-registered), or `workflow step-types --search "<terms>"` to find one by keyword. Read `workflow step-types <type>` for every type you use. Do not rely on assumptions about what exists
 2. **Choose the most deterministic step type per step.** For each step, pick the most deterministic type that does the job (see the determinism principle above). Reserve `agent` steps for work that genuinely needs an LLM
 3. **Replace `agent` steps where possible.** For any `agent` step, re-check whether a deterministic type (or a command run in a command-running step type) could do the same work. Prefer it
@@ -25,7 +26,6 @@ When creating or modifying a workflow, be sure to follow these steps meticulousl
 **Always** favor predictable, repeatable steps over agent reasoning. Before writing an `agent` step, ask whether the task actually needs an LLM. Use an `agent` step only for genuinely open-ended work (summarizing, classifying, free-form extraction, drafting text). For everything else, use a deterministic step type.
 
 Deciding between the two:
-
 - Deterministic work ("convert / fetch / move / read / write / transform this file", "call this API", "branch on a value", "loop over a list") -> a non-agent step type. Built-in options are `http-request`, `set-variables`, `if`, `case`, `iterator`/`aggregator`, `fail`, `emit`, `waitFor`, and extensions add more (e.g. `convert` from the converter extension turns an image or PDF in the work directory into markdown, `datatable-*` from datatables).
 - Open-ended reasoning -> an `agent` step.
 
@@ -144,7 +144,6 @@ A skill's registered programs are ordinary sandbox commands. Using a skill there
 ## Template variables
 
 Use inside `prompt`, `url`, `body`, and control flow `ref`/`match`/`payload` fields:
-
 - `{{trigger.payload}}` - full trigger payload (webhook body, schedule data, file watcher context)
 - `{{trigger.payload.field}}` - dot-path into the trigger payload
 - `{{trigger.payload.prompt}}` - the schedule's prompt text (schedule triggers only)
@@ -174,18 +173,17 @@ There is no pipe/filter syntax: write `join(steps.a.result.list, ", ")`, not `st
 
 Available built-in functions:
 
-| Function | Description | Example |
-|----------|-------------|---------|
-| `stripDataUri(value)` | Remove a leading `data:<type>;base64,` prefix, yielding raw base64. Returns the input unchanged if no such prefix is present. | `stripDataUri(image.dataUrl)` |
-| `base64Decode(value)` | Decode a base64 string to UTF-8 text. | `base64Decode(steps.fetch.result.body)` |
-| `jsonEscape(value)` | Escape a value so it is safe to embed inside a JSON string literal (no surrounding quotes added). Use it whenever you interpolate a value into a JSON `body`. | `jsonEscape(steps.extract.result.text)` |
-| `after(value, delimiter)` | Substring after the first occurrence of `delimiter` (empty string if not found). | `after(image.dataUrl, ",")` |
-| `before(value, delimiter)` | Substring before the first occurrence of `delimiter` (whole string if not found). | `before(steps.parse.result.pair, "=")` |
-| `trim(value)` | Trim leading/trailing whitespace. | `trim(steps.extract.result.name)` |
-| `nowIso()` | Current time as an ISO 8601 string. | `nowIso()` |
+| Function                   | Description                                                                                                                                                   | Example                                 |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
+| `stripDataUri(value)`      | Remove a leading `data:<type>;base64,` prefix, yielding raw base64. Returns the input unchanged if no such prefix is present.                                 | `stripDataUri(image.dataUrl)`           |
+| `base64Decode(value)`      | Decode a base64 string to UTF-8 text.                                                                                                                         | `base64Decode(steps.fetch.result.body)` |
+| `jsonEscape(value)`        | Escape a value so it is safe to embed inside a JSON string literal (no surrounding quotes added). Use it whenever you interpolate a value into a JSON `body`. | `jsonEscape(steps.extract.result.text)` |
+| `after(value, delimiter)`  | Substring after the first occurrence of `delimiter` (empty string if not found).                                                                              | `after(image.dataUrl, ",")`             |
+| `before(value, delimiter)` | Substring before the first occurrence of `delimiter` (whole string if not found).                                                                             | `before(steps.parse.result.pair, "=")`  |
+| `trim(value)`              | Trim leading/trailing whitespace.                                                                                                                             | `trim(steps.extract.result.name)`       |
+| `nowIso()`                 | Current time as an ISO 8601 string.                                                                                                                           | `nowIso()`                              |
 
 Notes:
-
 - Functions are pure (string/data/date transforms only) — no I/O, network, filesystem, or secret/env access.
 - Hyphenated step slugs work as arguments as written (`trim(steps.fetch-mails.result.subject)`). The slug is matched against the workflow's steps, so the hyphen is not read as a minus sign.
 - **JSON bodies:** substituted values are NOT auto-escaped, so wrap anything that might contain a quote or newline in `jsonEscape(...)` — e.g. `"{\"text\": \"{{ jsonEscape(steps.extract.result) }}\"}"`.

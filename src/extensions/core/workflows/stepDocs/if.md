@@ -41,17 +41,17 @@ If the chosen branch is `then`, the `then` edges become `satisfied` and the `els
 
 The `condition` object requires a `ref` field (template expression to resolve) and exactly one operator:
 
-| Operator | Description | Example |
-|----------|-------------|---------|
-| `eq` | String equality after `String()` coercion | `"eq": "success"` |
-| `neq` | Logical negation of eq | `"neq": "error"` |
-| `gt` | Greater than (numeric if both parseable, otherwise lexicographic) | `"gt": 100` |
-| `gte` | Greater than or equal | `"gte": 0` |
-| `lt` | Less than | `"lt": 50` |
-| `lte` | Less than or equal | `"lte": 1000` |
-| `in` | Membership in array (String coercion per element) | `"in": ["draft", "review", "published"]` |
-| `contains` | Case-sensitive substring check | `"contains": "error"` |
-| `exists` | Not null, not undefined, not empty string | `"exists": true` |
-| `matches` | Regex test against String(value) | `"matches": "^\\d{4}-\\d{2}-\\d{2}$"` |
+| Operator   | Description                                                       | Example                                  |
+| ---------- | ----------------------------------------------------------------- | ---------------------------------------- |
+| `eq`       | String equality after `String()` coercion                         | `"eq": "success"`                        |
+| `neq`      | Logical negation of eq                                            | `"neq": "error"`                         |
+| `gt`       | Greater than (numeric if both parseable, otherwise lexicographic) | `"gt": 100`                              |
+| `gte`      | Greater than or equal                                             | `"gte": 0`                               |
+| `lt`       | Less than                                                         | `"lt": 50`                               |
+| `lte`      | Less than or equal                                                | `"lte": 1000`                            |
+| `in`       | Membership in array (String coercion per element)                 | `"in": ["draft", "review", "published"]` |
+| `contains` | Case-sensitive substring check                                    | `"contains": "error"`                    |
+| `exists`   | Not null, not undefined, not empty string                         | `"exists": true`                         |
+| `matches`  | Regex test against String(value)                                  | `"matches": "^\\d{4}-\\d{2}-\\d{2}$"`    |
 
 For `null` or `undefined` resolved values, all operators except `exists` return false without performing the comparison.

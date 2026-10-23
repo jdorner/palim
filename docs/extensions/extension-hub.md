@@ -3,7 +3,6 @@
 The Extension Hub installs [external extensions](../writing-extensions.md#external-extensions) from git repositories, keeps track of their versions, and tells you when updates are available.
 
 You can:
-
 - register git repositories as **sources** (SSH, HTTPS, or a local path);
 - see the extensions each source offers, with their released versions;
 - install an extension by version, or from any tag, branch, or commit;
@@ -46,12 +45,12 @@ Open **Extension Hub** in the sidebar. Its badge shows the number of available u
 
 **Add source** asks for:
 
-| Field | Description |
-| --- | --- |
-| Name | Display name |
-| Repository URL | `ssh://…`, `git@host:path`, `https://…`, or an absolute local path |
-| Branch | Branch offered for installs without a release. Empty = the repository's default branch. |
-| HTTPS access token | Optional, for private HTTPS repositories |
+| Field              | Description                                                                             |
+| ------------------ | --------------------------------------------------------------------------------------- |
+| Name               | Display name                                                                            |
+| Repository URL     | `ssh://…`, `git@host:path`, `https://…`, or an absolute local path                      |
+| Branch             | Branch offered for installs without a release. Empty = the repository's default branch. |
+| HTTPS access token | Optional, for private HTTPS repositories                                                |
 
 The token is stored encrypted in the secret vault as the extension secret `SOURCE_TOKEN_<source id>`. Clearing it or deleting the source deletes the secret, and on startup the hub removes tokens of sources that no longer exist. Some servers refuse git over HTTPS altogether: Gitea and Forgejo answer `Interacting with repositories by HTTP protocol is not allowed` when `DISABLE_HTTP_GIT` is on; use SSH there.
 
@@ -60,27 +59,25 @@ Saving clones the repository into a local mirror and lists its extensions. A sou
 ### Catalog
 
 The catalog lists the extensions of each source:
-
 - **Installed**: installed version and what it follows (a release tag, a branch, or a pinned commit).
 - **Latest**: the newest release. Prereleases (`2.0.0-rc.1`) count only when **Include prereleases** is on in the hub's settings. Extensions without releases show the branch head.
 - **Status**:
 
-| Status | Meaning |
-| --- | --- |
-| Update: … | A newer version is available |
-| Active | Installed and running |
-| Disabled | Loaded, but not enabled in the settings: it stays off after a restart. **Enable** turns it on. |
-| Not loaded / Error | Installed, but loading or starting failed (see the tooltip and the server log) |
-| Modified | Files were changed after installing |
-| Version mismatch | The manifest's version differs from `package.json` |
-| Local folder | A hand-placed folder with this name exists; the hub won't overwrite it |
+| Status             | Meaning                                                                                        |
+| ------------------ | ---------------------------------------------------------------------------------------------- |
+| Update: …          | A newer version is available                                                                   |
+| Active             | Installed and running                                                                          |
+| Disabled           | Loaded, but not enabled in the settings: it stays off after a restart. **Enable** turns it on. |
+| Not loaded / Error | Installed, but loading or starting failed (see the tooltip and the server log)                 |
+| Modified           | Files were changed after installing                                                            |
+| Version mismatch   | The manifest's version differs from `package.json`                                             |
+| Local folder       | A hand-placed folder with this name exists; the hub won't overwrite it                         |
 
 Below the sources, **Installed from removed sources** lists installs whose source or folder no longer exists (they can still be uninstalled). Hand-placed extensions are not listed separately; see them under **Settings → Extensions**. When one has the same name as an extension a source offers, its catalog row shows **Local folder**, and the hub won't install over it.
 
 ## Installing
 
 **Install** opens the version dialog:
-
 - a **release** installs that tag; update checks then look for newer releases;
 - the **branch** entry installs the current branch head; update checks then report every new commit on the branch;
 - **Other tag, branch, or commit** installs any ref. A commit stays pinned and is never reported as outdated.
@@ -108,10 +105,10 @@ Updates are never installed automatically.
 
 ## Settings
 
-| Setting | Default | Description |
-| --- | --- | --- |
-| Include prereleases | off | Offer prerelease versions as the latest version |
-| Update check interval (minutes) | 360 | How often sources are fetched; 0 turns periodic checks off |
+| Setting                         | Default | Description                                                |
+| ------------------------------- | ------- | ---------------------------------------------------------- |
+| Include prereleases             | off     | Offer prerelease versions as the latest version            |
+| Update check interval (minutes) | 360     | How often sources are fetched; 0 turns periodic checks off |
 
 ## Coexistence with hand-placed extensions
 
@@ -119,9 +116,9 @@ The hub only touches folders it installed; it records them in Palim's database. 
 
 ## Storage
 
-| Path | Content |
-| --- | --- |
-| `<DATA_DIR>/extension-hub/repos/` | Local mirrors of the sources (bare git clones) |
-| `<DATA_DIR>/extension-hub/backup/` | The old version of an extension while an update is loading (restored if the update fails) |
-| `<DATA_DIR>/extension-hub/staging/`, `trash/` | Temporary folders during installs and removals |
-| `<DATA_DIR>/extensions/<name>/` | Installed extensions, with a `.palim-source.json` note of their origin |
+| Path                                          | Content                                                                                   |
+| --------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `<DATA_DIR>/extension-hub/repos/`             | Local mirrors of the sources (bare git clones)                                            |
+| `<DATA_DIR>/extension-hub/backup/`            | The old version of an extension while an update is loading (restored if the update fails) |
+| `<DATA_DIR>/extension-hub/staging/`, `trash/` | Temporary folders during installs and removals                                            |
+| `<DATA_DIR>/extensions/<name>/`               | Installed extensions, with a `.palim-source.json` note of their origin                    |

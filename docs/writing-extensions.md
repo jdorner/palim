@@ -74,14 +74,14 @@ Extensions must **not** import from `@src/` paths. This boundary is enforced by 
 
 Allowed imports:
 
-| What you need | Import from |
-| --- | --- |
-| Extension API types (`Extension`, `ExtensionContext`, `QueueJob`, etc.) | `@ext/types` |
-| Skill script utilities (`createCommand`, `SkillScriptContext`, etc.) | `@ext/sdk` |
-| JSON / schema helpers (`extractJson`, `validateJsonOutput`, `validateJsonSchema`, `compileOutputSchema` for a step's `outputSchema` shorthand) | `@ext/sdk` |
-| Files within your own extension | `./store`, `./schema`, etc. |
-| External npm packages | `@sinclair/typebox`, `drizzle-orm`, etc. |
-| Node built-ins | `node:path`, `node:fs`, etc. |
+| What you need                                                                                                                                  | Import from                              |
+| ---------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| Extension API types (`Extension`, `ExtensionContext`, `QueueJob`, etc.)                                                                        | `@ext/types`                             |
+| Skill script utilities (`createCommand`, `SkillScriptContext`, etc.)                                                                           | `@ext/sdk`                               |
+| JSON / schema helpers (`extractJson`, `validateJsonOutput`, `validateJsonSchema`, `compileOutputSchema` for a step's `outputSchema` shorthand) | `@ext/sdk`                               |
+| Files within your own extension                                                                                                                | `./store`, `./schema`, etc.              |
+| External npm packages                                                                                                                          | `@sinclair/typebox`, `drizzle-orm`, etc. |
+| Node built-ins                                                                                                                                 | `node:path`, `node:fs`, etc.             |
 
 Everything an extension needs from the core is available through `ExtensionContext` or the SDK module.
 
@@ -109,9 +109,9 @@ import type { Extension } from "@ext/types";
 
 const extension: Extension = {
   manifest: {
-    name: "my-extension",   // lowercase, hyphens allowed: ^[a-z][a-z0-9-]*$
+    name: "my-extension", // lowercase, hyphens allowed: ^[a-z][a-z0-9-]*$
     version: "1.0.0",
-    dependencies: [],       // optional - names of extensions that must load first
+    dependencies: [], // optional - names of extensions that must load first
     // core: true,          // optional - prevents disabling via UI/API
   },
 
@@ -154,7 +154,6 @@ External extensions run in the server process, outside the agent sandbox, so the
 ### How It Works
 
 At boot (before extension initialization), the system runs an `ExternalDependencyResolver` that:
-
 1. **Generates `tsconfig.json`** in each external extension directory with path aliases (`@ext/types`, `@ext/sdk`, `@src/*`, `@shared/*`) pointing back to the core project's source files, and `typeRoots` pointing to the core project's `node_modules`. This gives your IDE full type checking and autocompletion.
 
 2. **Installs dependencies** declared in the extension's `package.json` by running `bun install` in the extension directory.
@@ -185,7 +184,6 @@ Each external extension should have a `package.json`. Use `dependencies` for pac
 ```
 
 **Dependency resolution rules:**
-
 - **Peer dependencies** are verified to exist in the core project's `node_modules` but never installed separately. If missing, a warning is logged.
 - **Dependencies matching a host package** at a compatible version are skipped (no duplication). The core's copy is reused at runtime.
 - **Dependencies not in the host** are installed into the extension's local `node_modules/`.
@@ -207,7 +205,6 @@ const manifest = {
 ### Publishing for the Extension Hub
 
 The [Extension Hub](extensions/extension-hub.md) installs external extensions from a git repository with one folder per extension. A folder is offered when it has:
-
 - an `index.ts`, and
 - a `package.json` whose `name` equals the folder name and whose `version` is a [semver](https://semver.org) version (`1.2.0`, `2.0.0-rc.1`).
 
@@ -261,7 +258,6 @@ The auto-generated `tsconfig.json` looks like this (paths are relative to your e
 ### Runtime Resolution
 
 At runtime, external extensions are loaded via dynamic `import()` from the core process. This means:
-
 - Bun resolves modules relative to the core project's context, so host packages "just work" without needing them in the extension's `node_modules`.
 - Extension-specific packages installed in the extension's `node_modules/` are also resolvable (Bun checks local `node_modules` first, then walks up).
 - The `tsconfig.json` only affects **TypeScript tooling** (IDE, type checker) — it has no effect at runtime.
@@ -271,7 +267,6 @@ At runtime, external extensions are loaded via dynamic `import()` from the core 
 External extensions are discovered at boot by scanning `EXTERNAL_EXTENSIONS_DIR` for `*/index.ts` patterns. They go through the same validation, dependency resolution (topological sort), and initialization flow as built-in extensions.
 
 **Hot loading:** a filesystem watcher picks up changes in `<DATA_DIR>/extensions/` at runtime (debounced by one second):
-
 - A new folder with an `index.ts` is loaded; a removed folder (or removed `index.ts`) is unloaded.
 - A changed `index.ts` reloads the extension (unload, then load).
 - Changes below `<extension>/ui/` only rebuild the extension's [UI pages](#extension-ui), and open pages remount with the new code.
@@ -290,15 +285,15 @@ Every extension receives a scoped `ExtensionContext` during `initialize()`. The 
 
 ### Top-Level Properties
 
-| Property | Type | Description |
-| --- | --- | --- |
-| `ctx.log` | `Logger` | Pre-scoped logger (`ext:{name}`) |
-| `ctx.paths.work` | `string` | Absolute path to the agent's work directory |
-| `ctx.paths.data` | `string` | Absolute path to the data directory (databases, generated content) |
-| `ctx.paths.extensions` | `string` | Absolute path to the extensions directory |
-| `ctx.db` | `BunSQLiteDatabase` | Shared Drizzle database instance |
-| `ctx.fetch` | `typeof fetch` | Identity-bound fetch - authenticates internal calls as the initiating user, confined to this extension's routes; external URLs pass through |
-| `ctx.sessions` | `SessionStorePort` | Shared session store for conversation persistence |
+| Property               | Type                | Description                                                                                                                                 |
+| ---------------------- | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctx.log`              | `Logger`            | Pre-scoped logger (`ext:{name}`)                                                                                                            |
+| `ctx.paths.work`       | `string`            | Absolute path to the agent's work directory                                                                                                 |
+| `ctx.paths.data`       | `string`            | Absolute path to the data directory (databases, generated content)                                                                          |
+| `ctx.paths.extensions` | `string`            | Absolute path to the extensions directory                                                                                                   |
+| `ctx.db`               | `BunSQLiteDatabase` | Shared Drizzle database instance                                                                                                            |
+| `ctx.fetch`            | `typeof fetch`      | Identity-bound fetch - authenticates internal calls as the initiating user, confined to this extension's routes; external URLs pass through |
+| `ctx.sessions`         | `SessionStorePort`  | Shared session store for conversation persistence                                                                                           |
 
 Use `ctx.fetch` instead of the global `fetch()` when calling your extension's own routes. It authenticates as the user who started the current job (or the built-in `system` account for background work) without exposing a token. Local requests are confined to `/ext/<name>/*` plus `/api/push`; any other local path returns `403`.
 
@@ -315,15 +310,15 @@ async initialize(ctx) {
 
 ### Tools (`ctx.tools`)
 
-| Method | Description |
-| --- | --- |
-| `ctx.tools.register(tool)` | Register an agent tool (unique name required) |
-| `ctx.tools.names()` | Get all registered tool names (core + extensions) |
+| Method                     | Description                                       |
+| -------------------------- | ------------------------------------------------- |
+| `ctx.tools.register(tool)` | Register an agent tool (unique name required)     |
+| `ctx.tools.names()`        | Get all registered tool names (core + extensions) |
 
 ### Routes (`ctx.routes`)
 
-| Method | Description |
-| --- | --- |
+| Method                                                 | Description                                                                                                                                                                                        |
+| ------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ctx.routes.register(method, path, handler, options?)` | Register an HTTP route (auto-prefixed `/ext/{name}/`). `options.parse` selects body parsing; `options.public: true` skips token auth for self-authenticating callbacks (webhooks, OAuth redirects) |
 
 ### Route Naming Convention
@@ -351,41 +346,41 @@ Avoid unnecessary prefixes like `/admin/` - all extension routes are already beh
 
 ### Queues (`ctx.queues`)
 
-| Method | Description |
-| --- | --- |
+| Method                                      | Description                                          |
+| ------------------------------------------- | ---------------------------------------------------- |
 | `ctx.queues.create(name, processor, opts?)` | Create a managed job queue (auto-prefixed `{name}:`) |
-| `ctx.queues.names()` | Get all registered queue names (core + extension) |
-| `ctx.queues.onEvent(queueName, event, cb)` | Subscribe to events on any queue |
-| `ctx.queues.offEvent(queueName, event, cb)` | Unsubscribe from queue events |
-| `ctx.queues.getJobLogs(queueName, jobId)` | Read log entries from a job |
-| `ctx.queues.getFlowProducer()` | Get the shared FlowProducer for job chains |
+| `ctx.queues.names()`                        | Get all registered queue names (core + extension)    |
+| `ctx.queues.onEvent(queueName, event, cb)`  | Subscribe to events on any queue                     |
+| `ctx.queues.offEvent(queueName, event, cb)` | Unsubscribe from queue events                        |
+| `ctx.queues.getJobLogs(queueName, jobId)`   | Read log entries from a job                          |
+| `ctx.queues.getFlowProducer()`              | Get the shared FlowProducer for job chains           |
 
 ### Events (`ctx.events`)
 
-| Method | Description |
-| --- | --- |
+| Method                          | Description                                                     |
+| ------------------------------- | --------------------------------------------------------------- |
 | `ctx.events.on(type, callback)` | Subscribe to agent lifecycle or domain events on the shared bus |
-| `ctx.events.emit(event)` | Emit a domain event on the shared bus |
+| `ctx.events.emit(event)`        | Emit a domain event on the shared bus                           |
 
 ### Messaging (`ctx.messaging`)
 
-| Method | Description |
-| --- | --- |
-| `ctx.messaging.broadcast(message)` | Push a WebSocket message to all frontend clients |
-| `ctx.messaging.push(sessionId, content, opts?)` | Send a push message to a session |
+| Method                                          | Description                                      |
+| ----------------------------------------------- | ------------------------------------------------ |
+| `ctx.messaging.broadcast(message)`              | Push a WebSocket message to all frontend clients |
+| `ctx.messaging.push(sessionId, content, opts?)` | Send a push message to a session                 |
 
 ### UI Events (`ctx.ui`)
 
-| Method | Description |
-| --- | --- |
+| Method                      | Description                                                                                                                                                       |
+| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `ctx.ui.emit(event, data?)` | Send an event to this extension's open [UI pages](#extension-ui) (received via `palim.onEvent`). Delivered to every connected client: no secrets or per-user data |
 
 ### Workflows (`ctx.workflows`)
 
-| Method | Description |
-| --- | --- |
+| Method                                   | Description                                                       |
+| ---------------------------------------- | ----------------------------------------------------------------- |
 | `ctx.workflows.dispatch(name, payload?)` | Trigger a named workflow run and return the run ID + step job IDs |
-| `ctx.workflows.names()` | List the names of all currently loaded workflow definitions |
+| `ctx.workflows.names()`                  | List the names of all currently loaded workflow definitions       |
 
 Dispatch a workflow programmatically without HTTP self-calls. The method looks up the workflow definition by name, validates it is enabled, creates a run with the provided payload as trigger data, and broadcasts a `workflow_started` WebSocket event.
 
@@ -411,20 +406,20 @@ async initialize(ctx) {
 
 **Error cases:**
 
-| Condition | Error message |
-| --- | --- |
-| Workflow name not found in loaded definitions | `Workflow not found: <name>` |
-| Workflow exists but has `enabled: false` | `Workflow is disabled: <name>` |
+| Condition                                              | Error message                         |
+| ------------------------------------------------------ | ------------------------------------- |
+| Workflow name not found in loaded definitions          | `Workflow not found: <name>`          |
+| Workflow exists but has `enabled: false`               | `Workflow is disabled: <name>`        |
 | Called before the workflows core extension initializes | `Workflows extension not initialized` |
 
 Extensions that use `ctx.workflows.dispatch()` should declare `"workflows"` in their manifest `dependencies` to ensure correct initialization order.
 
 ### Agent Execution (`ctx.agent`)
 
-| Method | Description |
-| --- | --- |
-| `ctx.agent.run(job, opts)` | Run a sub-agent synchronously within a queue job. Core owns model, API key, and shell. |
-| `ctx.agent.enqueue(name, data)` | Submit a job to the core Agents queue (fire-and-forget). Returns job ID. |
+| Method                          | Description                                                                            |
+| ------------------------------- | -------------------------------------------------------------------------------------- |
+| `ctx.agent.run(job, opts)`      | Run a sub-agent synchronously within a queue job. Core owns model, API key, and shell. |
+| `ctx.agent.enqueue(name, data)` | Submit a job to the core Agents queue (fire-and-forget). Returns job ID.               |
 
 `ctx.agent.run` is for extensions that process their own queue jobs and need an agent inline. `ctx.agent.enqueue` is for extensions that want to trigger agent work asynchronously.
 
@@ -432,48 +427,48 @@ Both accept an optional model `intent` (`"chat"`, `"vision"`, `"embedding"`) to 
 
 ### Config (`ctx.config`)
 
-| Method | Description |
-| --- | --- |
+| Method                          | Description                                                         |
+| ------------------------------- | ------------------------------------------------------------------- |
 | `ctx.config.get(key, default?)` | Read `EXT_{NAME}_{KEY}` env var (auto-coerced) or persisted setting |
 
 ### Secrets (`ctx.secrets`)
 
-| Method | Description |
-| --- | --- |
-| `ctx.secrets.get(key)` | Retrieve a secret (ACL-checked, audited) |
-| `ctx.secrets.set(key, value, opts?)` | Store an encrypted secret |
-| `ctx.secrets.delete(key)` | Delete one of the extension's secrets (audited); returns whether it existed |
-| `ctx.secrets.keys()` | List the keys of the extension's secrets (no values) |
+| Method                               | Description                                                                 |
+| ------------------------------------ | --------------------------------------------------------------------------- |
+| `ctx.secrets.get(key)`               | Retrieve a secret (ACL-checked, audited)                                    |
+| `ctx.secrets.set(key, value, opts?)` | Store an encrypted secret                                                   |
+| `ctx.secrets.delete(key)`            | Delete one of the extension's secrets (audited); returns whether it existed |
+| `ctx.secrets.keys()`                 | List the keys of the extension's secrets (no values)                        |
 
 Secret descriptions from `secretsSchema` are translated through `secrets.<KEY>.description` in the extension's catalogs (see [Translations](#manifest-and-schema-metadata)).
 
 ### Skills (`ctx.skills`)
 
-| Method | Description |
-| --- | --- |
-| `ctx.skills.resolve(name)` | Resolve a skill name to its entry |
-| `ctx.skills.names()` | Get names of all loaded skills from enabled extensions |
-| `ctx.skills.rescan()` | Trigger full skill re-discovery |
+| Method                     | Description                                            |
+| -------------------------- | ------------------------------------------------------ |
+| `ctx.skills.resolve(name)` | Resolve a skill name to its entry                      |
+| `ctx.skills.names()`       | Get names of all loaded skills from enabled extensions |
+| `ctx.skills.rescan()`      | Trigger full skill re-discovery                        |
 
 ### Step Types (`ctx.stepTypes`)
 
-| Method | Description |
-| --- | --- |
+| Method                                  | Description                                                                                          |
+| --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `ctx.stepTypes.register(type, handler)` | Register a custom workflow step type (see [Custom Workflow Step Types](#custom-workflow-step-types)) |
-| `ctx.stepTypes.get(type)` | Look up a registered step type handler by name |
+| `ctx.stepTypes.get(type)`               | Look up a registered step type handler by name                                                       |
 
 ### Dynamic Items (`ctx.dynamicItems`)
 
-| Method | Description |
-| --- | --- |
-| `ctx.dynamicItems.register(name, fn)` | Register a dynamic item provider for settings and step type schema enrichment |
-| `ctx.dynamicItems.registerDefault(name, fn)` | Register a dynamic default provider (replaces a string property's `default`) |
-| `ctx.dynamicItems.invalidate()` | Tell connected clients the provider values changed, so open forms and step dropdowns refetch them |
+| Method                                       | Description                                                                                       |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `ctx.dynamicItems.register(name, fn)`        | Register a dynamic item provider for settings and step type schema enrichment                     |
+| `ctx.dynamicItems.registerDefault(name, fn)` | Register a dynamic default provider (replaces a string property's `default`)                      |
+| `ctx.dynamicItems.invalidate()`              | Tell connected clients the provider values changed, so open forms and step dropdowns refetch them |
 
 ### Status (`ctx.status`)
 
-| Method | Description |
-| --- | --- |
+| Method                             | Description                                                 |
+| ---------------------------------- | ----------------------------------------------------------- |
 | `ctx.status.setWarnings(warnings)` | Replace this extension's runtime warnings; `[]` clears them |
 
 Use warnings for problems that need operator attention while the extension keeps running, such as a configured resource that no longer exists. They appear as a banner at the top of the extension's settings and as an amber icon in the extension list. Unlike an `initialize()` error, they don't mark the extension as failed. Warnings live in memory only and are cleared when the extension is deactivated. Blank entries are dropped and duplicates collapsed, and connected clients refresh only when the list actually changes, so calling it repeatedly with the same list is cheap. Like log output, warnings are not translated.
@@ -488,22 +483,22 @@ function checkWorkflow(ctx: ExtensionContext): void {
 
 ### State
 
-| Method | Description |
-| --- | --- |
-| `ctx.isEnabled()` | Check whether this extension is enabled |
+| Method                | Description                                |
+| --------------------- | ------------------------------------------ |
+| `ctx.isEnabled()`     | Check whether this extension is enabled    |
 | `ctx.isEnabled(name)` | Check whether another extension is enabled |
 
 ### Internal (Privileged)
 
-| Property | Description |
-| --- | --- |
-| `ctx.internal?.secrets.resolveAs(key, consumer)` | Resolve a secret with a custom consumer identity (e.g. for workflow templates) |
-| `ctx.internal?.identity.listOperatorUsernames()` | Usernames of the accounts an extension may act as: enabled operators without the `admin` or `system` role (e.g. for a "run as" dropdown via `dynamicItems`) |
-| `ctx.internal?.identity.mintToken(username, ttlMs?)` | Short-lived bearer token to call the API as that operator (logged with the extension name); null for any account not listed above |
-| `ctx.internal?.extensions.list()` | Loaded extensions with name, version, source, directory, state, enabled flag, and activation error |
-| `ctx.internal?.extensions.lastLoadFailure(dir)` | Why the extension in a directory last failed to load (import, validation, dependencies), or null |
-| `ctx.internal?.extensions.sync(folder)` | Ask the external directory watcher to load or unload one folder of `externalDir` (use after moving extension folders); resolves once processed with the folder's state: `active`, `suspended` (with `enabled` and `error`), `failed` (this sync's load attempt failed), or `unloaded` |
-| `ctx.internal?.identity.registerOwnerCounter(kind, counter)` | Refuse deleting a user the extension still acts as (`counter(username)` > 0); kept per extension, so it cannot replace core or other extensions' counters; returns an unregister function for `shutdown()` |
+| Property                                                     | Description                                                                                                                                                                                                                                                                           |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctx.internal?.secrets.resolveAs(key, consumer)`             | Resolve a secret with a custom consumer identity (e.g. for workflow templates)                                                                                                                                                                                                        |
+| `ctx.internal?.identity.listOperatorUsernames()`             | Usernames of the accounts an extension may act as: enabled operators without the `admin` or `system` role (e.g. for a "run as" dropdown via `dynamicItems`)                                                                                                                           |
+| `ctx.internal?.identity.mintToken(username, ttlMs?)`         | Short-lived bearer token to call the API as that operator (logged with the extension name); null for any account not listed above                                                                                                                                                     |
+| `ctx.internal?.extensions.list()`                            | Loaded extensions with name, version, source, directory, state, enabled flag, and activation error                                                                                                                                                                                    |
+| `ctx.internal?.extensions.lastLoadFailure(dir)`              | Why the extension in a directory last failed to load (import, validation, dependencies), or null                                                                                                                                                                                      |
+| `ctx.internal?.extensions.sync(folder)`                      | Ask the external directory watcher to load or unload one folder of `externalDir` (use after moving extension folders); resolves once processed with the folder's state: `active`, `suspended` (with `enabled` and `error`), `failed` (this sync's load attempt failed), or `unloaded` |
+| `ctx.internal?.identity.registerOwnerCounter(kind, counter)` | Refuse deleting a user the extension still acts as (`counter(username)` > 0); kept per extension, so it cannot replace core or other extensions' counters; returns an unregister function for `shutdown()`                                                                            |
 
 ## Configuration
 
@@ -555,11 +550,7 @@ const extension: Extension = {
         description: "External service URL",
         minLength: 1,
       }),
-      mode: Type.Union([
-        Type.Literal("fast"),
-        Type.Literal("balanced"),
-        Type.Literal("thorough"),
-      ], {
+      mode: Type.Union([Type.Literal("fast"), Type.Literal("balanced"), Type.Literal("thorough")], {
         title: "Processing Mode",
         default: "balanced",
       }),
@@ -592,7 +583,6 @@ export default extension;
 ```
 
 **Config resolution order** (highest precedence first):
-
 1. Environment variable `EXT_{NAME}_{KEY}` - always wins (ops override)
 2. Persisted value from SQLite (set via the web UI)
 3. `default` from the schema property
@@ -600,26 +590,26 @@ export default extension;
 
 **Supported schema types for the UI:**
 
-| TypeBox type | Rendered as |
-| --- | --- |
-| `Type.String()` | Text input |
+| TypeBox type                           | Rendered as                   |
+| -------------------------------------- | ----------------------------- |
+| `Type.String()`                        | Text input                    |
 | `Type.String()` with `multiline: true` | Textarea (preserves newlines) |
-| `Type.Number()` / `Type.Integer()` | Number input (with min/max) |
-| `Type.Boolean()` | Toggle switch |
-| `Type.Union([Type.Literal(...), ...])` | Select dropdown |
-| String with `sensitive: true` | Password input (masked) |
+| `Type.Number()` / `Type.Integer()`     | Number input (with min/max)   |
+| `Type.Boolean()`                       | Toggle switch                 |
+| `Type.Union([Type.Literal(...), ...])` | Select dropdown               |
+| String with `sensitive: true`          | Password input (masked)       |
 
 **Schema annotations:**
 
-| Keyword | Purpose |
-| --- | --- |
-| `title` | Form label (falls back to property key) |
-| `description` | Help text beneath the control |
-| `default` | Initial value when nothing is persisted |
-| `sensitive` | Masks the value in the UI and API responses |
-| `multiline` | Renders a resizable textarea instead of a single-line input |
-| `minimum` / `maximum` | Number constraints |
-| `minLength` / `maxLength` | String length constraints |
+| Keyword                   | Purpose                                                     |
+| ------------------------- | ----------------------------------------------------------- |
+| `title`                   | Form label (falls back to property key)                     |
+| `description`             | Help text beneath the control                               |
+| `default`                 | Initial value when nothing is persisted                     |
+| `sensitive`               | Masks the value in the UI and API responses                 |
+| `multiline`               | Renders a resizable textarea instead of a single-line input |
+| `minimum` / `maximum`     | Number constraints                                          |
+| `minLength` / `maxLength` | String length constraints                                   |
 
 **Reacting to settings changes:**
 
@@ -653,10 +643,7 @@ export const manifest = {
 } satisfies ExtensionManifest;
 
 // In initialize() or any helper that has access to the manifest:
-const outputPath = ctx.config.get<string>(
-  "OUTPUT_PATH",
-  manifest.settingsSchema.properties.outputPath.default,
-);
+const outputPath = ctx.config.get<string>("OUTPUT_PATH", manifest.settingsSchema.properties.outputPath.default);
 ```
 
 If you need the default in a separate file (e.g. route handlers), export the manifest and import it where needed:
@@ -665,10 +652,7 @@ If you need the default in a separate file (e.g. route handlers), export the man
 // routes.ts
 import { manifest } from "./index";
 
-const outputPath = ctx.config.get<string>(
-  "OUTPUT_PATH",
-  manifest.settingsSchema.properties.outputPath.default,
-);
+const outputPath = ctx.config.get<string>("OUTPUT_PATH", manifest.settingsSchema.properties.outputPath.default);
 ```
 
 ## Logging
@@ -712,9 +696,7 @@ const extension: Extension = {
       }),
       async execute(_toolCallId, params) {
         const apiKey = ctx.config.get("API_KEY");
-        const res = await fetch(
-          `https://api.example.com/weather?q=${params.city}&key=${apiKey}`
-        );
+        const res = await fetch(`https://api.example.com/weather?q=${params.city}&key=${apiKey}`);
         const data = await res.json();
         return {
           content: [{ type: "text", text: JSON.stringify(data) }],
@@ -738,7 +720,9 @@ Extensions that need to run an LLM agent as part of their work use `ctx.agent.ru
 ```typescript
 import type { Extension, QueueJob } from "@ext/types";
 
-interface AnalysisJob { text: string }
+interface AnalysisJob {
+  text: string;
+}
 
 const extension: Extension = {
   manifest: { name: "analyzer", version: "1.0.0" },
@@ -747,10 +731,10 @@ const extension: Extension = {
     ctx.queues.create<AnalysisJob>("work", async (job: QueueJob<AnalysisJob>) => {
       const result = await ctx.agent.run(job, {
         systemPrompt: "Analyze the provided text and summarize key points.",
-        tools: ["write_file"],        // tool names - core resolves them
-        skills: ["task-list"],         // skill names - core builds the shell
+        tools: ["write_file"], // tool names - core resolves them
+        skills: ["task-list"], // skill names - core builds the shell
         thinkingLevel: "low",
-        sessionId: "session-id",      // session for conversation context
+        sessionId: "session-id", // session for conversation context
       });
 
       await job.log(`Analysis complete: ${result.answer.slice(0, 100)}...`);
@@ -853,13 +837,13 @@ export async function registerSkill(skillName: string, ctx: SkillScriptContext) 
 
 The `SkillScriptContext` provides:
 
-| Property | Type | Description |
-| --- | --- | --- |
-| `ctx.baseUrl` | `string` | Extension route prefix (e.g. `http://localhost:3000/ext/my-extension`) |
-| `ctx.serverUrl` | `string` | Server origin without trailing slash |
-| `ctx.extensionsDir` | `string` | Absolute path to the built-in extensions directory |
-| `ctx.fetch` | `typeof fetch` | Identity-bound fetch confined to the owning extension's routes plus `/api/push` (same rules as `ExtensionContext.fetch`) |
-| `ctx.registerProgram` | `(name, callback, skillName) => void` | Registers a shell program in the agent sandbox |
+| Property              | Type                                  | Description                                                                                                              |
+| --------------------- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `ctx.baseUrl`         | `string`                              | Extension route prefix (e.g. `http://localhost:3000/ext/my-extension`)                                                   |
+| `ctx.serverUrl`       | `string`                              | Server origin without trailing slash                                                                                     |
+| `ctx.extensionsDir`   | `string`                              | Absolute path to the built-in extensions directory                                                                       |
+| `ctx.fetch`           | `typeof fetch`                        | Identity-bound fetch confined to the owning extension's routes plus `/api/push` (same rules as `ExtensionContext.fetch`) |
+| `ctx.registerProgram` | `(name, callback, skillName) => void` | Registers a shell program in the agent sandbox                                                                           |
 
 ### Using `ctx.registerProgram`
 
@@ -961,19 +945,19 @@ async initialize(ctx) {
 
 ### StepTypeHandler Interface
 
-| Field | Type | Description |
-| --- | --- | --- |
-| `schema` | `TObject` | TypeBox schema for validating the step config (excluding `slug` and `type`) |
-| `label` | `string` | Human-readable label shown in the workflow editor dropdown and graph nodes |
-| `description` | `string?` | Optional one- or two-sentence explanation of what the step does, shown in the detail pane of the editor's step picker (and matched by its search field) |
-| `docs` | `string?` | Optional Markdown reference for workflow authors and the agent: a JSON5 example, field semantics beyond the field descriptions, and runtime behavior. Shown by `workflow step-types <type>` and searched by `workflow step-types --search`. See [Documenting a Step Type](#documenting-a-step-type). |
-| `icon` | `StepIconName?` | Optional icon identifier - one of the `StepIconName` keys in the frontend icon registry (`frontend/src/lib/iconRegistry.ts`), e.g. `"TableIcon"`. NOT an emoji or arbitrary string. Omitting it falls back to a generic gear icon. |
-| `inputSchema` | `TSchema?` | Optional TypeBox schema describing the expected input data from the preceding step. Used for automatic validation and agent repair. |
-| `outputSchema` | `TSchema?` | Optional TypeBox schema describing the shape of the result this step produces. Serialized to JSON Schema by the registry and surfaced to the editor for deep `{{steps.<slug>.result.<path>}}` autocomplete and path validation. Omitting it has no runtime effect. See [Declaring Output Schemas](#declaring-output-schemas). |
-| `selfReference` | `boolean?` | When `true`, a step of this type inside an iterator body may reference its own result (`{{steps.<own-slug>.result...}}`) to read the previous pass's value. The handler must give such references a value on the first pass, when no previous result exists. For example, `set-variables` supplies zero values via `ctx.resolveTemplate(value, { stepResults: { [ctx.stepSlug]: current } })`. The editor offers self-references only for these types, and the validator warns about them for all others. |
-| `selfReferenceOrder` | `{ list: string; name: string }?` | Optional, for `selfReference` types that set their result fields one by one in the order of a config list: item `i` of `config[list]` sets the field named `item[name]`. Outside an iterator body, a template field inside item `i` may then reference the fields of the items before it. The validator accepts exactly those, and the editor offers exactly those. `set-variables` declares `{ list: "variables", name: "name" }`. |
-| `validateInput` | `(output, stepDef) => StepInputValidation \| Promise<StepInputValidation>` | Optional method for domain-specific input validation beyond what `inputSchema` can express. Takes precedence over `inputSchema` when both are present. |
-| `execute` | `(stepDef, ctx) => Promise<unknown>` | The execution logic; receives the full step definition and a scoped context |
+| Field                | Type                                                                       | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| -------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `schema`             | `TObject`                                                                  | TypeBox schema for validating the step config (excluding `slug` and `type`)                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `label`              | `string`                                                                   | Human-readable label shown in the workflow editor dropdown and graph nodes                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `description`        | `string?`                                                                  | Optional one- or two-sentence explanation of what the step does, shown in the detail pane of the editor's step picker (and matched by its search field)                                                                                                                                                                                                                                                                                                                                                   |
+| `docs`               | `string?`                                                                  | Optional Markdown reference for workflow authors and the agent: a JSON5 example, field semantics beyond the field descriptions, and runtime behavior. Shown by `workflow step-types <type>` and searched by `workflow step-types --search`. See [Documenting a Step Type](#documenting-a-step-type).                                                                                                                                                                                                      |
+| `icon`               | `StepIconName?`                                                            | Optional icon identifier - one of the `StepIconName` keys in the frontend icon registry (`frontend/src/lib/iconRegistry.ts`), e.g. `"TableIcon"`. NOT an emoji or arbitrary string. Omitting it falls back to a generic gear icon.                                                                                                                                                                                                                                                                        |
+| `inputSchema`        | `TSchema?`                                                                 | Optional TypeBox schema describing the expected input data from the preceding step. Used for automatic validation and agent repair.                                                                                                                                                                                                                                                                                                                                                                       |
+| `outputSchema`       | `TSchema?`                                                                 | Optional TypeBox schema describing the shape of the result this step produces. Serialized to JSON Schema by the registry and surfaced to the editor for deep `{{steps.<slug>.result.<path>}}` autocomplete and path validation. Omitting it has no runtime effect. See [Declaring Output Schemas](#declaring-output-schemas).                                                                                                                                                                             |
+| `selfReference`      | `boolean?`                                                                 | When `true`, a step of this type inside an iterator body may reference its own result (`{{steps.<own-slug>.result...}}`) to read the previous pass's value. The handler must give such references a value on the first pass, when no previous result exists. For example, `set-variables` supplies zero values via `ctx.resolveTemplate(value, { stepResults: { [ctx.stepSlug]: current } })`. The editor offers self-references only for these types, and the validator warns about them for all others. |
+| `selfReferenceOrder` | `{ list: string; name: string }?`                                          | Optional, for `selfReference` types that set their result fields one by one in the order of a config list: item `i` of `config[list]` sets the field named `item[name]`. Outside an iterator body, a template field inside item `i` may then reference the fields of the items before it. The validator accepts exactly those, and the editor offers exactly those. `set-variables` declares `{ list: "variables", name: "name" }`.                                                                       |
+| `validateInput`      | `(output, stepDef) => StepInputValidation \| Promise<StepInputValidation>` | Optional method for domain-specific input validation beyond what `inputSchema` can express. Takes precedence over `inputSchema` when both are present.                                                                                                                                                                                                                                                                                                                                                    |
+| `execute`            | `(stepDef, ctx) => Promise<unknown>`                                       | The execution logic; receives the full step definition and a scoped context                                                                                                                                                                                                                                                                                                                                                                                                                               |
 
 > **Icon names:** `icon` must be one of the `StepIconName` values defined in `shared/extensions.ts` (`STEP_ICON_NAMES`), each mapping to a `phosphor-svelte` component in `frontend/src/lib/iconRegistry.ts` (e.g. `"TableIcon"`, `"TerminalWindowIcon"`, `"GlobeIcon"`, `"RobotIcon"`). Using a name outside that set fails the frontend type-check. To add a new icon, add the name to `STEP_ICON_NAMES` and register the matching component.
 
@@ -982,7 +966,6 @@ async initialize(ctx) {
 An **output schema** describes the shape of the value a node produces, so the editor can offer deep property-path autocomplete and non-fatal path validation for `{{steps.<slug>.result.<path>}}` (and `{{trigger.payload.<path>}}`) expressions. Without one, autocomplete stops at `result` / `payload`.
 
 There are two ways an output schema is provided, resolved in this precedence order:
-
 1. **A hand-authored `outputSchema` in the workflow JSON5** (on the trigger or the individual step). This always wins for that node.
 2. **The step-type handler's declared `outputSchema`** (the `TSchema?` field on `StepTypeHandler`). Used automatically for any step of that type when the definition does not hand-author one.
 
@@ -999,7 +982,9 @@ import { Type } from "@sinclair/typebox";
 import type { StepTypeHandler } from "@ext/types";
 
 const handler: StepTypeHandler = {
-  schema: Type.Object({ /* config fields */ }),
+  schema: Type.Object({
+    /* config fields */
+  }),
   outputSchema: Type.Object({
     exitCode: Type.Number({ description: "The command's exit code." }),
     stdout: Type.String({ description: "Standard output from the command." }),
@@ -1014,7 +999,6 @@ const handler: StepTypeHandler = {
 ```
 
 Guidance:
-
 - Declare every top-level property your result object has, and none it does not. This keeps completion and validation honest.
 - For fields that are only sometimes present, wrap them in `Type.Optional(...)` - they still appear in autocomplete.
 - Use `description`, `enum` (`Type.Union([Type.Literal(...)])`), and `default` annotations; the editor surfaces them as dropdown metadata.
@@ -1025,7 +1009,6 @@ Guidance:
 #### Built-in trigger schemas
 
 Filewatcher and scheduler triggers have built-in output schemas derived from their event payloads. These activate automatically without any configuration:
-
 - **filewatcher**: `{ source, id, slug, filename, event }` (all strings)
 - **schedule**: `{ source, id, slug, description, label }` (all strings)
 
@@ -1035,13 +1018,13 @@ Webhook and manual triggers have no built-in schema since their payload is user-
 
 For `agent` and `trigger` nodes (which have no handler to declare a schema), or to override a handler's declared schema for one specific step, add an `outputSchema` field directly to a trigger or step in the JSON5. This uses the friendly **type-hint shorthand**: values are type-hint strings (terminal), nested objects (non-terminal), or one-element arrays describing the array items. The engine compiles this shorthand to JSON Schema when building the editor payload.
 
-| Shorthand | Meaning |
-| --- | --- |
-| `"string"`, `"number"`, `"boolean"` | Primitive value |
-| `"object"` | Open object: any sub-path is accepted (use for maps with dynamic keys) |
-| `"any"` | Unconstrained value; the path itself resolves, sub-paths do not |
-| `{ ... }` | Nested object with the listed properties |
-| `[item]` | Array whose elements match `item`, e.g. `["string"]` or `[{ id: "string" }]`; `{{x.0.id}}` and `{{x.length}}` resolve, and iterators get the element schema |
+| Shorthand                           | Meaning                                                                                                                                                     |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"string"`, `"number"`, `"boolean"` | Primitive value                                                                                                                                             |
+| `"object"`                          | Open object: any sub-path is accepted (use for maps with dynamic keys)                                                                                      |
+| `"any"`                             | Unconstrained value; the path itself resolves, sub-paths do not                                                                                             |
+| `{ ... }`                           | Nested object with the listed properties                                                                                                                    |
+| `[item]`                            | Array whose elements match `item`, e.g. `["string"]` or `[{ id: "string" }]`; `{{x.0.id}}` and `{{x.length}}` resolve, and iterators get the element schema |
 
 Any other leaf string is treated as unconstrained and produces a warning.
 
@@ -1086,7 +1069,7 @@ An explicit `outputSchema` on a trigger overrides the built-in default for that 
 
 A hand-authored `outputSchema` on a step replaces the handler's declared schema entirely, so restate every field you reference (e.g. `status` and `body` for `http-request`).
 
-You don't have to write the shorthand by hand. In the workflow editor, select the trigger or a step and click **Infer from last run** in its *Output schema* panel. It fills the shorthand from the newest run that has an object-shaped trigger payload or step result (via `GET /ext/workflows/meta/infer-schema/:name`). Review and trim it, then save.
+You don't have to write the shorthand by hand. In the workflow editor, select the trigger or a step and click **Infer from last run** in its _Output schema_ panel. It fills the shorthand from the newest run that has an object-shaped trigger payload or step result (via `GET /ext/workflows/meta/infer-schema/:name`). Review and trim it, then save.
 
 #### Config path autocomplete
 
@@ -1114,7 +1097,7 @@ const handler: StepTypeHandler = {
       name: Type.String(),
       value: Type.Number(),
     }),
-    { minItems: 1 }
+    { minItems: 1 },
   ),
   async execute(stepDef, ctx) {
     // By the time we get here, input has already been validated
@@ -1173,7 +1156,7 @@ const handler: StepTypeHandler = {
 ```typescript
 interface StepInputValidation {
   valid: boolean;
-  diagnostics?: string[];  // Fed back to the agent on failure
+  diagnostics?: string[]; // Fed back to the agent on failure
 }
 ```
 
@@ -1183,27 +1166,27 @@ When both `validateInput` and `inputSchema` are present, `validateInput` takes p
 
 The `execute` function receives a `StepExecutionContext` (not the full `ExtensionContext`):
 
-| Property/Method | Description |
-| --- | --- |
+| Property/Method                 | Description                                                                               |
+| ------------------------------- | ----------------------------------------------------------------------------------------- |
 | `ctx.resolveTemplate(template)` | Resolve `{{...}}` expressions (trigger payload, step results, step configs, env, secrets) |
-| `ctx.log` | Logger instance |
-| `ctx.workDir` | Absolute path to the agent's work directory |
-| `ctx.jobLog(message)` | Write to the job's persistent log (visible in the web UI) |
+| `ctx.log`                       | Logger instance                                                                           |
+| `ctx.workDir`                   | Absolute path to the agent's work directory                                               |
+| `ctx.jobLog(message)`           | Write to the job's persistent log (visible in the web UI)                                 |
 
 ### Template Expressions Available
 
 Custom steps have access to the same template engine as built-in steps:
 
-| Expression | Description |
-| --- | --- |
-| `{{trigger.payload}}` | The workflow's trigger data (full object) |
-| `{{trigger.payload.<path>}}` | Dot-path into the trigger payload (e.g. `trigger.payload.filename`) |
-| `{{steps.<slug>.result}}` | Result from a completed earlier step |
-| `{{steps.<slug>.result.<path>}}` | Dot-path into a step result |
-| `{{steps.<slug>.config}}` | Static config of any step in the workflow (including later steps) |
-| `{{steps.<slug>.config.<path>}}` | Dot-path into a step's config (supports array indices, e.g. `config.sheets.0.columns`) |
-| `{{env.<VAR>}}` | Allowlisted environment variable (raw process environment; unset resolves to empty with a warning) |
-| `{{secret.<KEY>}}` | Encrypted secret (ACL-checked) |
+| Expression                       | Description                                                                                        |
+| -------------------------------- | -------------------------------------------------------------------------------------------------- |
+| `{{trigger.payload}}`            | The workflow's trigger data (full object)                                                          |
+| `{{trigger.payload.<path>}}`     | Dot-path into the trigger payload (e.g. `trigger.payload.filename`)                                |
+| `{{steps.<slug>.result}}`        | Result from a completed earlier step                                                               |
+| `{{steps.<slug>.result.<path>}}` | Dot-path into a step result                                                                        |
+| `{{steps.<slug>.config}}`        | Static config of any step in the workflow (including later steps)                                  |
+| `{{steps.<slug>.config.<path>}}` | Dot-path into a step's config (supports array indices, e.g. `config.sheets.0.columns`)             |
+| `{{env.<VAR>}}`                  | Allowlisted environment variable (raw process environment; unset resolves to empty with a warning) |
+| `{{secret.<KEY>}}`               | Encrypted secret (ACL-checked)                                                                     |
 
 The `config` accessor is particularly useful for schema propagation: an agent step can reference a downstream step's column definitions to know what JSON structure to produce.
 
@@ -1251,7 +1234,6 @@ Workflow JSON5 definitions use the registered type name directly:
 ### Frontend Rendering
 
 Registered step types automatically appear in:
-
 - The step type dropdown in the workflow editor
 - Graph nodes with the registered label and icon
 - The read-only type badge in the step sidebar
@@ -1262,39 +1244,39 @@ When a step type declares a `schema`, the workflow editor renders a **schema-dri
 
 The form renderer uses TypeBox annotations on schema properties to determine labels, descriptions, and input types:
 
-| Annotation | Purpose | Example |
-| --- | --- | --- |
-| `title` | Form field label (falls back to capitalized property key) | `title: "Output Path"` |
-| `description` | Shown as an (i) tooltip icon next to the label | `description: "Relative path to the output directory"` |
-| `default` | Pre-populated value for new steps | `default: true` |
-| `multiline` | Renders a textarea instead of a single-line input (strings only) | `multiline: true` |
-| `minimum` / `maximum` | Number input constraints | `minimum: 1` |
-| `minLength` / `maxLength` | String length constraints | `minLength: 1` |
-| `dynamicItems` | Names a provider that populates available items at runtime (arrays only) | `dynamicItems: "all-skill-names"` |
-| `allowCustomItems` | Lets a multiselect also accept free-form entries besides the offered items (arrays only; also honored in extension settings) | `allowCustomItems: true` |
+| Annotation                | Purpose                                                                                                                      | Example                                                |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `title`                   | Form field label (falls back to capitalized property key)                                                                    | `title: "Output Path"`                                 |
+| `description`             | Shown as an (i) tooltip icon next to the label                                                                               | `description: "Relative path to the output directory"` |
+| `default`                 | Pre-populated value for new steps                                                                                            | `default: true`                                        |
+| `multiline`               | Renders a textarea instead of a single-line input (strings only)                                                             | `multiline: true`                                      |
+| `minimum` / `maximum`     | Number input constraints                                                                                                     | `minimum: 1`                                           |
+| `minLength` / `maxLength` | String length constraints                                                                                                    | `minLength: 1`                                         |
+| `dynamicItems`            | Names a provider that populates available items at runtime (arrays only)                                                     | `dynamicItems: "all-skill-names"`                      |
+| `allowCustomItems`        | Lets a multiselect also accept free-form entries besides the offered items (arrays only; also honored in extension settings) | `allowCustomItems: true`                               |
 
 **Supported property types:**
 
-| TypeBox type | Rendered as |
-| --- | --- |
-| `Type.String()` | Text input |
-| `Type.String()` with `multiline: true` | Textarea (with template autocomplete) |
-| `Type.Boolean()` | Toggle switch |
-| `Type.Number()` / `Type.Integer()` | Number input |
-| `Type.Union([Type.Literal(...), ...])` | Select dropdown |
-| `Type.Array(Type.String())` | Comma-separated text input ("tags") |
-| `Type.Array(Type.String())` with `dynamicItems` or `availableItems` | Multiselect |
-| `Type.Array(Type.String({ multiline: true }))` | One textarea per item, with add/remove |
-| `Type.Array(Type.Number())` | Comma-separated number input |
-| `Type.Record(Type.String(), <primitive>)` | Key/value rows |
-| `Type.Object({...})` | Nested form |
-| `Type.Array(Type.Object({...}))` | List of nested forms, with add/remove |
-| `Type.Record(Type.String(), Type.Object({...}))` | One card per key (key input + nested form) |
-| `Type.Union([Type.Object({ type: Type.Literal("a"), ... }), ...])` (discriminated union) | Type select + the fields of the selected alternative; switching keeps fields that render the same way |
-| `Type.Union([Type.String(), <object or array>, ...])` ("loose" union) | The string member's input (union annotations such as `multiline` apply); a structured value shows a hint to use the JSON view |
-| Anything else | Not supported in form — user is directed to the JSON view |
+| TypeBox type                                                                             | Rendered as                                                                                                                   |
+| ---------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `Type.String()`                                                                          | Text input                                                                                                                    |
+| `Type.String()` with `multiline: true`                                                   | Textarea (with template autocomplete)                                                                                         |
+| `Type.Boolean()`                                                                         | Toggle switch                                                                                                                 |
+| `Type.Number()` / `Type.Integer()`                                                       | Number input                                                                                                                  |
+| `Type.Union([Type.Literal(...), ...])`                                                   | Select dropdown                                                                                                               |
+| `Type.Array(Type.String())`                                                              | Comma-separated text input ("tags")                                                                                           |
+| `Type.Array(Type.String())` with `dynamicItems` or `availableItems`                      | Multiselect                                                                                                                   |
+| `Type.Array(Type.String({ multiline: true }))`                                           | One textarea per item, with add/remove                                                                                        |
+| `Type.Array(Type.Number())`                                                              | Comma-separated number input                                                                                                  |
+| `Type.Record(Type.String(), <primitive>)`                                                | Key/value rows                                                                                                                |
+| `Type.Object({...})`                                                                     | Nested form                                                                                                                   |
+| `Type.Array(Type.Object({...}))`                                                         | List of nested forms, with add/remove                                                                                         |
+| `Type.Record(Type.String(), Type.Object({...}))`                                         | One card per key (key input + nested form)                                                                                    |
+| `Type.Union([Type.Object({ type: Type.Literal("a"), ... }), ...])` (discriminated union) | Type select + the fields of the selected alternative; switching keeps fields that render the same way                         |
+| `Type.Union([Type.String(), <object or array>, ...])` ("loose" union)                    | The string member's input (union annotations such as `multiline` apply); a structured value shows a hint to use the JSON view |
+| Anything else                                                                            | Not supported in form — user is directed to the JSON view                                                                     |
 
-String inputs get template autocomplete and serve as targets of the *Available data* panel. Set `template: false` on a property that is never resolved as a template (e.g. an identifier such as `set-variables`' `name`) to turn both off for it.
+String inputs get template autocomplete and serve as targets of the _Available data_ panel. Set `template: false` on a property that is never resolved as a template (e.g. an identifier such as `set-variables`' `name`) to turn both off for it.
 
 **Template autocomplete** is automatically enabled on text and textarea fields. Typing `{{` opens a suggestion popup with available template expressions (trigger payload, step results, secrets, env vars).
 
@@ -1328,7 +1310,9 @@ const handler: StepTypeHandler = {
   }),
   label: "Sandbox Command",
   icon: "TerminalWindowIcon", // a StepIconName from the frontend icon registry
-  async execute(stepDef, ctx) { /* ... */ },
+  async execute(stepDef, ctx) {
+    /* ... */
+  },
 };
 ```
 
@@ -1384,14 +1368,14 @@ Extensions can add pages to the web UI: full Svelte 5 pages that render inside t
 
 `manifest.ui.navigation` adds sidebar entries (at most 10):
 
-| Field | Description |
-| --- | --- |
-| `label` | Sidebar text (1-50 characters) |
-| `route` | App route, e.g. `/ext-page/<extension>/<page>` for an extension page |
-| `icon` | Icon name from the frontend icon registry (`frontend/src/lib/iconRegistry.ts`), e.g. `EnvelopeIcon` |
-| `order` | Position (0-999, ascending). The built-in Job Queues entry sits at 100: lower values render above it, 100 and higher below |
+| Field       | Description                                                                                                                                                                                                                                |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `label`     | Sidebar text (1-50 characters)                                                                                                                                                                                                             |
+| `route`     | App route, e.g. `/ext-page/<extension>/<page>` for an extension page                                                                                                                                                                       |
+| `icon`      | Icon name from the frontend icon registry (`frontend/src/lib/iconRegistry.ts`), e.g. `EnvelopeIcon`                                                                                                                                        |
+| `order`     | Position (0-999, ascending). The built-in Job Queues entry sits at 100: lower values render above it, 100 and higher below                                                                                                                 |
 | `iconColor` | Optional Tailwind classes for the icon, e.g. `text-violet-600 dark:text-violet-500`. Supported: `text-<color>-<shade>` and its `dark:` variant for every Tailwind color in shades 300-700 (other classes are not in the host's stylesheet) |
-| `badgeKey` | Optional badge source; only keys known to the frontend badge registry show a count |
+| `badgeKey`  | Optional badge source; only keys known to the frontend badge registry show a count                                                                                                                                                         |
 
 Navigation routes under `/ext-page/` must point at the extension's own pages: `/ext-page/<other-extension>/...` or an undeclared page id is rejected at load time.
 
@@ -1420,11 +1404,11 @@ imap-fetch/
     └── types.ts
 ```
 
-| Field | Description |
-| --- | --- |
-| `id` | Page id, unique within the extension (`^[a-z0-9][a-z0-9-]*$`) |
+| Field   | Description                                                      |
+| ------- | ---------------------------------------------------------------- |
+| `id`    | Page id, unique within the extension (`^[a-z0-9][a-z0-9-]*$`)    |
 | `title` | Page title, shown in the header when no navigation entry matches |
-| `entry` | The page component, a `.svelte` file under `ui/` |
+| `entry` | The page component, a `.svelte` file under `ui/`                 |
 
 A page is rendered at `/ext-page/<extension>/<id>`; `/ext-page/<extension>` shows the first page. Deeper paths (`/ext-page/<extension>/<id>/some/sub/path`) render the same page and expose the sub-path for in-page routing.
 
@@ -1468,19 +1452,19 @@ The page component receives the host API as its `palim` prop:
 
 Pages run with their own Svelte runtime, so they cannot share stores or context with the app. Everything a page needs from the app goes through `palim` (types in `shared/extensionUi.ts`, importable as `@ext/ui`):
 
-| Member | Description |
-| --- | --- |
-| `extension` | `{ name, version }` of the owning extension |
-| `page` | `{ id, path, query }`: page id, sub-path below the page route, and query. Also a Svelte store: `$page` updates on in-page navigation |
-| `fetch(path, init?)` | Authenticated fetch. `/api/...` and `/ext/...` are used as is; other paths are relative to the extension's routes (`"/accounts"` → `/ext/<name>/accounts`). A 401 logs the user out |
-| `json<T>(path, init?)` | Like `fetch`, but `init.body` is JSON-encoded, the response is parsed, and a non-2xx status throws an `Error` with the response's `error` message |
-| `onEvent(handler)` | Receives events sent with `ctx.ui.emit()`; returns an unsubscribe function |
-| `theme` | `{ dark }`; also a Svelte store: `$theme` is `true` in dark mode |
-| `i18n` | `{ locale, t, format }` for the active language; also a Svelte store. See [Translations](#translations) |
-| `user` | `{ username, displayName, can(action, subject) }` for UI gating (the server enforces) |
-| `navigate(path)` | Navigate the app, e.g. to `/workflows` or a sub-path of this page |
-| `notify(message, kind?)` | Transient notification (`"info"`, `"success"`, `"error"`) |
-| `confirm(options)` | Host confirm dialog: `{ title, message, confirmLabel?, destructive? }` → `Promise<boolean>` |
+| Member                   | Description                                                                                                                                                                         |
+| ------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `extension`              | `{ name, version }` of the owning extension                                                                                                                                         |
+| `page`                   | `{ id, path, query }`: page id, sub-path below the page route, and query. Also a Svelte store: `$page` updates on in-page navigation                                                |
+| `fetch(path, init?)`     | Authenticated fetch. `/api/...` and `/ext/...` are used as is; other paths are relative to the extension's routes (`"/accounts"` → `/ext/<name>/accounts`). A 401 logs the user out |
+| `json<T>(path, init?)`   | Like `fetch`, but `init.body` is JSON-encoded, the response is parsed, and a non-2xx status throws an `Error` with the response's `error` message                                   |
+| `onEvent(handler)`       | Receives events sent with `ctx.ui.emit()`; returns an unsubscribe function                                                                                                          |
+| `theme`                  | `{ dark }`; also a Svelte store: `$theme` is `true` in dark mode                                                                                                                    |
+| `i18n`                   | `{ locale, t, format }` for the active language; also a Svelte store. See [Translations](#translations)                                                                             |
+| `user`                   | `{ username, displayName, can(action, subject) }` for UI gating (the server enforces)                                                                                               |
+| `navigate(path)`         | Navigate the app, e.g. to `/workflows` or a sub-path of this page                                                                                                                   |
+| `notify(message, kind?)` | Transient notification (`"info"`, `"success"`, `"error"`)                                                                                                                           |
+| `confirm(options)`       | Host confirm dialog: `{ title, message, confirmLabel?, destructive? }` → `Promise<boolean>`                                                                                         |
 
 Host state is exposed as stores rather than runes because runes do not cross Svelte runtimes:
 
@@ -1500,7 +1484,6 @@ Host state is exposed as stores rather than runes because runes do not cross Sve
 ### UI Kit and Styling
 
 `@palim/ui` (`frontend/src/lib/extensionKit.ts`) exports the core components, compiled into the extension's bundle so pages look exactly like core pages:
-
 - Primitives: `Button`, `Badge`, `Card` (+ `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter`), `Checkbox`, `Label`, `Select` (+ parts), `Table` (+ parts), `Dialog`, `AlertDialog`
 - Components: `LoadingIndicator`, `ToggleSwitch`, `StatusDot`, `MultiSelect`, `InfoTip` (an (i) icon next to a field label that shows its explanation as a tooltip, used instead of a hint line under the field)
 - Helpers: `cn` (class merging)
@@ -1576,15 +1559,15 @@ The UI ships in English and German. Each user picks a language in the user menu,
 
 Manifest and schema metadata stays English in the code. The host translates it through reserved catalog keys and falls back to the English text when a key is missing:
 
-| Key | Translates |
-| --- | --- |
-| `description` | The extension description (settings page) |
-| `nav.<route>` | A sidebar entry, e.g. `nav./ext-page/datatables/tables` |
-| `pages.<id>.title` | A page title |
-| `settings.<prop>.title` / `.description` | A settings field |
-| `secrets.<KEY>.description`, `secretGroups.<group>` | Secret descriptions and group headings |
-| `steps.<type>.label` | A workflow step type label |
-| `steps.<type>.description` | A workflow step type description (step picker) |
+| Key                                                 | Translates                                                                       |
+| --------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `description`                                       | The extension description (settings page)                                        |
+| `nav.<route>`                                       | A sidebar entry, e.g. `nav./ext-page/datatables/tables`                          |
+| `pages.<id>.title`                                  | A page title                                                                     |
+| `settings.<prop>.title` / `.description`            | A settings field                                                                 |
+| `secrets.<KEY>.description`, `secretGroups.<group>` | Secret descriptions and group headings                                           |
+| `steps.<type>.label`                                | A workflow step type label                                                       |
+| `steps.<type>.description`                          | A workflow step type description (step picker)                                   |
 | `steps.<type>.config.<prop>.title` / `.description` | A step config field; nested fields extend the path (`config.where.column.title`) |
 
 See `src/extensions/datatables/locales/` for a complete example.
@@ -1617,7 +1600,6 @@ See `src/extensions/datatables/locales/` for a complete example.
 ### Enable / Disable (Runtime)
 
 Toggling an extension via the UI or `PUT /api/extensions/:name` triggers a full lifecycle transition:
-
 - **Disable**: calls `shutdown()`, tears down all registrations (tools, routes, queues, events), extension enters suspended state. Takes effect immediately.
 - **Enable**: creates a fresh `ExtensionContext`, calls `initialize()`. If initialization fails (e.g. missing credentials), the extension remains suspended and the error is returned to the caller (HTTP 422).
 

@@ -18,22 +18,22 @@ Subscribe to your topic in the ntfy mobile/desktop app or web UI to receive noti
 
 Configurable in the web UI under **Settings > Extensions > ntfy**.
 
-| Setting | Description | Default |
-| --- | --- | --- |
+| Setting         | Description                  | Default           |
+| --------------- | ---------------------------- | ----------------- |
 | ntfy Server URL | Base URL of the ntfy server. | `https://ntfy.sh` |
 
 ### Environment variable overrides
 
-| Setting | Environment Variable |
-| --- | --- |
-| ntfy Server URL | `EXT_NTFY_SERVER` |
+| Setting         | Environment Variable |
+| --------------- | -------------------- |
+| ntfy Server URL | `EXT_NTFY_SERVER`    |
 
 ## Secrets
 
-| Secret | Description |
-| --- | --- |
-| `NTFY_ACCESS_TOKEN` | Optional access token for publishing to protected topics (optional) |
-| `NTFY_DEFAULT_TOPIC` | Default topic used when a step does not specify one (optional) |
+| Secret               | Description                                                         |
+| -------------------- | ------------------------------------------------------------------- |
+| `NTFY_ACCESS_TOKEN`  | Optional access token for publishing to protected topics (optional) |
+| `NTFY_DEFAULT_TOPIC` | Default topic used when a step does not specify one (optional)      |
 
 Set these in **Settings > Extensions > ntfy > Secrets**. Updating or deleting a secret takes effect immediately without a restart.
 
@@ -49,18 +49,17 @@ The server URL and access token stay encapsulated in the extension and never app
 
 ### Configuration
 
-| Field | Required | Description |
-| --- | --- | --- |
-| `message` | yes | Notification body. Supports `{{template}}` expressions. |
-| `title` | no | Notification title. Supports `{{template}}` expressions. |
-| `topic` | no | Target topic. Supports `{{template}}` expressions. Falls back to the secret default topic. To avoid a plaintext topic in the workflow file, leave this empty (use the default) or reference a secret with `{{secret.KEY}}`. See [Keeping topics out of workflow files](#keeping-topics-out-of-workflow-files). |
-| `click` | no | URL opened when the notification is tapped (ntfy click action). Supports `{{template}}` expressions. |
-| `markdown` | no | Render the message body as Markdown. Defaults to off (plain text). |
-| `priority` | no | `"1"` (min) to `"5"` (max). Defaults to the ntfy server default (3). |
-| `tags` | no | List of tags. Known emoji shortcodes render as emoji; any other value shows as a plain text tag. |
+| Field      | Required | Description                                                                                                                                                                                                                                                                                                    |
+| ---------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `message`  | yes      | Notification body. Supports `{{template}}` expressions.                                                                                                                                                                                                                                                        |
+| `title`    | no       | Notification title. Supports `{{template}}` expressions.                                                                                                                                                                                                                                                       |
+| `topic`    | no       | Target topic. Supports `{{template}}` expressions. Falls back to the secret default topic. To avoid a plaintext topic in the workflow file, leave this empty (use the default) or reference a secret with `{{secret.KEY}}`. See [Keeping topics out of workflow files](#keeping-topics-out-of-workflow-files). |
+| `click`    | no       | URL opened when the notification is tapped (ntfy click action). Supports `{{template}}` expressions.                                                                                                                                                                                                           |
+| `markdown` | no       | Render the message body as Markdown. Defaults to off (plain text).                                                                                                                                                                                                                                             |
+| `priority` | no       | `"1"` (min) to `"5"` (max). Defaults to the ntfy server default (3).                                                                                                                                                                                                                                           |
+| `tags`     | no       | List of tags. Known emoji shortcodes render as emoji; any other value shows as a plain text tag.                                                                                                                                                                                                               |
 
 Notes:
-
 - `message`, `title`, `topic`, and `click` support template expressions, so they can pull context from the trigger payload or previous step results (e.g. `{{steps.build-message.result}}`).
 - `click` accepts an `http(s)://` URL (opens the browser or app) or another scheme such as `mailto:`, `geo:`, or `ntfy://` for deep links.
 - `markdown` enables Markdown rendering of the body (bold, links, lists, etc.). This is currently honored by the ntfy web app only; other clients display the raw text. See the [ntfy Markdown docs](https://docs.ntfy.sh/publish/#markdown-formatting).
@@ -74,7 +73,6 @@ Notes:
 A ntfy topic name is effectively a shared credential: on an unauthenticated server, anyone who knows the topic can subscribe to and publish on it. The step's `topic` field is a normal templated string, so any value you type there is stored in plaintext in the workflow definition file (and appears in run logs). The workflow editor deliberately keeps this field a plain text input rather than a masked one, because masking would only hide it in the UI while leaving the value in the file, and it would break the `{{template}}` authoring the field is designed for.
 
 To avoid putting a real topic name in a workflow file, use one of these patterns instead:
-
 - **Rely on the default topic.** Leave `topic` empty and set the `NTFY_DEFAULT_TOPIC` secret (see [Secrets](#secrets)). The step falls back to it, and the value stays encrypted in the secret vault.
 - **Reference a secret.** Store the topic as a global secret and reference it with `{{secret.KEY}}`, for example `topic: "{{secret.NTFY_ALERT_TOPIC}}"`. The workflow engine resolves `{{secret.*}}` against the encrypted vault at run time (ACL-checked and audit-logged, using the workflow's identity as the consumer), so only the secret key name, not the topic itself, appears in the workflow file.
 

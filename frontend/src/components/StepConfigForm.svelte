@@ -276,11 +276,7 @@ function parseNumberList(raw: string): number[] {
 }
 </script>
 
-{#snippet fieldLabel(
-  key: string,
-  label: string,
-  description: string | null,
-)}
+{#snippet fieldLabel(key: string, label: string, description: string | null)}
   <span class="inline-flex items-center gap-1">
     <label class="text-xs font-medium text-muted-foreground" for="{idPrefix}{key}">{label}</label>
     {#if description}
@@ -289,9 +285,7 @@ function parseNumberList(raw: string): number[] {
   </span>
 {/snippet}
 
-{#snippet fieldError(
-  key: string,
-)}
+{#snippet fieldError(key: string)}
   {#if fieldErrors?.get(key)}
     <span class="text-xs text-destructive">{fieldErrors.get(key)}</span>
   {/if}

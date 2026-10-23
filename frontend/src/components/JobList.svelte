@@ -363,16 +363,11 @@ function trackColumnWidths(container: HTMLElement) {
   }}
 />
 
-{#snippet queueBadge(
-  label: string,
-)}
+{#snippet queueBadge(label: string)}
   <Badge variant="outline" class={automationStyle(label).border}>{label}</Badge>
 {/snippet}
 
-{#snippet expandCaret(
-  isExpanded: boolean,
-  className: string,
-)}
+{#snippet expandCaret(isExpanded: boolean, className: string)}
   {#if isExpanded}
     <CaretDownIcon size={14} class={className} aria-hidden="true" />
   {:else}
@@ -380,31 +375,21 @@ function trackColumnWidths(container: HTMLElement) {
   {/if}
 {/snippet}
 
-{#snippet cardTimestamps(
-  createdAt: number,
-  completedAt: number | undefined,
-  className = "",
-)}
+{#snippet cardTimestamps(createdAt: number, completedAt: number | undefined, className = "")}
   <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground {className}">
     <span>Created: {formatTimestamp(createdAt)}</span>
     <span>Completed: {formatTimestamp(completedAt, "\u2013")}</span>
   </div>
 {/snippet}
 
-{#snippet jobError(
-  job: JobEntry,
-  className = "mt-0.5",
-)}
+{#snippet jobError(job: JobEntry, className = "mt-0.5")}
   {#if job.error}
     <p class="text-xs text-destructive truncate {className}">{job.error}</p>
   {/if}
 {/snippet}
 
 <!-- Retry / Cancel / Logs buttons for one job; `compact` shortens the busy labels for the card layout -->
-{#snippet jobActions(
-  job: JobEntry,
-  compact: boolean,
-)}
+{#snippet jobActions(job: JobEntry, compact: boolean)}
   {@const iconMargin = compact ? "mr-1" : "mr-1.5"}
   {#if job.status === "failed"}
     <Button size="sm" variant="default" disabled={retryingJobId === job.id} onclick={() => handleRetry(job.id)}>
@@ -425,9 +410,7 @@ function trackColumnWidths(container: HTMLElement) {
 {/snippet}
 
 <!-- Delete for a failed workflow run, Cancel for one still in flight -->
-{#snippet workflowRunAction(
-  item: WorkflowItem,
-)}
+{#snippet workflowRunAction(item: WorkflowItem)}
   {#if item.aggregateStatus === "failed"}
     <DeleteRunButton runId={item.workflowRunId} />
   {:else if isRunCancellable(item.aggregateStatus)}
@@ -435,9 +418,7 @@ function trackColumnWidths(container: HTMLElement) {
   {/if}
 {/snippet}
 
-{#snippet workflowCancelButton(
-  item: WorkflowItem,
-)}
+{#snippet workflowCancelButton(item: WorkflowItem)}
   <Button
     size="sm"
     variant="destructive"
@@ -452,9 +433,7 @@ function trackColumnWidths(container: HTMLElement) {
   </Button>
 {/snippet}
 
-{#snippet copyWorkflowIdButton(
-  workflowRunId: string,
-)}
+{#snippet copyWorkflowIdButton(workflowRunId: string)}
   <button
     type="button"
     class="inline-flex shrink-0 items-center p-0.5 rounded text-muted-foreground hover:text-foreground hover:bg-muted border-none bg-transparent cursor-pointer"

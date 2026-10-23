@@ -2,7 +2,7 @@
 
 ![Palim](./media/palim_logo.png)
 
-> "*All they need is ~~tools~~ shell commands!*"
+> "_All they need is ~~tools~~ shell commands!_"
 
 **An AI agent that lives on your machine, works with your data, and automates the things you don't want to do manually.**
 
@@ -30,24 +30,23 @@ Everything runs through a job queue system. Whether it's a chat message, a sched
 
 ## Built-in Capabilities
 
-| Feature | What it does |
-|---------|--------------|
-| Conversations | Multi-turn chat with streamed responses and persistent history |
-| Scheduling | Cron jobs and interval-based tasks that survive restarts |
-| Workflows | Multi-step pipelines that chain agent actions together |
-| Document processing | PDF/image to markdown conversion via vision LLM |
-| File watching | Automatically react when files appear in monitored folders |
-| Webhooks | Receive events from external services (GitHub, CI, monitoring, etc.) |
+| Feature             | What it does                                                                            |
+| ------------------- | --------------------------------------------------------------------------------------- |
+| Conversations       | Multi-turn chat with streamed responses and persistent history                          |
+| Scheduling          | Cron jobs and interval-based tasks that survive restarts                                |
+| Workflows           | Multi-step pipelines that chain agent actions together                                  |
+| Document processing | PDF/image to markdown conversion via vision LLM                                         |
+| File watching       | Automatically react when files appear in monitored folders                              |
+| Webhooks            | Receive events from external services (GitHub, CI, monitoring, etc.)                    |
 | [Portal](portal.md) | Workflows ask people for approvals or input, answered in a mobile-friendly end-user app |
-| Wiki | A knowledge base the agent can read and write |
-| Telegram | Chat with the agent from your phone |
-| MCP bridging | Connect any Model Context Protocol server |
-| Web access | Let the agent fetch and read web pages |
+| Wiki                | A knowledge base the agent can read and write                                           |
+| Telegram            | Chat with the agent from your phone                                                     |
+| MCP bridging        | Connect any Model Context Protocol server                                               |
+| Web access          | Let the agent fetch and read web pages                                                  |
 
 ## Who Is This For?
 
 Palim is for people who want a personal AI assistant that:
-
 - Runs locally, under their control
 - Automates information management and system integration tasks
 - Works in the background without constant supervision

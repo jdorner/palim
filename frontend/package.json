@@ -9,19 +9,19 @@
     "check": "svelte-check --tsconfig ./tsconfig.app.json && svelte-check --tsconfig ./tsconfig.test.json"
   },
   "dependencies": {
-    "@comark/svelte": "^0.7.0",
+    "@comark/svelte": "^0.8.1",
     "@dagrejs/dagre": "^3.1.1",
     "@xyflow/svelte": "^1.7.0",
     "beautiful-mermaid": "^1.1.3",
-    "bits-ui": "^2.20.0",
+    "bits-ui": "^2.20.2",
     "clsx": "^2.1.1",
-    "comark": "^0.7.0",
+    "comark": "^0.8.1",
     "phosphor-svelte": "^3.1.1",
     "rangi": "^2.2.0",
     "sv-router": "^0.19.0",
     "tailwind-merge": "^3.7.0",
     "tailwind-variants": "^3.3.1",
-    "typebox": "^1.4.2"
+    "typebox": "^1.4.3"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

@@ -34,10 +34,10 @@ Changing this rebuilds the search index from the new directory.
 
 ## Environment Variable Override
 
-| Setting | Environment Variable |
-| --- | --- |
-| Inject Prompt | `EXT_WIKI_INJECT_PROMPT` |
-| Wiki Directory | `EXT_WIKI_WIKI_PATH` |
+| Setting        | Environment Variable     |
+| -------------- | ------------------------ |
+| Inject Prompt  | `EXT_WIKI_INJECT_PROMPT` |
+| Wiki Directory | `EXT_WIKI_WIKI_PATH`     |
 
 ## HTTP API
 
@@ -62,7 +62,6 @@ Return index statistics (document count, chunk count).
 ## Agent Skill
 
 The extension provides a `wiki` skill with sandbox commands for the agent:
-
 - `wiki search "<query>"` - Search the index for relevant content
 - `wiki read "<page>"` - Read a specific wiki page
 - `wiki write "<page>"` - Write/update a wiki page

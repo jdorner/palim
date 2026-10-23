@@ -19,16 +19,16 @@ The extension registers a **File Watchers** page in the sidebar where you can cr
 
 Each file watcher registration has:
 
-| Field | Description |
-| --- | --- |
-| `slug` | Unique identifier (used as trigger ref in workflows) |
-| `name` | Human-readable label |
-| `path` | Directory to watch (relative to work directory) |
-| `patterns` | Glob patterns to match filenames (e.g. `["*.pdf", "*.jpg"]`) |
-| `events` | Which file events to react to: `new`, `change`, `delete` |
-| `recursive` | Whether to watch subdirectories |
-| `processExisting` | Whether to process files already present on startup |
-| `enabled` | Toggle the watcher on/off |
+| Field             | Description                                                  |
+| ----------------- | ------------------------------------------------------------ |
+| `slug`            | Unique identifier (used as trigger ref in workflows)         |
+| `name`            | Human-readable label                                         |
+| `path`            | Directory to watch (relative to work directory)              |
+| `patterns`        | Glob patterns to match filenames (e.g. `["*.pdf", "*.jpg"]`) |
+| `events`          | Which file events to react to: `new`, `change`, `delete`     |
+| `recursive`       | Whether to watch subdirectories                              |
+| `processExisting` | Whether to process files already present on startup          |
+| `enabled`         | Toggle the watcher on/off                                    |
 
 All paths are scoped to the work directory for security.
 
@@ -68,7 +68,6 @@ The workflow receives the detected file path in the trigger payload.
 ## Event Payload
 
 The emitted `filewatcher:detected` event contains:
-
 - `slug` - The watcher slug that fired
 - `filename` - Relative path of the detected file (within work directory)
 - `event` - The event type (`new`, `change`, or `delete`)

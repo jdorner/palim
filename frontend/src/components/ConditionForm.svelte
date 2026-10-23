@@ -117,9 +117,7 @@ function inAsText(): string {
 }
 </script>
 
-{#snippet infoTip(
-  description: string,
-)}
+{#snippet infoTip(description: string)}
   <Tooltip.Root delayDuration={0}>
     <Tooltip.Trigger
       class="inline-flex items-center pointer-events-auto cursor-help text-muted-foreground/60 hover:text-muted-foreground"

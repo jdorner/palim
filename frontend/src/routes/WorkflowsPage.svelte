@@ -145,11 +145,7 @@ $effect(() => {
 });
 </script>
 
-{#snippet groupHeader(
-  group: string | null,
-  count: number,
-  hasWarnings: boolean,
-)}
+{#snippet groupHeader(group: string | null, count: number, hasWarnings: boolean)}
   <button
     type="button"
     class="flex w-full items-center gap-2 text-left text-sm font-semibold"
@@ -172,10 +168,7 @@ $effect(() => {
   </button>
 {/snippet}
 
-{#snippet runCount(
-  value: number,
-  color: string,
-)}
+{#snippet runCount(value: number, color: string)}
   {#if value > 0 && color}
     <span class="font-medium {color}">{value}</span>
   {:else}
@@ -183,9 +176,7 @@ $effect(() => {
   {/if}
 {/snippet}
 
-{#snippet cardSubtotals(
-  totals: WorkflowRunCounts,
-)}
+{#snippet cardSubtotals(totals: WorkflowRunCounts)}
   <div class="flex flex-wrap items-center gap-x-4 gap-y-1 pl-5 text-xs text-muted-foreground">
     <span>{t("workflows.activeLabel")} {@render runCount(totals.activeRuns, "text-blue-500")}</span>
     <span>{t("workflows.failedLabel")} {@render runCount(totals.failedRuns, "text-red-500")}</span>

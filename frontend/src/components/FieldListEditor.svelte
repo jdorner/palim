@@ -193,9 +193,7 @@ let formViewRows = $derived(viewRows?.ok && mode === "form" ? (viewRows.rows as 
 let shapeViewRows = $derived(viewRows?.ok && mode === "shape" ? (viewRows.rows as ShapeFieldRow[]) : null);
 </script>
 
-{#snippet shapeView(
-  rows: ShapeFieldRow[],
-)}
+{#snippet shapeView(rows: ShapeFieldRow[])}
   <ul class="flex flex-col gap-0.5">
     {#each rows as row, i (i)}
       <li class="text-xs">

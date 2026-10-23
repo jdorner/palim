@@ -2,7 +2,7 @@
 
 ![Palim](docs/media/palim_logo.png)
 
-> "*All they need is ~~tools~~ shell commands!*"
+> "_All they need is ~~tools~~ shell commands!_"
 
 A personal AI agent that runs on your machine, talks to a local LLM (or any OpenAI-compatible endpoint), and gets things done - from chat conversations and scheduled tasks to file processing and Telegram integration.
 
@@ -12,7 +12,7 @@ You define a working directory where the agent has full read/write access. This 
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-<img src="docs/media/screen.png" width="60%" >
+<img src="docs/media/screen.png" width="60%">
 
 ## Table of Contents
 
@@ -64,23 +64,23 @@ After first start, check Settings > Extensions in the web UI to enable the capab
 
 Palim ships with 15 built-in extensions (10 optional, 5 core):
 
-| Extension | Type | Purpose |
-| --------- | ---- | ------- |
-| `filewatcher` | Core | Configurable directory watchers that emit events on file changes |
-| `scheduler` | Core | Cron and interval-based job scheduling with persistence |
-| `webhooks` | Core | Authenticated HTTP endpoints for receiving external service events |
-| `workflows` | Core | DAG job pipelines defined in JSON5 (parallel steps, joins, control flow, `{{...}}` template expressions with function calls) |
-| `core-wf-steps` | Core | Built-in workflow step types (HTTP request, fail, noop, chunk, set-variables, start-workflow) |
-| `converter` | Optional | Converts files (PDFs, images) to markdown via vision LLM |
-| `datatables` | Optional | Typed data tables with CSV/Excel import and export, a UI page, workflow step types, and a `datatable` agent command |
-| `error-analyzer` | Optional | Automatic failure analysis and error reporting for jobs and workflows |
-| `extension-hub` | Optional | Install, update, and remove external extensions from git repositories |
-| `mcp` | Optional | Bridges MCP (Model Context Protocol) servers into the skill system |
-| `ntfy` | Optional | Sends push notifications via ntfy.sh, exposed as a workflow step type |
-| `steering` | Optional | Injects additional system prompt text to steer agent behavior |
-| `telegram` | Optional | Telegram bot integration |
-| `web-fetch` | Optional | Fetch and read webpages (replacement for curl, wget, etc.) |
-| `wiki` | Optional | Agent skill for reading and writing wiki pages |
+| Extension        | Type     | Purpose                                                                                                                      |
+| ---------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `filewatcher`    | Core     | Configurable directory watchers that emit events on file changes                                                             |
+| `scheduler`      | Core     | Cron and interval-based job scheduling with persistence                                                                      |
+| `webhooks`       | Core     | Authenticated HTTP endpoints for receiving external service events                                                           |
+| `workflows`      | Core     | DAG job pipelines defined in JSON5 (parallel steps, joins, control flow, `{{...}}` template expressions with function calls) |
+| `core-wf-steps`  | Core     | Built-in workflow step types (HTTP request, fail, noop, chunk, set-variables, start-workflow)                                |
+| `converter`      | Optional | Converts files (PDFs, images) to markdown via vision LLM                                                                     |
+| `datatables`     | Optional | Typed data tables with CSV/Excel import and export, a UI page, workflow step types, and a `datatable` agent command          |
+| `error-analyzer` | Optional | Automatic failure analysis and error reporting for jobs and workflows                                                        |
+| `extension-hub`  | Optional | Install, update, and remove external extensions from git repositories                                                        |
+| `mcp`            | Optional | Bridges MCP (Model Context Protocol) servers into the skill system                                                           |
+| `ntfy`           | Optional | Sends push notifications via ntfy.sh, exposed as a workflow step type                                                        |
+| `steering`       | Optional | Injects additional system prompt text to steer agent behavior                                                                |
+| `telegram`       | Optional | Telegram bot integration                                                                                                     |
+| `web-fetch`      | Optional | Fetch and read webpages (replacement for curl, wget, etc.)                                                                   |
+| `wiki`           | Optional | Agent skill for reading and writing wiki pages                                                                               |
 
 Core extensions cannot be deactivated. Optional extensions are disabled by default on first setup - enable the ones you need in the web UI under Settings > Extensions.
 
@@ -92,26 +92,26 @@ The `humanTask` workflow step and `/portal/` are experimental and disabled by de
 
 ### Environment Variables
 
-| Variable | Purpose | Default |
-| -------- | ------- | ------- |
-| `OPENAI_API_KEY` | LLM provider API key | - |
-| `OPENAI_API_BASE_URL` | LLM endpoint base URL | `http://localhost:11434/v1` |
-| `OPENAI_DEFAULT_MODEL` | LLM default model | - |
-| `AGENT_WORK_DIR` | Agent working directory (mounted into the sandbox) | `.work/` |
-| `WEB_SCHEME` | URL scheme (`http` or `https`) | `http` |
-| `WEB_HOST` | Web server bind address | `localhost` |
-| `WEB_PORT` | Web server port | `3000` |
-| `WEB_PUBLIC_URL` | Public operator UI origin used by `{{run.baseUrl}}` and `{{run.url}}` | - (server origin) |
-| `TRUSTED_PROXIES` | Comma-separated IPs/CIDRs of reverse proxies whose `X-Forwarded-For` header is trusted | - (header ignored) |
-| `WORKFLOW_ENV_ALLOWLIST` | Comma-separated additions to the safe workflow `env` namespace | - |
-| `WORKFLOW_TIMEZONE` | Default time zone of the workflow template date functions (IANA name, e.g. `Europe/Berlin`) | - (server time zone) |
-| `AUTH_ADMIN_USER` | Username of the admin account seeded on first boot | `admin` |
-| `AUTH_ADMIN_PASSWORD` | Password for the seeded admin (empty = generate a one-time password and log it once) | - |
-| `AUTH_SESSION_TTL_MS` | Login token lifetime in ms | `604800000` (7 days) |
-| `HITL_ENABLED` | Enable the experimental human-task/portal feature | `false` |
-| `PORTAL_PUBLIC_URL` | Public URL of the [portal](docs/portal.md) | - |
-| `DATA_DIR` | Directory for databases, generated content, and external extensions (must be outside `AGENT_WORK_DIR`) | `<project>/.palim/` |
-| `SECRETS_MASTER_KEY` | Derivation key for SecretVault encryption | - |
+| Variable                 | Purpose                                                                                                | Default                     |
+| ------------------------ | ------------------------------------------------------------------------------------------------------ | --------------------------- |
+| `OPENAI_API_KEY`         | LLM provider API key                                                                                   | -                           |
+| `OPENAI_API_BASE_URL`    | LLM endpoint base URL                                                                                  | `http://localhost:11434/v1` |
+| `OPENAI_DEFAULT_MODEL`   | LLM default model                                                                                      | -                           |
+| `AGENT_WORK_DIR`         | Agent working directory (mounted into the sandbox)                                                     | `.work/`                    |
+| `WEB_SCHEME`             | URL scheme (`http` or `https`)                                                                         | `http`                      |
+| `WEB_HOST`               | Web server bind address                                                                                | `localhost`                 |
+| `WEB_PORT`               | Web server port                                                                                        | `3000`                      |
+| `WEB_PUBLIC_URL`         | Public operator UI origin used by `{{run.baseUrl}}` and `{{run.url}}`                                  | - (server origin)           |
+| `TRUSTED_PROXIES`        | Comma-separated IPs/CIDRs of reverse proxies whose `X-Forwarded-For` header is trusted                 | - (header ignored)          |
+| `WORKFLOW_ENV_ALLOWLIST` | Comma-separated additions to the safe workflow `env` namespace                                         | -                           |
+| `WORKFLOW_TIMEZONE`      | Default time zone of the workflow template date functions (IANA name, e.g. `Europe/Berlin`)            | - (server time zone)        |
+| `AUTH_ADMIN_USER`        | Username of the admin account seeded on first boot                                                     | `admin`                     |
+| `AUTH_ADMIN_PASSWORD`    | Password for the seeded admin (empty = generate a one-time password and log it once)                   | -                           |
+| `AUTH_SESSION_TTL_MS`    | Login token lifetime in ms                                                                             | `604800000` (7 days)        |
+| `HITL_ENABLED`           | Enable the experimental human-task/portal feature                                                      | `false`                     |
+| `PORTAL_PUBLIC_URL`      | Public URL of the [portal](docs/portal.md)                                                             | -                           |
+| `DATA_DIR`               | Directory for databases, generated content, and external extensions (must be outside `AGENT_WORK_DIR`) | `<project>/.palim/`         |
+| `SECRETS_MASTER_KEY`     | Derivation key for SecretVault encryption                                                              | -                           |
 
 ### Secrets
 
@@ -168,7 +168,6 @@ bun run start
 The portal build is needed only to serve the optional HITL portal, but `bun run setup` includes it.
 
 Recommendations:
-
 - Set `AUTH_ADMIN_PASSWORD` before first boot (or note the generated one-time password in the log) and change it after logging in. All API and WebSocket endpoints require a user login; see [docs/api-security-model.md](docs/api-security-model.md) for the full security model
 - If you lose admin access, run `bun run reset-admin [username]` on the host
 - Use a reverse proxy (nginx, Caddy) for TLS termination
@@ -209,7 +208,6 @@ frontend/          # Svelte 5 + Vite 8 + Tailwind CSS 4 web UI
 ```
 
 Key architectural decisions:
-
 - **Sandboxed workspace** - Commands run inside a [just-bash](https://github.com/vercel-labs/just-bash) virtual filesystem. The directory configured via `AGENT_WORK_DIR` is mounted into this sandbox, giving the agent full access to that directory while isolating it from the rest of the host filesystem
 - **Job queues** - SQLite-backed via [bunqueue](https://bunqueue.dev/) with stall detection and persistent logging
 - **Extensions** - Discovered at runtime, dependency-resolved via topological sort, each receiving a scoped context
@@ -218,15 +216,15 @@ Key architectural decisions:
 
 ## Tech Stack
 
-| Layer | Technology |
-| ----- | ---------- |
-| Runtime | [Bun >=1.4.3 and <1.5.0](https://bun.sh) |
-| Language | TypeScript 7.0 (strict mode) |
-| Frontend | [Svelte 5](https://svelte.dev/) + Vite 8 + Tailwind CSS 4 |
+| Layer    | Technology                                                       |
+| -------- | ---------------------------------------------------------------- |
+| Runtime  | [Bun >=1.4.3 and <1.5.0](https://bun.sh)                         |
+| Language | TypeScript 7.0 (strict mode)                                     |
+| Frontend | [Svelte 5](https://svelte.dev/) + Vite 8 + Tailwind CSS 4        |
 | Database | SQLite (Bun native) via [Drizzle ORM](https://orm.drizzle.team/) |
-| LLM | OpenAI-compatible API |
-| Sandbox | [just-bash](https://github.com/vercel-labs/just-bash) |
-| Queue | [bunqueue](https://bunqueue.dev/) |
+| LLM      | OpenAI-compatible API                                            |
+| Sandbox  | [just-bash](https://github.com/vercel-labs/just-bash)            |
+| Queue    | [bunqueue](https://bunqueue.dev/)                                |
 
 ## Contributing
 
