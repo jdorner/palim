@@ -96,6 +96,9 @@ export const SANDBOX_TOOL_NAMES = new Set([
  * is handled by the underlying {@link ReadWriteFs} mount - no host-path
  * juggling required.
  *
+ * Every returned tool has `executionMode: "sequential"` because the tools
+ * share a single shell instance that is not safe for concurrent use.
+ *
  * @param shell - A configured Bash instance (typically from {@link createShell})
  * @returns An array of {@link AgentTool} instances
  */
@@ -382,5 +385,14 @@ export function createSandboxTools(shell: Bash): AgentTool[] {
     },
   };
 
-  return [execTool, readFileTool, writeFileTool, listFilesTool, createDirectoryTool, editFileTool];
+  // All sandbox tools share one Bash instance and its filesystem. Concurrent
+  // `shell.exec` calls on the same instance can deadlock (observed with
+  // parallel heredoc appends + `sed -i`), so force sequential execution:
+  // pi-agent-core runs the whole tool batch sequentially when any call in it
+  // targets a tool with `executionMode: "sequential"`.
+  const tools = [execTool, readFileTool, writeFileTool, listFilesTool, createDirectoryTool, editFileTool];
+  for (const tool of tools) {
+    tool.executionMode = "sequential";
+  }
+  return tools;
 }
