@@ -2,7 +2,7 @@
  * Core queue creation factory.
  *
  * Encapsulates the construction of the agent and chat queues with their
- * buildProcessor callbacks
+ * per-job processor configs.
  *
  * @module
  */
@@ -10,9 +10,9 @@
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
 import type { ModelIntent } from "@shared/models";
-import type { ExtensionRegistry } from "@src/extensions";
+import type { CoreQueueName, ExtensionRegistry } from "@src/extensions";
 import type { AgentJob, ChatJob } from "@src/jobs";
-import { buildAgentSystemPrompt, buildChatSystemPrompt, createAgentQueue, createChatQueue } from "@src/jobs";
+import { buildAgentSystemPrompt, buildChatSystemPrompt, createJobQueue } from "@src/jobs";
 import { getModelForIntent } from "@src/models";
 import type { ManagedQueuePort, QueueJob } from "@src/queue";
 import { getSkillsForContext } from "@src/skills/skills";
@@ -56,8 +56,8 @@ export interface CoreQueues {
 /**
  * Creates the core agent and chat queues with their processor callbacks.
  *
- * Queue processors resolve dependencies lazily at job time via getter
- * functions, so extensions loaded after queue creation are still visible.
+ * Processor configs are built per job, so skills, tools, and the event bus
+ * from extensions loaded after queue creation are still visible.
  *
  * @param deps - Registry, API key, and model resolver
  * @returns The created queues and shared resolution helpers
@@ -89,44 +89,47 @@ export function createCoreQueues(deps: CoreQueueDeps): CoreQueues {
     }
   };
 
-  const agentQueue = createAgentQueue({
-    buildProcessor: async (job: QueueJob<AgentJob>) => {
-      const activeSkills = registry.getSkillNames();
-      const systemPrompt = buildAgentSystemPrompt(getSkillsForContext({ resolveSkill, includeSkills: activeSkills }));
-      return {
-        model: await resolveModel(job.data.intent),
-        tools: ["exec", ...getExtensionTools().map((t) => t.name)],
-        toolResolver: resolveExtensionTool,
-        apiKey: openaiApiKey,
-        systemPrompt,
-        shellFactory,
-        skills: activeSkills,
-        eventBus: registry.getEventBus(),
-        queue: "agents" as const,
-        context: job.data.context,
-      };
+  /**
+   * Creates one core queue. The two queues differ only in their system prompt,
+   * the sandbox tools they get, and how the model is picked.
+   */
+  const createCoreQueue = <T extends ChatJob>(
+    queue: CoreQueueName,
+    variant: {
+      buildSystemPrompt: (skillsContext: string) => string;
+      sandboxTools: string[];
+      pickModel: (job: QueueJob<T>) => Promise<Model<"openai-completions">>;
     },
-    ...(mintIdentityToken ? { mintIdentityToken } : {}),
+  ): ManagedQueuePort<T> =>
+    createJobQueue<T>(queue, {
+      buildProcessor: async (job) => {
+        const activeSkills = registry.getSkillNames();
+        return {
+          model: await variant.pickModel(job),
+          tools: [...variant.sandboxTools, ...getExtensionTools().map((t) => t.name)],
+          toolResolver: resolveExtensionTool,
+          apiKey: openaiApiKey,
+          systemPrompt: variant.buildSystemPrompt(getSkillsForContext({ resolveSkill, includeSkills: activeSkills })),
+          shellFactory,
+          skills: activeSkills,
+          eventBus: registry.getEventBus(),
+          queue,
+          context: job.data.context,
+        };
+      },
+      mintIdentityToken,
+    });
+
+  const agentQueue = createCoreQueue<AgentJob>("agents", {
+    buildSystemPrompt: buildAgentSystemPrompt,
+    sandboxTools: ["exec"],
+    pickModel: (job) => resolveModel(job.data.intent),
   });
 
-  const chatQueue = createChatQueue({
-    buildProcessor: async (job: QueueJob<ChatJob>) => {
-      const activeSkills = registry.getSkillNames();
-      const systemPrompt = buildChatSystemPrompt(getSkillsForContext({ resolveSkill, includeSkills: activeSkills }));
-      return {
-        model: await getSelectedModel(),
-        tools: ["exec", "edit", ...getExtensionTools().map((t) => t.name)],
-        toolResolver: resolveExtensionTool,
-        apiKey: openaiApiKey,
-        systemPrompt,
-        shellFactory,
-        skills: activeSkills,
-        eventBus: registry.getEventBus(),
-        queue: "chat" as const,
-        context: job.data.context,
-      };
-    },
-    ...(mintIdentityToken ? { mintIdentityToken } : {}),
+  const chatQueue = createCoreQueue<ChatJob>("chat", {
+    buildSystemPrompt: buildChatSystemPrompt,
+    sandboxTools: ["exec", "edit"],
+    pickModel: () => getSelectedModel(),
   });
 
   return { agentQueue, chatQueue, resolveSkill, getExtensionTools, shellFactory };

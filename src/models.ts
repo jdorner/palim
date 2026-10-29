@@ -1,21 +1,17 @@
 /**
  * Dynamic LLM model discovery and selection.
  *
- * Uses a strategy pattern ({@link ModelProvider}) to support different backends
- * for retrieving model capabilities (context window, vision support).
+ * A {@link ModelProvider} reads model capabilities (context window, vision
+ * support) from the backend. Two topologies are supported, which differ only
+ * in the endpoint URL (both return the same response shape):
  *
- * Two providers cover the topology:
+ * | Topology   | Kind           | Capabilities endpoint            |
+ * |------------|----------------|----------------------------------|
+ * | llama-swap | `"llama-swap"` | `GET /upstream/<model>/models`   |
+ * | direct     | `"llamacpp"`   | `GET /v1/models`                 |
  *
- * | Proxy        | Provider                   |
- * |--------------|----------------------------|
- * | llama-swap   | {@link LlamaSwapProvider}  |
- * | direct       | {@link LlamaCppProvider}   |
- *
- * Both are instances of {@link ConfigurableModelProvider} composed from a URL
- * builder and a response parser.
- *
- * The correct provider is selected automatically by {@link detectAndSetProvider}
- * based on the `/v1/models` response (`owned_by` field).
+ * {@link detectAndSetProvider} picks the kind at boot from the `/v1/models`
+ * response (`owned_by` field).
  *
  * @module
  */
@@ -37,14 +33,8 @@ const DEFAULT_MAX_TOKENS = 32000;
 /** Null capabilities returned when an endpoint is unreachable or returns an error. */
 const NULL_CAPABILITIES: ModelCapabilities = { contextWindow: null, vision: null };
 
-/**
- * In-memory cache for model capabilities to avoid repeated network requests.
- * Keyed by model ID. Cleared when the provider changes.
- */
-const capabilitiesCache = new Map<string, ModelCapabilities>();
-
 // ---------------------------------------------------------------------------
-// Provider strategy interface
+// Provider interface
 // ---------------------------------------------------------------------------
 
 /** Model capabilities resolved by a provider. */
@@ -56,14 +46,16 @@ export interface ModelCapabilities {
 }
 
 /**
- * Strategy interface for resolving model capabilities from an LLM backend.
- *
- * Implementations fetch metadata (context window, modalities) from
- * provider-specific endpoints.
+ * Backend topology the capabilities are read from:
+ * - `"llama-swap"`: through the llama-swap proxy, `GET /upstream/<model>/models`
+ * - `"llamacpp"`: directly from llama.cpp, `GET /v1/models`
  */
+export type ModelProviderKind = "llama-swap" | "llamacpp";
+
+/** Resolves model capabilities (context window, vision) from the LLM backend. */
 export interface ModelProvider {
-  /** Human-readable name for logging. */
-  readonly name: string;
+  /** Which backend topology this provider talks to (also used for logging). */
+  readonly name: ModelProviderKind;
 
   /**
    * Resolves capabilities for a given model.
@@ -112,36 +104,18 @@ interface ModelsResponse {
 }
 
 // ---------------------------------------------------------------------------
-// URL builders
-// ---------------------------------------------------------------------------
-
-/** Builds the URL for a given model and base URL. */
-type UrlBuilder = (baseUrl: string, modelId: string) => string;
-
-/** Response parser that extracts capabilities from a fetched JSON body. */
-type ResponseParser = (body: unknown, modelId: string) => ModelCapabilities;
-
-/** llama-swap proxy: `GET /upstream/<model>/models` */
-const buildLlamaSwapUrl: UrlBuilder = (baseUrl, modelId) => `${baseUrl}/upstream/${modelId}/models`;
-
-/** Direct llama.cpp: `GET /v1/models` */
-const buildLlamaCppUrl: UrlBuilder = (baseUrl) => `${baseUrl}/v1/models`;
-
-// ---------------------------------------------------------------------------
-// Response parser
+// Provider
 // ---------------------------------------------------------------------------
 
 /**
- * Parses the models response.
+ * Parses a models response (same shape from llama-swap and llama.cpp).
  * Extracts `meta.n_ctx` from `data[]` and checks `capabilities` for `"multimodal"`.
  *
- * @param body - The parsed JSON response
+ * @param response - The parsed JSON response
  * @param modelId - The model ID to look up (falls back to first entry)
  * @returns Extracted capabilities
  */
-const parseModelsResponse: ResponseParser = (body, modelId) => {
-  const response = body as ModelsResponse;
-
+function parseModelsResponse(response: ModelsResponse, modelId: string): ModelCapabilities {
   const dataEntry = response.data?.find((d) => d.id === modelId) ?? response.data?.[0];
   const contextWindow = dataEntry?.meta?.n_ctx ?? null;
 
@@ -150,85 +124,42 @@ const parseModelsResponse: ResponseParser = (body, modelId) => {
   const vision = capabilities.includes("multimodal");
 
   return { contextWindow, vision };
-};
-
-// ---------------------------------------------------------------------------
-// Configurable provider (single implementation for both strategies)
-// ---------------------------------------------------------------------------
+}
 
 /**
- * A model provider composed from a URL builder and a response parser.
+ * Creates a provider that reads model capabilities from the given backend.
  *
- * This single class backs both provider variants by parameterizing the two
- * axes of variation: how to build the endpoint URL and how to parse the response.
+ * Successful lookups are cached per provider instance, keyed by model ID, so a
+ * newly detected provider starts with an empty cache. Failed lookups are not
+ * cached.
+ *
+ * @param kind - Backend topology (see {@link ModelProviderKind})
+ * @param apiBaseUrl - The OpenAI-compatible base URL (e.g. `http://localhost:11434/v1`)
+ * @returns The provider
  */
-class ConfigurableModelProvider implements ModelProvider {
-  readonly name: string;
-  private readonly baseUrl: string;
-  private readonly buildUrl: UrlBuilder;
-  private readonly parseResponse: ResponseParser;
+export function createModelProvider(kind: ModelProviderKind, apiBaseUrl: string): ModelProvider {
+  const baseUrl = apiBaseUrl.replace(/\/v1\/?$/, "");
+  const cache = new Map<string, ModelCapabilities>();
 
-  /**
-   * @param name - Human-readable provider name for logging
-   * @param buildUrl - Function that constructs the endpoint URL
-   * @param parseResponse - Function that extracts capabilities from the response
-   * @param apiBaseUrl - The OpenAI-compatible base URL (e.g. `http://localhost:11434/v1`)
-   */
-  constructor(name: string, buildUrl: UrlBuilder, parseResponse: ResponseParser, apiBaseUrl: string) {
-    this.name = name;
-    this.buildUrl = buildUrl;
-    this.parseResponse = parseResponse;
-    this.baseUrl = apiBaseUrl.replace(/\/v1\/?$/, "");
-  }
+  return {
+    name: kind,
+    async fetchCapabilities(modelId: string): Promise<ModelCapabilities> {
+      const cached = cache.get(modelId);
+      if (cached) return cached;
 
-  /**
-   * Fetches and parses model capabilities from the configured endpoint.
-   * Results are cached per model ID to avoid redundant network requests.
-   *
-   * @param modelId - The model identifier
-   * @returns Extracted capabilities, or nulls if the endpoint is unavailable
-   */
-  async fetchCapabilities(modelId: string): Promise<ModelCapabilities> {
-    const cached = capabilitiesCache.get(modelId);
-    if (cached) return cached;
+      const url = kind === "llama-swap" ? `${baseUrl}/upstream/${modelId}/models` : `${baseUrl}/v1/models`;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) return NULL_CAPABILITIES;
 
-    try {
-      const url = this.buildUrl(this.baseUrl, modelId);
-      const res = await fetch(url);
-      if (!res.ok) return NULL_CAPABILITIES;
-
-      const body = await res.json();
-      const result = this.parseResponse(body, modelId);
-      capabilitiesCache.set(modelId, result);
-      return result;
-    } catch {
-      return NULL_CAPABILITIES;
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Provider classes
-// ---------------------------------------------------------------------------
-
-/**
- * Resolves model capabilities via `GET /upstream/<model>/models` (through llama-swap).
- * Extracts `meta.n_ctx` and `capabilities` from the response.
- */
-export class LlamaSwapProvider extends ConfigurableModelProvider {
-  constructor(apiBaseUrl: string) {
-    super("llama-swap", buildLlamaSwapUrl, parseModelsResponse, apiBaseUrl);
-  }
-}
-
-/**
- * Resolves model capabilities via `GET /v1/models` directly from llama.cpp.
- * Extracts `meta.n_ctx` and `capabilities` from the response.
- */
-export class LlamaCppProvider extends ConfigurableModelProvider {
-  constructor(apiBaseUrl: string) {
-    super("llamacpp", buildLlamaCppUrl, parseModelsResponse, apiBaseUrl);
-  }
+        const result = parseModelsResponse((await res.json()) as ModelsResponse, modelId);
+        cache.set(modelId, result);
+        return result;
+      } catch {
+        return NULL_CAPABILITIES;
+      }
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -252,11 +183,11 @@ interface OpenAIModelsResponse {
 }
 
 /**
- * Detects the correct provider strategy by inspecting the `/v1/models` response.
+ * Detects the backend topology by inspecting the `/v1/models` response.
  *
  * Detection logic:
- * If any entry has `owned_by === "llama-swap"`, a proxy is present and
- * {@link LlamaSwapProvider} is used. Otherwise {@link LlamaCppProvider} is used.
+ * If any entry has `owned_by === "llama-swap"`, a proxy is present and the
+ * `"llama-swap"` provider is used. Otherwise the `"llamacpp"` provider is used.
  *
  * Sets the active provider and returns it.
  *
@@ -284,9 +215,7 @@ export async function detectAndSetProvider(apiBaseUrl?: string): Promise<ModelPr
 
   const isLlamaSwap = entries.some((entry) => entry.owned_by === "llama-swap");
 
-  const provider: ModelProvider = isLlamaSwap
-    ? new LlamaSwapProvider(effectiveBaseUrl)
-    : new LlamaCppProvider(effectiveBaseUrl);
+  const provider = createModelProvider(isLlamaSwap ? "llama-swap" : "llamacpp", effectiveBaseUrl);
 
   logger.info(`Detected provider: "${provider.name}"`);
 
@@ -318,10 +247,10 @@ let cachedModels: ModelMetadata[] = [];
 
 /**
  * The active model provider used for resolving capabilities.
- * Defaults to {@link LlamaCppProvider}; {@link detectAndSetProvider} replaces
- * it during boot.
+ * Defaults to the direct `"llamacpp"` provider; {@link detectAndSetProvider}
+ * replaces it during boot.
  */
-let activeProvider: ModelProvider = new LlamaCppProvider(API_BASE_URL);
+let activeProvider: ModelProvider = createModelProvider("llamacpp", API_BASE_URL);
 
 /**
  * Returns the currently active model provider.
