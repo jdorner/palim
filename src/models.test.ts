@@ -3,7 +3,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
-import { detectAndSetProvider, getModelProvider, LlamaCppProvider, LlamaSwapProvider } from "./models";
+import { createModelProvider, detectAndSetProvider, getModelProvider } from "./models";
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -36,10 +36,10 @@ afterEach(() => {
 });
 
 // ---------------------------------------------------------------------------
-// LlamaSwapProvider
+// createModelProvider("llama-swap")
 // ---------------------------------------------------------------------------
 
-describe("LlamaSwapProvider", () => {
+describe("createModelProvider (llama-swap)", () => {
   test("extracts context window and vision from upstream models endpoint", async () => {
     routes.set("/upstream/test-model/models", () =>
       Response.json({
@@ -60,7 +60,7 @@ describe("LlamaSwapProvider", () => {
       }),
     );
 
-    const provider = new LlamaSwapProvider(`${baseUrl}/v1`);
+    const provider = createModelProvider("llama-swap", `${baseUrl}/v1`);
     const caps = await provider.fetchCapabilities("test-model");
 
     expect(caps.contextWindow).toBe(131072);
@@ -75,7 +75,7 @@ describe("LlamaSwapProvider", () => {
       }),
     );
 
-    const provider = new LlamaSwapProvider(`${baseUrl}/v1`);
+    const provider = createModelProvider("llama-swap", `${baseUrl}/v1`);
     const caps = await provider.fetchCapabilities("text-model");
 
     expect(caps.contextWindow).toBe(8192);
@@ -83,7 +83,7 @@ describe("LlamaSwapProvider", () => {
   });
 
   test("returns nulls when endpoint returns 404", async () => {
-    const provider = new LlamaSwapProvider(`${baseUrl}/v1`);
+    const provider = createModelProvider("llama-swap", `${baseUrl}/v1`);
     const caps = await provider.fetchCapabilities("missing-model");
 
     expect(caps.contextWindow).toBeNull();
@@ -91,7 +91,7 @@ describe("LlamaSwapProvider", () => {
   });
 
   test("returns nulls when endpoint is unreachable", async () => {
-    const provider = new LlamaSwapProvider("http://localhost:1/v1");
+    const provider = createModelProvider("llama-swap", "http://localhost:1/v1");
     const caps = await provider.fetchCapabilities("any");
 
     expect(caps.contextWindow).toBeNull();
@@ -100,10 +100,10 @@ describe("LlamaSwapProvider", () => {
 });
 
 // ---------------------------------------------------------------------------
-// LlamaCppProvider
+// createModelProvider("llamacpp")
 // ---------------------------------------------------------------------------
 
-describe("LlamaCppProvider", () => {
+describe("createModelProvider (llamacpp)", () => {
   test("extracts capabilities from /v1/models response by model ID", async () => {
     routes.set("/v1/models", () =>
       Response.json({
@@ -118,7 +118,7 @@ describe("LlamaCppProvider", () => {
       }),
     );
 
-    const provider = new LlamaCppProvider(`${baseUrl}/v1`);
+    const provider = createModelProvider("llamacpp", `${baseUrl}/v1`);
 
     const capsA = await provider.fetchCapabilities("ModelA.gguf");
     expect(capsA.contextWindow).toBe(4096);
@@ -137,7 +137,7 @@ describe("LlamaCppProvider", () => {
       }),
     );
 
-    const provider = new LlamaCppProvider(`${baseUrl}/v1`);
+    const provider = createModelProvider("llamacpp", `${baseUrl}/v1`);
     const caps = await provider.fetchCapabilities("nonexistent");
 
     expect(caps.contextWindow).toBe(65536);
@@ -147,7 +147,7 @@ describe("LlamaCppProvider", () => {
   test("returns nulls when endpoint fails", async () => {
     routes.set("/v1/models", () => new Response("Internal Error", { status: 500 }));
 
-    const provider = new LlamaCppProvider(`${baseUrl}/v1`);
+    const provider = createModelProvider("llamacpp", `${baseUrl}/v1`);
     const caps = await provider.fetchCapabilities("any");
 
     expect(caps.contextWindow).toBeNull();
@@ -160,7 +160,7 @@ describe("LlamaCppProvider", () => {
 // ---------------------------------------------------------------------------
 
 describe("detectAndSetProvider", () => {
-  test("detects llama-swap -> LlamaSwapProvider", async () => {
+  test("detects llama-swap -> llama-swap provider", async () => {
     routes.set("/v1/models", () =>
       Response.json({
         object: "list",
@@ -174,7 +174,7 @@ describe("detectAndSetProvider", () => {
     expect(getModelProvider().name).toBe("llama-swap");
   });
 
-  test("detects direct llama.cpp -> LlamaCppProvider", async () => {
+  test("detects direct llama.cpp -> llamacpp provider", async () => {
     routes.set("/v1/models", () =>
       Response.json({
         object: "list",
@@ -198,7 +198,7 @@ describe("detectAndSetProvider", () => {
     expect(detectAndSetProvider(`${baseUrl}/v1`)).rejects.toThrow("Failed to fetch models for detection");
   });
 
-  test("falls back to LlamaCppProvider when no models returned", async () => {
+  test("falls back to the llamacpp provider when no models returned", async () => {
     routes.set("/v1/models", () =>
       Response.json({
         object: "list",
