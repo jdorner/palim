@@ -17,7 +17,7 @@ import type { PortalLauncherRegistry } from "@src/portal";
 import type { PushMessageFn } from "@src/push";
 import type { JobInfo, JobProcessor, ManagedQueueOptions, ManagedQueuePort, QueueJob, QueueJobLogs } from "@src/queue";
 import { ManagedQueue } from "@src/queue";
-import type { SetSecretOptions } from "@src/secrets";
+import type { SetSecretOptions } from "@src/secrets/types";
 import type { SecretVault } from "@src/secrets/vault";
 import type { SessionStorePort } from "@src/session";
 import type { SkillEntry } from "@src/tools/sandbox";
@@ -171,7 +171,7 @@ export interface ExtContextLifecycle {
   /** Look up a registered step type handler by type name. */
   getStepHandlerFn?: (type: string) => import("../types").StepTypeHandler | undefined;
   /** List read-only serialized metadata for all registered step types. */
-  listStepTypesFn?: () => import("@shared/extensions").StepTypeInfo[];
+  listStepTypesFn?: () => StepTypeInfo[];
   /** Replaces the runtime warnings of the given extension. */
   setWarningsFn?: (name: string, warnings: string[]) => void;
 }

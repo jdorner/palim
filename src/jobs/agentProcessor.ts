@@ -10,7 +10,12 @@ import type { AgentEvent, AgentMessage, AgentTool, ThinkingLevel } from "@marioz
 import { Agent } from "@mariozechner/pi-agent-core";
 import type { Model, TextContent } from "@mariozechner/pi-ai";
 import type { EventBus } from "@src/extensions/engine/eventBus";
-import type { AgentEventContext, BeforeAgentStartEvent, CoreQueueName } from "@src/extensions/types";
+import type {
+  AgentEventContext,
+  AgentProcessorResult,
+  BeforeAgentStartEvent,
+  CoreQueueName,
+} from "@src/extensions/types";
 import type { QueueJob } from "@src/queue";
 import { getSessionStore } from "@src/session";
 import { createSandboxTools, SANDBOX_TOOL_NAMES } from "@src/tools/file";
@@ -53,15 +58,11 @@ export interface AgentProcessorConfig {
   context?: AgentEventContext;
 }
 
-/** Result returned by {@link runAgent}. */
-export interface AgentProcessorResult {
-  /** The assistant's final text response. */
-  answer: string;
-  /** The agent's final state snapshot. */
-  state: unknown;
-  /** Completion timestamp (ms). */
-  timestamp: number;
-}
+/**
+ * Result returned by {@link runAgent}. Defined once in the public extension
+ * types (it is also what `ctx.agent.run` returns) and re-exported here.
+ */
+export type { AgentProcessorResult };
 
 /**
  * Runs an agent to completion, reporting logs to the

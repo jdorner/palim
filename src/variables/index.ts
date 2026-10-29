@@ -10,4 +10,3 @@
  */
 
 export type { TemplateVariableResolver } from "./store";
-export type { GlobalVariableEntry } from "./types";

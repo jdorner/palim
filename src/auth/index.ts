@@ -7,17 +7,10 @@
  * @module
  */
 
-export type { AbilityPrincipal, AppAbility, PermissionSet } from "./ability";
+export type { AppAbility } from "./ability";
 export { buildAbility, ownedSubject } from "./ability";
-export type {
-  AuthResolver,
-  AuthServiceOptions,
-  LoginResult,
-  PasswordCost,
-  ResolvedPrincipal,
-} from "./authService";
+export type { AuthResolver, ResolvedPrincipal } from "./authService";
 export { AuthService, hashToken, serializeAbility } from "./authService";
-export type { UserChange } from "./guards";
 export {
   checkRoleAssignment,
   checkRoleDelete,
@@ -26,15 +19,6 @@ export {
   checkUserChange,
   checkUserDelete,
 } from "./guards";
-export type { IdentityMinter } from "./identityMinter";
 export { mintIdentityToken, resolveInitiatorToken, setIdentityMinter } from "./identityMinter";
-export type { SeedAuthOptions, SeedResult } from "./seed";
 export { seedAuth } from "./seed";
-export type {
-  CreateUserOptions,
-  RoleRecord,
-  SessionTokenRecord,
-  UserRecord,
-  UserWithSecret,
-} from "./userStore";
 export { UserStore } from "./userStore";

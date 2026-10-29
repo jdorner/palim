@@ -3,28 +3,25 @@
  * Pure TypeScript module with no Svelte dependencies.
  */
 
+import type { StepDraft as BuilderStepDraft, EdgeDraft } from "$shared/workflowBuilder";
 import type { OutputSchemaShorthand, PortalTriggerConfig } from "$shared/workflows";
 import { translateCore as t } from "./i18nCore";
 import type { SlugEdge } from "./templateScope";
 
-/** Result of a single validation check. */
-export interface ValidationResult {
-  valid: boolean;
-  error?: string;
-}
-
 /**
- * An edge in a DAG workflow draft.
+ * An edge in a DAG workflow draft (defined in `$shared/workflowBuilder`).
  *
  * `from`/`to` reference the steps' SYNTHETIC IDS (`StepDraft.id`), not slugs.
  * Id-based edges keep connections stable while the user edits slugs (which may
  * be empty or duplicated mid-edit). They are translated back to slugs only at
  * serialize time (`serializeWorkflowDraft`).
  */
-export interface EdgeDraft {
-  from: string;
-  to: string;
-  branch?: string;
+export type { EdgeDraft };
+
+/** Result of a single validation check. */
+export interface ValidationResult {
+  valid: boolean;
+  error?: string;
 }
 
 /** Draft trigger: type, ref, and an optional hand-authored output schema. */
@@ -53,19 +50,18 @@ export interface WorkflowDraft {
   edges: EdgeDraft[];
 }
 
-/** Draft step within a workflow (DAG node; branches are edges, not nested arrays). */
-export interface StepDraft {
-  [key: string]: unknown;
-  /**
-   * Stable synthetic identity for the editor graph, independent of the slug.
-   * Never serialized to the backend (see `serializeStep`); it only keeps node
-   * identity/selection/position stable while the user edits the slug. Optional
-   * here so pure validation/serialization callers need not mint one; the editor
-   * always populates it.
-   */
-  id?: string;
-  slug: string;
-  type: string;
+/**
+ * Draft step within a workflow (DAG node; branches are edges, not nested arrays).
+ *
+ * Extends the builder's minimal step shape (`id`, `slug`, `type`, open index
+ * signature) with the fields the editor reads and writes. The builder's `id` is
+ * the stable synthetic identity for the editor graph, independent of the slug:
+ * never serialized to the backend (see `serializeStep`), it only keeps node
+ * identity/selection/position stable while the user edits the slug. It is
+ * optional so pure validation/serialization callers need not mint one; the
+ * editor always populates it.
+ */
+export interface StepDraft extends BuilderStepDraft {
   prompt?: string;
   tools?: string[];
   skills?: string[];

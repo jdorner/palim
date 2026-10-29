@@ -10,10 +10,11 @@
  * - `DELETE /api/models/intents/:intent`
  */
 
+import { MODEL_INTENTS, type ModelIntent } from "@shared/models";
 import { Type } from "@sinclair/typebox";
 import { appConfig } from "@src/db";
 import type { ExtensionRegistry } from "@src/extensions";
-import { fetchAvailableModels, getCachedModels, getModelProvider, MODEL_INTENTS, type ModelIntent } from "@src/models";
+import { fetchAvailableModels, getCachedModels, getModelProvider } from "@src/models";
 import { mainLogger as log } from "@src/utils/logger";
 import { Elysia } from "elysia";
 

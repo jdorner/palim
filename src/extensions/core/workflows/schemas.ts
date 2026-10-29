@@ -69,8 +69,8 @@ const PortalTriggerConfigSchema = Type.Object(
   { additionalProperties: false },
 );
 
-/** TypeScript type for a `portal` trigger configuration (structurally the shared `PortalTriggerConfig`). */
-export type PortalTriggerConfig = Static<typeof PortalTriggerConfigSchema>;
+// The TypeScript shape of a portal trigger is the shared `PortalTriggerConfig`
+// (`@shared/workflows`); schemas.test.ts asserts it matches this schema.
 
 /** Trigger configuration - how a workflow is started. */
 const TriggerSchema = Type.Object(

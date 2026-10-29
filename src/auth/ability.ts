@@ -28,8 +28,6 @@ import {
   type UserKind,
 } from "@shared/auth";
 
-export type { PermissionSet };
-
 /** The concrete CASL ability type used throughout the app. */
 export type AppAbility = MongoAbility<[AppAction, AppSubject | Record<string, unknown>]>;
 

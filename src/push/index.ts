@@ -4,5 +4,5 @@
  * @module
  */
 
-export type { PushMessageFn, PushMessageOptions, PushMessageResult, PushServiceDeps } from "./pushService";
+export type { PushMessageFn } from "./pushService";
 export { createPushService } from "./pushService";

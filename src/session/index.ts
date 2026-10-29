@@ -13,17 +13,8 @@ import createLogger from "logging";
 import { SessionStore } from "./sessionStore";
 import type { SessionStorePort } from "./types";
 
-export type { PushMessage } from "./pushMessage";
 export { SessionStore } from "./sessionStore";
-export type {
-  CreateSessionOptions,
-  GetMessagesOptions,
-  GetOrCreateSessionOptions,
-  ListSessionsOptions,
-  Session,
-  SessionData,
-  SessionStorePort,
-} from "./types";
+export type { SessionStorePort } from "./types";
 
 /**
  * Delete the given sessions (and their messages) unless their `source` is `"chat"`.

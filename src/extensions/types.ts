@@ -30,11 +30,12 @@ import type {
   QueueJobLogs,
   SchedulerInfo,
   SelfReferenceOrder,
-  StepTypeInfo as SerializedStepTypeInfo,
   SessionStorePort,
   SetSecretOptions,
   SkillEntry,
   StepIconName,
+  StepTypeCategory,
+  StepTypeInfo,
   WebSocketMessage,
 } from "./publicTypes";
 
@@ -552,43 +553,9 @@ export interface StepTypeHandler {
   execute(stepDef: Record<string, unknown>, ctx: StepExecutionContext): Promise<unknown>;
 }
 
-/**
- * Palette category hint for a custom workflow step type. A UI-only grouping
- * used by the editor's "Add Step" menu; it has no effect on engine execution.
- *
- * - `"action"` - default group (work-producing steps like http-request)
- * - `"control-flow"` - grouped with if/case/waitFor/emit in the editor
- */
-export type StepTypeCategory = "action" | "control-flow";
-
-/**
- * Metadata about a registered custom step type, surfaced to the frontend
- * for workflow editor UI rendering.
- */
-export interface StepTypeInfo {
-  /** The step type identifier (e.g. "excel"). */
-  type: string;
-  /** Human-readable label (e.g. "Excel Writer"). */
-  label: string;
-  /** Optional explanation of what the step does (shown in the step picker). */
-  description?: string;
-  /**
-   * Optional icon identifier. One of the {@link StepIconName} keys into the
-   * frontend icon registry (`frontend/src/lib/iconRegistry.ts`), not an emoji.
-   */
-  icon?: StepIconName;
-  /** Name of the extension that registered this step type. */
-  extensionName: string;
-  /**
-   * Optional palette category hint for the "Add Step" menu grouping.
-   * UI-only; does not affect engine execution. Defaults to the action group.
-   */
-  category?: StepTypeCategory;
-}
-
-// ---------------------------------------------------------------------------
-// Agent execution
-// ---------------------------------------------------------------------------
+// `StepTypeCategory` and `StepTypeInfo` (the serialized step type metadata the
+// registry ships to the editor) are defined once in shared/extensions.ts and
+// re-exported below via ./publicTypes.
 
 // ---------------------------------------------------------------------------
 // Workflow dispatch
@@ -609,7 +576,10 @@ export interface WorkflowDispatchResult {
 // Agent execution
 // ---------------------------------------------------------------------------
 
-/** Result returned by {@link ExtensionContext.runAgent}. */
+/**
+ * Result of an agent run: returned by `ctx.agent.run` and by the core
+ * `runAgent` processor (`src/jobs/agentProcessor.ts`), which re-exports it.
+ */
 export interface AgentProcessorResult {
   /** The assistant's final text response. */
   answer: string;
@@ -1058,7 +1028,7 @@ export interface ExtensionContext {
      * List read-only serialized metadata for every custom workflow step type
      * registered by ANY active extension (not just this one).
      *
-     * Returns plain, serializable {@link SerializedStepTypeInfo} objects with
+     * Returns plain, serializable {@link StepTypeInfo} objects with
      * `configSchema`/`outputSchema` already converted to JSON Schema. The live
      * {@link StepTypeHandler} (and its `execute` function) is never exposed, so
      * this is safe read-only introspection - use it to build documentation,
@@ -1070,7 +1040,7 @@ export interface ExtensionContext {
      *
      * @returns Serialized metadata for all registered step types
      */
-    list(): SerializedStepTypeInfo[];
+    list(): StepTypeInfo[];
   };
 
   // -------------------------------------------------------------------------
@@ -1289,7 +1259,7 @@ export interface Extension {
 }
 
 // ---------------------------------------------------------------------------
-// Re-exported queue types for extension use
+// Re-exported core and shared types for extension use
 // ---------------------------------------------------------------------------
 
 export type {
@@ -1302,7 +1272,16 @@ export type {
   PortalLauncherDef,
   PortalLauncherProvider,
 } from "./publicTypes";
-export type { JobProcessor, ManagedQueueOptions, ManagedQueuePort, QueueJob, QueueJobLogs, SchedulerInfo };
+export type {
+  JobProcessor,
+  ManagedQueueOptions,
+  ManagedQueuePort,
+  QueueJob,
+  QueueJobLogs,
+  SchedulerInfo,
+  StepTypeCategory,
+  StepTypeInfo,
+};
 
 // ---------------------------------------------------------------------------
 // Skill script context

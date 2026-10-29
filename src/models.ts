@@ -21,6 +21,7 @@
  */
 
 import type { Model } from "@mariozechner/pi-ai";
+import type { ModelIntent } from "@shared/models";
 import createLogger from "logging";
 import { API_BASE_URL } from "./config";
 import { appConfig } from "./db";
@@ -404,12 +405,6 @@ export async function buildModelConfig(modelId: string, reasoning = false): Prom
 // ---------------------------------------------------------------------------
 // Model Intent Resolution
 // ---------------------------------------------------------------------------
-
-/** Well-known task categories that can each be assigned a different model. */
-export type ModelIntent = "chat" | "vision" | "embedding";
-
-/** All valid model intent values. */
-export const MODEL_INTENTS: readonly ModelIntent[] = ["chat", "vision", "embedding"] as const;
 
 /** Result of resolving a model for a given intent. */
 export interface ResolvedModel {

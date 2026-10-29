@@ -17,7 +17,7 @@
 import type { HumanTaskEventKind, HumanTaskOutcome, HumanTaskPriority, HumanTaskStatus } from "@shared/portal";
 import type { TaskAssignees, TaskRecord } from "./types";
 
-export type { TaskAssignees, TaskRecord, TaskSource } from "./types";
+export type { TaskAssignees, TaskRecord } from "./types";
 
 import { and, asc, desc, eq, inArray, lt, or, type SQL, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";

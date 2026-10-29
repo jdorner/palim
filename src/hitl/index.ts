@@ -11,26 +11,12 @@
 
 export { createUserDirectory } from "./directory";
 export {
-  type CompleteTaskInput,
   type CreateTaskInput,
   createHitlService,
   type HitlChange,
   type HitlDirectory,
   HitlError,
   type HitlService,
-  type HitlServiceDeps,
-  type HitlSourceHandler,
   type HitlViewer,
-  type ListTasksOptions,
-  type TaskPage,
 } from "./hitlService";
-export {
-  type NewTask,
-  type TaskAssignees,
-  type TaskEventRecord,
-  type TaskRecord,
-  type TaskSource,
-  TaskStore,
-  type TaskVisibility,
-} from "./taskStore";
-export type { HitlApi } from "./types";
+export { TaskStore } from "./taskStore";

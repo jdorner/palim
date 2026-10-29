@@ -1,4 +1,5 @@
-import { describe, expect, test } from "bun:test";
+import { describe, expect, expectTypeOf, test } from "bun:test";
+import type { PortalTriggerConfig } from "@shared/workflows";
 import { Value } from "@sinclair/typebox/value";
 import fc from "fast-check";
 import {
@@ -9,7 +10,16 @@ import {
   DagWaitForStepSchema,
   DagWorkflowDefinitionSchema,
   OutputSchemaSchema,
+  type Trigger,
 } from "./schemas";
+
+describe("PortalTriggerConfig", () => {
+  test("the shared interface matches the TypeBox trigger schema", () => {
+    // Compile-time check (enforced by `bunx tsc --noEmit`): the frontend's
+    // shared interface must not drift from the schema the backend validates.
+    expectTypeOf<NonNullable<Trigger["portal"]>>().toEqualTypeOf<PortalTriggerConfig>();
+  });
+});
 
 // ---------------------------------------------------------------------------
 // Arbitraries

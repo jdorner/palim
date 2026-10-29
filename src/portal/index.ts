@@ -10,7 +10,6 @@ export {
   describeRunAsUser,
   PortalLauncherError,
   type PortalLauncherRegistry,
-  type PortalLauncherRegistryDeps,
   type PortalLauncherViewer,
 } from "./launchers";
-export type { PortalApi, PortalLauncherDef, PortalLauncherProvider } from "./types";
+export type { PortalLauncherDef } from "./types";

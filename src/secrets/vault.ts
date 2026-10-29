@@ -7,6 +7,7 @@
  * @module
  */
 
+import type { SecretSchemaEntry } from "@shared/extensions";
 import { and, eq, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";
@@ -111,20 +112,6 @@ export interface SecretVaultConfig {
   database: BunSQLiteDatabase<any>;
   /** 32-byte AES master key (decoded from env or derived from .env.keys). */
   masterKey: Buffer;
-}
-
-/**
- * Schema entry describing a secret an extension requires.
- */
-export interface SecretSchemaEntry {
-  /** Secret key name (e.g. "API_KEY"). */
-  key: string;
-  /** Human-readable description of the secret's purpose. */
-  description: string;
-  /** Whether the secret is required for the extension to function. */
-  required: boolean;
-  /** Optional grouping label for related secrets. */
-  group?: string;
 }
 
 /**

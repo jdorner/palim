@@ -216,8 +216,9 @@ describe("detectAndSetProvider", () => {
 // getModelForIntent
 // ---------------------------------------------------------------------------
 
+import { MODEL_INTENTS } from "@shared/models";
 import { appConfig, getDb } from "@src/db";
-import { getModelForIntent, MODEL_INTENTS } from "./models";
+import { getModelForIntent } from "./models";
 
 describe("getModelForIntent", () => {
   beforeEach(() => {

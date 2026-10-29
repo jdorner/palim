@@ -7,6 +7,9 @@
 /** Well-known task categories that can each be assigned a different model. */
 export type ModelIntent = "chat" | "vision" | "embedding";
 
+/** All valid model intent values. */
+export const MODEL_INTENTS: readonly ModelIntent[] = ["chat", "vision", "embedding"] as const;
+
 /** An available LLM model from the OpenAI-compatible endpoint. */
 export interface AvailableModel {
   /** Model identifier (e.g. "Meta-Llama-3.1-8B-Instruct-Q4_K_M"). */
