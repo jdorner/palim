@@ -11,7 +11,6 @@ import {
   getOutputSchemaSuggestions,
   getRunSuggestions,
   getSecretSuggestions,
-  getStepSlugs,
   getSuggestions,
   getTopLevelSuggestions,
   getVariableSuggestions,
@@ -83,37 +82,6 @@ describe("Template Scope Registry - Property Tests", () => {
           const expectedMatches = TOP_LEVEL_NAMESPACES.filter((name) => name.startsWith(prefix));
           expect(labels).toEqual(expectedMatches);
         }),
-        { numRuns: 100 },
-      );
-    });
-  });
-
-  describe("Steps scope excludes forward references", () => {
-    /**
-     * For any step array of length N and any current step index i where 0 <= i < N,
-     * getStepSlugs(steps, i, "") SHALL return exactly the slugs at indices 0 through
-     * i-1 (inclusive), and SHALL NOT include any slug at index >= i.
-     */
-    test("returns exactly preceding slugs and excludes current/forward steps", () => {
-      fc.assert(
-        fc.property(
-          fc
-            .array(slugArb, { minLength: 1, maxLength: 20 })
-            .chain((slugs) =>
-              fc.tuple(fc.constant(slugs.map((slug) => ({ slug }))), fc.integer({ min: 0, max: slugs.length - 1 })),
-            ),
-          ([steps, currentIndex]) => {
-            const results = getStepSlugs(steps, currentIndex, "");
-            const resultLabels = results.map((s) => s.label);
-
-            // Should contain exactly slugs at indices 0..currentIndex-1
-            const expectedSlugs = steps.slice(0, currentIndex).map((s) => s.slug);
-            expect(resultLabels).toEqual(expectedSlugs);
-
-            // Verify length matches exactly (no forward references)
-            expect(resultLabels.length).toBe(currentIndex);
-          },
-        ),
         { numRuns: 100 },
       );
     });

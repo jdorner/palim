@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { BUILT_IN_ROLES, PERMISSIONS, ROLE_SYSTEM, ROLE_USER, type SerializedAbility } from "@shared/auth";
-import { abilityFromSerialized, buildAbility } from "./ability";
+import { BUILT_IN_ROLES, PERMISSIONS, ROLE_SYSTEM, ROLE_USER } from "@shared/auth";
+import { buildAbility } from "./ability";
 
 /** The user role's permission set, guaranteed non-null by the built-in definition. */
 const USER_PERMS = BUILT_IN_ROLES[ROLE_USER]?.permissions ?? [];
@@ -116,25 +116,6 @@ describe("buildAbility", () => {
   });
 });
 
-describe("abilityFromSerialized", () => {
-  test("reconstructs an equivalent ability from the serialized payload", () => {
-    const serialized: SerializedAbility = {
-      userId: "user-9",
-      isAdmin: false,
-      permissions: [PERMISSIONS.CHAT_WRITE],
-    };
-    const ability = abilityFromSerialized(serialized);
-    expect(ability.can("read", { __caslSubjectType__: "Session", userId: "user-9" } as never)).toBe(true);
-    expect(ability.can("read", { __caslSubjectType__: "Session", userId: "user-8" } as never)).toBe(false);
-    expect(ability.can("manage", "User")).toBe(false);
-  });
-
-  test("reconstructs an admin ability", () => {
-    const ability = abilityFromSerialized({ userId: "a", isAdmin: true, permissions: [] });
-    expect(ability.can("manage", "all")).toBe(true);
-  });
-});
-
 describe("portal accounts and hitl permissions", () => {
   test("a portal account gets no implicit reads, only its permission grants", () => {
     const ability = buildAbility({
@@ -153,10 +134,5 @@ describe("portal accounts and hitl permissions", () => {
     const ability = buildAbility({ userId: "o", isAdmin: false, permissions: [PERMISSIONS.HITL_MANAGE] });
     expect(ability.can("delete", "HumanTask")).toBe(true);
     expect(ability.can("read", "Workflow")).toBe(true);
-  });
-
-  test("abilityFromSerialized keeps the portal kind", () => {
-    const ability = abilityFromSerialized({ userId: "p", isAdmin: false, permissions: [], kind: "portal" });
-    expect(ability.can("read", "Workflow")).toBe(false);
   });
 });

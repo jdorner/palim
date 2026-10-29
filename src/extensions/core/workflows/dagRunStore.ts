@@ -356,52 +356,43 @@ export function updateStatus(runId: string, status: DagRunStatus, failureReason?
 }
 
 /**
- * Computes which steps are ready to be dispatched.
+ * Join-barrier verdict for a step, derived from the states of its incoming edges.
  *
- * A step is "ready" when:
- * 1. Its current status is "pending"
- * 2. All its incoming edges are in a terminal state (satisfied or dead)
- * 3. At least one incoming edge is "satisfied"
- *
- * @param run - The current run state
- * @param incomingEdgeMap - Map of step slug to array of edge IDs for its incoming edges
- * @returns Array of step slugs that are ready for dispatch
+ * - `"waiting"`: at least one incoming edge is unresolved (pending or unknown)
+ * - `"dead"`: every incoming edge is resolved and none is satisfied
+ * - `"ready"`: every incoming edge is resolved and at least one is satisfied
  */
-export function getReadySteps(run: DagWorkflowRun, incomingEdgeMap: Map<string, string[]>): string[] {
-  const ready: string[] = [];
+export type JoinVerdict = "waiting" | "dead" | "ready";
 
-  for (const [slug, status] of Object.entries(run.stepStatuses)) {
-    if (status !== "pending") continue;
-
-    const incomingEdgeIds = incomingEdgeMap.get(slug);
-    if (!incomingEdgeIds || incomingEdgeIds.length === 0) {
-      // Root node — should already be dispatched, but if pending, it's ready
-      ready.push(slug);
-      continue;
-    }
-
-    let allResolved = true;
-    let hasSatisfied = false;
-
-    for (const eid of incomingEdgeIds) {
-      const state = run.edgeStates[eid];
-      if (state === "satisfied") {
-        hasSatisfied = true;
-      } else if (state === "dead") {
-        // dead is resolved but not satisfied
-      } else {
-        // pending or undefined — not resolved
-        allResolved = false;
-        break;
-      }
-    }
-
-    if (allResolved && hasSatisfied) {
-      ready.push(slug);
+/**
+ * Applies the join barrier to a step's incoming edges.
+ *
+ * This is the single readiness rule of the DAG engine: a step may run once all
+ * incoming edges are resolved (`satisfied` or `dead`) and at least one is
+ * `satisfied`; if all are `dead`, the step is unreachable.
+ *
+ * An empty edge list yields `"dead"` (nothing can satisfy it); callers handle
+ * root steps separately.
+ *
+ * @param edgeStates - Per-run edge states keyed by edge ID
+ * @param incomingEdgeIds - IDs of the step's incoming edges
+ * @returns The join verdict for the step
+ */
+export function classifyIncomingEdges(
+  edgeStates: Readonly<Record<string, EdgeState>>,
+  incomingEdgeIds: readonly string[],
+): JoinVerdict {
+  let hasSatisfied = false;
+  for (const eid of incomingEdgeIds) {
+    const state = edgeStates[eid];
+    if (state === "satisfied") {
+      hasSatisfied = true;
+    } else if (state !== "dead") {
+      // pending or unknown: not resolved yet
+      return "waiting";
     }
   }
-
-  return ready;
+  return hasSatisfied ? "ready" : "dead";
 }
 
 /**

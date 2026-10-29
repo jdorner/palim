@@ -26,7 +26,7 @@ export type ChatQueueDeps = JobQueueDeps<ChatJob>;
  * Event dispatching is handled centrally by `runAgent` via `config.eventBus`
  * and `config.context`.
  *
- * @param deps - Lazy getters for processor config and event bus
+ * @param deps - Per-job processor config builder and optional identity minter
  * @returns The managed chat queue
  */
 export function createChatQueue(deps: ChatQueueDeps): ManagedQueuePort<ChatJob> {

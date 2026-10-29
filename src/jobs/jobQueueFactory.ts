@@ -2,16 +2,16 @@
  * Generic job queue factory for agent-based processors.
  *
  * Both the agent queue and chat queue share the same processing pattern:
- * build a processor config, merge the session ID from the job payload,
- * fall back to the event bus and context from the job data, then run
- * the agent. This module extracts that shared logic into a single
- * generic factory parameterized by the job payload type.
+ * resolve the initiator identity, build a processor config, merge the
+ * session ID from the job payload, then run the agent. This module extracts
+ * that shared logic into a single generic factory parameterized by the job
+ * payload type.
  *
  * @module
  */
 
 import { resolveInitiatorToken } from "@src/auth/identityMinter";
-import type { AgentEventContext, EventBus } from "@src/extensions";
+import type { AgentEventContext } from "@src/extensions";
 import type { ManagedQueuePort, QueueJob } from "@src/queue";
 import { ManagedQueue } from "@src/queue";
 import { runWithIdentity } from "@src/utils/fetch";
@@ -44,12 +44,14 @@ export interface BaseAgentJob {
  * @typeParam T - The job payload type (must extend {@link BaseAgentJob})
  */
 export interface JobQueueDeps<T extends BaseAgentJob> {
-  /** Builds an {@link AgentProcessorConfig} for each job at processing time (sessionId is merged from job data). */
+  /**
+   * Builds an {@link AgentProcessorConfig} for each job at processing time
+   * (sessionId is merged from job data). Runs per job, so it sees extensions,
+   * skills, and the event bus as they are when the job is processed.
+   */
   buildProcessor: (
     job: QueueJob<T>,
   ) => Omit<AgentProcessorConfig, "sessionId"> | Promise<Omit<AgentProcessorConfig, "sessionId">>;
-  /** Getter for the event bus (resolved at job processing time). */
-  getEventBus: () => EventBus;
   /**
    * Mints a short-lived internal bearer token for the given initiating user, so
    * internal calls during processing authorize as that user. Returns null when
@@ -69,11 +71,11 @@ export interface JobQueueDeps<T extends BaseAgentJob> {
  *
  * @typeParam T - The job payload type (must extend {@link BaseAgentJob})
  * @param name - Queue name (e.g. "agents", "chat")
- * @param deps - Lazy getters for processor config and event bus
+ * @param deps - Per-job processor config builder and optional identity minter
  * @returns The managed queue instance
  */
 export function createJobQueue<T extends BaseAgentJob>(name: string, deps: JobQueueDeps<T>): ManagedQueuePort<T> {
-  const { buildProcessor, getEventBus, mintIdentityToken } = deps;
+  const { buildProcessor, mintIdentityToken } = deps;
 
   return new ManagedQueue<T, AgentProcessorResult>(
     name,
@@ -84,13 +86,7 @@ export function createJobQueue<T extends BaseAgentJob>(name: string, deps: JobQu
 
       const config = await buildProcessor(job);
 
-      const process = () =>
-        runAgent(job, {
-          ...config,
-          sessionId: job.data.sessionId,
-          eventBus: config.eventBus ?? getEventBus(),
-          context: config.context ?? job.data?.context,
-        });
+      const process = () => runAgent(job, { ...config, sessionId: job.data.sessionId });
 
       // Bind the job's initiating identity for the duration of processing so any
       // internal call (skills, ctx.fetch, push) authorizes as that user rather
