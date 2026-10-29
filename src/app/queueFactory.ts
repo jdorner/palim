@@ -106,7 +106,6 @@ export function createCoreQueues(deps: CoreQueueDeps): CoreQueues {
         context: job.data.context,
       };
     },
-    getEventBus: () => registry.getEventBus(),
     ...(mintIdentityToken ? { mintIdentityToken } : {}),
   });
 
@@ -127,7 +126,6 @@ export function createCoreQueues(deps: CoreQueueDeps): CoreQueues {
         context: job.data.context,
       };
     },
-    getEventBus: () => registry.getEventBus(),
     ...(mintIdentityToken ? { mintIdentityToken } : {}),
   });
 

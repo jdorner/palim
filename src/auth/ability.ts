@@ -2,11 +2,11 @@
  * CASL ability builder: translates a principal's effective permissions into an
  * enforceable {@link AppAbility}.
  *
- * This module is import-safe from both the backend (route guards, WS filtering)
- * and the frontend (UI gating), depending only on `@casl/ability` and the pure
- * shared permission catalog in `@shared/auth`. The same builder runs on both
- * sides from a {@link SerializedAbility} payload so authorization decisions
- * cannot drift between server enforcement and client rendering.
+ * Used by the backend for enforcement (route guards, WS filtering). It depends
+ * only on `@casl/ability` and the pure shared permission catalog in
+ * `@shared/auth`. The frontend and portal gate their UI with the dependency-free
+ * `canPerform` mirror in `@shared/auth`, fed by the `SerializedAbility`
+ * payload from `GET /api/auth/me`.
  *
  * Reads are not permission-gated: every principal may read every
  * {@link READABLE_SUBJECTS} subject. `Session` is the only ownership-scoped
@@ -25,7 +25,6 @@ import {
   type Permission,
   type PermissionSet,
   READABLE_SUBJECTS,
-  type SerializedAbility,
   type UserKind,
 } from "@shared/auth";
 
@@ -154,22 +153,4 @@ export function buildAbility(principal: AbilityPrincipal): AppAbility {
   }
 
   return builder.build();
-}
-
-/**
- * Rebuilds an ability from a {@link SerializedAbility} payload.
- *
- * Used by the frontend (and any consumer holding only the serialized shape) to
- * reconstruct the exact same ability the backend enforces.
- *
- * @param serialized - The serialized ability payload from `GET /api/auth/me`.
- * @returns An {@link AppAbility} equivalent to the backend's.
- */
-export function abilityFromSerialized(serialized: SerializedAbility): AppAbility {
-  return buildAbility({
-    userId: serialized.userId,
-    isAdmin: serialized.isAdmin,
-    permissions: serialized.permissions,
-    kind: serialized.kind,
-  });
 }

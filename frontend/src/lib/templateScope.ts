@@ -147,26 +147,6 @@ export function getFunctionSuggestions(prefix: string): Suggestion[] {
 }
 
 /**
- * Returns preceding step slugs for the steps namespace.
- * Only includes steps with index < currentStepIndex.
- * Uses case-sensitive startsWith filtering. All are non-terminal.
- *
- * @param steps - All steps in the workflow draft
- * @param currentStepIndex - Zero-based index of the step being edited
- * @param prefix - The currently typed text used for filtering
- * @returns Array of matching step slug suggestions
- */
-export function getStepSlugs(steps: Array<{ slug: string }>, currentStepIndex: number, prefix: string): Suggestion[] {
-  return steps
-    .slice(0, currentStepIndex)
-    .filter((step) => step.slug.startsWith(prefix))
-    .map((step) => ({
-      label: step.slug,
-      terminal: false,
-    }));
-}
-
-/**
  * Returns env variable suggestions filtered by case-insensitive substring match.
  * Results are sorted alphabetically (case-insensitive). All are terminal.
  *

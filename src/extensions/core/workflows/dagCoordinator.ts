@@ -802,27 +802,10 @@ async function checkSuccessors(
     const incomingEdgeIds = topology.incomingEdges.get(slug) ?? [];
     if (incomingEdgeIds.length === 0) continue; // root node — shouldn't happen here
 
-    // Check edge states for this successor
-    let allResolved = true;
-    let allDead = true;
+    const verdict = dagRunStore.classifyIncomingEdges(run.edgeStates, incomingEdgeIds);
+    if (verdict === "waiting") continue;
 
-    for (const eid of incomingEdgeIds) {
-      const state = run.edgeStates[eid];
-      if (state === "satisfied") {
-        allDead = false;
-      } else if (state === "dead") {
-        // resolved but not satisfied
-      } else {
-        // pending
-        allResolved = false;
-        allDead = false;
-        break;
-      }
-    }
-
-    if (!allResolved) continue;
-
-    if (allDead) {
+    if (verdict === "dead") {
       // All incoming edges are dead — propagate deadness
       await propagateDead(runId, slug, definition, topology, deps);
       // Re-read run state after propagation
@@ -1015,27 +998,11 @@ async function propagateDead(
       if (updatedRun.stepStatuses[successorSlug] !== "pending") continue;
 
       const incomingEdgeIds = topology.incomingEdges.get(successorSlug) ?? [];
-      let allDead = true;
-      let allResolved = true;
-      let hasSatisfied = false;
+      const verdict = dagRunStore.classifyIncomingEdges(updatedRun.edgeStates, incomingEdgeIds);
 
-      for (const eid of incomingEdgeIds) {
-        const state = updatedRun.edgeStates[eid];
-        if (state === "satisfied") {
-          hasSatisfied = true;
-          allDead = false;
-        } else if (state === "dead") {
-          // resolved
-        } else {
-          allResolved = false;
-          allDead = false;
-          break;
-        }
-      }
-
-      if (allResolved && allDead) {
+      if (verdict === "dead") {
         await propagateDead(runId, successorSlug, definition, topology, deps);
-      } else if (allResolved && hasSatisfied) {
+      } else if (verdict === "ready") {
         // This successor just became ready (dead edges from this step + satisfied from others)
         await activateReadyStep(runId, successorSlug, definition, topology, deps);
       }

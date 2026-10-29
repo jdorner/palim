@@ -2,18 +2,18 @@
  * Tests for the DAG workflow Run Store module.
  *
  * Uses in-memory SQLite for isolation. Validates edge state transitions,
- * step status tracking, and ready-step detection with mixed satisfied/dead edges.
+ * step status tracking, and the join-barrier rule with mixed satisfied/dead edges.
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createTestDb } from "@src/test/db";
 import {
+  classifyIncomingEdges,
   create,
   type DagWorkflowRun,
   edgeId,
   get,
   getAll,
-  getReadySteps,
   initDagRunStore,
   isActiveRunStatus,
   updateEdgeState,
@@ -177,96 +177,34 @@ describe("dagRunStore", () => {
     });
   });
 
-  describe("getReadySteps", () => {
-    test("identifies step with all incoming edges satisfied", () => {
-      const run = makeRun({
-        edgeStates: { "a:c": "satisfied", "b:c": "satisfied" },
-        stepStatuses: { a: "completed", b: "completed", c: "pending" },
-      });
-
-      const incomingMap = new Map<string, string[]>([
-        ["a", []],
-        ["b", []],
-        ["c", ["a:c", "b:c"]],
-      ]);
-
-      const ready = getReadySteps(run, incomingMap);
-      expect(ready).toEqual(["c"]);
+  describe("classifyIncomingEdges", () => {
+    test("is ready when all incoming edges are satisfied", () => {
+      const states = { "a:c": "satisfied", "b:c": "satisfied" } as const;
+      expect(classifyIncomingEdges(states, ["a:c", "b:c"])).toBe("ready");
     });
 
-    test("identifies step with mixed satisfied and dead edges as ready", () => {
-      const run = makeRun({
-        edgeStates: { "approve:combine": "satisfied", "reject:combine": "dead" },
-        stepStatuses: { approve: "completed", reject: "dead", combine: "pending" },
-      });
-
-      const incomingMap = new Map<string, string[]>([
-        ["approve", []],
-        ["reject", []],
-        ["combine", ["approve:combine", "reject:combine"]],
-      ]);
-
-      const ready = getReadySteps(run, incomingMap);
-      expect(ready).toEqual(["combine"]);
+    test("is ready when satisfied and dead edges are mixed", () => {
+      const states = { "approve:combine": "satisfied", "reject:combine": "dead" } as const;
+      expect(classifyIncomingEdges(states, ["approve:combine", "reject:combine"])).toBe("ready");
     });
 
-    test("does not dispatch step with pending incoming edges", () => {
-      const run = makeRun({
-        edgeStates: { "a:c": "satisfied", "b:c": "pending" },
-        stepStatuses: { a: "completed", b: "running", c: "pending" },
-      });
-
-      const incomingMap = new Map<string, string[]>([
-        ["a", []],
-        ["b", []],
-        ["c", ["a:c", "b:c"]],
-      ]);
-
-      const ready = getReadySteps(run, incomingMap);
-      expect(ready).toEqual([]);
+    test("is waiting while any incoming edge is pending", () => {
+      const states = { "a:c": "satisfied", "b:c": "pending" } as const;
+      expect(classifyIncomingEdges(states, ["a:c", "b:c"])).toBe("waiting");
     });
 
-    test("does not dispatch step when all incoming edges are dead", () => {
-      const run = makeRun({
-        edgeStates: { "x:z": "dead", "y:z": "dead" },
-        stepStatuses: { x: "dead", y: "dead", z: "pending" },
-      });
-
-      const incomingMap = new Map<string, string[]>([
-        ["x", []],
-        ["y", []],
-        ["z", ["x:z", "y:z"]],
-      ]);
-
-      const ready = getReadySteps(run, incomingMap);
-      expect(ready).toEqual([]);
+    test("is waiting when an incoming edge has no recorded state", () => {
+      const states = { "a:c": "dead" } as const;
+      expect(classifyIncomingEdges(states, ["a:c", "b:c"])).toBe("waiting");
     });
 
-    test("skips steps that are not pending", () => {
-      const run = makeRun({
-        edgeStates: { "a:b": "satisfied" },
-        stepStatuses: { a: "completed", b: "running" }, // b is already running
-      });
-
-      const incomingMap = new Map<string, string[]>([
-        ["a", []],
-        ["b", ["a:b"]],
-      ]);
-
-      const ready = getReadySteps(run, incomingMap);
-      expect(ready).toEqual([]);
+    test("is dead when all incoming edges are dead", () => {
+      const states = { "x:z": "dead", "y:z": "dead" } as const;
+      expect(classifyIncomingEdges(states, ["x:z", "y:z"])).toBe("dead");
     });
 
-    test("identifies root nodes as ready if pending", () => {
-      const run = makeRun({
-        edgeStates: {},
-        stepStatuses: { root: "pending" },
-      });
-
-      const incomingMap = new Map<string, string[]>([["root", []]]);
-
-      const ready = getReadySteps(run, incomingMap);
-      expect(ready).toEqual(["root"]);
+    test("is dead for an empty edge list", () => {
+      expect(classifyIncomingEdges({}, [])).toBe("dead");
     });
   });
 

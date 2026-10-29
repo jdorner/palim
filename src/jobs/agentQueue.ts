@@ -13,8 +13,6 @@ import { createJobQueue } from "./jobQueueFactory";
 export interface AgentJob extends BaseAgentJob {
   /** Optional event context for routing responses (e.g. telegram chat ID). */
   context?: AgentEventContext;
-  /** Optional system prompt override. */
-  systemPrompt?: string;
   /** Session ID for conversation context (callers must append user message before enqueuing). */
   sessionId: string;
   /**
@@ -30,12 +28,12 @@ export type AgentQueueDeps = JobQueueDeps<AgentJob>;
 /**
  * Creates a {@link ManagedQueue} for agent prompt jobs.
  *
- * Can be called before extensions are loaded - the processor resolves
- * dependencies lazily via getter functions at job processing time.
+ * Can be called before extensions are loaded - `deps.buildProcessor` runs
+ * per job, so it resolves extensions and the event bus at processing time.
  * Event dispatching is handled centrally by `runAgent` via `config.eventBus`
  * and `config.context`.
  *
- * @param deps - Lazy getters for processor config and event bus
+ * @param deps - Per-job processor config builder and optional identity minter
  * @returns The managed agent queue
  */
 export function createAgentQueue(deps: AgentQueueDeps): ManagedQueuePort<AgentJob> {
