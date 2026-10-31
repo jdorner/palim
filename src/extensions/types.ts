@@ -10,7 +10,7 @@ import { type Static, type TObject, type TSchema, Type } from "@sinclair/typebox
 import type { FlowProducer } from "bunqueue/client";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import type { Context } from "elysia";
-import type { IFileSystem } from "just-bash";
+import type { CommandContext, ExecResult, IFileSystem } from "just-bash";
 import type { Logger } from "logging";
 // Core/shared public types are re-exported through ./publicTypes using relative
 // paths so this module (aliased @ext/types) stays resolvable by external
@@ -1317,7 +1317,7 @@ export interface SkillScriptContext {
    */
   registerProgram: (
     name: string,
-    callback: (args: string[], ctx: import("just-bash").CommandContext) => Promise<import("just-bash").ExecResult>,
+    callback: (args: string[], ctx: CommandContext) => Promise<ExecResult>,
     skillName: string,
   ) => void;
 }

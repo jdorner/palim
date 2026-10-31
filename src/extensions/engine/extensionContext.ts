@@ -169,7 +169,7 @@ export interface ExtContextLifecycle {
   /** Checks whether the given extension is enabled. */
   isExtensionEnabledFn: (name: string) => boolean;
   /** Look up a registered step type handler by type name. */
-  getStepHandlerFn?: (type: string) => import("../types").StepTypeHandler | undefined;
+  getStepHandlerFn?: (type: string) => StepTypeHandler | undefined;
   /** List read-only serialized metadata for all registered step types. */
   listStepTypesFn?: () => StepTypeInfo[];
   /** Replaces the runtime warnings of the given extension. */
