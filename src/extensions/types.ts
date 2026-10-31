@@ -660,6 +660,20 @@ export interface ExtensionContext {
     register(method: HttpMethod, path: string, handler: RouteHandler, options?: RouteOptions): void;
   };
 
+  /** Identity of the user behind an incoming HTTP request. */
+  readonly auth: {
+    /**
+     * Returns the id of the user who made a request to one of this extension's
+     * routes, for recording who created or changed something. The id comes from
+     * the principal established by the core auth check.
+     *
+     * @param request - The incoming request (`reqCtx.request` in a route handler)
+     * @returns The requesting user's id, or `undefined` when the request is
+     *   unauthenticated (e.g. a `{ public: true }` route or auth disabled)
+     */
+    requestUserId(request: Request): string | undefined;
+  };
+
   // -------------------------------------------------------------------------
   // Queues
   // -------------------------------------------------------------------------

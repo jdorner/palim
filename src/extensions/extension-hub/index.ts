@@ -20,7 +20,6 @@
 import path from "node:path";
 import type { Extension, ExtensionContext, ExtensionManifest } from "@ext/types";
 import { Type } from "@sinclair/typebox";
-import { requestUserId } from "@src/web/triggerOwnership";
 import { PAGE_ROUTE, UPDATES_CHANGED_EVENT } from "./events";
 import { HubService } from "./hub";
 import { registerRoutes } from "./routes";
@@ -153,7 +152,7 @@ export function createExtension(): Extension {
         publish();
       });
 
-      registerRoutes(ctx, hub, requestUserId, {
+      registerRoutes(ctx, hub, ctx.auth.requestUserId, {
         hasToken: async (id) => (await getToken(id)) !== null,
         runCheck,
         afterChange: publish,

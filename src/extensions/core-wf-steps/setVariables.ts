@@ -29,10 +29,10 @@
  * ```
  */
 
+import { formatValidationErrors } from "@ext/sdk";
 import type { OutputSchemaContext, StepExecutionContext, StepTypeHandler } from "@ext/types";
 import { type TSchema, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { formatValidationErrors } from "@src/utils/validation";
 
 /** Pattern for variable names: identifier-like so they work in dot-paths and expressions. */
 const VARIABLE_NAME_PATTERN = "^[A-Za-z_][A-Za-z0-9_]*$";

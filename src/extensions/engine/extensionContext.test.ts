@@ -4,8 +4,10 @@
 
 import { describe, expect, test } from "bun:test";
 import type { WorkflowDispatchResult } from "@ext/types";
+import { buildAbility } from "@src/auth";
 import { SecretVault } from "@src/secrets/vault";
 import { createTestDb } from "@src/test/db";
+import { setPrincipal } from "@src/web/auth";
 import { EventBus } from "./eventBus";
 import { createExtensionContext, setWorkflowDispatchFn, setWorkflowNamesFn } from "./extensionContext";
 
@@ -234,5 +236,26 @@ describe("ctx.secrets.delete / keys", () => {
     const { context } = createExtensionContext(createMinimalDeps());
     expect(await context.secrets.keys()).toEqual([]);
     await expect(context.secrets.delete("A_KEY")).rejects.toThrow("not available");
+  });
+});
+
+describe("ctx.auth.requestUserId", () => {
+  test("returns the id of the principal attached to the request", () => {
+    const { context } = createExtensionContext(createMinimalDeps());
+    const request = new Request("http://localhost/ext/test-extension/items");
+    setPrincipal(request, {
+      user: { id: "u1", username: "u1", roles: [], kind: "operator" },
+      isAdmin: false,
+      permissions: [],
+      ability: buildAbility({ userId: "u1", isAdmin: false, permissions: [] }),
+    });
+
+    expect(context.auth.requestUserId(request)).toBe("u1");
+  });
+
+  test("returns undefined for an unauthenticated request", () => {
+    const { context } = createExtensionContext(createMinimalDeps());
+
+    expect(context.auth.requestUserId(new Request("http://localhost/ext/test-extension/items"))).toBeUndefined();
   });
 });

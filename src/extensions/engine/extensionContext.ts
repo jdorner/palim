@@ -27,6 +27,7 @@ import {
   registerDynamicDefaultProvider as registerDefaultProviderFn,
   registerDynamicItemProvider as registerProviderFn,
 } from "@src/web/dynamicProviders";
+import { requestUserId } from "@src/web/triggerOwnership";
 import type { FlowProducer } from "bunqueue/client";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";
@@ -695,6 +696,9 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     },
     routes: {
       register: registerRoute,
+    },
+    auth: {
+      requestUserId,
     },
     queues: {
       create: createQueue,

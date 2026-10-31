@@ -4,6 +4,7 @@ import type { ResolvedPrincipal } from "@src/auth";
 import { buildAbility } from "@src/auth";
 import { createTestDb } from "@src/test/db";
 import { setPrincipal } from "@src/web/auth";
+import { requestUserId } from "@src/web/triggerOwnership";
 import type { Context } from "elysia";
 import type { DagStepJobData } from "../dagEngine";
 import * as dagRunStore from "../dagRunStore";
@@ -16,6 +17,7 @@ function runDetailHandler(): RouteHandler {
   const handlers = new Map<string, RouteHandler>();
   const ctx = {
     routes: { register: (method: string, path: string, h: RouteHandler) => handlers.set(`${method} ${path}`, h) },
+    auth: { requestUserId },
   } as unknown as ExtensionContext;
   const deps = {
     ctx,

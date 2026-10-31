@@ -14,13 +14,13 @@
  */
 
 import path from "node:path";
+import { FileWatcher } from "@ext/sdk";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 // biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
 import { API_BASE_URL } from "@src/config";
 // biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
 import { getModelForIntent } from "@src/models";
-import { FileWatcher } from "@src/utils/fileWatcher";
 import { EmbeddingCache } from "./embeddingCache";
 import { EmbeddingManager } from "./embeddingManager";
 import { EmbeddingService } from "./embeddings";

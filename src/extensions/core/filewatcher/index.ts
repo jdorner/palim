@@ -18,7 +18,7 @@ import path from "node:path";
 import { FileWatcher, formatValidationErrors } from "@ext/sdk";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import { Value } from "@sinclair/typebox/value";
-import { registerTriggerOwnerCounter, requestUserId } from "@src/web/triggerOwnership";
+import { registerTriggerOwnerCounter } from "@src/web/triggerOwnership";
 import { CreateFileWatcherPayload, UpdateFileWatcherPayload } from "./schemas";
 import {
   deleteWatcher as deleteWatcherRecord,
@@ -242,7 +242,7 @@ export function createExtension(): Extension {
           events: (body.events as FileWatcherEventType[] | undefined) ?? ["new"],
           enabled: (body.enabled as boolean | undefined) ?? true,
           createdAt: Date.now(),
-          createdByUserId: requestUserId(reqCtx.request) ?? null,
+          createdByUserId: ctx.auth.requestUserId(reqCtx.request) ?? null,
         };
 
         insertWatcher(registration);
@@ -290,7 +290,7 @@ export function createExtension(): Extension {
         // with the previous owner's authority.
         const updates: Partial<FileWatcherRegistration> = {
           ...(body as Partial<FileWatcherRegistration>),
-          createdByUserId: requestUserId(reqCtx.request) ?? null,
+          createdByUserId: ctx.auth.requestUserId(reqCtx.request) ?? null,
         };
         const updated = updateWatcher(slug, updates);
         if (!updated) return Response.json({ error: "Not found" }, { status: 404 });

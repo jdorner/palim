@@ -14,10 +14,10 @@
  * `{{steps.<slug>.result.<path>}}` expressions.
  */
 
+import { formatValidationErrors } from "@ext/sdk";
 import type { StepExecutionContext, StepTypeHandler } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { formatValidationErrors } from "@src/utils/validation";
 
 /** TypeBox schema for the http-request step configuration. */
 const HttpRequestStepConfigSchema = Type.Object({

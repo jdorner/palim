@@ -29,7 +29,7 @@ import type {
 } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { registerTriggerOwnerCounter, requestUserId } from "@src/web/triggerOwnership";
+import { registerTriggerOwnerCounter } from "@src/web/triggerOwnership";
 
 /** Payload for jobs produced by the scheduler. */
 interface ScheduledJobData {
@@ -217,7 +217,7 @@ export function createExtension(): Extension {
           return Response.json({ error: "Provide either pattern (cron) or every (ms interval)" }, { status: 400 });
         }
 
-        const createdByUserId = requestUserId(reqCtx.request) ?? null;
+        const createdByUserId = ctx.auth.requestUserId(reqCtx.request) ?? null;
         const result = await queue.upsertScheduler(
           id,
           { pattern, every, limit, tz },

@@ -21,7 +21,7 @@ import { formatValidationErrors } from "@ext/sdk";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { registerTriggerOwnerCounter, requestUserId } from "@src/web/triggerOwnership";
+import { registerTriggerOwnerCounter } from "@src/web/triggerOwnership";
 import { verifyAuth } from "./auth";
 import { CreateWebhookPayload, UpdateWebhookPayload } from "./schemas";
 import { deleteWebhook, findWebhook, initStore, insertWebhook, loadAll, updateWebhookRecord } from "./store";
@@ -224,7 +224,7 @@ export function createExtension(): Extension {
           headerName: data.headerName || defaultHeader,
           enabled: data.enabled ?? true,
           createdAt: Date.now(),
-          createdByUserId: requestUserId(reqCtx.request) ?? null,
+          createdByUserId: ctx.auth.requestUserId(reqCtx.request) ?? null,
         };
 
         insertWebhook(registration);
@@ -328,7 +328,7 @@ export function createExtension(): Extension {
         if (updates.enabled !== undefined) mergeUpdates.enabled = updates.enabled;
         // The editor becomes the owner, so the webhook never runs edited config
         // with the previous owner's authority.
-        mergeUpdates.createdByUserId = requestUserId(reqCtx.request) ?? null;
+        mergeUpdates.createdByUserId = ctx.auth.requestUserId(reqCtx.request) ?? null;
 
         const updated = updateWebhookRecord(slug, mergeUpdates);
         if (!updated) return Response.json({ error: "Not found" }, { status: 404 });

@@ -10,10 +10,10 @@
  * from previous steps or the trigger payload.
  */
 
+import { formatValidationErrors } from "@ext/sdk";
 import type { StepExecutionContext, StepTypeHandler } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { formatValidationErrors } from "@src/utils/validation";
 
 /** TypeBox schema for the fail step configuration. */
 const FailStepConfigSchema = Type.Object({

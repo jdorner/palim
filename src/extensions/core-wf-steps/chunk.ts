@@ -27,10 +27,10 @@
  * be consumed by an iterator: `items: "{{steps.chunk.result.batches}}"`.
  */
 
+import { formatValidationErrors } from "@ext/sdk";
 import type { StepExecutionContext, StepTypeHandler } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { formatValidationErrors } from "@src/utils/validation";
 
 /** TypeBox schema for the chunk step configuration (excluding slug and type). */
 const ChunkStepConfigSchema = Type.Object(
