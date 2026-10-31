@@ -620,7 +620,7 @@ export function createCommand(def: CommandDef): (args: string[], ctx: CommandCon
       return sub.handler(ctx, new ParsedArgs(result.entries, result.validated, optionValues));
     }
 
-    // Legacy ArgDef validation path
+    // ArgDef validation path (the last argument collects all remaining words)
     const argDefs = sub.args ?? [];
     const entries: [string, string][] = [];
 
