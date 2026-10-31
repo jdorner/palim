@@ -389,8 +389,6 @@ describe("workflowValidation", () => {
 });
 
 describe("serializeStep", () => {
-  const { serializeStep } = require("./workflowValidation");
-
   test("agent step includes only agent-valid fields (no slug in value)", () => {
     const step = {
       slug: "my-step",
@@ -517,8 +515,6 @@ describe("serializeStep", () => {
 });
 
 describe("serializeWorkflowDraft", () => {
-  const { serializeWorkflowDraft } = require("./workflowValidation");
-
   test("omits empty description", () => {
     const draft = {
       name: "my-workflow",
@@ -657,8 +653,6 @@ describe("serializeWorkflowDraft", () => {
 });
 
 describe("validateWorkflowDraft - type-specific validation", () => {
-  const { validateWorkflowDraft } = require("./workflowValidation");
-
   test("catches missing prompt on agent steps", () => {
     const draft = {
       name: "my-workflow",

@@ -16,6 +16,10 @@
 import path from "node:path";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import { Type } from "@sinclair/typebox";
+// biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
+import { API_BASE_URL } from "@src/config";
+// biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
+import { getModelForIntent } from "@src/models";
 import { FileWatcher } from "@src/utils/fileWatcher";
 import { EmbeddingCache } from "./embeddingCache";
 import { EmbeddingManager } from "./embeddingManager";
@@ -44,11 +48,6 @@ async function createEmbeddingManager(
   ctx: ExtensionContext,
   maxEmbeddingChars: number,
 ): Promise<EmbeddingManager | null> {
-  // biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
-  const { API_BASE_URL } = await import("@src/config");
-  // biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
-  const { getModelForIntent } = await import("@src/models");
-
   const embeddingService = new EmbeddingService(
     ctx.log,
     API_BASE_URL,

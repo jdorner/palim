@@ -9,16 +9,13 @@ import { join } from "node:path";
 import { DATA_DIR } from "@src/config";
 import { Queue, QueueEvents, Worker } from "bunqueue/client";
 import createLogger from "logging";
-import { getLogStore } from "./logStore";
-
 // Access bunqueue's shared QueueManager for direct cron data queries.
 // The public client API (getJobSchedulers) strips the `data` field from
 // scheduler entries; going through the manager preserves it.
-// bunqueue's exports map doesn't expose the manager module directly,
-// so we resolve the absolute file path relative to this module's location.
-const managerPath = join(import.meta.dir, "../../node_modules/bunqueue/dist/client/manager.js");
-const { getSharedManager } = await import(managerPath);
-
+// bunqueue's exports map doesn't expose the manager module, so it is
+// imported by its file path inside node_modules.
+import { getSharedManager } from "../../node_modules/bunqueue/dist/client/manager.js";
+import { getLogStore } from "./logStore";
 import type {
   JobInfo,
   JobProcessor,
