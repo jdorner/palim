@@ -169,6 +169,10 @@ Create a new workflow definition (writes a JSON5 file).
 
 Update an existing workflow definition. Saving a workflow with a `portal` trigger binds its portal-started runs to the saving user.
 
+### PATCH /ext/workflows/:name/group
+
+Move a workflow to another group. Body: `{ "group": "<name>" }`, or `{ "group": null }` to remove it from its group. Only the `group` member of the JSON5 file changes; comments and formatting are kept. The definition is not re-validated, so a workflow with errors can still be moved, and a portal workflow's run-as binding stays as it is. The workflow list uses this for drag and drop.
+
 ### DELETE /ext/workflows/:name
 
 Delete a workflow definition (removes the JSON5 file).

@@ -190,6 +190,7 @@ export async function createWebServer(deps: WebServerDeps) {
     .get("/ext/*", dispatchExtension, { parse: "none" })
     .post("/ext/*", dispatchExtension, { parse: "none" })
     .put("/ext/*", dispatchExtension, { parse: "none" })
+    .patch("/ext/*", dispatchExtension, { parse: "none" })
     .delete("/ext/*", dispatchExtension, { parse: "none" })
     // --- WebSocket ---
     .ws("/ws", {
