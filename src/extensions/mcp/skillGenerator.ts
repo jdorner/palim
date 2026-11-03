@@ -6,6 +6,7 @@
  * SKILL.md + proxy script files to `DATA_DIR/extensions/mcp-skills/skills/`.
  */
 
+import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { ExtensionContext } from "@ext/types";
 import type { McpClientManager } from "./clientManager";
@@ -311,13 +312,8 @@ async function writeSkillFiles(dataDir: string, serverName: string, tools: McpTo
  * @param serverName - The MCP server name
  */
 async function removeSkillDir(dataDir: string, serverName: string): Promise<void> {
-  const skillDir = getServerSkillDir(dataDir, serverName);
-  const { rm } = await import("node:fs/promises");
-  try {
-    await rm(skillDir, { recursive: true, force: true });
-  } catch {
-    // Directory may not exist - that's fine
-  }
+  // `force` makes a missing directory a no-op.
+  await rm(getServerSkillDir(dataDir, serverName), { recursive: true, force: true });
 }
 
 /**
@@ -404,7 +400,6 @@ export async function syncAllSkills(
  */
 async function cleanOrphanSkills(dataDir: string, validSkillNames: Set<string>): Promise<void> {
   const skillsDir = getSkillsDir(dataDir);
-  const { readdir } = await import("node:fs/promises");
 
   try {
     const entries = await readdir(skillsDir, { withFileTypes: true });

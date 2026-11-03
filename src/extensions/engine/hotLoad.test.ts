@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { WebSocketMessage } from "@shared/websocket";
 import { DATA_DIR } from "@src/config";
 import { closeDb, getDb, schema } from "@src/db";
+import type { ExternalExtensionsApi } from "../types";
 import type { RegistryInitDeps } from "./registry";
 import { ExtensionRegistry } from "./registry";
 
@@ -172,7 +173,7 @@ describe("ExtensionRegistry.loadOne", () => {
 };`,
     );
     expect(await registry.loadOne(join(probeDir, "index.ts"))).toBe(true);
-    const api = (globalThis as Record<string, unknown>).__probeApi as import("../types").ExternalExtensionsApi;
+    const api = (globalThis as Record<string, unknown>).__probeApi as ExternalExtensionsApi;
     expect(api.externalDir).toBe(externalDir);
     expect(api.list().find((e) => e.name === "probe-ext")).toMatchObject({
       dir: probeDir,

@@ -76,7 +76,8 @@
         "src/extensions/*/index.ts",
         "src/extensions/*/*.ts",
         "src/extensions/*/skills/**/*.ts",
-        "!src/extensions/engine/**"
+        "!src/extensions/engine/**",
+        "!src/extensions/**/*.test.ts"
       ],
       "linter": {
         "rules": {
@@ -86,7 +87,7 @@
               "options": {
                 "patterns": [
                   {
-                    "group": ["@src/*"],
+                    "group": ["@src/*", "@src/**"],
                     "message": "Extensions must not import from @src/. Use @ext/sdk, @ext/types, or ../types instead."
                   }
                 ]

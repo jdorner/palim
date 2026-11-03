@@ -23,10 +23,10 @@
  * extension internals.
  */
 
+import { formatValidationErrors } from "@ext/sdk";
 import type { StepExecutionContext, StepInputValidation, StepTypeHandler, WorkflowDispatchResult } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
-import { formatValidationErrors } from "@src/utils/validation";
 
 /**
  * Name of the dynamic item provider that supplies the set of known workflow

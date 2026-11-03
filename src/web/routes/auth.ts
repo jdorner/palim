@@ -11,7 +11,7 @@
 
 import { SUPPORTED_LOCALES } from "@shared/i18n";
 import { Type } from "@sinclair/typebox";
-import type { AuthResolver, UserStore } from "@src/auth";
+import type { AuthResolver, ResolvedPrincipal, UserStore } from "@src/auth";
 import { serializeAbility } from "@src/auth";
 import { HITL_ENABLED, PORTAL_PUBLIC_URL } from "@src/config";
 import { Elysia } from "elysia";
@@ -33,7 +33,7 @@ export interface LoginService extends AuthResolver {
   ): Promise<{
     token: string;
     expiresAt: number;
-    principal: import("@src/auth").ResolvedPrincipal;
+    principal: ResolvedPrincipal;
   } | null>;
   /**
    * Revoke a bearer token.

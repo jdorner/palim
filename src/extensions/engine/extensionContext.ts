@@ -27,6 +27,7 @@ import {
   registerDynamicDefaultProvider as registerDefaultProviderFn,
   registerDynamicItemProvider as registerProviderFn,
 } from "@src/web/dynamicProviders";
+import { requestUserId } from "@src/web/triggerOwnership";
 import type { FlowProducer } from "bunqueue/client";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";
@@ -169,7 +170,7 @@ export interface ExtContextLifecycle {
   /** Checks whether the given extension is enabled. */
   isExtensionEnabledFn: (name: string) => boolean;
   /** Look up a registered step type handler by type name. */
-  getStepHandlerFn?: (type: string) => import("../types").StepTypeHandler | undefined;
+  getStepHandlerFn?: (type: string) => StepTypeHandler | undefined;
   /** List read-only serialized metadata for all registered step types. */
   listStepTypesFn?: () => StepTypeInfo[];
   /** Replaces the runtime warnings of the given extension. */
@@ -695,6 +696,9 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     },
     routes: {
       register: registerRoute,
+    },
+    auth: {
+      requestUserId,
     },
     queues: {
       create: createQueue,

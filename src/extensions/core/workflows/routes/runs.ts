@@ -5,7 +5,6 @@
  */
 
 import type { ControlFlowEvaluation } from "@shared/workflows";
-import { requestUserId } from "@src/web/triggerOwnership";
 import { describeControlFlowStep } from "../controlFlowEvaluation";
 import * as dagRunStore from "../dagRunStore";
 import { cancelRunTasks } from "../humanTaskSource";
@@ -46,7 +45,7 @@ export function registerRunsRoutes(deps: WorkflowRouteDeps): void {
     const wf = store.get(run.workflowName);
     if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
 
-    const result = await dispatchAndAnnounce(wf, run.triggerPayload, requestUserId(reqCtx.request));
+    const result = await dispatchAndAnnounce(wf, run.triggerPayload, ctx.auth.requestUserId(reqCtx.request));
     logger.info(`Re-ran failed workflow run ${runId} as ${result.workflowRunId}`);
     return Response.json({ ok: true, workflowRunId: result.workflowRunId, jobIds: result.jobIds }, { status: 202 });
   });
@@ -76,7 +75,7 @@ export function registerRunsRoutes(deps: WorkflowRouteDeps): void {
     const includeResults =
       new URL(reqCtx.request.url).searchParams.get("include") === "results" &&
       run.createdByUserId !== null &&
-      requestUserId(reqCtx.request) === run.createdByUserId;
+      ctx.auth.requestUserId(reqCtx.request) === run.createdByUserId;
 
     // Waiting signal records keyed by step slug, used to enrich paused
     // waitFor steps with their event name and input schema. A run may have

@@ -16,7 +16,6 @@
  */
 
 import type { Extension, ExtensionContext, ExtensionManifest } from "@ext/types";
-import { requestUserId } from "@src/web/triggerOwnership";
 import { registerRoutes } from "./routes";
 import { createStepHandlers, TABLE_NAMES_PROVIDER } from "./steps";
 import { DataTableStore } from "./store";
@@ -100,7 +99,7 @@ export function createExtension(): Extension {
         },
       });
 
-      registerRoutes(ctx, store, requestUserId);
+      registerRoutes(ctx, store, ctx.auth.requestUserId);
 
       ctx.dynamicItems.register(TABLE_NAMES_PROVIDER, () => store.tableNames());
       for (const [type, handler] of Object.entries(createStepHandlers(store))) {

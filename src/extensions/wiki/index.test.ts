@@ -3,8 +3,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { WikiDocument } from "./index";
-import { chunkMarkdown } from "./index";
+import { chunkMarkdown, type WikiDocument } from "./indexing";
 
 // ---------------------------------------------------------------------------
 // Helpers

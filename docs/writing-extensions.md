@@ -19,6 +19,7 @@ Extensions are self-contained modules that hook into the agent system. Each exte
   - [Tools (`ctx.tools`)](#tools-ctxtools)
   - [Routes (`ctx.routes`)](#routes-ctxroutes)
   - [Route Naming Convention](#route-naming-convention)
+  - [Request Identity (`ctx.auth`)](#request-identity-ctxauth)
   - [Queues (`ctx.queues`)](#queues-ctxqueues)
   - [Events (`ctx.events`)](#events-ctxevents)
   - [Messaging (`ctx.messaging`)](#messaging-ctxmessaging)
@@ -70,7 +71,7 @@ Extensions are self-contained modules that hook into the agent system. Each exte
 
 ## Import Rules
 
-Extensions must **not** import from `@src/` paths. This boundary is enforced by a Biome lint rule.
+Extensions must **not** import from `@src/` paths. This boundary is enforced by a Biome lint rule. Test files (`*.test.ts`) are exempt, so tests can use core test helpers such as `@src/test/db`.
 
 Allowed imports:
 
@@ -79,6 +80,7 @@ Allowed imports:
 | Extension API types (`Extension`, `ExtensionContext`, `QueueJob`, etc.)                                                                        | `@ext/types`                             |
 | Skill script utilities (`createCommand`, `SkillScriptContext`, etc.)                                                                           | `@ext/sdk`                               |
 | JSON / schema helpers (`extractJson`, `validateJsonOutput`, `validateJsonSchema`, `compileOutputSchema` for a step's `outputSchema` shorthand) | `@ext/sdk`                               |
+| TypeBox error formatting (`formatValidationErrors`) and file watching (`FileWatcher`)                                                          | `@ext/sdk`                               |
 | Files within your own extension                                                                                                                | `./store`, `./schema`, etc.              |
 | External npm packages                                                                                                                          | `@sinclair/typebox`, `drizzle-orm`, etc. |
 | Node built-ins                                                                                                                                 | `node:path`, `node:fs`, etc.             |
@@ -343,6 +345,21 @@ POST   /ext/scheduler/schedules      -> create a schedule
 ```
 
 Avoid unnecessary prefixes like `/admin/` - all extension routes are already behind auth.
+
+### Request Identity (`ctx.auth`)
+
+| Method                            | Description                                                                                                               |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `ctx.auth.requestUserId(request)` | Id of the user who made the request, or `undefined` when it is unauthenticated (a `public: true` route, or auth disabled) |
+
+Use it in a route handler to record who created or changed something:
+
+```typescript
+ctx.routes.register("POST", "/items", async (reqCtx) => {
+  const createdByUserId = ctx.auth.requestUserId(reqCtx.request) ?? null;
+  // ...store createdByUserId with the new item
+});
+```
 
 ### Queues (`ctx.queues`)
 

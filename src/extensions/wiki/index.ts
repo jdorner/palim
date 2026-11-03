@@ -14,20 +14,19 @@
  */
 
 import path from "node:path";
+import { FileWatcher } from "@ext/sdk";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import { Type } from "@sinclair/typebox";
-import { FileWatcher } from "@src/utils/fileWatcher";
+// biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
+import { API_BASE_URL } from "@src/config";
+// biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
+import { getModelForIntent } from "@src/models";
 import { EmbeddingCache } from "./embeddingCache";
 import { EmbeddingManager } from "./embeddingManager";
 import { EmbeddingService } from "./embeddings";
 import { WikiIndexer } from "./indexer";
 import { buildWikiIndex, embedAndReinsert, indexFile, removeFileChunks, type WikiIndex } from "./indexing";
 import { createWikiRoutes } from "./routes";
-
-export type { WikiDocument, WikiIndex } from "./indexing";
-// Re-export the indexing primitives so existing consumers (tests, sibling
-// modules) can keep importing them from the extension entry point.
-export { chunkMarkdown, createWikiIndex, listMarkdownFiles } from "./indexing";
 
 // ---------------------------------------------------------------------------
 // Embedding manager construction
@@ -44,11 +43,6 @@ async function createEmbeddingManager(
   ctx: ExtensionContext,
   maxEmbeddingChars: number,
 ): Promise<EmbeddingManager | null> {
-  // biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
-  const { API_BASE_URL } = await import("@src/config");
-  // biome-ignore lint/style/noRestrictedImports: Extension needs core config/models for embedding init
-  const { getModelForIntent } = await import("@src/models");
-
   const embeddingService = new EmbeddingService(
     ctx.log,
     API_BASE_URL,

@@ -10,7 +10,7 @@ import { type Static, type TObject, type TSchema, Type } from "@sinclair/typebox
 import type { FlowProducer } from "bunqueue/client";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import type { Context } from "elysia";
-import type { IFileSystem } from "just-bash";
+import type { CommandContext, ExecResult, IFileSystem } from "just-bash";
 import type { Logger } from "logging";
 // Core/shared public types are re-exported through ./publicTypes using relative
 // paths so this module (aliased @ext/types) stays resolvable by external
@@ -658,6 +658,20 @@ export interface ExtensionContext {
   /** HTTP route registration (path auto-prefixed with `/ext/{extensionName}/`). */
   readonly routes: {
     register(method: HttpMethod, path: string, handler: RouteHandler, options?: RouteOptions): void;
+  };
+
+  /** Identity of the user behind an incoming HTTP request. */
+  readonly auth: {
+    /**
+     * Returns the id of the user who made a request to one of this extension's
+     * routes, for recording who created or changed something. The id comes from
+     * the principal established by the core auth check.
+     *
+     * @param request - The incoming request (`reqCtx.request` in a route handler)
+     * @returns The requesting user's id, or `undefined` when the request is
+     *   unauthenticated (e.g. a `{ public: true }` route or auth disabled)
+     */
+    requestUserId(request: Request): string | undefined;
   };
 
   // -------------------------------------------------------------------------
@@ -1317,7 +1331,7 @@ export interface SkillScriptContext {
    */
   registerProgram: (
     name: string,
-    callback: (args: string[], ctx: import("just-bash").CommandContext) => Promise<import("just-bash").ExecResult>,
+    callback: (args: string[], ctx: CommandContext) => Promise<ExecResult>,
     skillName: string,
   ) => void;
 }

@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Context } from "elysia";
 import createLogger from "logging";
-import { createWikiIndex } from "./index";
+import { createWikiIndex } from "./indexing";
 import { createWikiRoutes } from "./routes";
 
 const logger = createLogger("test:wiki");

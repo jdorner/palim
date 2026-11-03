@@ -7,7 +7,6 @@
 import { unlink } from "node:fs/promises";
 import path from "node:path";
 import { Value } from "@sinclair/typebox/value";
-import { requestUserId } from "@src/web/triggerOwnership";
 import * as dagRunStore from "../dagRunStore";
 import { validateCfEdges, validateDag } from "../dagValidation";
 import { clearPortalRunAs, getPortalRunAs, setPortalRunAs } from "../portalRunAs";
@@ -120,7 +119,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
     const payload = reqCtx.body ?? null;
     // Record the requester as the run's initiator so the run is owned by
     // (and its steps authorize as) them rather than being ownerless.
-    const result = await dispatchAndAnnounce(wf, payload, requestUserId(reqCtx.request));
+    const result = await dispatchAndAnnounce(wf, payload, ctx.auth.requestUserId(reqCtx.request));
     return Response.json({ ok: true, workflowRunId: result.workflowRunId, jobIds: result.jobIds }, { status: 202 });
   });
 
@@ -209,7 +208,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
       await Bun.write(targetFile, JSON.stringify(def, null, 2));
       // Saving binds a portal workflow to the editor, like editing a webhook or
       // schedule makes the editor its owner: portal runs execute as them.
-      const editorId = requestUserId(reqCtx.request);
+      const editorId = ctx.auth.requestUserId(reqCtx.request);
       if (triggerType === "portal" && editorId) setPortalRunAs(name!, editorId);
       else if (triggerType !== "portal") clearPortalRunAs(name!);
     } catch (err) {
