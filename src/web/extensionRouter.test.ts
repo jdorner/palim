@@ -91,6 +91,7 @@ describe("ExtensionRouter dispatch through a live Elysia server", () => {
     .get("/ext/*", dispatch, { parse: "none" })
     .post("/ext/*", dispatch, { parse: "none" })
     .put("/ext/*", dispatch, { parse: "none" })
+    .patch("/ext/*", dispatch, { parse: "none" })
     .delete("/ext/*", dispatch, { parse: "none" });
   let base = "";
 
@@ -184,6 +185,16 @@ describe("ExtensionRouter dispatch through a live Elysia server", () => {
       body: "{nope",
     });
     expect(res.status).toBe(400);
+  });
+
+  test("PATCH routes receive the parsed JSON body", async () => {
+    router.add("PATCH", "/ext/p/:id", (ctx) => Response.json({ id: ctx.params.id, body: ctx.body }));
+    const res = await fetch(`${base}/ext/p/1`, {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ group: "g" }),
+    });
+    expect(await res.json()).toEqual({ id: "1", body: { group: "g" } });
   });
 
   test("status() helper results from handlers are honoured", async () => {

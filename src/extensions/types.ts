@@ -232,7 +232,7 @@ export interface BeforeAgentStartEvent {
 // ---------------------------------------------------------------------------
 
 /** HTTP methods supported for extension routes. */
-export type HttpMethod = "GET" | "POST" | "PUT" | "DELETE";
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
 
 /** Handler for an extension-registered HTTP route. */
 export type RouteHandler = (ctx: Context) => Response | Promise<Response>;

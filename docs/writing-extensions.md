@@ -332,6 +332,7 @@ GET    /ext/{name}           -> list all resources
 POST   /ext/{name}           -> create a resource
 GET    /ext/{name}/:id       -> get one resource
 PUT    /ext/{name}/:id       -> update a resource
+PATCH  /ext/{name}/:id       -> partially update a resource
 DELETE /ext/{name}/:id       -> delete a resource
 ```
 

@@ -1,21 +1,54 @@
 /**
- * Workflow definition routes: list, detail, start a run, update, delete.
+ * Workflow definition routes: list, detail, start a run, update, move to a
+ * group, delete.
  *
  * @module
  */
 
 import { unlink } from "node:fs/promises";
 import path from "node:path";
+import { Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
+import { setTopLevelJson5Property } from "@src/utils/json5Edit";
 import * as dagRunStore from "../dagRunStore";
 import { validateCfEdges, validateDag } from "../dagValidation";
 import { clearPortalRunAs, getPortalRunAs, setPortalRunAs } from "../portalRunAs";
-import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema } from "../schemas";
+import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, WorkflowGroupSchema } from "../schemas";
 import { fetchTriggerRefs, isRefTriggerType } from "../triggerRefs";
 import type { WorkflowRouteDeps } from "./types";
 
+/** Body of `PATCH /:name/group`: the new group, or `null` to ungroup. */
+const GroupPatchSchema = Type.Object(
+  { group: Type.Union([WorkflowGroupSchema, Type.Null()]) },
+  { additionalProperties: false },
+);
+
+/** Top-level keys a newly added `group` member is placed after, in priority order. */
+const GROUP_INSERT_AFTER = ["description", "name"];
+
 /**
- * Registers the definition routes (`/`, `/:name`, `/run/:name`).
+ * Finds the JSON5 file in the workflows directory that defines a workflow.
+ *
+ * @param workflowsDir - Directory holding the workflow JSON5 files
+ * @param name - Workflow name (the file's `name` field, not its file name)
+ * @returns Absolute path of the file, or `null` if none defines the workflow
+ */
+async function findWorkflowFile(workflowsDir: string, name: string): Promise<string | null> {
+  const glob = new Bun.Glob("*.json5");
+  for (const entry of glob.scanSync({ cwd: workflowsDir, absolute: false })) {
+    try {
+      const content = await Bun.file(path.join(workflowsDir, entry)).text();
+      const parsed = Bun.JSON5.parse(content) as Record<string, unknown>;
+      if (parsed?.name === name) return path.join(workflowsDir, entry);
+    } catch {
+      // skip unreadable files
+    }
+  }
+  return null;
+}
+
+/**
+ * Registers the definition routes (`/`, `/:name`, `/:name/group`, `/run/:name`).
  *
  * @param deps - Shared extension state and services
  */
@@ -186,22 +219,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
       return Response.json({ error: "Workflow not found" }, { status: 404 });
     }
 
-    // Find the JSON5 file on disk
-    const glob = new Bun.Glob("*.json5");
-    let targetFile: string | null = null;
-    for (const entry of glob.scanSync({ cwd: workflowsDir, absolute: false })) {
-      try {
-        const content = await Bun.file(path.join(workflowsDir, entry)).text();
-        const parsed = Bun.JSON5.parse(content) as Record<string, unknown>;
-        if (parsed?.name === name) {
-          targetFile = path.join(workflowsDir, entry);
-          break;
-        }
-      } catch {
-        // skip unreadable files
-      }
-    }
-
+    const targetFile = await findWorkflowFile(workflowsDir, name!);
     if (!targetFile) return Response.json({ error: "Workflow not found" }, { status: 404 });
 
     try {
@@ -221,25 +239,60 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
     return Response.json({ ok: true });
   });
 
+  /**
+   * Moves a workflow to another group, or out of all groups with `null`.
+   *
+   * Changes only the `group` member of the JSON5 file and keeps its comments
+   * and formatting. Unlike `PUT /:name` it neither re-validates the whole
+   * definition (so broken workflows can be regrouped) nor re-binds a portal
+   * workflow's run-as account to the caller.
+   */
+  ctx.routes.register("PATCH", "/:name/group", async (reqCtx) => {
+    const name = (reqCtx.params as Record<string, string>).name ?? "";
+    const body = reqCtx.body;
+    if (!Value.Check(GroupPatchSchema, body)) {
+      const errors = [...Value.Errors(GroupPatchSchema, body)];
+      return Response.json(
+        { error: "Validation failed", details: errors.map((e) => `${e.path}: ${e.message}`).join(", ") },
+        { status: 400 },
+      );
+    }
+    const group = body.group ?? undefined;
+
+    const wf = store.get(name);
+    if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
+    const targetFile = await findWorkflowFile(workflowsDir, name);
+    if (!targetFile) return Response.json({ error: "Workflow file not found on disk" }, { status: 404 });
+
+    try {
+      const text = await Bun.file(targetFile).text();
+      let next = setTopLevelJson5Property(text, "group", group, GROUP_INSERT_AFTER);
+      if (next === null) {
+        // The text could not be edited in place; rewrite it from the parsed file.
+        logger.warn(`Rewriting "${targetFile}" without its comments: in-place group edit failed`);
+        const parsed = Bun.JSON5.parse(text) as Record<string, unknown>;
+        if (group === undefined) delete parsed.group;
+        else parsed.group = group;
+        next = JSON.stringify(parsed, null, 2);
+      }
+      if (next !== text) await Bun.write(targetFile, next);
+    } catch (err) {
+      logger.error(`Failed to write workflow file "${targetFile}":`, err);
+      return Response.json({ error: "Failed to write workflow file" }, { status: 500 });
+    }
+
+    const { group: _previous, ...rest } = wf;
+    store.set(name, group === undefined ? rest : { ...rest, group });
+    scheduleReload();
+    return Response.json({ ok: true, group: group ?? null });
+  });
+
   ctx.routes.register("DELETE", "/:name", async (reqCtx) => {
     const name = (reqCtx.params as Record<string, string>).name;
     const wf = store.get(name ?? "");
     if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
 
-    const glob = new Bun.Glob("*.json5");
-    let targetFile: string | null = null;
-    for (const entry of glob.scanSync({ cwd: workflowsDir, absolute: false })) {
-      try {
-        const content = await Bun.file(path.join(workflowsDir, entry)).text();
-        const parsed = Bun.JSON5.parse(content) as Record<string, unknown>;
-        if (parsed?.name === name) {
-          targetFile = path.join(workflowsDir, entry);
-          break;
-        }
-      } catch {
-        // skip unreadable files
-      }
-    }
+    const targetFile = await findWorkflowFile(workflowsDir, name!);
 
     if (!targetFile) return Response.json({ error: "Workflow file not found on disk" }, { status: 404 });
 

@@ -480,6 +480,13 @@ export type Edge = Static<typeof EdgeSchema>;
 /** Maximum length of a workflow's `group` name. */
 const WORKFLOW_GROUP_MAX_LENGTH = 64;
 
+/** A workflow's free-text group name: non-empty, no leading or trailing whitespace. */
+export const WorkflowGroupSchema = Type.String({
+  minLength: 1,
+  maxLength: WORKFLOW_GROUP_MAX_LENGTH,
+  pattern: "^\\S(.*\\S)?$",
+});
+
 /**
  * Root DAG workflow definition schema.
  *
@@ -492,7 +499,7 @@ export const DagWorkflowDefinitionSchema = Type.Object(
     name: Type.String({ minLength: 1, pattern: "^[a-z][a-z0-9-]*$" }),
     description: Type.Optional(Type.String()),
     /** Free-text group name used to organize related workflows in the UI. */
-    group: Type.Optional(Type.String({ minLength: 1, maxLength: WORKFLOW_GROUP_MAX_LENGTH, pattern: "^\\S(.*\\S)?$" })),
+    group: Type.Optional(WorkflowGroupSchema),
     trigger: TriggerSchema,
     enabled: Type.Optional(Type.Boolean()),
     steps: Type.Record(Type.String({ pattern: DagSlugPattern }), DagStepDefSchema, {

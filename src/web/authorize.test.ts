@@ -97,12 +97,14 @@ describe("authorizeRequest", () => {
       expect(authorizeRequest("POST", "/ext/workflows/meta/validate", builtInUserAbility).allowed).toBe(true);
       expect(authorizeRequest("PUT", "/ext/workflows/wf", builtInUserAbility).allowed).toBe(false);
       expect(authorizeRequest("DELETE", "/ext/workflows/wf", builtInUserAbility).allowed).toBe(false);
+      expect(authorizeRequest("PATCH", "/ext/workflows/wf/group", builtInUserAbility).allowed).toBe(false);
     });
 
     test("workflows:manage grants definition edits", () => {
       const ability = buildAbility({ userId: "u2", isAdmin: false, permissions: [PERMISSIONS.WORKFLOWS_MANAGE] });
       expect(authorizeRequest("PUT", "/ext/workflows/wf", ability).allowed).toBe(true);
       expect(authorizeRequest("DELETE", "/ext/workflows/wf", ability).allowed).toBe(true);
+      expect(authorizeRequest("PATCH", "/ext/workflows/wf/group", ability).allowed).toBe(true);
     });
 
     test("built-in user can start and modify any run", () => {

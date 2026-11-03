@@ -6,6 +6,7 @@
  * - `GET    /ext/workflows/:name`        - get a single workflow definition
  * - `GET    /ext/workflows/meta/groups`  - distinct workflow group names (editor suggestions)
  * - `PUT    /ext/workflows/:name`        - update an existing workflow definition
+ * - `PATCH  /ext/workflows/:name/group`  - move a workflow to another group (or ungroup it)
  * - `POST   /ext/workflows/run/:name`    - trigger a workflow run
  * - `GET    /ext/workflows/runs/:runId`  - get run status with per-step states
  * - `GET    /ext/workflows/runs/:runId/logs` - get per-step execution logs
@@ -61,7 +62,7 @@ import { watchWorkflowDir } from "./workflowDirWatcher";
 
 const manifest = {
   name: "workflows",
-  version: "2.8.0",
+  version: "2.9.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
