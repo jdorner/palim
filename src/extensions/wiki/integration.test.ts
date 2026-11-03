@@ -15,7 +15,7 @@ import createLogger from "logging";
 import { EmbeddingCache } from "./embeddingCache";
 import { EmbeddingManager } from "./embeddingManager";
 import { EmbeddingService } from "./embeddings";
-import { chunkMarkdown, createWikiIndex } from "./index";
+import { chunkMarkdown, createWikiIndex } from "./indexing";
 
 const logger = createLogger("test:wiki-integration");
 const TEST_TMP_BASE = join(import.meta.dir, ".test-tmp-integration");

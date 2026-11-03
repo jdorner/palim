@@ -28,11 +28,6 @@ import { WikiIndexer } from "./indexer";
 import { buildWikiIndex, embedAndReinsert, indexFile, removeFileChunks, type WikiIndex } from "./indexing";
 import { createWikiRoutes } from "./routes";
 
-export type { WikiDocument, WikiIndex } from "./indexing";
-// Re-export the indexing primitives so existing consumers (tests, sibling
-// modules) can keep importing them from the extension entry point.
-export { chunkMarkdown, createWikiIndex, listMarkdownFiles } from "./indexing";
-
 // ---------------------------------------------------------------------------
 // Embedding manager construction
 // ---------------------------------------------------------------------------
