@@ -40,7 +40,7 @@ import {
 } from "./dagCoordinator";
 import { createDagEmitHandler } from "./dagEmitHandler";
 import { type DagStepJobData, dispatchDagWorkflow, type SessionFactory } from "./dagEngine";
-import { loadDagWorkflows, loadSingleWorkflow } from "./dagLoader";
+import { loadDagWorkflowFiles, loadSingleWorkflow } from "./dagLoader";
 import { initDagRunStore } from "./dagRunStore";
 import { createDagStepProcessor } from "./dagWorker";
 import { readStepDocs } from "./engineStepTypes";
@@ -55,6 +55,7 @@ import { runJobs, stepData } from "./stepJobs";
 import { setDefaultTimeZone } from "./templateFunctions";
 import { createWorkflowAnalyzer } from "./workflowAnalysis";
 import { watchWorkflowDir } from "./workflowDirWatcher";
+import { createWorkflowFileIndex, type WorkflowFileIndex } from "./workflowFileIndex";
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -62,7 +63,7 @@ import { watchWorkflowDir } from "./workflowDirWatcher";
 
 const manifest = {
   name: "workflows",
-  version: "2.9.0",
+  version: "2.9.1",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -87,6 +88,8 @@ const manifest = {
  */
 export function createExtension(): Extension {
   let logger: Logger;
+  /** Tracks which file defines which workflow, for single-file reloads (created with the logger). */
+  let fileIndex: WorkflowFileIndex;
 
   /** Loaded DAG workflow definitions, keyed by name. */
   const store = new Map<string, DagWorkflowDefinition>();
@@ -106,31 +109,16 @@ export function createExtension(): Extension {
     uninstallPortal: null,
   };
 
-  /** Reloads one workflow file into the store, or removes it when the file is gone or invalid. */
+  /** Reloads one workflow file into the store, or removes its workflow when the file is gone, invalid, or disabled. */
   async function reloadFile(filename: string) {
     const filePath = path.join(state.workflowsDir, filename);
-    if (!(await Bun.file(filePath).exists())) {
-      // File deleted (possibly via the DELETE route, which already updated the store)
-      const name = filename.replace(/\.json5$/, "");
-      if (store.delete(name)) logger.info(`Removed workflow "${name}" from store (file deleted)`);
-      return;
-    }
-    const definition = await loadSingleWorkflow(filePath, logger);
-    if (definition) {
-      store.set(definition.name, definition);
-      logger.info(`Reloaded workflow "${definition.name}" from ${filename}`);
-    } else {
-      // File was invalid — remove from store
-      store.delete(filename.replace(".json5", ""));
-      logger.info(`Removed workflow "${filename}" from store`);
-    }
+    const definition = (await Bun.file(filePath).exists()) ? await loadSingleWorkflow(filePath, logger) : null;
+    fileIndex.applyFile(filename, definition);
   }
 
   /** Reloads all workflow files from disk, replacing the store. */
   async function reloadAll() {
-    const loaded = await loadDagWorkflows(state.workflowsDir, logger);
-    store.clear();
-    for (const [k, v] of loaded) store.set(k, v);
+    fileIndex.replaceAll(await loadDagWorkflowFiles(state.workflowsDir, logger));
     logger.info(`Reloaded ${store.size} workflow definition(s)`);
   }
 
@@ -139,6 +127,7 @@ export function createExtension(): Extension {
 
     async initialize(ctx: ExtensionContext) {
       logger = ctx.log;
+      fileIndex = createWorkflowFileIndex(store, logger);
       setDefaultTimeZone(WORKFLOW_TIMEZONE || null);
       const flowProducer = ctx.queues.getFlowProducer();
       const sessionFactory: SessionFactory = { create: (opts) => ctx.sessions.create(opts) };
@@ -151,9 +140,7 @@ export function createExtension(): Extension {
       state.workflowsDir = path.join(ctx.paths.work, "workflows");
       await mkdir(state.workflowsDir, { recursive: true });
 
-      const loaded = await loadDagWorkflows(state.workflowsDir, logger);
-      store.clear();
-      for (const [k, v] of loaded) store.set(k, v);
+      fileIndex.replaceAll(await loadDagWorkflowFiles(state.workflowsDir, logger));
       logger.info(`Loaded ${store.size} workflow definition(s)`);
 
       // Create the steps queue (declared before coordinatorDeps so cancelJob can reference it).
@@ -438,7 +425,7 @@ export function createExtension(): Extension {
         coordinatorDeps,
         hitl,
         dispatchAndAnnounce,
-        scheduleReload: () => state.reloads?.schedule(),
+        scheduleReload: (filename) => state.reloads?.schedule(filename),
         analyzeWorkflow: createWorkflowAnalyzer(ctx),
       });
     },

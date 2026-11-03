@@ -11,6 +11,7 @@ import type { Logger } from "@ext/types";
 import { Value } from "@sinclair/typebox/value";
 import { validateCfEdges, validateDag, validateIteratorPairing } from "./dagValidation";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePrompt } from "./schemas";
+import type { LoadedWorkflowFile } from "./workflowFileIndex";
 
 /**
  * Loads, parses, validates, and normalizes a single workflow JSON5 file.
@@ -73,20 +74,17 @@ export async function loadSingleWorkflow(filePath: string, log: Logger): Promise
 }
 
 /**
- * Load all valid DAG workflow definitions from a directory.
+ * Loads every valid DAG workflow file in a directory, with the file each came from.
  *
- * Scans for `*.json5` files, parses each with `Bun.JSON5.parse()`, validates
- * against {@link DagWorkflowDefinitionSchema}, and runs structural DAG validation
- * (edge reference integrity, cycle detection, connectivity, CF-edge rules).
- * Invalid files are logged and skipped.
+ * Scans for `*.json5` files and loads each with {@link loadSingleWorkflow}.
+ * Invalid and disabled files are logged and skipped. Duplicate names are
+ * kept, so the caller decides which file wins.
  *
  * @param workflowsDir - Absolute path to the workflows directory
  * @param log - Logger instance for reporting errors
- * @returns Map of workflow name -> validated DAG definition
+ * @returns The loaded workflows in scan order
  */
-export async function loadDagWorkflows(workflowsDir: string, log: Logger): Promise<Map<string, DagWorkflowDefinition>> {
-  const workflows = new Map<string, DagWorkflowDefinition>();
-
+export async function loadDagWorkflowFiles(workflowsDir: string, log: Logger): Promise<LoadedWorkflowFile[]> {
   const glob = new Bun.Glob("*.json5");
   let entries: string[];
 
@@ -94,24 +92,37 @@ export async function loadDagWorkflows(workflowsDir: string, log: Logger): Promi
     entries = [...glob.scanSync({ cwd: workflowsDir, absolute: false })];
   } catch {
     log.debug(`Workflows directory not found or unreadable: ${workflowsDir}`);
-    return workflows;
+    return [];
   }
 
+  const loaded: LoadedWorkflowFile[] = [];
   for (const entry of entries) {
-    const filePath = `${workflowsDir}/${entry}`;
-    const definition = await loadSingleWorkflow(filePath, log);
-    if (!definition) continue;
+    const definition = await loadSingleWorkflow(`${workflowsDir}/${entry}`, log);
+    if (definition) loaded.push({ file: entry, definition });
+  }
+  return loaded;
+}
 
+/**
+ * Load all valid DAG workflow definitions from a directory.
+ *
+ * Scans for `*.json5` files, parses each with `Bun.JSON5.parse()`, validates
+ * against {@link DagWorkflowDefinitionSchema}, and runs structural DAG validation
+ * (edge reference integrity, cycle detection, connectivity, CF-edge rules).
+ * Invalid files are logged and skipped; of duplicate names the first file wins.
+ *
+ * @param workflowsDir - Absolute path to the workflows directory
+ * @param log - Logger instance for reporting errors
+ * @returns Map of workflow name -> validated DAG definition
+ */
+export async function loadDagWorkflows(workflowsDir: string, log: Logger): Promise<Map<string, DagWorkflowDefinition>> {
+  const workflows = new Map<string, DagWorkflowDefinition>();
+  for (const { file, definition } of await loadDagWorkflowFiles(workflowsDir, log)) {
     if (workflows.has(definition.name)) {
-      log.warn(`Duplicate workflow name "${definition.name}" from ${entry}, skipping`);
+      log.warn(`Duplicate workflow name "${definition.name}" from ${file}, skipping`);
       continue;
     }
-
     workflows.set(definition.name, definition);
-    log.info(
-      `Loaded workflow "${definition.name}" (${Object.keys(definition.steps).length} steps, ${definition.edges.length} edges) from ${entry}`,
-    );
   }
-
   return workflows;
 }

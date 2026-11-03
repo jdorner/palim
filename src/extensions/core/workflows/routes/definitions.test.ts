@@ -19,14 +19,14 @@ const FILE = `// Nightly report
 
 let dir: string;
 let store: Map<string, DagWorkflowDefinition>;
-let reloads: number;
+let reloads: string[];
 let handler: RouteHandler;
 
 beforeEach(async () => {
   dir = mkdtempSync(path.join(tmpdir(), "palim-wf-group-"));
   await Bun.write(path.join(dir, "nightly.json5"), FILE);
   store = new Map([["report", Bun.JSON5.parse(FILE) as DagWorkflowDefinition]]);
-  reloads = 0;
+  reloads = [];
   const handlers = new Map<string, RouteHandler>();
   const ctx = {
     routes: { register: (method: string, p: string, h: RouteHandler) => handlers.set(`${method} ${p}`, h) },
@@ -36,8 +36,8 @@ beforeEach(async () => {
     logger: { info() {}, warn() {}, error() {}, debug() {} } as unknown as Logger,
     store,
     workflowsDir: dir,
-    scheduleReload: () => {
-      reloads++;
+    scheduleReload: (filename: string) => {
+      reloads.push(filename);
     },
   } as unknown as WorkflowRouteDeps);
   const h = handlers.get("PATCH /:name/group");
@@ -64,7 +64,7 @@ describe("PATCH /:name/group", () => {
       FILE.replace(`// shown in the list\n`, `// shown in the list\n  group: "Reports",\n`),
     );
     expect(store.get("report")?.group).toBe("Reports");
-    expect(reloads).toBe(1);
+    expect(reloads).toEqual(["nightly.json5"]);
   });
 
   test("null removes the group", async () => {

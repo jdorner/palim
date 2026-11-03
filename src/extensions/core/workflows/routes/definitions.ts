@@ -235,7 +235,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
     }
 
     store.set(def.name, def);
-    scheduleReload();
+    scheduleReload(path.basename(targetFile));
     return Response.json({ ok: true });
   });
 
@@ -283,7 +283,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
 
     const { group: _previous, ...rest } = wf;
     store.set(name, group === undefined ? rest : { ...rest, group });
-    scheduleReload();
+    scheduleReload(path.basename(targetFile));
     return Response.json({ ok: true, group: group ?? null });
   });
 
