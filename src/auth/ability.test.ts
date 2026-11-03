@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BUILT_IN_ROLES, PERMISSIONS, ROLE_SYSTEM, ROLE_USER } from "@shared/auth";
-import { buildAbility } from "./ability";
+import { buildAbility, ownedSubject } from "./ability";
 
 /** The user role's permission set, guaranteed non-null by the built-in definition. */
 const USER_PERMS = BUILT_IN_ROLES[ROLE_USER]?.permissions ?? [];
@@ -18,8 +18,8 @@ describe("buildAbility", () => {
 
     test("can read and delete any session regardless of owner", () => {
       const ability = buildAbility({ userId: "admin-1", isAdmin: true, permissions: [] });
-      expect(ability.can("read", { __caslSubjectType__: "Session", userId: "someone-else" } as never)).toBe(true);
-      expect(ability.can("delete", { __caslSubjectType__: "Session", userId: "someone-else" } as never)).toBe(true);
+      expect(ability.can("read", ownedSubject("Session", { userId: "someone-else" }))).toBe(true);
+      expect(ability.can("delete", ownedSubject("Session", { userId: "someone-else" }))).toBe(true);
     });
   });
 
@@ -28,14 +28,14 @@ describe("buildAbility", () => {
     const ability = buildAbility({ userId, isAdmin: false, permissions: USER_PERMS });
 
     test("can read and delete own session", () => {
-      const own = { __caslSubjectType__: "Session", userId } as never;
+      const own = ownedSubject("Session", { userId });
       expect(ability.can("read", own)).toBe(true);
       expect(ability.can("delete", own)).toBe(true);
       expect(ability.can("update", own)).toBe(true);
     });
 
     test("cannot read or delete another user's session", () => {
-      const other = { __caslSubjectType__: "Session", userId: "user-2" } as never;
+      const other = ownedSubject("Session", { userId: "user-2" });
       expect(ability.can("read", other)).toBe(false);
       expect(ability.can("delete", other)).toBe(false);
     });
@@ -66,8 +66,8 @@ describe("buildAbility", () => {
     });
 
     test("can modify other users' workflow runs, jobs, and triggers", () => {
-      for (const type of ["WorkflowRun", "Job", "Trigger"]) {
-        const other = { __caslSubjectType__: type, userId: "user-2" } as never;
+      for (const type of ["WorkflowRun", "Job", "Trigger"] as const) {
+        const other = ownedSubject(type, { userId: "user-2" });
         expect(ability.can("read", other)).toBe(true);
         expect(ability.can("delete", other)).toBe(true);
       }
@@ -109,7 +109,7 @@ describe("buildAbility", () => {
         permissions: ["totally:bogus" as never],
       });
       expect(ability.can("create", "Session")).toBe(false);
-      expect(ability.can("read", { __caslSubjectType__: "Session", userId: "user-2" } as never)).toBe(false);
+      expect(ability.can("read", ownedSubject("Session", { userId: "user-2" }))).toBe(false);
       expect(ability.can("read", "User")).toBe(false);
       expect(ability.can("manage", "all")).toBe(false);
     });
