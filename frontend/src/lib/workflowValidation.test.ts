@@ -625,6 +625,7 @@ describe("serializeWorkflowDraft", () => {
       group: "",
       trigger: { type: "manual", ref: "stale-value" },
       enabled: true,
+      edges: [],
       steps: [{ slug: "step-one", type: "agent", prompt: "Do it" }],
     };
     const result = serializeWorkflowDraft(draft) as { trigger: { type: string; ref?: string } };
@@ -640,6 +641,7 @@ describe("serializeWorkflowDraft", () => {
       group: "",
       trigger: { type: "portal", ref: "", portal, portalFieldsError: "x" },
       enabled: true,
+      edges: [],
       steps: [{ slug: "step-one", type: "agent", prompt: "Do it" }],
     };
     const result = serializeWorkflowDraft(draft) as { trigger: Record<string, unknown> };
@@ -660,6 +662,7 @@ describe("validateWorkflowDraft - type-specific validation", () => {
       group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
+      edges: [],
       steps: [{ slug: "step-one", type: "agent", prompt: "" }],
     };
     const errors = validateWorkflowDraft(draft);
@@ -674,6 +677,7 @@ describe("validateWorkflowDraft - type-specific validation", () => {
       group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
+      edges: [],
       steps: [{ slug: "step-one", type: "agent" }],
     };
     const errors = validateWorkflowDraft(draft);
@@ -687,6 +691,7 @@ describe("validateWorkflowDraft - type-specific validation", () => {
       group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
+      edges: [],
       steps: [{ slug: "step-one", type: "agent", prompt: "   " }],
     };
     const errors = validateWorkflowDraft(draft);
@@ -700,6 +705,7 @@ describe("validateWorkflowDraft - type-specific validation", () => {
       group: "",
       trigger: { type: "manual", ref: "" },
       enabled: true,
+      edges: [],
       steps: [{ slug: "step-one", type: "agent", prompt: "Do something" }],
     };
     const errors = validateWorkflowDraft(draft);
