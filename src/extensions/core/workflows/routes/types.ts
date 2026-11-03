@@ -28,8 +28,11 @@ export interface WorkflowRouteDeps {
     payload: unknown,
     initiatorUserId?: string,
   ) => Promise<{ workflowRunId: string; jobIds: string[] }>;
-  /** Schedules a debounced reload of the definitions from disk. */
-  scheduleReload: () => void;
+  /**
+   * Schedules a debounced reload of one workflow file from disk (the file
+   * watcher usually reports the same write; the duplicate is merged).
+   */
+  scheduleReload: (filename: string) => void;
   /** Resolves output schemas and advisory warnings of a definition. */
   analyzeWorkflow: (def: DagWorkflowDefinition, triggerRefs: TriggerRefLookup) => Promise<WorkflowAnalysis>;
 }
