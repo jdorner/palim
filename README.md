@@ -168,6 +168,7 @@ bun run start
 The portal build is needed only to serve the optional HITL portal, but `bun run setup` includes it.
 
 Recommendations:
+
 - Set `AUTH_ADMIN_PASSWORD` before first boot (or note the generated one-time password in the log) and change it after logging in. All API and WebSocket endpoints require a user login; see [docs/api-security-model.md](docs/api-security-model.md) for the full security model
 - If you lose admin access, run `bun run reset-admin [username]` on the host
 - Use a reverse proxy (nginx, Caddy) for TLS termination
@@ -208,6 +209,7 @@ frontend/          # Svelte 5 + Vite 8 + Tailwind CSS 4 web UI
 ```
 
 Key architectural decisions:
+
 - **Sandboxed workspace** - Commands run inside a [just-bash](https://github.com/vercel-labs/just-bash) virtual filesystem. The directory configured via `AGENT_WORK_DIR` is mounted into this sandbox, giving the agent full access to that directory while isolating it from the rest of the host filesystem
 - **Job queues** - SQLite-backed via [bunqueue](https://bunqueue.dev/) with stall detection and persistent logging
 - **Extensions** - Discovered at runtime, dependency-resolved via topological sort, each receiving a scoped context

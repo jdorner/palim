@@ -47,6 +47,7 @@ Everything runs through a job queue system. Whether it's a chat message, a sched
 ## Who Is This For?
 
 Palim is for people who want a personal AI assistant that:
+
 - Runs locally, under their control
 - Automates information management and system integration tasks
 - Works in the background without constant supervision

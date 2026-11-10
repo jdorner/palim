@@ -26,6 +26,7 @@ Creates a task for people in the portal and pauses its own branch until one of t
 ```
 
 The step result (`{{steps.review.result.*}}`):
+
 - `outcome` - the chosen outcome id, or `"expired"` when the task timed out with `onTimeout: "expire"`
 - `data` - the form data (null without a form)
 - `comment` - the comment (null if none)
@@ -35,6 +36,7 @@ The step result (`{{steps.review.result.*}}`):
 Branch on the answer with a `case` step: `{ "type": "case", "match": "{{steps.review.result.outcome}}", "paths": ["approve", "reject", "expired"] }`, with edges `branch: "approve"`, `"reject"`, and `"expired"` (the last one only when `onTimeout` is `"expire"`).
 
 Behavior:
+
 - The task is answered in the portal only; the signal routes reject it.
 - If a manager cancels the task, or the timeout passes without `onTimeout: "expire"`, the run fails.
 - If the run fails or is deleted, its open tasks are cancelled.

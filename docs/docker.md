@@ -66,6 +66,7 @@ The `environment` key in compose takes precedence over values from `env_file`, s
 ## Extension Hub: git access
 
 The image ships `git` and `openssh-client` for the [Extension Hub](extensions/extension-hub.md), which installs extensions from git repositories.
+
 - **HTTPS** repositories need nothing extra; for private ones, enter an access token in the source dialog (stored in the secret vault).
 - **SSH** repositories need a key and the server's host key. The container runs as root, so either mount them to `/root/.ssh`, or point git at mounted files:
 
@@ -118,6 +119,7 @@ Note: the container runs as root, so files created inside will be owned by `root
 ## Environment Variables
 
 The container reads environment variables from two sources (in order of precedence):
+
 1. **`environment`** in `docker-compose.yml` - explicit overrides (highest priority)
 2. **`env_file`** - your `.env` file injected at runtime
 

@@ -3,6 +3,7 @@
 The Extension Hub installs [external extensions](../writing-extensions.md#external-extensions) from git repositories, keeps track of their versions, and tells you when updates are available.
 
 You can:
+
 - register git repositories as **sources** (SSH, HTTPS, or a local path);
 - see the extensions each source offers, with their released versions;
 - install an extension by version, or from any tag, branch, or commit;
@@ -59,6 +60,7 @@ Saving clones the repository into a local mirror and lists its extensions. A sou
 ### Catalog
 
 The catalog lists the extensions of each source:
+
 - **Installed**: installed version and what it follows (a release tag, a branch, or a pinned commit).
 - **Latest**: the newest release. Prereleases (`2.0.0-rc.1`) count only when **Include prereleases** is on in the hub's settings. Extensions without releases show the branch head.
 - **Status**:
@@ -78,6 +80,7 @@ Below the sources, **Installed from removed sources** lists installs whose sourc
 ## Installing
 
 **Install** opens the version dialog:
+
 - a **release** installs that tag; update checks then look for newer releases;
 - the **branch** entry installs the current branch head; update checks then report every new commit on the branch;
 - **Other tag, branch, or commit** installs any ref. A commit stays pinned and is never reported as outdated.

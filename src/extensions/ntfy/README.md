@@ -60,6 +60,7 @@ The server URL and access token stay encapsulated in the extension and never app
 | `tags`     | no       | List of tags. Known emoji shortcodes render as emoji; any other value shows as a plain text tag.                                                                                                                                                                                                               |
 
 Notes:
+
 - `message`, `title`, `topic`, and `click` support template expressions, so they can pull context from the trigger payload or previous step results (e.g. `{{steps.build-message.result}}`).
 - `click` accepts an `http(s)://` URL (opens the browser or app) or another scheme such as `mailto:`, `geo:`, or `ntfy://` for deep links.
 - `markdown` enables Markdown rendering of the body (bold, links, lists, etc.). This is currently honored by the ntfy web app only; other clients display the raw text. See the [ntfy Markdown docs](https://docs.ntfy.sh/publish/#markdown-formatting).
@@ -73,6 +74,7 @@ Notes:
 A ntfy topic name is effectively a shared credential: on an unauthenticated server, anyone who knows the topic can subscribe to and publish on it. The step's `topic` field is a normal templated string, so any value you type there is stored in plaintext in the workflow definition file (and appears in run logs). The workflow editor deliberately keeps this field a plain text input rather than a masked one, because masking would only hide it in the UI while leaving the value in the file, and it would break the `{{template}}` authoring the field is designed for.
 
 To avoid putting a real topic name in a workflow file, use one of these patterns instead:
+
 - **Rely on the default topic.** Leave `topic` empty and set the `NTFY_DEFAULT_TOPIC` secret (see [Secrets](#secrets)). The step falls back to it, and the value stays encrypted in the secret vault.
 - **Reference a secret.** Store the topic as a global secret and reference it with `{{secret.KEY}}`, for example `topic: "{{secret.NTFY_ALERT_TOPIC}}"`. The workflow engine resolves `{{secret.*}}` against the encrypted vault at run time (ACL-checked and audit-logged, using the workflow's identity as the consumer), so only the secret key name, not the topic itself, appears in the workflow file.
 

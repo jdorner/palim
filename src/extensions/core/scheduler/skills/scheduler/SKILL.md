@@ -68,10 +68,12 @@ schedule create "<id>" "<name>" -p "0 9 * * *" --limit 10
 ```
 
 **Arguments:**
+
 - `id` — Unique schedule identifier (used as `trigger.ref` in workflows)
 - `name` — Human-readable label
 
 **Options:**
+
 - `-d`, `--description` — What this schedule does
 - `-p`, `--pattern` — Cron expression, e.g. `0 9 * * *`
 - `-e`, `--every` — Interval in milliseconds, minimum 1000

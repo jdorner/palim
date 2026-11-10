@@ -3,6 +3,7 @@
 The Data Tables extension stores structured data in typed tables that you define. Workflows and the agent can use them, for lookup lists, dedupe sets, collected records or results that must outlive a run. Tables live in Palim's database.
 
 You can:
+
 - define a table in the UI, or derive its columns from a CSV/Excel file;
 - import CSV/XLSX data, then inspect, filter, edit and export it in the UI;
 - change rows from workflows with six step types (insert, update, delete, truncate, upsert, query);
@@ -11,6 +12,7 @@ You can:
 ## The Data Tables page
 
 Open **Data Tables** in the sidebar.
+
 - **Table list**: every table with its row count. **New Table** opens the table editor and **Import File** opens the import wizard. Both need the `datatables:write` permission.
 - **Table view**: a paged grid (50 rows per page).
   - Click a column header to sort it (ascending, descending, off).
@@ -33,6 +35,7 @@ Open **Data Tables** in the sidebar.
 | Default    | Value used when a new row leaves the column out                                                                                          |
 
 All writes convert values to the column type, so strings from templates, files and the command line are stored typed:
+
 - **Numbers**: both `1.5` and `1,5` are accepted, as are thousands separators (`1.234,56` or `1,234.56`).
 - **Booleans**: `true`/`false`, `yes`/`no`, `ja`/`nein`, `1`/`0` and `x` are accepted.
 - **Dates**: ISO dates and `DD.MM.YYYY` are accepted.
@@ -41,6 +44,7 @@ All writes convert values to the column type, so strings from templates, files a
 ### Changing columns
 
 A table's columns can be edited at any time. Existing rows are migrated:
+
 - **Renaming a key** keeps the column's values.
 - **Removing a column** deletes its values from every row. You are asked to confirm.
 - **Changing a type** converts the existing values. If some values can't be converted, or a required column would be left empty, the change is rejected and the affected rows are listed. **Save anyway** then clears the failing values.
@@ -65,6 +69,7 @@ Limits: 20 MB per file and 100,000 rows per import. Legacy `.xls` files are not 
 All step types take a `table` field. The editor offers a dropdown of the existing tables, and the field also accepts `{{template}}` expressions. String values support templates and are converted to the column type.
 
 `where` is a list of conditions that must all match: `{ column, op, value }`.
+
 - Operators: `eq`, `ne`, `lt`, `lte`, `gt`, `gte`, `contains`, `startsWith`, `in` (comma-separated values), `isNull`, `notNull`.
 - Besides the table's columns, conditions can use the row metadata `_id`, `_createdAt` and `_updatedAt`.
 
@@ -112,6 +117,7 @@ Deletes every row of the table. Output: `{ deleted }`.
 Returns the rows that match `where`, sorted by `orderBy` (with `desc`), up to `limit` rows (default 100, at most 1000).
 
 Output: `{ rows, count, total, first }`.
+
 - `first` is the first row, or `null` when nothing matches.
 - When `table` is a fixed name, the editor knows the table's columns, so `{{steps.<slug>.result.first.<column>}}` autocompletes, as does `{{item.<column>}}` inside an iterator over `{{steps.<slug>.result.rows}}`. This works before the workflow is saved, and references to unknown columns are reported as template warnings.
 
@@ -146,6 +152,7 @@ The agent can't create tables or change columns.
 ## HTTP API
 
 Routes are mounted under `/ext/datatables/`.
+
 - `GET` routes are open to every signed-in user.
 - All other routes need `datatables:write`. The built-in `user` role has it.
 - Errors return `{ error, details? }`. `details.rows` lists row-level errors.

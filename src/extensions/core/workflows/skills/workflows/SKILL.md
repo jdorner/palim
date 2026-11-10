@@ -11,6 +11,7 @@ description: Overview and CLI usage for multi-step workflow pipelines - what wor
 Workflows chain multiple agent jobs into a directed acyclic graph (DAG) where the output of one step feeds into the next. Definitions are JSON5 files stored in `workflows/`. The system watches this directory and hot-reloads definitions on any change.
 
 A workflow is a set of named `steps` plus an `edges` array that wires them together. This graph model supports:
+
 - **Sequential chains** - edge from one step to the next
 - **Parallel fan-out** - a step with multiple outgoing edges dispatches all successors at once
 - **Join / convergence** - a step with multiple incoming edges waits until all predecessors resolve before running
@@ -19,6 +20,7 @@ A workflow is a set of named `steps` plus an `edges` array that wires them toget
 ## Related skills
 
 This skill covers the concept and the CLI. For the details, read the companion skills:
+
 - **Authoring a definition** (schema, edges, prompts, per-step tools/skills, template variables, secrets, triggers, worked examples, execution model): run `skill read workflow-writing`
 - **Step type reference** (every step type's fields, examples, and behavior, including types added by extensions): run `workflow step-types`, then `workflow step-types <type>`
 

@@ -37,6 +37,7 @@ Reports are named `<timestamp>_<jobId>.md` and written by the analysis agent int
 ### System Prompt Override
 
 Custom system prompt for the analysis agent. Only change this if you want to modify report structure or analysis behavior. The default prompt instructs the agent to:
+
 - Analyze root causes using available tools
 - Write a structured markdown report
 - Never attempt to fix anything
@@ -56,6 +57,7 @@ For the array setting, provide a JSON array string: `'["agents","workflows"]'`
 ## Report Structure
 
 Each generated report contains:
+
 1. **Error Summary** - What failed, which queue, the error message
 2. **Root Cause Analysis** - Why it failed (investigated via tools)
 3. **Relevant Context** - Original prompt, tools used, workflow context

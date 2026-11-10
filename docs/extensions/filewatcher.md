@@ -68,6 +68,7 @@ The workflow receives the detected file path in the trigger payload.
 ## Event Payload
 
 The emitted `filewatcher:detected` event contains:
+
 - `slug` - The watcher slug that fired
 - `filename` - Relative path of the detected file (within work directory)
 - `event` - The event type (`new`, `change`, or `delete`)

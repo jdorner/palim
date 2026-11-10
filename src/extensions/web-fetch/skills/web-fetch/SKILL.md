@@ -28,9 +28,11 @@ web fetch [options] "<url>"
 Fetches the given URL and returns the page content as plain text. Output is truncated to a reasonable length to avoid overwhelming context.
 
 **Arguments:**
+
 - `url`: The full URL to fetch (must start with `http://` or `https://`)
 
 **Options:**
+
 - `-m`, `--max-length <n>`: Max characters to return (default: 12000)
 - `-H`, `--header "Name: Value"`: HTTP header to send (repeatable)
 

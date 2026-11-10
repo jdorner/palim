@@ -75,6 +75,7 @@ minute hour day-of-month month day-of-week
 ```
 
 Examples:
+
 - `0 8 * * *` - Every day at 8:00
 - `*/15 * * * *` - Every 15 minutes
 - `0 9 * * 1-5` - Weekdays at 9:00

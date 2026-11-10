@@ -29,6 +29,7 @@ ONLY report success to the user once the verification step confirms the intended
 ## Response Formatting Guidelines
 
 When listing file watchers using `filewatcher list`, ensure you provide a comprehensive overview. This includes:
+
 - The watcher slug/ID
 - The human-readable name
 - The watched directory path
@@ -79,6 +80,7 @@ filewatcher update "<slug>" "<field>" "<value>"
 ```
 
 Updatable fields: `name`, `path`, `patterns`, `recursive`, `processExisting`, `enabled`
+
 - For `patterns`, provide a comma-separated list: `"*.png,*.jpg"`
 - For `recursive`, `processExisting`, and `enabled`, use `"true"` or `"false"`
 

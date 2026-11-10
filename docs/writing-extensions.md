@@ -156,6 +156,7 @@ External extensions run in the server process, outside the agent sandbox, so the
 ### How It Works
 
 At boot (before extension initialization), the system runs an `ExternalDependencyResolver` that:
+
 1. **Generates `tsconfig.json`** in each external extension directory with path aliases (`@ext/types`, `@ext/sdk`, `@src/*`, `@shared/*`) pointing back to the core project's source files, and `typeRoots` pointing to the core project's `node_modules`. This gives your IDE full type checking and autocompletion.
 
 2. **Installs dependencies** declared in the extension's `package.json` by running `bun install` in the extension directory.
@@ -186,6 +187,7 @@ Each external extension should have a `package.json`. Use `dependencies` for pac
 ```
 
 **Dependency resolution rules:**
+
 - **Peer dependencies** are verified to exist in the core project's `node_modules` but never installed separately. If missing, a warning is logged.
 - **Dependencies matching a host package** at a compatible version are skipped (no duplication). The core's copy is reused at runtime.
 - **Dependencies not in the host** are installed into the extension's local `node_modules/`.
@@ -207,6 +209,7 @@ const manifest = {
 ### Publishing for the Extension Hub
 
 The [Extension Hub](extensions/extension-hub.md) installs external extensions from a git repository with one folder per extension. A folder is offered when it has:
+
 - an `index.ts`, and
 - a `package.json` whose `name` equals the folder name and whose `version` is a [semver](https://semver.org) version (`1.2.0`, `2.0.0-rc.1`).
 
@@ -260,6 +263,7 @@ The auto-generated `tsconfig.json` looks like this (paths are relative to your e
 ### Runtime Resolution
 
 At runtime, external extensions are loaded via dynamic `import()` from the core process. This means:
+
 - Bun resolves modules relative to the core project's context, so host packages "just work" without needing them in the extension's `node_modules`.
 - Extension-specific packages installed in the extension's `node_modules/` are also resolvable (Bun checks local `node_modules` first, then walks up).
 - The `tsconfig.json` only affects **TypeScript tooling** (IDE, type checker) — it has no effect at runtime.
@@ -269,6 +273,7 @@ At runtime, external extensions are loaded via dynamic `import()` from the core 
 External extensions are discovered at boot by scanning `EXTERNAL_EXTENSIONS_DIR` for `*/index.ts` patterns. They go through the same validation, dependency resolution (topological sort), and initialization flow as built-in extensions.
 
 **Hot loading:** a filesystem watcher picks up changes in `<DATA_DIR>/extensions/` at runtime (debounced by one second):
+
 - A new folder with an `index.ts` is loaded; a removed folder (or removed `index.ts`) is unloaded.
 - A changed `index.ts` reloads the extension (unload, then load).
 - Changes below `<extension>/ui/` only rebuild the extension's [UI pages](#extension-ui), and open pages remount with the new code.
@@ -601,6 +606,7 @@ export default extension;
 ```
 
 **Config resolution order** (highest precedence first):
+
 1. Environment variable `EXT_{NAME}_{KEY}` - always wins (ops override)
 2. Persisted value from SQLite (set via the web UI)
 3. `default` from the schema property
@@ -984,6 +990,7 @@ async initialize(ctx) {
 An **output schema** describes the shape of the value a node produces, so the editor can offer deep property-path autocomplete and non-fatal path validation for `{{steps.<slug>.result.<path>}}` (and `{{trigger.payload.<path>}}`) expressions. Without one, autocomplete stops at `result` / `payload`.
 
 There are two ways an output schema is provided, resolved in this precedence order:
+
 1. **A hand-authored `outputSchema` in the workflow JSON5** (on the trigger or the individual step). This always wins for that node.
 2. **The step-type handler's declared `outputSchema`** (the `TSchema?` field on `StepTypeHandler`). Used automatically for any step of that type when the definition does not hand-author one.
 
@@ -1017,6 +1024,7 @@ const handler: StepTypeHandler = {
 ```
 
 Guidance:
+
 - Declare every top-level property your result object has, and none it does not. This keeps completion and validation honest.
 - For fields that are only sometimes present, wrap them in `Type.Optional(...)` - they still appear in autocomplete.
 - Use `description`, `enum` (`Type.Union([Type.Literal(...)])`), and `default` annotations; the editor surfaces them as dropdown metadata.
@@ -1027,6 +1035,7 @@ Guidance:
 #### Built-in trigger schemas
 
 Filewatcher and scheduler triggers have built-in output schemas derived from their event payloads. These activate automatically without any configuration:
+
 - **filewatcher**: `{ source, id, slug, filename, event }` (all strings)
 - **schedule**: `{ source, id, slug, description, label }` (all strings)
 
@@ -1045,7 +1054,6 @@ For `agent` and `trigger` nodes (which have no handler to declare a schema), or 
 | `[item]`                            | Array whose elements match `item`, e.g. `["string"]` or `[{ id: "string" }]`; `{{x.0.id}}` and `{{x.length}}` resolve, and iterators get the element schema |
 
 Any other leaf string is treated as unconstrained and produces a warning.
-
 
 ```json5
 {
@@ -1252,6 +1260,7 @@ Workflow JSON5 definitions use the registered type name directly:
 ### Frontend Rendering
 
 Registered step types automatically appear in:
+
 - The step type dropdown in the workflow editor
 - Graph nodes with the registered label and icon
 - The read-only type badge in the step sidebar
@@ -1502,6 +1511,7 @@ Host state is exposed as stores rather than runes because runes do not cross Sve
 ### UI Kit and Styling
 
 `@palim/ui` (`frontend/src/lib/extensionKit.ts`) exports the core components, compiled into the extension's bundle so pages look exactly like core pages:
+
 - Primitives: `Button`, `Badge`, `Card` (+ `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter`), `Checkbox`, `Label`, `Select` (+ parts), `Table` (+ parts), `Dialog`, `AlertDialog`
 - Components: `LoadingIndicator`, `ToggleSwitch`, `StatusDot`, `MultiSelect`, `InfoTip` (an (i) icon next to a field label that shows its explanation as a tooltip, used instead of a hint line under the field)
 - Helpers: `cn` (class merging)
@@ -1618,6 +1628,7 @@ See `src/extensions/datatables/locales/` for a complete example.
 ### Enable / Disable (Runtime)
 
 Toggling an extension via the UI or `PUT /api/extensions/:name` triggers a full lifecycle transition:
+
 - **Disable**: calls `shutdown()`, tears down all registrations (tools, routes, queues, events), extension enters suspended state. Takes effect immediately.
 - **Enable**: creates a fresh `ExtensionContext`, calls `initialize()`. If initialization fails (e.g. missing credentials), the extension remains suspended and the error is returned to the caller (HTTP 422).
 

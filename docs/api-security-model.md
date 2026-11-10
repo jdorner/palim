@@ -133,6 +133,7 @@ Only list proxies that put the address of the connection they received as the la
 ### Roles and permissions
 
 Every signed-in user may read everything without any permission: workflow definitions and runs, jobs and their logs, triggers, secret metadata and audit logs, variables, models, extensions and data tables. There are three exceptions:
+
 - **Chat sessions** are private to their owner.
 - **Chat jobs** are private to the user who started them, admins included. They are left out of the job feed (see [WebSocket](#websocket)), and the per-job routes (`GET /api/jobs/:id/logs`, `GET /api/jobs/:id/chain`, `POST /api/jobs/:id/cancel`, `POST /api/jobs/:id/retry`) answer `404` to anyone else. Bulk cleanup (`POST /api/queues/clean`) still removes finished jobs of every user by state.
 - **Users and roles** are listed only for holders of `users:manage`.
@@ -180,6 +181,7 @@ Built-in role permissions are defined in code and re-applied on every boot, so t
 Every account has a **kind**: `operator` (the default) uses the Palim web interface and API as described above. `portal` is for end users who only use the portal to answer the human tasks assigned to them. Set the kind when creating a user, or change it later, on the **Users** page (`kind` on `/api/users`).
 
 A portal account is fenced in at the authentication layer, whatever its roles grant:
+
 - It may only call `/api/auth/*`, `/api/portal/*` and `/api/i18n/*`. Every other `/api/` and `/ext/` request answers `403`, reads included.
 - It gets none of the open reads that operator accounts have.
 - It can't open the WebSocket (`4003`); the portal has its own event stream, `GET /api/portal/events`.
@@ -196,6 +198,7 @@ Schedules, file watchers and webhooks record an owner, and the runs they start a
 ### Admin safety rules
 
 User administration refuses changes that would lock everyone out (`409 Conflict`):
+
 - At least one **enabled** user must always hold the `admin` role.
 - You can't disable your own account or remove your own `admin` role. Another admin has to do it.
 - The `system` account can't be modified, and the `system` role can't be assigned to anyone.
@@ -213,6 +216,7 @@ It re-enables the account (creating it if missing), makes it an operator account
 ## Internal calls
 
 Extensions (`ctx.fetch`) and skill scripts (`SkillScriptContext.fetch`) get a fetch wrapper instead of a token. For each request, the wrapper does the following:
+
 - **Local server URLs** get an `Authorization` header with the **identity of the current job**. That is the user who started the chat, agent job or workflow run. Workflow steps get a short-lived token minted for the run's creator.
 - **Confinement**: local requests are limited to the extension's own routes (`/ext/<name>/*`) plus `/api/push`. Anything else returns a `403` without reaching the network, so an extension can't call admin or secret endpoints on the user's behalf.
 - **External URLs** pass through unchanged and never carry a token.
@@ -224,6 +228,7 @@ In short, extension and skill code never sees a raw token, can't widen its reach
 ## Webhook endpoint security
 
 Webhook receive endpoints are public but authenticate **per webhook**, independent of user accounts:
+
 - `hmac-sha256`: signature validation (for example GitHub-style `X-Hub-Signature-256`)
 - `bearer`: static token in a configurable header
 - `none`: no authentication (only for trusted internal sources)

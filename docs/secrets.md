@@ -3,6 +3,7 @@
 ## Overview
 
 Palim has two layers of secret management that serve different purposes:
+
 1. **Boot-time environment variables** - Infrastructure config loaded once at startup (API keys, server URLs, auth tokens). Managed via `.env` files with optional dotenvx encryption.
 2. **SecretVault** - Runtime secret storage for extensions and workflows. SQLite-backed, AES-256-GCM encrypted, with per-row ACL and audit logging. Managed through the web UI.
 
@@ -59,6 +60,7 @@ The vault requires a 32-byte master key. At boot, `deriveMasterKey()` checks two
 | `.env.keys` file             | File content is fed through HKDF-SHA256 with info string `"palim-secret-vault-v1"` to derive 32 bytes. |
 
 If neither source is available or the key is too short, the vault is **not initialized** and:
+
 - All `/api/secrets` and `/api/extensions/:name/secrets` endpoints return HTTP 503 ("Secret vault not available")
 - `ctx.secrets.get()` returns `null` with a warning logged
 - `ctx.secrets.set()` and `ctx.secrets.delete()` throw an error
@@ -85,6 +87,7 @@ Secrets are organized by scope (stored per-row):
 ## Encryption
 
 Each secret value is encrypted independently using AES-256-GCM:
+
 - **Key**: 256-bit master key (derived once at boot)
 - **IV**: 12 random bytes generated per encryption operation
 - **Output**: base64-encoded ciphertext (includes the 16-byte GCM authentication tag)
@@ -182,6 +185,7 @@ Resolution uses `resolveByKey()` which searches all scopes for the first row whe
 ### From the Web UI
 
 The Settings page exposes two secret management interfaces:
+
 - **Secrets tab** (global secrets): Full CRUD for shared secrets with key, value, description, and consumer patterns.
 - **Extension settings** (per-extension): Schema-driven forms for secrets declared in an extension's `secretsSchema` manifest field.
 
@@ -214,11 +218,13 @@ All endpoints return HTTP 503 with `{ "error": "Secret vault not available" }` w
 The vault uses two SQLite tables (created via Drizzle migrations):
 
 **`secrets_vault`** - Encrypted secret storage:
+
 - Composite unique constraint on `(scope, secret_key)`
 - Index on `scope` for efficient per-scope queries
 - `key_version` column reserved for future key rotation support
 
 **`secret_audit_log`** - Append-only access log:
+
 - Indexes on `timestamp` and `secret_name` for efficient querying
 - No automatic purging (grows indefinitely)
 

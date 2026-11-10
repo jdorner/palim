@@ -13,6 +13,7 @@ bun run dev
 ```
 
 Requirements:
+
 - **Bun** 1.4.3+
 - **An LLM endpoint** (with OpenAI-compatible API)
 
@@ -27,6 +28,7 @@ bun run check     # Lint + format (auto-fixes where possible)
 Please run this before committing - CI will fail on lint errors.
 
 Key conventions:
+
 - File naming: `camelCase.ts` for backend, extension entry points are always `index.ts`
 - JSDoc on all exported functions, classes, interfaces, and type aliases
 - TypeBox schemas for input validation (no raw `any` casts)
@@ -43,6 +45,7 @@ bun test path/to/file.test.ts       # Run a single test file
 ```
 
 Conventions:
+
 - Test files are **co-located** next to the source file: `foo.ts` → `foo.test.ts`
 - Use `describe()` + `test()` (not `it()`)
 - No mocking frameworks - use in-memory implementations or lightweight fakes
@@ -75,6 +78,7 @@ describe("myFunction", () => {
 ### Branch Naming
 
 Use a descriptive prefix:
+
 - `feat/short-description` - New features
 - `fix/short-description` - Bug fixes
 - `refactor/short-description` - Code restructuring
@@ -97,6 +101,7 @@ Use [Conventional Commits](https://www.conventionalcommits.org/) style (`feat:`,
 ### PR Checklist
 
 Before opening a PR, make sure:
+
 - [ ] `bun run check` passes (no lint errors)
 - [ ] `AGENT=1 bun test` passes
 - [ ] New code has JSDoc comments on exports

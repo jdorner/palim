@@ -43,6 +43,7 @@ Content-Type: application/json
 To let an external system call back into the right run, pass it the address from a template: `/ext/workflows/runs/{{run.id}}/steps/await-approval/signal`.
 
 Response codes:
+
 - `200` - Signal accepted, workflow resumed
 - `404` - Run or signal not found
 - `409` - Not waiting (already delivered, timed out, run ended)

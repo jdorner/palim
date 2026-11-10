@@ -43,6 +43,7 @@ Set `PORTAL_PUBLIC_URL` in `.env` to the address users open, e.g. `https://palim
 ## Portal Accounts
 
 Create the people who use the portal on the **Users** page:
+
 1. Set the kind to **Portal**. A portal account can only reach the portal API: no other API routes, no WebSocket, no operator data.
 2. Give it the built-in role **portal-user** (`hitl:respond`).
 3. To assign tasks to groups instead of single people, create custom roles (e.g. `accounting`) with only portal permissions (`hitl:*`, `portal:start`) and add them to the accounts. Portal accounts can't hold roles with other permissions.
@@ -56,6 +57,7 @@ Operator accounts can use the portal too. The built-in `user` role includes `hit
 After signing in, the inbox lists the open tasks assigned to you, directly or through one of your roles, with priority and due date. **Done** lists the tasks you answered. The list updates live while the portal is open, and the badge in the navigation shows how many tasks are open.
 
 A task page shows:
+
 - the description (markdown) and any context values the workflow attached,
 - a form, when the workflow asks for data,
 - a comment field (required for some tasks),

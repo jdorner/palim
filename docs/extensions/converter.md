@@ -65,6 +65,7 @@ The result is `{ markdown, file, output }`, so later steps use `{{steps.read-rec
 ### POST /ext/converter/convert
 
 Accepts JSON. Files are passed as base64-encoded bytes.
+
 - `data` (required) - Array of base64-encoded file contents
 - `filenames` (optional) - Display names aligned positionally with `data`, used only for job labels and logs; does not affect the conversion
 - `prompt` (optional) - Custom system prompt overriding the default OCR instructions
@@ -78,6 +79,7 @@ When multiple `data` entries are supplied, they are merged into a single convers
 ```
 
 **Error responses:**
+
 - `400` - Validation error (e.g. missing `data`)
 - `415` - Unsupported file type
 

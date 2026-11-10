@@ -62,6 +62,7 @@ Return index statistics (document count, chunk count).
 ## Agent Skill
 
 The extension provides a `wiki` skill with sandbox commands for the agent:
+
 - `wiki search "<query>"` - Search the index for relevant content
 - `wiki read "<page>"` - Read a specific wiki page
 - `wiki write "<page>"` - Write/update a wiki page

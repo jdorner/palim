@@ -15,6 +15,7 @@ Sends a named signal to workflows currently waiting for that event. The emitting
 ```
 
 Which waits an emit resumes:
+
 - only `waitFor` steps with `scope: "broadcast"`; waits with the default `instance` scope are never reached by emit
 - a wait with a `correlate` key only when the emit carries the same key; a wait without a key on any emit of the event
 - with `targetRun`, only waits of that run

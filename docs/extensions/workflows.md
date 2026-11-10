@@ -96,6 +96,7 @@ A `humanTask` step asks a person: it creates a task in the [portal](../portal.md
 ### Signals
 
 Each `waitFor` step that is reached creates a signal record for exactly that step of that run. How it can be resumed:
+
 - **Direct delivery** reaches one specific waiting step: by run and step (`POST /ext/workflows/runs/:runId/steps/:slug/signal`) or by signal ID (`POST /ext/workflows/signals/:signalId`). Steps can hand out their own address with `{{run.id}}`, e.g. as a callback URL in an `http-request` step.
 - **`emit`** reaches waiting steps that opt in with `scope: "broadcast"` (the default `instance` scope ignores `emit` entirely) and whose event matches, across runs. Narrow it down with:
   - `correlate` on both steps - a `waitFor` with a correlation key (e.g. `"{{trigger.payload.orderId}}"`, resolved when the wait is reached) only accepts an `emit` with the same key; a `waitFor` without a key accepts any `emit` of the event
@@ -204,6 +205,7 @@ Cancel all steps of a workflow run.
 ## Agent Skill
 
 The extension provides a `workflows` skill with sandbox commands:
+
 - `workflow list` - List all workflow definitions
 - `workflow read "<name>"` - Read a workflow's JSON5 definition
 - `workflow runs "<name>"` - List recent runs for a workflow
@@ -212,6 +214,7 @@ The extension provides a `workflows` skill with sandbox commands:
 ## Template Variables
 
 Agent step prompts support template variables:
+
 - `{{trigger.payload}}` - The trigger event payload (webhook body, file path, etc.)
 - `{{secret.KEY_NAME}}` - Resolve a secret from the vault
 - `{{steps.<slug>.result}}` - Result from any completed step (resolved from the run store, so any ancestor works, not just the direct predecessor)
