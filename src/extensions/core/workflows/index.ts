@@ -34,12 +34,13 @@ import { registerTriggerOwnerCounter } from "@src/web/triggerOwnership";
 import type { FSWatcher } from "chokidar";
 import {
   type DagCoordinatorDeps,
-  evaluateInlineRoot,
   handleDagStepCompletion,
   handleDagStepFailure,
+  signalTimeoutDeps,
+  startRun,
 } from "./dagCoordinator";
 import { createDagEmitHandler } from "./dagEmitHandler";
-import { type DagStepJobData, dispatchDagWorkflow, type SessionFactory } from "./dagEngine";
+import type { DagStepJobData, SessionFactory } from "./dagEngine";
 import { loadDagWorkflowFiles, loadSingleWorkflow } from "./dagLoader";
 import { initDagRunStore } from "./dagRunStore";
 import { createDagStepProcessor } from "./dagWorker";
@@ -172,6 +173,12 @@ export function createExtension(): Extension {
         },
       );
 
+      // Queued and active jobs of a run (cancelled when the run fails).
+      const inFlightJobIds = async (runId: string): Promise<string[]> =>
+        runJobs(await stepsQueue.getAllJobs(), runId)
+          .filter((s) => s.state === "active" || s.state === "waiting" || s.state === "delayed")
+          .map((s) => s.id);
+
       // Build the coordinator dependencies (shared by completion, failure, resume, emit).
       const hitl = ctx.internal?.hitl;
       const coordinatorDeps: DagCoordinatorDeps = {
@@ -190,6 +197,7 @@ export function createExtension(): Extension {
         cancelJob: async (jobId) => {
           await stepsQueue.cancelJob(jobId);
         },
+        inFlightJobIds,
         hitl,
       };
 
@@ -199,10 +207,7 @@ export function createExtension(): Extension {
             hitl,
             coordinatorDeps,
             log: logger,
-            inFlightJobIds: async (runId) =>
-              runJobs(await stepsQueue.getAllJobs(), runId)
-                .filter((s) => s.state === "active" || s.state === "waiting" || s.state === "delayed")
-                .map((s) => s.id),
+            inFlightJobIds,
           })
         : null;
 
@@ -214,40 +219,19 @@ export function createExtension(): Extension {
 
       // Timeout timers live in memory: re-arm the ones of runs still parked on a
       // signal from before the restart (elapsed deadlines fire immediately).
-      const rearmed = signalTimers.rearmWaiting({ log: logger, broadcast: coordinatorDeps.broadcast });
+      const rearmed = signalTimers.rearmWaiting(signalTimeoutDeps(coordinatorDeps));
       if (rearmed > 0) logger.info(`Re-armed ${rearmed} signal timeout(s)`);
 
       /**
-       * Shared DAG dispatch helper. Dispatches a workflow, broadcasts the
-       * `workflow_started` event, and kicks off inline root nodes if any.
+       * Shared DAG dispatch helper: starts a run (which announces
+       * `workflow_started` and activates every root step).
        */
-      async function dispatchAndAnnounce(
+      function dispatchAndAnnounce(
         wf: DagWorkflowDefinition,
         payload: unknown,
         initiatorUserId?: string,
       ): Promise<{ workflowRunId: string; jobIds: string[] }> {
-        const result = await dispatchDagWorkflow(
-          flowProducer,
-          wf,
-          payload ?? null,
-          logger,
-          sessionFactory,
-          async (runId, rootSlugs) => {
-            for (const slug of rootSlugs) {
-              await evaluateInlineRoot(runId, slug, coordinatorDeps);
-            }
-          },
-          initiatorUserId,
-        );
-
-        ctx.messaging.broadcast({
-          type: "workflow_started",
-          workflowRunId: result.workflowRunId,
-          workflowName: wf.name,
-          steps: Object.entries(wf.steps).map(([slug, s]) => ({ slug, type: s.type })),
-        });
-
-        return result;
+        return startRun(wf, payload ?? null, coordinatorDeps, initiatorUserId);
       }
 
       // Register the dispatch function so all extension contexts can use ctx.workflows.dispatch()
@@ -340,12 +324,8 @@ export function createExtension(): Extension {
 
         // Only fail the run permanently once the job is truly failed (not a retry delay)
         if (d.state === "failed") {
-          // Collect in-flight jobs to cancel for fail-fast
-          const inFlight = runJobs(await stepsQueue.getAllJobs(), d.workflowRunId)
-            .filter((s) => s.id !== d.id && (s.state === "active" || s.state === "waiting" || s.state === "delayed"))
-            .map((s) => s.id);
-
-          await handleDagStepFailure(d.workflowRunId, d.stepSlug, failedReason, coordinatorDeps, inFlight);
+          // Fail-fast: the coordinator cancels the run's in-flight jobs.
+          await handleDagStepFailure(d.workflowRunId, d.stepSlug, failedReason, coordinatorDeps);
 
           // Emit domain event for cross-extension consumption (e.g. error-analyzer)
           ctx.events.emit({

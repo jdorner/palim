@@ -1,20 +1,14 @@
 /**
- * DAG Workflow Engine - dispatches workflow executions using DAG-based dispatch.
+ * DAG step jobs - the queue job shape of a workflow step and its builder.
  *
- * Computes root steps, creates a Run Store record with all edges in
- * pending state and all steps in pending state, then dispatches each
- * root step as an individual job via `flow.add()`.
+ * Runs are started by `startRun` in `dagCoordinator.ts`, which lets the run
+ * kernel activate the root steps.
  *
  * @module
  */
 
-import type { Logger, WorkflowDispatchResult } from "@ext/types";
-import type { FlowJob, FlowProducer } from "bunqueue/client";
-import * as dagRunStore from "./dagRunStore";
-import { type EdgeState, edgeId, type StepStatus } from "./dagRunStore";
-import { definitionTopology } from "./definitionTopology";
-import type { DagStep, DagWorkflowDefinition } from "./schemas";
-import { DAG_CF_TYPES } from "./schemas";
+import type { FlowJob } from "bunqueue/client";
+import type { DagStep } from "./schemas";
 
 /**
  * Minimal session factory interface - only the `create` method is needed
@@ -103,132 +97,4 @@ export function buildDagStepJob(
     data,
     opts: { attempts: 1 },
   };
-}
-
-/**
- * Dispatches a DAG workflow execution.
- *
- * Creates a Run Store record with all edges in `pending` state and all
- * steps in `pending` state, computes root steps, and dispatches each
- * root as an individual job via `flow.add()`.
- *
- * @param flow - The shared FlowProducer instance
- * @param definition - The validated DAG workflow definition
- * @param triggerPayload - The trigger's input data (webhook body, etc.)
- * @param log - Logger for reporting dispatch details
- * @param sessionStore - Session factory for creating per-step sessions
- * @returns The run ID and dispatched job IDs
- */
-export async function dispatchDagWorkflow(
-  flow: FlowProducer,
-  definition: DagWorkflowDefinition,
-  triggerPayload: unknown,
-  log: Logger,
-  sessionStore: SessionFactory,
-  onInlineRoots?: (runId: string, rootSlugs: string[]) => Promise<void>,
-  initiatorUserId?: string,
-): Promise<WorkflowDispatchResult> {
-  const workflowRunId = crypto.randomUUID();
-  const { steps, edges } = definition;
-
-  // Build allStepDefs lookup for template resolution
-  const allStepDefs: Record<string, unknown> = {};
-  for (const [slug, stepDef] of Object.entries(steps)) {
-    allStepDefs[slug] = { slug, ...stepDef };
-  }
-
-  // Initialize edge states (all pending)
-  const edgeStates: Record<string, EdgeState> = {};
-  for (const edge of edges) {
-    const eid = edgeId(edge.from, edge.to, edge.branch);
-    edgeStates[eid] = "pending";
-  }
-
-  // Initialize step statuses (all pending)
-  const stepStatuses: Record<string, StepStatus> = {};
-  for (const slug of Object.keys(steps)) {
-    stepStatuses[slug] = "pending";
-  }
-
-  // Create Run Store record
-  try {
-    dagRunStore.create({
-      id: workflowRunId,
-      workflowName: definition.name,
-      status: "running",
-      edgeStates,
-      stepStatuses,
-      stepResults: {},
-      triggerPayload,
-      failureReason: null,
-      createdByUserId: initiatorUserId ?? null,
-    });
-  } catch (err) {
-    log.error(`Failed to create DAG Run Store record for workflow "${definition.name}":`, err);
-    throw new Error(`DAG Run Store unavailable: ${err instanceof Error ? err.message : String(err)}`);
-  }
-
-  // Compute root steps (no incoming edges)
-  const rootSlugs = [...definitionTopology(definition).roots];
-
-  // Filter out non-dispatchable root nodes (CF, waitFor, humanTask are handled inline,
-  // not dispatched as queue jobs).
-  const dispatchableRoots = rootSlugs.filter((slug) => {
-    const t = steps[slug]!.type;
-    return !DAG_CF_TYPES.has(t) && t !== "waitFor" && t !== "humanTask";
-  });
-
-  if (dispatchableRoots.length === 0 && rootSlugs.length > 0) {
-    // All roots are inline nodes (CF/waitFor) — the coordinator handles them.
-    // Kick off inline evaluation for each inline root via the provided callback.
-    log.info(
-      `Dispatching DAG workflow "${definition.name}" run ${workflowRunId} (${Object.keys(steps).length} steps, all roots are inline nodes - deferring to coordinator)`,
-    );
-    if (onInlineRoots) {
-      await onInlineRoots(workflowRunId, rootSlugs);
-    }
-    return { workflowRunId, jobIds: [] };
-  }
-
-  // Dispatch each root step individually
-  const jobIds: string[] = [];
-  for (const slug of dispatchableRoots) {
-    const stepDef = steps[slug]!;
-    const job = buildDagStepJob(slug, {
-      workflowRunId,
-      workflowName: definition.name,
-      stepDef: stepDef as DagStep,
-      allStepDefs,
-      sessionFactory: sessionStore,
-      triggerPayload: triggerPayload ?? undefined,
-      ...(initiatorUserId ? { initiatorUserId } : {}),
-    });
-
-    try {
-      const result = await flow.add(job);
-      jobIds.push(result.job.id);
-      dagRunStore.updateStepStatus(workflowRunId, slug, "running");
-    } catch (err) {
-      log.error(`Failed to dispatch root step "${slug}" for run ${workflowRunId}:`, err);
-      dagRunStore.updateStatus(
-        workflowRunId,
-        "failed",
-        `Failed to dispatch root step "${slug}": ${err instanceof Error ? err.message : String(err)}`,
-      );
-      throw err;
-    }
-  }
-
-  log.info(
-    `Dispatched DAG workflow "${definition.name}" run ${workflowRunId} (${Object.keys(steps).length} steps, ${rootSlugs.length} root(s) dispatched: ${jobIds.join(", ")})`,
-  );
-
-  // Inline roots next to dispatchable ones (e.g. a humanTask that runs in
-  // parallel with an agent step) are evaluated by the coordinator as well.
-  const inlineRoots = rootSlugs.filter((slug) => !dispatchableRoots.includes(slug));
-  if (inlineRoots.length > 0 && onInlineRoots) {
-    await onInlineRoots(workflowRunId, inlineRoots);
-  }
-
-  return { workflowRunId, jobIds };
 }

@@ -1,8 +1,8 @@
 /**
  * DAG Coordinator - the I/O shell around the run kernel.
  *
- * Called by the queue's `completed` and `failed` event handlers, signal
- * delivery and the engine (inline roots). Every state change goes through
+ * Called to start runs, by the queue's `completed` and `failed` event
+ * handlers, by signal delivery and by signal timeouts. Every state change goes through
  * {@link advance} in `runKernel.ts`: the shell loads the run, asks the kernel
  * what the event changes, applies that patch in one statement, then executes
  * the kernel's effects in order: enqueue jobs, resolve control-flow templates
@@ -15,13 +15,13 @@
  * @module
  */
 
-import type { HitlApi, Logger } from "@ext/types";
+import type { HitlApi, Logger, WorkflowDispatchResult } from "@ext/types";
 import type { WorkflowWebSocketEvent } from "@shared/workflows";
 import type { FlowProducer } from "bunqueue/client";
 import { evaluateCondition } from "./condition";
 import { buildDagStepJob, type SessionFactory } from "./dagEngine";
-import type { DagWorkflowRun } from "./dagRunStore";
 import * as dagRunStore from "./dagRunStore";
+import { type DagWorkflowRun, edgeId } from "./dagRunStore";
 import { definitionTopology } from "./definitionTopology";
 import {
   HUMAN_TASK_SIGNAL_EVENT,
@@ -29,7 +29,7 @@ import {
   resolveHumanTaskFields,
   WORKFLOW_TASK_SOURCE,
 } from "./humanTask";
-import { advance, type RunEffect, type RunEvent } from "./runKernel";
+import { advance, type RunEffect, type RunEvent, type RunPatch } from "./runKernel";
 import type {
   ConditionDef,
   DagCaseStep,
@@ -40,7 +40,6 @@ import type {
   DagWaitForStep,
   DagWorkflowDefinition,
 } from "./schemas";
-import { DAG_CF_TYPES } from "./schemas";
 import * as signalStore from "./signalStore";
 import * as signalTimers from "./signalTimers";
 import { resolveTemplates, type TemplateContext } from "./template";
@@ -66,6 +65,12 @@ export interface DagCoordinatorDeps {
   getWorkflowDefinition: (name: string) => DagWorkflowDefinition | undefined;
   /** Cancels a running job by ID (best-effort). */
   cancelJob?: (jobId: string) => Promise<void>;
+  /**
+   * Lists a run's queued and active job IDs. With {@link cancelJob}, every
+   * transition that fails a run cancels them (fail-fast for all failure paths:
+   * job failures, inline evaluation errors, signal timeouts).
+   */
+  inFlightJobIds?: (runId: string) => Promise<string[]>;
   /** Human task service for `humanTask` nodes (absent when HITL is not configured). */
   hitl?: HitlApi;
 }
@@ -96,21 +101,59 @@ export async function handleDagStepCompletion(
 }
 
 /**
- * Evaluates an inline root node (a CF, waitFor or humanTask node with no
- * incoming edges). Called by the engine, which dispatches only job roots.
+ * Starts a run of a workflow: creates its run record (every step and edge
+ * pending), announces it, and lets the kernel activate every root step. Job
+ * roots are enqueued; inline roots (control flow, waits) are evaluated or
+ * registered right away.
  *
- * @param runId - The workflow run ID
- * @param slug - The inline root node slug
+ * @param definition - The validated workflow definition
+ * @param triggerPayload - The trigger's input data (webhook body, etc.)
  * @param deps - Injected dependencies
+ * @param initiatorUserId - The user the run executes as, if any
+ * @returns The run ID and the job IDs of the enqueued root steps
+ * @throws When the run record cannot be created, or a root step cannot be enqueued (the run is failed first)
  */
-export async function evaluateInlineRoot(runId: string, slug: string, deps: DagCoordinatorDeps): Promise<void> {
-  const run = dagRunStore.get(runId);
-  const type = run ? deps.getWorkflowDefinition(run.workflowName)?.steps[slug]?.type : undefined;
-  if (type !== undefined && !DAG_CF_TYPES.has(type) && type !== "waitFor" && type !== "humanTask") {
-    deps.log.warn(`DAG coordinator: evaluateInlineRoot called for non-inline step "${slug}" (type: ${type})`);
-    return;
+export async function startRun(
+  definition: DagWorkflowDefinition,
+  triggerPayload: unknown,
+  deps: DagCoordinatorDeps,
+  initiatorUserId?: string,
+): Promise<WorkflowDispatchResult> {
+  const workflowRunId = crypto.randomUUID();
+  const slugs = Object.keys(definition.steps);
+  try {
+    dagRunStore.create({
+      id: workflowRunId,
+      workflowName: definition.name,
+      status: "running",
+      edgeStates: Object.fromEntries(definition.edges.map((e) => [edgeId(e.from, e.to, e.branch), "pending" as const])),
+      stepStatuses: Object.fromEntries(slugs.map((slug) => [slug, "pending" as const])),
+      stepResults: {},
+      triggerPayload,
+      failureReason: null,
+      createdByUserId: initiatorUserId ?? null,
+    });
+  } catch (err) {
+    deps.log.error(`Failed to create DAG Run Store record for workflow "${definition.name}":`, err);
+    throw new Error(`DAG Run Store unavailable: ${errorMessage(err)}`);
   }
-  await processEvent(runId, { type: "activate", slug }, deps);
+
+  deps.broadcast({
+    type: "workflow_started",
+    workflowRunId,
+    workflowName: definition.name,
+    steps: Object.entries(definition.steps).map(([slug, s]) => ({ slug, type: s.type })),
+  });
+
+  const { dispatched } = await processEvent(workflowRunId, { type: "runStarted" }, deps, definition);
+  const failedRoot = dispatched.find((d) => "error" in d);
+  if (failedRoot && "error" in failedRoot) throw failedRoot.error;
+
+  const jobIds = dispatched.flatMap((d) => ("jobId" in d ? [d.jobId] : []));
+  deps.log.info(
+    `Started DAG workflow "${definition.name}" run ${workflowRunId} (${slugs.length} steps, ${jobIds.length} root job(s) enqueued)`,
+  );
+  return { workflowRunId, jobIds };
 }
 
 /**
@@ -152,9 +195,22 @@ export async function handleDagStepFailure(
   deps: DagCoordinatorDeps,
   jobIdsToCancel?: string[],
 ): Promise<void> {
-  await failStep(runId, stepSlug, error, deps);
+  const { cancelled } = await processEvent(runId, { type: "stepFailed", slug: stepSlug, reason: error }, deps);
+  await cancelJobs(
+    (jobIdsToCancel ?? []).filter((id) => !cancelled.includes(id)),
+    deps,
+  );
+}
+
+/**
+ * Cancels jobs, best effort.
+ *
+ * @param jobIds - The jobs to cancel
+ * @param deps - Injected dependencies (no-op without `cancelJob`)
+ */
+async function cancelJobs(jobIds: readonly string[], deps: DagCoordinatorDeps): Promise<void> {
   if (!deps.cancelJob) return;
-  for (const jobId of jobIdsToCancel ?? []) {
+  for (const jobId of jobIds) {
     try {
       await deps.cancelJob(jobId);
     } catch {
@@ -175,19 +231,51 @@ export async function handleDagStepFailure(
  * @param event - The event
  * @param deps - Injected dependencies
  */
-async function processEvent(runId: string, event: RunEvent, deps: DagCoordinatorDeps): Promise<void> {
+async function processEvent(
+  runId: string,
+  event: RunEvent,
+  deps: DagCoordinatorDeps,
+  definitionOverride?: DagWorkflowDefinition,
+): Promise<ProcessedEvent> {
+  const outcome: ProcessedEvent = {
+    patch: { stepStatuses: {}, edgeStates: {}, stepResults: {} },
+    dispatched: [],
+    cancelled: [],
+  };
   const run = dagRunStore.get(runId);
   if (!run) {
-    deps.log.error(`DAG coordinator: run ${runId} not found (${event.type} of step "${event.slug}")`);
-    return;
+    deps.log.error(`DAG coordinator: run ${runId} not found (${event.type})`);
+    return outcome;
   }
-  const definition = deps.getWorkflowDefinition(run.workflowName);
+  const definition = definitionOverride ?? deps.getWorkflowDefinition(run.workflowName);
   const { patch, effects } = advance(run, definition, event);
   dagRunStore.applyPatch(runId, patch);
+  outcome.patch = patch;
   for (const effect of effects) {
-    await runEffect(run, definition, effect, deps);
+    const dispatched = await runEffect(run, definition, effect, deps);
+    if (dispatched) outcome.dispatched.push(dispatched);
   }
+  // Fail-fast: a transition that failed the run stops its in-flight jobs.
+  // Their failure events then reach an ended run and change nothing.
+  if (patch.status === "failed" && deps.cancelJob && deps.inFlightJobIds) {
+    outcome.cancelled = await deps.inFlightJobIds(runId);
+    await cancelJobs(outcome.cancelled, deps);
+  }
+  return outcome;
 }
+
+/** What {@link processEvent} did. */
+interface ProcessedEvent {
+  /** The patch the kernel produced (empty when the run was not found). */
+  patch: RunPatch;
+  /** The outcome of each `dispatch` effect of this transition (not of follow-up events). */
+  dispatched: DispatchOutcome[];
+  /** Jobs cancelled because this transition failed the run. */
+  cancelled: string[];
+}
+
+/** The outcome of enqueueing one step. */
+type DispatchOutcome = { slug: string; jobId: string } | { slug: string; error: unknown };
 
 /**
  * Fails the run at a step (through the kernel's fail-fast rule).
@@ -208,13 +296,14 @@ async function failStep(runId: string, slug: string, reason: string, deps: DagCo
  * @param definition - The run's workflow definition
  * @param effect - The effect
  * @param deps - Injected dependencies
+ * @returns The dispatch outcome for a `dispatch` effect that ran, otherwise undefined
  */
 async function runEffect(
   run: DagWorkflowRun,
   definition: DagWorkflowDefinition | undefined,
   effect: RunEffect,
   deps: DagCoordinatorDeps,
-): Promise<void> {
+): Promise<DispatchOutcome | undefined> {
   switch (effect.type) {
     case "broadcast":
       deps.broadcast(effect.event);
@@ -235,8 +324,7 @@ async function runEffect(
 
   switch (effect.type) {
     case "dispatch":
-      await dispatchStep(run, effect.slug, stepDef as DagStep, definition, deps);
-      return;
+      return dispatchStep(run, effect.slug, stepDef as DagStep, definition, deps);
     case "evaluate": {
       const event = await evaluateControlFlow(run.id, effect.slug, stepDef as DagStep, definition, deps);
       if (event) await processEvent(run.id, event, deps);
@@ -263,7 +351,7 @@ async function dispatchStep(
   stepDef: DagStep,
   definition: DagWorkflowDefinition,
   deps: DagCoordinatorDeps,
-): Promise<void> {
+): Promise<DispatchOutcome> {
   const { flowProducer, sessionFactory, log, broadcast } = deps;
 
   const job = buildDagStepJob(slug, {
@@ -286,9 +374,11 @@ async function dispatchStep(
       broadcast({ type: "workflow_step_started", workflowRunId: run.id, stepSlug: slug, jobId: result.job.id });
     }
     log.debug(`DAG coordinator: dispatched step "${slug}" for run ${run.id} (job ${result.job.id})`);
+    return { slug, jobId: result.job.id };
   } catch (err) {
     log.error(`DAG coordinator: failed to dispatch step "${slug}" for run ${run.id}:`, err);
     await failStep(run.id, slug, `Failed to dispatch step: ${errorMessage(err)}`, deps);
+    return { slug, error: err };
   }
 }
 
@@ -389,7 +479,7 @@ async function registerWaitForNode(
   definition: DagWorkflowDefinition,
   deps: DagCoordinatorDeps,
 ): Promise<void> {
-  const { log, broadcast } = deps;
+  const { log } = deps;
 
   // Resolve the correlation key against the run state at the time the wait is
   // reached. An unresolvable key would never match an emit, so fail instead.
@@ -421,8 +511,12 @@ async function registerWaitForNode(
     }
   }
 
+  // The resolution above awaited: re-check before creating anything. From here
+  // to the kernel's waitRegistered transition nothing awaits, so the check holds.
+  if (!stillRunning(runId, slug)) return;
+
   // Create a signal record so the delivery endpoints can find this waiting step.
-  // Do this before flipping any status so a store failure leaves the run intact
+  // Do this before the step pauses so a store failure leaves the run intact
   // for failStep to mark failed.
   let signalRecord: signalStore.SignalRecord;
   try {
@@ -442,21 +536,9 @@ async function registerWaitForNode(
     return;
   }
 
-  // Mark the step and the run as paused on a signal. Both are non-terminal:
-  // resumeWaitForNode reverts them (step -> completed, run -> running) and the
-  // timeout path fails the run. The run status is what the signal-delivery
-  // endpoint checks to accept an incoming signal, and the coordinator's guards
-  // treat waiting-signal as active so other branches keep running.
-  dagRunStore.updateStepStatus(runId, slug, "waiting-signal");
-  dagRunStore.updateStatus(runId, "waiting-signal");
-
-  broadcast({
-    type: "workflow_step_waiting",
-    workflowRunId: runId,
-    stepSlug: slug,
-    event: stepDef.event,
-    inputSchema: stepDef.inputSchema ?? null,
-  });
+  // The kernel pauses the step and the run (waiting-signal). Both are
+  // non-terminal: a delivered signal resumes them, a timeout fails the run.
+  if (!(await pauseOnSignal(runId, slug, signalRecord.id, deps))) return;
 
   log.info(
     `DAG waitFor node "${slug}" in run ${runId}: waiting for signal "${stepDef.event}" (${signalRecord.scope}${
@@ -466,7 +548,7 @@ async function registerWaitForNode(
 
   // Arm timeout timer if configured
   if (stepDef.timeout != null && stepDef.timeout > 0) {
-    signalTimers.arm(signalRecord, stepDef.timeout, { log, broadcast });
+    signalTimers.arm(signalRecord, stepDef.timeout, signalTimeoutDeps(deps));
   }
 }
 
@@ -495,7 +577,7 @@ async function registerHumanTaskNode(
   definition: DagWorkflowDefinition,
   deps: DagCoordinatorDeps,
 ): Promise<void> {
-  const { log, broadcast, hitl } = deps;
+  const { log, hitl } = deps;
   if (!hitl) {
     await failStep(runId, slug, "Human tasks are disabled (set HITL_ENABLED=true)", deps);
     return;
@@ -522,6 +604,9 @@ async function registerHumanTaskNode(
     return;
   }
 
+  // As for waitFor: no await from this check to the kernel's transition.
+  if (!stillRunning(runId, slug)) return;
+
   let signalRecord: signalStore.SignalRecord;
   try {
     signalRecord = signalStore.create({
@@ -536,6 +621,17 @@ async function registerHumanTaskNode(
   } catch (err) {
     log.error(`DAG coordinator: signal store error for humanTask "${slug}" in run ${runId}:`, err);
     await failStep(runId, slug, `Signal Store unavailable: ${err instanceof Error ? err.message : String(err)}`, deps);
+    return;
+  }
+
+  // Pause first, then create the task: a declined pause leaves no task behind.
+  if (!(await pauseOnSignal(runId, slug, signalRecord.id, deps))) return;
+
+  // The pause's effects awaited. Check again right before creating the task
+  // (createTask is synchronous), so a run failed in the meantime gets no task.
+  const current = dagRunStore.get(runId);
+  if (!current || !dagRunStore.isActiveRunStatus(current.status) || current.stepStatuses[slug] !== "waiting-signal") {
+    signalStore.markCancelled(signalRecord.id);
     return;
   }
 
@@ -562,33 +658,66 @@ async function registerHumanTaskNode(
   } catch (err) {
     // The signal must not linger as deliverable without a task behind it.
     signalStore.markCancelled(signalRecord.id);
-    await failStep(
-      runId,
-      slug,
-      `Human task could not be created: ${err instanceof Error ? err.message : String(err)}`,
-      deps,
-    );
+    await failStep(runId, slug, `Human task could not be created: ${errorMessage(err)}`, deps);
     return;
   }
-
-  dagRunStore.updateStepStatus(runId, slug, "waiting-signal");
-  dagRunStore.updateStatus(runId, "waiting-signal");
-
-  broadcast({
-    type: "workflow_step_waiting",
-    workflowRunId: runId,
-    stepSlug: slug,
-    event: HUMAN_TASK_SIGNAL_EVENT,
-    inputSchema: null,
-  });
 
   log.info(
     `DAG humanTask node "${slug}" in run ${runId}: waiting for task ${taskId}${stepDef.timeout ? ` (timeout: ${stepDef.timeout}ms)` : ""}`,
   );
 
   if (stepDef.timeout != null && stepDef.timeout > 0) {
-    signalTimers.arm(signalRecord, stepDef.timeout, { log, broadcast });
+    signalTimers.arm(signalRecord, stepDef.timeout, signalTimeoutDeps(deps));
   }
+}
+
+/**
+ * Whether a step the kernel activated may still start its work: the run is
+ * active and the step was not swept in the meantime.
+ *
+ * @param runId - The workflow run ID
+ * @param slug - The step slug
+ * @returns True while the step is running
+ */
+function stillRunning(runId: string, slug: string): boolean {
+  const run = dagRunStore.get(runId);
+  return !!run && dagRunStore.isActiveRunStatus(run.status) && run.stepStatuses[slug] === "running";
+}
+
+/**
+ * Hands a created signal to the kernel, which pauses the step and the run.
+ * When the kernel declines (the step is no longer running), the signal is
+ * withdrawn so it cannot be delivered.
+ *
+ * @param runId - The workflow run ID
+ * @param slug - The waiting step
+ * @param signalId - The signal just created for it
+ * @param deps - Injected dependencies
+ * @returns Whether the step now waits on the signal
+ */
+async function pauseOnSignal(
+  runId: string,
+  slug: string,
+  signalId: string,
+  deps: DagCoordinatorDeps,
+): Promise<boolean> {
+  const { patch } = await processEvent(runId, { type: "waitRegistered", slug }, deps);
+  if (patch.stepStatuses[slug] === "waiting-signal") return true;
+  signalStore.markCancelled(signalId);
+  return false;
+}
+
+/**
+ * Timer dependencies that fail a timed-out wait through the kernel.
+ *
+ * @param deps - Injected dependencies
+ * @returns Logger and a failure callback for {@link signalTimers.arm}
+ */
+export function signalTimeoutDeps(deps: DagCoordinatorDeps): signalTimers.SignalTimeoutDeps {
+  return {
+    log: deps.log,
+    failStep: (runId, slug, reason) => failStep(runId, slug, reason, deps),
+  };
 }
 
 // ---------------------------------------------------------------------------

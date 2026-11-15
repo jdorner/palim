@@ -1,33 +1,12 @@
 /**
- * Tests for the DAG workflow engine dispatch.
- *
- * Uses in-memory SQLite for isolation. Validates root step identification,
- * parallel dispatch of multiple roots, and Run Store initialization.
+ * Tests for the DAG step job builder. Starting runs is tested with the
+ * coordinator (`startRun` in dagCoordinator.test.ts).
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createTestDb } from "@src/test/db";
-import { buildDagStepJob, dispatchDagWorkflow } from "./dagEngine";
+import { buildDagStepJob } from "./dagEngine";
 import * as dagRunStore from "./dagRunStore";
-import type { DagWorkflowDefinition } from "./schemas";
-
-/** Fake FlowProducer that records dispatched jobs. */
-function createFakeFlow() {
-  const dispatched: { name: string; data: unknown }[] = [];
-  let jobCounter = 0;
-  return {
-    dispatched,
-    flow: {
-      add: async (job: { name: string; data: unknown }) => {
-        dispatched.push(job);
-        jobCounter++;
-        return { job: { id: `job-${jobCounter}` } };
-      },
-      addChain: async () => ({ jobIds: [] }),
-      getParentResult: async () => null,
-    } as any,
-  };
-}
 
 /** Fake session factory. */
 function createFakeSessionFactory() {
@@ -40,134 +19,9 @@ function createFakeSessionFactory() {
   };
 }
 
-/** Fake logger. */
-const fakeLog = {
-  info: () => {},
-  warn: () => {},
-  error: () => {},
-  debug: () => {},
-} as any;
-
 beforeEach(() => {
   const db = createTestDb();
   dagRunStore.initDagRunStore(db);
-});
-
-describe("dispatchDagWorkflow", () => {
-  test("dispatches a single root step", async () => {
-    const def: DagWorkflowDefinition = {
-      name: "test-wf",
-      trigger: { type: "manual" },
-      steps: {
-        a: { type: "agent", prompt: "do A" },
-        b: { type: "agent", prompt: "do B" },
-      },
-      edges: [{ from: "a", to: "b" }],
-    };
-
-    const { flow, dispatched } = createFakeFlow();
-    const result = await dispatchDagWorkflow(flow, def, null, fakeLog, createFakeSessionFactory());
-
-    expect(result.jobIds).toEqual(["job-1"]);
-    expect(dispatched.length).toBe(1);
-    expect((dispatched[0]!.data as any).stepSlug).toBe("a");
-  });
-
-  test("dispatches multiple root steps in parallel", async () => {
-    const def: DagWorkflowDefinition = {
-      name: "test-wf",
-      trigger: { type: "manual" },
-      steps: {
-        a: { type: "agent", prompt: "root 1" },
-        b: { type: "agent", prompt: "root 2" },
-        c: { type: "agent", prompt: "join" },
-      },
-      edges: [
-        { from: "a", to: "c" },
-        { from: "b", to: "c" },
-      ],
-    };
-
-    const { flow, dispatched } = createFakeFlow();
-    const result = await dispatchDagWorkflow(flow, def, { event: "test" }, fakeLog, createFakeSessionFactory());
-
-    expect(result.jobIds.length).toBe(2);
-    expect(dispatched.length).toBe(2);
-    const slugs = dispatched.map((d) => (d.data as any).stepSlug).sort();
-    expect(slugs).toEqual(["a", "b"]);
-  });
-
-  test("initializes Run Store with correct edge and step states", async () => {
-    const def: DagWorkflowDefinition = {
-      name: "test-wf",
-      trigger: { type: "manual" },
-      steps: {
-        a: { type: "agent", prompt: "x" },
-        b: { type: "agent", prompt: "y" },
-        c: { type: "agent", prompt: "z" },
-      },
-      edges: [
-        { from: "a", to: "b" },
-        { from: "a", to: "c" },
-      ],
-    };
-
-    const { flow } = createFakeFlow();
-    const result = await dispatchDagWorkflow(flow, def, null, fakeLog, createFakeSessionFactory());
-
-    const run = dagRunStore.get(result.workflowRunId);
-    expect(run).not.toBeNull();
-    expect(run!.status).toBe("running");
-    // Edge states: a:b and a:c both initialized as pending
-    expect(run!.edgeStates["a:b"]).toBe("pending");
-    expect(run!.edgeStates["a:c"]).toBe("pending");
-    // Root step status is "running" (dispatched), non-roots are "pending"
-    expect(run!.stepStatuses.a).toBe("running");
-    expect(run!.stepStatuses.b).toBe("pending");
-    expect(run!.stepStatuses.c).toBe("pending");
-  });
-
-  test("does not dispatch CF root nodes as jobs", async () => {
-    const def: DagWorkflowDefinition = {
-      name: "test-wf",
-      trigger: { type: "manual" },
-      steps: {
-        decide: { type: "if", condition: { ref: "{{trigger.payload.x}}", eq: "yes" } },
-        a: { type: "agent", prompt: "then path" },
-        b: { type: "agent", prompt: "else path" },
-      },
-      edges: [
-        { from: "decide", to: "a", branch: "then" },
-        { from: "decide", to: "b", branch: "else" },
-      ],
-    };
-
-    const { flow, dispatched } = createFakeFlow();
-    const result = await dispatchDagWorkflow(flow, def, null, fakeLog, createFakeSessionFactory());
-
-    // CF root is not dispatched as a job
-    expect(result.jobIds).toEqual([]);
-    expect(dispatched.length).toBe(0);
-  });
-
-  test("persists trigger payload in Run Store", async () => {
-    const def: DagWorkflowDefinition = {
-      name: "test-wf",
-      trigger: { type: "webhook" },
-      steps: {
-        a: { type: "agent", prompt: "x" },
-        b: { type: "agent", prompt: "y" },
-      },
-      edges: [{ from: "a", to: "b" }],
-    };
-
-    const payload = { body: { id: 123, action: "create" } };
-    const { flow } = createFakeFlow();
-    const result = await dispatchDagWorkflow(flow, def, payload, fakeLog, createFakeSessionFactory());
-
-    const run = dagRunStore.get(result.workflowRunId);
-    expect(run!.triggerPayload).toEqual(payload);
-  });
 });
 
 describe("buildDagStepJob", () => {

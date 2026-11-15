@@ -241,10 +241,14 @@ export function applyWorkflowEvent(
         steps: settleOpenSteps(run.steps, "completed"),
       }));
     case "workflow_failed":
+      // The failed step itself is marked failed: inline steps and timed-out
+      // waits have no job, so no workflow_step_failed event precedes this one.
       return updateRun(workflow, msg.workflowRunId, (run) => ({
         status: "failed",
         completedAt: Date.now(),
-        steps: settleOpenSteps(run.steps, "dead", msg.failedStep),
+        steps: settleOpenSteps(run.steps, "dead", msg.failedStep).map((s) =>
+          s.slug === msg.failedStep ? { ...s, status: "failed" } : s,
+        ),
       }));
     case "workflow_run_removed":
       // The run was cancelled or cleaned (its record is gone from the run store).

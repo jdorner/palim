@@ -310,13 +310,28 @@ describe("inline nodes", () => {
     ],
   );
 
-  test.each([
-    ["wait", "register"],
-    ["decide", "evaluate"],
-  ] as const)("activating %s marks it running and asks the shell to %s it", (slug, effect) => {
-    const { patch, effects } = advance(runOf(def), def, { type: "activate", slug });
-    expect(patch.stepStatuses).toEqual({ [slug]: "running" });
-    expect(work(effects)).toEqual([{ type: effect, slug }]);
+  test("starting a run activates every root: waits are registered, control flow evaluated", () => {
+    const { patch, effects } = advance(runOf(def), def, { type: "runStarted" });
+    expect(patch.stepStatuses).toEqual({ wait: "running", decide: "running" });
+    expect(work(effects)).toEqual([
+      { type: "register", slug: "wait" },
+      { type: "evaluate", slug: "decide" },
+    ]);
+  });
+
+  test("a registered wait pauses the step and the run", () => {
+    const { patch, effects } = advance(runOf(def, { steps: { wait: "running" } }), def, {
+      type: "waitRegistered",
+      slug: "wait",
+    });
+    expect(patch).toMatchObject({ status: "waiting-signal", stepStatuses: { wait: "waiting-signal" } });
+    expect(broadcasts(effects)).toEqual(["workflow_step_waiting:wait"]);
+  });
+
+  test("a wait registered after its step was swept changes nothing", () => {
+    const run = runOf(def, { steps: { wait: "dead" } });
+    const { patch } = advance(run, def, { type: "waitRegistered", slug: "wait" });
+    expect(patch).toEqual({ stepStatuses: {}, edgeStates: {}, stepResults: {} });
   });
 
   test.each([

@@ -6,15 +6,15 @@
  * with dead terminals, and fail-fast cancellation.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { beforeEach, describe, expect, spyOn, test } from "bun:test";
 import { createWorkflowTestDb } from "@src/test/db";
 import { createSetVariablesHandler } from "../../core-wf-steps/setVariables";
 import {
   type DagCoordinatorDeps,
-  evaluateInlineRoot,
   handleDagStepCompletion,
   handleDagStepFailure,
   resumeWaitForNode,
+  startRun,
 } from "./dagCoordinator";
 import * as dagRunStore from "./dagRunStore";
 import { edgeId } from "./dagRunStore";
@@ -467,10 +467,9 @@ describe("inline node failure (failRun)", () => {
 
     // No trigger payload -> the items expression resolves to an empty string,
     // which is not valid JSON (JSON.parse throws "Unexpected EOF").
-    const run = initRun(def);
     const deps = createTestDeps(def);
 
-    await evaluateInlineRoot(run.id, "images", deps);
+    const run = { id: (await startRun(def, null, deps)).workflowRunId };
 
     const finalRun = dagRunStore.get(run.id)!;
     expect(finalRun.status).toBe("failed");
@@ -493,17 +492,17 @@ describe("inline node failure (failRun)", () => {
       edges: [],
     };
 
-    const run = initRun(def);
-    // Simulate a sibling branch already running when the iterator fails.
-    dagRunStore.updateStepStatus(run.id, "other", "running");
     const deps = createTestDeps(def);
 
-    await evaluateInlineRoot(run.id, "images", deps);
+    // Both are roots: "other" is marked running (queued for dispatch) when the
+    // iterator fails, so it is swept and never enqueued.
+    const run = { id: (await startRun(def, null, deps)).workflowRunId };
 
     const finalRun = dagRunStore.get(run.id)!;
     expect(finalRun.status).toBe("failed");
     expect(finalRun.stepStatuses.images).toBe("failed");
     expect(finalRun.stepStatuses.other).toBe("dead");
+    expect(deps.dispatched).toEqual([]);
     // The failing step and each swept step broadcast their terminal transition.
     expect(deps.broadcasts.some((e: any) => e.type === "workflow_failed")).toBe(true);
     expect(deps.broadcasts.some((e: any) => e.type === "workflow_step_dead" && e.stepSlug === "other")).toBe(true);
@@ -692,8 +691,7 @@ describe("set-variables accumulation inside an iterator", () => {
       getStepHandler: () => handler,
     });
 
-    const run = initRun(def, ["a", "b", "c"]);
-    await evaluateInlineRoot(run.id, "letters", deps);
+    const run = { id: (await startRun(def, ["a", "b", "c"], deps)).workflowRunId };
 
     // Drain the queue: execute each dispatched job and report its completion.
     for (let i = 0; i < queued.length; i++) {
@@ -740,10 +738,9 @@ describe("dead-edge propagation into inline nodes", () => {
       ],
     };
 
-    const run = initRun(def, [1]);
     const deps = createTestDeps(def);
 
-    await evaluateInlineRoot(run.id, "mails", deps);
+    const run = { id: (await startRun(def, [1], deps)).workflowRunId };
 
     const afterRun = dagRunStore.get(run.id)!;
     expect(deps.dispatched).toEqual(["done"]);
@@ -859,5 +856,172 @@ describe("dispatch vs. fast completion", () => {
     expect(finalRun.status).toBe("failed");
     expect(finalRun.stepStatuses.wait).toBe("dead");
     expect(signalStore.listWaitingForRun(run.id)).toEqual([]);
+  });
+});
+
+describe("fail-fast cancellation", () => {
+  test("an inline failure cancels the run's in-flight jobs", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "inline-fail-cancel-wf",
+      trigger: { type: "manual" },
+      steps: {
+        route: { type: "case", match: "{{trigger.payload}}", paths: ["a"] },
+        a: { type: "agent", prompt: "a" },
+        side: { type: "agent", prompt: "parallel root" },
+      },
+      edges: [{ from: "route", to: "a", branch: "a" }],
+    };
+    const deps = { ...createTestDeps(def), inFlightJobIds: async () => ["job-1"] };
+
+    // Both roots start; the case node matches nothing and fails the run.
+    const { workflowRunId } = await startRun(def, "zzz", deps);
+
+    expect(dagRunStore.get(workflowRunId)!.status).toBe("failed");
+    expect(deps.cancelled).toEqual(["job-1"]);
+  });
+
+  test("explicit job ids are cancelled once, alongside the run's in-flight jobs", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "explicit-cancel-wf",
+      trigger: { type: "manual" },
+      steps: { a: { type: "agent", prompt: "a" }, b: { type: "agent", prompt: "b" } },
+      edges: [],
+    };
+    const run = initRun(def);
+    const deps = { ...createTestDeps(def), inFlightJobIds: async () => ["job-b"] };
+
+    await handleDagStepFailure(run.id, "a", "boom", deps, ["job-b", "job-x"]);
+
+    expect(deps.cancelled).toEqual(["job-b", "job-x"]);
+  });
+});
+
+describe("wait registration race", () => {
+  test("a run failed while the correlation key resolves does not start waiting", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "wait-race-wf",
+      trigger: { type: "manual" },
+      steps: {
+        a: { type: "agent", prompt: "start" },
+        b: { type: "agent", prompt: "sibling" },
+        wait: { type: "waitFor", event: "approve", correlate: "{{run.id}}" },
+      },
+      edges: [{ from: "a", to: "wait" }],
+    };
+    const run = initRun(def);
+    dagRunStore.updateStepStatus(run.id, "a", "running");
+    dagRunStore.updateStepStatus(run.id, "b", "running");
+    const deps = createTestDeps(def);
+    const createSignal = spyOn(signalStore, "create");
+
+    // The completion reaches the wait and awaits its correlation key; the
+    // sibling's failure lands during that await.
+    const completion = handleDagStepCompletion(run.id, "a", "done", "job-a", deps);
+    await handleDagStepFailure(run.id, "b", "boom", deps);
+    await completion;
+
+    // No signal is created at all (the kernel would also decline to wait).
+    expect(createSignal).not.toHaveBeenCalled();
+    createSignal.mockRestore();
+
+    const after = dagRunStore.get(run.id)!;
+    expect(after.status).toBe("failed");
+    expect(after.stepStatuses.wait).toBe("dead");
+    expect(signalStore.listWaitingForRun(run.id)).toEqual([]);
+    expect(deps.broadcasts.some((e: any) => e.type === "workflow_step_waiting")).toBe(false);
+  });
+});
+
+describe("startRun", () => {
+  const chain: DagWorkflowDefinition = {
+    name: "start-wf",
+    trigger: { type: "manual" },
+    steps: {
+      a: { type: "agent", prompt: "root 1" },
+      b: { type: "agent", prompt: "root 2" },
+      c: { type: "agent", prompt: "join" },
+    },
+    edges: [
+      { from: "a", to: "c" },
+      { from: "b", to: "c" },
+    ],
+  };
+
+  test("creates the run, announces it, and enqueues every job root", async () => {
+    const deps = createTestDeps(chain);
+    const payload = { body: { id: 123 } };
+    const result = await startRun(chain, payload, deps);
+
+    expect(result.jobIds).toEqual(["job-1", "job-2"]);
+    expect(deps.dispatched).toEqual(["a", "b"]);
+    const run = dagRunStore.get(result.workflowRunId)!;
+    expect(run.status).toBe("running");
+    expect(run.triggerPayload).toEqual(payload);
+    expect(run.stepStatuses).toEqual({ a: "running", b: "running", c: "pending" });
+    expect(run.edgeStates).toEqual({ "a:c": "pending", "b:c": "pending" });
+    expect((deps.broadcasts[0] as { type: string }).type).toBe("workflow_started");
+  });
+
+  test("evaluates inline roots instead of enqueueing them", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "cf-root-wf",
+      trigger: { type: "manual" },
+      steps: {
+        decide: { type: "if", condition: { ref: "{{trigger.payload.x}}", eq: "yes" } },
+        a: { type: "agent", prompt: "then path" },
+        b: { type: "agent", prompt: "else path" },
+      },
+      edges: [
+        { from: "decide", to: "a", branch: "then" },
+        { from: "decide", to: "b", branch: "else" },
+      ],
+    };
+    const deps = createTestDeps(def);
+    const result = await startRun(def, { x: "no" }, deps);
+
+    // Only job roots count as the run's dispatched jobs; the if node's branch
+    // is enqueued as its successor.
+    expect(result.jobIds).toEqual([]);
+    expect(deps.dispatched).toEqual(["b"]);
+    expect(dagRunStore.get(result.workflowRunId)!.stepStatuses.decide).toBe("completed");
+  });
+
+  test("a root job that completes during add() stays completed", async () => {
+    const deps = createTestDeps(chain);
+    deps.flowProducer = {
+      add: async (job: any) => {
+        await handleDagStepCompletion(
+          job.data.workflowRunId,
+          job.data.stepSlug,
+          "fast",
+          `job-${job.data.stepSlug}`,
+          deps,
+        );
+        return { job: { id: `job-${job.data.stepSlug}` } };
+      },
+    } as any;
+
+    const result = await startRun(chain, null, deps);
+
+    const run = dagRunStore.get(result.workflowRunId)!;
+    expect(run.stepStatuses.a).toBe("completed");
+    expect(run.stepStatuses.b).toBe("completed");
+  });
+
+  test("a root that cannot be enqueued fails the run and rethrows", async () => {
+    const deps = createTestDeps(chain);
+    let runId = "";
+    deps.flowProducer = {
+      add: async (job: any) => {
+        runId = job.data.workflowRunId;
+        throw new Error("queue down");
+      },
+    } as any;
+
+    await expect(startRun(chain, null, deps)).rejects.toThrow("queue down");
+    const run = dagRunStore.get(runId)!;
+    expect(run.status).toBe("failed");
+    expect(run.failureReason).toBe("Failed to dispatch step: queue down");
+    expect(run.stepStatuses).toEqual({ a: "failed", b: "dead", c: "dead" });
   });
 });

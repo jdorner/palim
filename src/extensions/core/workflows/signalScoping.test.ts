@@ -9,7 +9,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { publicBaseUrl } from "@src/config";
 import { createWorkflowTestDb } from "@src/test/db";
-import { type DagCoordinatorDeps, handleDagStepCompletion } from "./dagCoordinator";
+import { type DagCoordinatorDeps, handleDagStepCompletion, signalTimeoutDeps } from "./dagCoordinator";
 import { createDagEmitHandler } from "./dagEmitHandler";
 import * as dagRunStore from "./dagRunStore";
 import { edgeId } from "./dagRunStore";
@@ -435,7 +435,7 @@ describe("signal timeouts", () => {
 
     // Simulate a restart: the in-memory timer is gone.
     signalTimers.cleanup();
-    const armed = signalTimers.rearmWaiting({ log: deps.log, broadcast: deps.broadcast }, signal.createdAt + 120_000);
+    const armed = signalTimers.rearmWaiting(signalTimeoutDeps(deps), signal.createdAt + 120_000);
     await settle();
 
     expect(armed).toBe(1);
@@ -459,12 +459,49 @@ describe("signal timeouts", () => {
     const signal = signalStore.getWaitingForStep(run.id, "wait")!;
 
     signalTimers.cleanup();
-    const armed = signalTimers.rearmWaiting({ log: deps.log, broadcast: deps.broadcast }, signal.createdAt + 1_000);
+    const armed = signalTimers.rearmWaiting(signalTimeoutDeps(deps), signal.createdAt + 1_000);
     await settle();
 
     expect(armed).toBe(1);
     expect(signalTimers.activeCount()).toBe(1);
     expect(signalStore.getById(signal.id)!.status).toBe("waiting");
+  });
+
+  test("a timeout fails the wait, sweeps the other open steps and cancels their jobs", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "timeout-sweep-wf",
+      trigger: { type: "manual" },
+      steps: {
+        start: { type: "agent", prompt: "start" },
+        wait: { type: "waitFor", event: "late", timeout: 60_000 },
+        side: { type: "agent", prompt: "parallel branch" },
+      },
+      edges: [
+        { from: "start", to: "wait" },
+        { from: "start", to: "side" },
+      ],
+    };
+    const cancelled: string[] = [];
+    const deps: DagCoordinatorDeps = {
+      ...createTestDeps([def]),
+      inFlightJobIds: async () => ["job-side"],
+      cancelJob: async (jobId) => {
+        cancelled.push(jobId);
+      },
+    };
+    const run = await startAndPark(def, deps);
+    expect(dagRunStore.get(run.id)!.stepStatuses.side).toBe("running");
+    const signal = signalStore.getWaitingForStep(run.id, "wait")!;
+
+    signalTimers.arm(signal, 0, signalTimeoutDeps(deps));
+    await settle();
+
+    const after = dagRunStore.get(run.id)!;
+    expect(after.status).toBe("failed");
+    expect(after.failureReason).toBe('Signal "late" timed out while waiting');
+    expect(after.stepStatuses).toMatchObject({ wait: "failed", side: "dead" });
+    // The swept branch's job is stopped, not left running to a discarded result.
+    expect(cancelled).toEqual(["job-side"]);
   });
 
   test("a timeout after the run ended leaves the run status alone", async () => {
@@ -482,7 +519,7 @@ describe("signal timeouts", () => {
     const signal = signalStore.getWaitingForStep(run.id, "wait")!;
     dagRunStore.updateStatus(run.id, "failed", "other branch failed");
 
-    signalTimers.arm(signal, 0, { log: deps.log, broadcast: deps.broadcast });
+    signalTimers.arm(signal, 0, signalTimeoutDeps(deps));
     await settle();
 
     expect(signalStore.getById(signal.id)!.status).toBe("timed_out");

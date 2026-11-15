@@ -28,7 +28,15 @@ import {
   type StepStatus,
 } from "./dagRunStore";
 import { definitionTopology } from "./definitionTopology";
-import type { DagAggregatorStep, DagCaseStep, DagIfStep, DagIteratorStep, DagWorkflowDefinition } from "./schemas";
+import { HUMAN_TASK_SIGNAL_EVENT } from "./humanTask";
+import type {
+  DagAggregatorStep,
+  DagCaseStep,
+  DagIfStep,
+  DagIteratorStep,
+  DagWaitForStep,
+  DagWorkflowDefinition,
+} from "./schemas";
 import { DAG_CF_TYPES } from "./schemas";
 
 /** The part of a run the kernel reads. */
@@ -49,7 +57,7 @@ export interface IterationState {
   as: string;
 }
 
-/** Something that happened to a run. Every event names the step it concerns. */
+/** Something that happened to a run. Every event except `runStarted` names the step it concerns. */
 export type RunEvent =
   /** A queue job finished with a result. */
   | { type: "stepCompleted"; slug: string; result: unknown }
@@ -61,8 +69,10 @@ export type RunEvent =
   | { type: "caseEvaluated"; slug: string; value: string }
   /** An `iterator` node's items were resolved and parsed by the shell. */
   | { type: "iteratorEvaluated"; slug: string; items: unknown[] }
-  /** Start a step that has no incoming edges (an inline root). */
-  | { type: "activate"; slug: string }
+  /** A new run starts: every root step is activated. */
+  | { type: "runStarted" }
+  /** The shell created a waitFor/humanTask node's signal (and task): the branch pauses. */
+  | { type: "waitRegistered"; slug: string }
   /** A step failed; the run fails fast. */
   | { type: "stepFailed"; slug: string; reason: string };
 
@@ -104,12 +114,14 @@ const WORK_EFFECTS = new Set<RunEffect["type"]>(["dispatch", "evaluate", "regist
  */
 export function advance(run: RunState, definition: DagWorkflowDefinition | undefined, event: RunEvent): Transition {
   const t = new TransitionBuilder(run);
+  const slug = "slug" in event ? event.slug : null;
   if (!t.active) {
-    t.log("warn", `DAG coordinator: run ${run.id} is "${run.status}", ignoring ${event.type} of step "${event.slug}"`);
+    const subject = slug === null ? "" : ` of step "${slug}"`;
+    t.log("warn", `DAG coordinator: run ${run.id} is "${run.status}", ignoring ${event.type}${subject}`);
   } else if (event.type === "stepFailed") {
     t.fail(event.slug, event.reason);
   } else if (!definition) {
-    t.fail(event.slug, `Workflow definition "${run.workflowName}" no longer available`);
+    t.fail(slug, `Workflow definition "${run.workflowName}" no longer available`);
   } else {
     new GraphRules(t, definition).apply(event);
   }
@@ -191,13 +203,16 @@ class TransitionBuilder {
     this.effects.push({ type: "log", level, message });
   }
 
-  /** Fails the run at a step: drops pending work and sweeps every open step to dead. */
-  fail(slug: string, reason: string): void {
-    this.log("error", `DAG run ${this.runId} failed at step "${slug}": ${reason}`);
+  /**
+   * Fails the run at a step (or, with `null`, as a whole): drops pending work
+   * and sweeps every open step to dead.
+   */
+  fail(slug: string | null, reason: string): void {
+    this.log("error", `DAG run ${this.runId} failed${slug === null ? "" : ` at step "${slug}"`}: ${reason}`);
     this.effects = this.effects.filter((e) => !WORK_EFFECTS.has(e.type));
-    this.setStatus(slug, "failed");
+    if (slug !== null) this.setStatus(slug, "failed");
     this.setRunStatus("failed", reason);
-    this.broadcast({ type: "workflow_failed", workflowRunId: this.runId, failedStep: slug, error: reason });
+    this.broadcast({ type: "workflow_failed", workflowRunId: this.runId, failedStep: slug ?? "", error: reason });
     for (const [s, status] of Object.entries(this.statuses)) {
       if (status === "pending" || status === "running" || status === "waiting-signal") {
         this.setStatus(s, "dead");
@@ -243,8 +258,14 @@ class GraphRules {
       case "iteratorEvaluated":
         this.iteratorEvaluated(event.slug, event.items);
         break;
-      case "activate":
-        this.activate(event.slug);
+      case "runStarted":
+        for (const root of this.topology.roots) {
+          if (!t.active) break;
+          this.activate(root);
+        }
+        break;
+      case "waitRegistered":
+        this.waitRegistered(event.slug);
         break;
     }
     this.checkCompletion();
@@ -305,6 +326,30 @@ class GraphRules {
     const out = this.topology.outgoing(slug);
     for (const edge of out) t.setEdge(edge, !taken || taken(edge) ? "satisfied" : "dead");
     return out;
+  }
+
+  /**
+   * Pauses a waitFor/humanTask branch once its signal exists: the step and the
+   * run wait. Ignored unless the step is still running (it was activated and
+   * not swept since); the shell then withdraws the signal.
+   */
+  private waitRegistered(slug: string): void {
+    const { t } = this;
+    const stepDef = this.definition.steps[slug];
+    if (!stepDef || t.statuses[slug] !== "running") {
+      t.log("warn", `DAG coordinator: step "${slug}" in run ${t.runId} is "${t.statuses[slug]}", not waiting`);
+      return;
+    }
+    t.setStatus(slug, "waiting-signal");
+    t.setRunStatus("waiting-signal");
+    const wait = stepDef.type === "waitFor" ? (stepDef as DagWaitForStep) : null;
+    t.broadcast({
+      type: "workflow_step_waiting",
+      workflowRunId: t.runId,
+      stepSlug: slug,
+      event: wait ? wait.event : HUMAN_TASK_SIGNAL_EVENT,
+      inputSchema: wait?.inputSchema ?? null,
+    });
   }
 
   /** Broadcasts the completion of an inline node (no job, so the run id stands in for it). */
