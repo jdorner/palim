@@ -53,7 +53,7 @@ async function findWorkflowFile(workflowsDir: string, name: string): Promise<str
  * @param deps - Shared extension state and services
  */
 export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
-  const { ctx, logger, store, workflowsDir, dispatchAndAnnounce, scheduleReload, analyzeWorkflow } = deps;
+  const { ctx, logger, store, workflowsDir, runs, scheduleReload, analyzeWorkflow } = deps;
 
   ctx.routes.register("GET", "/", async (reqCtx) => {
     const triggerRefs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin);
@@ -152,7 +152,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
     const payload = reqCtx.body ?? null;
     // Record the requester as the run's initiator so the run is owned by
     // (and its steps authorize as) them rather than being ownerless.
-    const result = await dispatchAndAnnounce(wf, payload, ctx.auth.requestUserId(reqCtx.request));
+    const result = await runs.start(wf, payload, ctx.auth.requestUserId(reqCtx.request));
     return Response.json({ ok: true, workflowRunId: result.workflowRunId, jobIds: result.jobIds }, { status: 202 });
   });
 

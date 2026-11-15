@@ -54,7 +54,7 @@ export function registerMetaRoutes(deps: WorkflowRouteDeps): void {
       .list()
       .slice()
       .sort((a, b) => a.type.localeCompare(b.type));
-    return Response.json([...(await listEngineStepTypes({ hitl: deps.hitl !== undefined })), ...registered]);
+    return Response.json([...(await listEngineStepTypes({ hitl: deps.hitlEnabled })), ...registered]);
   });
 
   /**

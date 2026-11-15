@@ -31,32 +31,24 @@ import { WORKFLOW_TIMEZONE } from "@src/config";
 import { setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
 import { resolveAmbientUserId } from "@src/utils/fetch";
 import { registerTriggerOwnerCounter } from "@src/web/triggerOwnership";
+import { registerWorkflowRunHooks } from "@src/web/workflowRunHooks";
 import type { FSWatcher } from "chokidar";
-import {
-  type DagCoordinatorDeps,
-  handleDagStepCompletion,
-  handleDagStepFailure,
-  signalTimeoutDeps,
-  startRun,
-} from "./dagCoordinator";
 import { createDagEmitHandler } from "./dagEmitHandler";
-import type { DagStepJobData, SessionFactory } from "./dagEngine";
+import type { DagStepJobData } from "./dagEngine";
 import { loadDagWorkflowFiles, loadSingleWorkflow } from "./dagLoader";
 import { initDagRunStore } from "./dagRunStore";
 import { createDagStepProcessor } from "./dagWorker";
 import { readStepDocs } from "./engineStepTypes";
-import { cancelRunTasks, installHumanTaskSource } from "./humanTaskSource";
 import { countPortalWorkflowsRunAs, createPortalLauncherProvider } from "./portalLaunchers";
 import { createReloadScheduler, type ReloadScheduler } from "./reloadScheduler";
 import { registerWorkflowRoutes } from "./routes";
 import type { DagWorkflowDefinition } from "./schemas";
 import { initSignalStore } from "./signalStore";
-import * as signalTimers from "./signalTimers";
-import { runJobs, stepData } from "./stepJobs";
 import { setDefaultTimeZone } from "./templateFunctions";
 import { createWorkflowAnalyzer } from "./workflowAnalysis";
 import { watchWorkflowDir } from "./workflowDirWatcher";
 import { createWorkflowFileIndex, type WorkflowFileIndex } from "./workflowFileIndex";
+import { createWorkflowRuns, type WorkflowRuns } from "./workflowRuns";
 
 // ---------------------------------------------------------------------------
 // Factory
@@ -64,7 +56,7 @@ import { createWorkflowFileIndex, type WorkflowFileIndex } from "./workflowFileI
 
 const manifest = {
   name: "workflows",
-  version: "2.9.3",
+  version: "2.9.4",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -100,13 +92,15 @@ export function createExtension(): Extension {
     watcher: FSWatcher | null;
     reloads: ReloadScheduler | null;
     workflowsDir: string;
-    uninstallHumanTasks: (() => void) | null;
+    runs: WorkflowRuns | null;
+    uninstallRunHooks: (() => void) | null;
     uninstallPortal: (() => void) | null;
   } = {
     watcher: null,
     reloads: null,
     workflowsDir: "",
-    uninstallHumanTasks: null,
+    runs: null,
+    uninstallRunHooks: null,
     uninstallPortal: null,
   };
 
@@ -130,8 +124,6 @@ export function createExtension(): Extension {
       logger = ctx.log;
       fileIndex = createWorkflowFileIndex(store, logger);
       setDefaultTimeZone(WORKFLOW_TIMEZONE || null);
-      const flowProducer = ctx.queues.getFlowProducer();
-      const sessionFactory: SessionFactory = { create: (opts) => ctx.sessions.create(opts) };
 
       // Initialize data stores with the shared database instance
       initDagRunStore(ctx.db);
@@ -144,7 +136,7 @@ export function createExtension(): Extension {
       fileIndex.replaceAll(await loadDagWorkflowFiles(state.workflowsDir, logger));
       logger.info(`Loaded ${store.size} workflow definition(s)`);
 
-      // Create the steps queue (declared before coordinatorDeps so cancelJob can reference it).
+      // The steps queue is handed only to the run lifecycle, which owns its jobs.
       const stepsQueue = ctx.queues.create<DagStepJobData>(
         "steps",
         createDagStepProcessor({
@@ -173,66 +165,26 @@ export function createExtension(): Extension {
         },
       );
 
-      // Queued and active jobs of a run (cancelled when the run fails).
-      const inFlightJobIds = async (runId: string): Promise<string[]> =>
-        runJobs(await stepsQueue.getAllJobs(), runId)
-          .filter((s) => s.state === "active" || s.state === "waiting" || s.state === "delayed")
-          .map((s) => s.id);
-
-      // Build the coordinator dependencies (shared by completion, failure, resume, emit).
       const hitl = ctx.internal?.hitl;
-      const coordinatorDeps: DagCoordinatorDeps = {
-        flowProducer,
-        sessionFactory,
+      const runs = createWorkflowRuns({
+        stepsQueue,
+        flowProducer: ctx.queues.getFlowProducer(),
+        sessionFactory: { create: (opts) => ctx.sessions.create(opts) },
         log: logger,
-        broadcast: (event) => {
-          // Every failure path announces workflow_failed; a failed run's open
-          // human tasks can no longer be answered.
-          if (event.type === "workflow_failed") {
-            cancelRunTasks(hitl, event.workflowRunId, `Workflow run failed: ${event.error}`);
-          }
-          ctx.messaging.broadcast(event);
-        },
+        broadcast: (message) => ctx.messaging.broadcast(message),
+        emitEvent: (event) => ctx.events.emit(event),
         getWorkflowDefinition: (name) => store.get(name),
-        cancelJob: async (jobId) => {
-          await stepsQueue.cancelJob(jobId);
-        },
-        inFlightJobIds,
         hitl,
-      };
-
-      // Answers, cancellations, and timeouts of human tasks drive their runs.
-      state.uninstallHumanTasks = hitl
-        ? installHumanTaskSource({
-            hitl,
-            coordinatorDeps,
-            log: logger,
-            inFlightJobIds,
-          })
-        : null;
+      });
+      state.runs = runs;
+      // The host's queue clean asks the run lifecycle instead of reading the stores.
+      state.uninstallRunHooks = registerWorkflowRunHooks(runs);
 
       // Register the DAG emit step type handler
       ctx.stepTypes.register("emit", {
-        ...createDagEmitHandler({ coordinatorDeps }),
+        ...createDagEmitHandler({ coordinatorDeps: runs.coordinatorDeps }),
         docs: await readStepDocs("emit"),
       });
-
-      // Timeout timers live in memory: re-arm the ones of runs still parked on a
-      // signal from before the restart (elapsed deadlines fire immediately).
-      const rearmed = signalTimers.rearmWaiting(signalTimeoutDeps(coordinatorDeps));
-      if (rearmed > 0) logger.info(`Re-armed ${rearmed} signal timeout(s)`);
-
-      /**
-       * Shared DAG dispatch helper: starts a run (which announces
-       * `workflow_started` and activates every root step).
-       */
-      function dispatchAndAnnounce(
-        wf: DagWorkflowDefinition,
-        payload: unknown,
-        initiatorUserId?: string,
-      ): Promise<{ workflowRunId: string; jobIds: string[] }> {
-        return startRun(wf, payload ?? null, coordinatorDeps, initiatorUserId);
-      }
 
       // Register the dispatch function so all extension contexts can use ctx.workflows.dispatch()
       setWorkflowDispatchFn(async (name, payload) => {
@@ -246,16 +198,14 @@ export function createExtension(): Extension {
         // Runs started from within a user's job (e.g. a `start-workflow` step or
         // an agent tool) inherit that user as initiator, so they stay scoped to
         // them instead of becoming unowned runs visible to everyone.
-        return dispatchAndAnnounce(wf, payload, resolveAmbientUserId());
+        return runs.start(wf, payload, resolveAmbientUserId());
       });
 
       // Workflows with a `portal` trigger are offered in the portal and run as
       // the operator bound to them on save.
       const portal = ctx.internal?.portal;
       if (portal) {
-        const unregisterProvider = portal.registerLauncherProvider(
-          createPortalLauncherProvider(store, dispatchAndAnnounce),
-        );
+        const unregisterProvider = portal.registerLauncherProvider(createPortalLauncherProvider(store, runs.start));
         const unregisterCounter = registerTriggerOwnerCounter("portal workflow", (userId) =>
           countPortalWorkflowsRunAs(store, userId),
         );
@@ -292,57 +242,6 @@ export function createExtension(): Extension {
         logger.warn("Could not start workflow file watcher:", err);
       }
 
-      // Wire queue events -> DAG coordinator + WebSocket broadcasts
-      stepsQueue.onEvent("active", ({ job }) => {
-        if (!job) return;
-        const d = stepData(job);
-        ctx.messaging.broadcast({
-          type: "workflow_step_started",
-          workflowRunId: d.workflowRunId,
-          stepSlug: d.stepSlug,
-          jobId: d.id,
-        });
-      });
-
-      stepsQueue.onEvent("completed", async ({ job }) => {
-        if (!job) return;
-        const d = stepData(job);
-        await handleDagStepCompletion(d.workflowRunId, d.stepSlug, job.returnvalue, d.id, coordinatorDeps);
-      });
-
-      stepsQueue.onEvent("failed", async ({ jobId, failedReason, job }) => {
-        if (!job) return;
-        const d = stepData(job);
-
-        ctx.messaging.broadcast({
-          type: "workflow_step_failed",
-          workflowRunId: d.workflowRunId,
-          stepSlug: d.stepSlug,
-          jobId: d.id,
-          error: failedReason,
-        });
-
-        // Only fail the run permanently once the job is truly failed (not a retry delay)
-        if (d.state === "failed") {
-          // Fail-fast: the coordinator cancels the run's in-flight jobs.
-          await handleDagStepFailure(d.workflowRunId, d.stepSlug, failedReason, coordinatorDeps);
-
-          // Emit domain event for cross-extension consumption (e.g. error-analyzer)
-          ctx.events.emit({
-            type: "workflow:step_failed",
-            context: {
-              source: "workflows",
-              id: d.workflowRunId,
-              workflowRunId: d.workflowRunId,
-              workflowName: d.workflowName,
-              stepSlug: d.stepSlug,
-              jobId,
-              error: failedReason,
-            },
-          });
-        }
-      });
-
       // --- Shared trigger event handler ---
 
       /**
@@ -364,7 +263,7 @@ export function createExtension(): Extension {
         for (const wf of store.values()) {
           if (wf.trigger.type === triggerType && wf.trigger.ref === slug && (wf.enabled ?? true)) {
             try {
-              const result = await dispatchAndAnnounce(wf, payload, initiatorUserId);
+              const result = await runs.start(wf, payload, initiatorUserId);
               logger.info(`${sourceLabel} "${slug}" triggered workflow "${wf.name}" -> run ${result.workflowRunId}`);
             } catch (err) {
               logger.error(`Failed to dispatch workflow "${wf.name}" for ${sourceLabel.toLowerCase()} "${slug}":`, err);
@@ -401,10 +300,8 @@ export function createExtension(): Extension {
         logger,
         store,
         workflowsDir: state.workflowsDir,
-        stepsQueue,
-        coordinatorDeps,
-        hitl,
-        dispatchAndAnnounce,
+        runs,
+        hitlEnabled: hitl !== undefined,
         scheduleReload: (filename) => state.reloads?.schedule(filename),
         analyzeWorkflow: createWorkflowAnalyzer(ctx),
       });
@@ -417,9 +314,10 @@ export function createExtension(): Extension {
       }
       state.reloads?.cancel();
       state.reloads = null;
-      signalTimers.cleanup();
-      state.uninstallHumanTasks?.();
-      state.uninstallHumanTasks = null;
+      state.uninstallRunHooks?.();
+      state.uninstallRunHooks = null;
+      state.runs?.dispose();
+      state.runs = null;
       state.uninstallPortal?.();
       state.uninstallPortal = null;
       store.clear();

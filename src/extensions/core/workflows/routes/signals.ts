@@ -16,7 +16,8 @@ import type { WorkflowRouteDeps } from "./types";
  * @param deps - Shared extension state and services
  */
 export function registerSignalsRoutes(deps: WorkflowRouteDeps): void {
-  const { ctx, coordinatorDeps } = deps;
+  const { ctx } = deps;
+  const { coordinatorDeps } = deps.runs;
 
   /**
    * Reads and parses a signal payload body. An empty body is `null`.
