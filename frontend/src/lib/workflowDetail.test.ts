@@ -188,7 +188,22 @@ describe("applyWorkflowEvent", () => {
       { type: "workflow_failed", workflowRunId: "r1", failedStep: "b", error: "boom" },
       "w",
     );
-    expect(failed.runs[0]!.steps.map((s) => s.status)).toEqual(["dead", "active"]);
+    expect(failed.runs[0]!.steps.map((s) => s.status)).toEqual(["dead", "failed"]);
+  });
+
+  test("marks a failed inline step failed (a timed-out wait has no job and no step_failed event)", () => {
+    const wf = applyWorkflowEvent(
+      base(),
+      { type: "workflow_step_waiting", workflowRunId: "r1", stepSlug: "b", event: "go" } as never,
+      "w",
+    );
+    const failed = applyWorkflowEvent(
+      wf,
+      { type: "workflow_failed", workflowRunId: "r1", failedStep: "b", error: 'Signal "go" timed out while waiting' },
+      "w",
+    );
+    expect(failed.runs[0]!.status).toBe("failed");
+    expect(failed.runs[0]!.steps[1]!.status).toBe("failed");
   });
 
   test("removes deleted runs", () => {

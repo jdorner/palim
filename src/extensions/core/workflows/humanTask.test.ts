@@ -10,8 +10,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import type { HumanTaskUserRef } from "@shared/portal";
 import { createHitlService, type HitlDirectory, type HitlService, type HitlViewer, TaskStore } from "@src/hitl";
 import { createWorkflowTestDb } from "@src/test/db";
-import { type DagCoordinatorDeps, handleDagStepCompletion } from "./dagCoordinator";
-import { dispatchDagWorkflow } from "./dagEngine";
+import { type DagCoordinatorDeps, handleDagStepCompletion, signalTimeoutDeps, startRun } from "./dagCoordinator";
 import * as dagRunStore from "./dagRunStore";
 import { edgeId } from "./dagRunStore";
 import { humanTaskOutputSchema } from "./humanTask";
@@ -244,7 +243,7 @@ describe("humanTask node", () => {
     const [task] = service.listOpenBySource("workflow", run.id);
     const signal = signalStore.getWaitingForStep(run.id, "review")!;
 
-    signalTimers.arm(signal, 0, { log: deps.log, broadcast: deps.broadcast });
+    signalTimers.arm(signal, 0, signalTimeoutDeps(deps));
     await settle();
 
     expect(service.getRecord(task!.id)!.status).toBe("expired");
@@ -261,7 +260,7 @@ describe("humanTask node", () => {
     const [task] = service.listOpenBySource("workflow", run.id);
     const signal = signalStore.getWaitingForStep(run.id, "review")!;
 
-    signalTimers.arm(signal, 0, { log: deps.log, broadcast: deps.broadcast });
+    signalTimers.arm(signal, 0, signalTimeoutDeps(deps));
     await settle();
 
     expect(service.getRecord(task!.id)!.status).toBe("expired");
@@ -301,14 +300,13 @@ describe("humanTask node", () => {
       edges: [],
     };
     const deps = createDeps(def);
-    const inline: string[] = [];
+    install(deps);
 
-    await dispatchDagWorkflow(deps.flowProducer, def, null, deps.log, deps.sessionFactory, async (_runId, slugs) => {
-      inline.push(...slugs);
-    });
+    const { workflowRunId } = await startRun(def, null, deps);
 
     expect(deps.dispatched).toEqual(["work"]);
-    expect(inline).toEqual(["review"]);
+    expect(service.listOpenBySource("workflow", workflowRunId)).toHaveLength(1);
+    expect(dagRunStore.get(workflowRunId)!.stepStatuses).toEqual({ work: "running", review: "waiting-signal" });
   });
 });
 
