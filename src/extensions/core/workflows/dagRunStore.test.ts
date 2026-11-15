@@ -1,25 +1,22 @@
 /**
  * Tests for the DAG workflow Run Store module.
  *
- * Uses in-memory SQLite for isolation. Validates edge state transitions,
- * step status tracking, and the join-barrier rule with mixed satisfied/dead edges.
+ * Uses in-memory SQLite for isolation. Validates run records and key-by-key
+ * patch application. The join barrier and status rules are tested with the
+ * run kernel.
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createTestDb } from "@src/test/db";
 import {
-  classifyIncomingEdges,
+  applyPatch,
   create,
   type DagWorkflowRun,
   edgeId,
   get,
   getAll,
   initDagRunStore,
-  isActiveRunStatus,
-  updateEdgeState,
-  updateEdgeStates,
   updateStatus,
-  updateStepResult,
   updateStepStatus,
 } from "./dagRunStore";
 
@@ -69,39 +66,52 @@ describe("dagRunStore", () => {
     });
   });
 
-  describe("updateEdgeState", () => {
-    test("transitions edge from pending to satisfied", () => {
-      const run = makeRun({ edgeStates: { "a:b": "pending" } });
-      updateEdgeState(run.id, "a:b", "satisfied");
-      const retrieved = get(run.id)!;
-      expect(retrieved.edgeStates["a:b"]).toBe("satisfied");
-    });
-
-    test("transitions edge to dead", () => {
-      const run = makeRun({ edgeStates: { "decide:x:then": "pending" } });
-      updateEdgeState(run.id, "decide:x:then", "dead");
-      const retrieved = get(run.id)!;
-      expect(retrieved.edgeStates["decide:x:then"]).toBe("dead");
-    });
-  });
-
-  describe("updateEdgeStates (batch)", () => {
-    test("updates multiple edges atomically", () => {
+  describe("applyPatch", () => {
+    test("writes step statuses, edge states and results key by key", () => {
       const run = makeRun({
-        edgeStates: { "a:b": "pending", "a:c": "pending", "b:d": "pending" },
+        stepStatuses: { a: "running", b: "pending" },
+        edgeStates: { "a:b": "pending", "x:y": "pending" },
+        stepResults: { keep: "old" },
       });
-      updateEdgeStates(run.id, { "a:b": "satisfied", "a:c": "satisfied" });
-      const retrieved = get(run.id)!;
-      expect(retrieved.edgeStates["a:b"]).toBe("satisfied");
-      expect(retrieved.edgeStates["a:c"]).toBe("satisfied");
-      expect(retrieved.edgeStates["b:d"]).toBe("pending");
+      applyPatch(run.id, {
+        stepStatuses: { a: "completed" },
+        edgeStates: { "a:b": "satisfied" },
+        stepResults: { a: { count: 5 } },
+      });
+      const after = get(run.id)!;
+      expect(after.stepStatuses).toEqual({ a: "completed", b: "pending" });
+      expect(after.edgeStates).toEqual({ "a:b": "satisfied", "x:y": "pending" });
+      expect(after.stepResults).toEqual({ keep: "old", a: { count: 5 } });
+      expect(after.status).toBe("running");
     });
 
-    test("no-op for empty updates", () => {
-      const run = makeRun({ edgeStates: { "a:b": "pending" } });
-      updateEdgeStates(run.id, {});
-      const retrieved = get(run.id)!;
-      expect(retrieved.edgeStates["a:b"]).toBe("pending");
+    test("sets the run status with its failure reason", () => {
+      const run = makeRun();
+      applyPatch(run.id, {
+        status: "failed",
+        failureReason: "boom",
+        stepStatuses: {},
+        edgeStates: {},
+        stepResults: {},
+      });
+      expect(get(run.id)!).toMatchObject({ status: "failed", failureReason: "boom" });
+    });
+
+    test("writes more keys than one json_set batch holds", () => {
+      const slugs = Array.from({ length: 150 }, (_, i) => `s${i}`);
+      const run = makeRun({ stepStatuses: Object.fromEntries(slugs.map((s) => [s, "pending"])) });
+      applyPatch(run.id, {
+        stepStatuses: Object.fromEntries(slugs.map((s) => [s, "dead"])),
+        edgeStates: {},
+        stepResults: {},
+      });
+      expect(Object.values(get(run.id)!.stepStatuses).every((st) => st === "dead")).toBe(true);
+    });
+
+    test("stores an undefined result as null", () => {
+      const run = makeRun();
+      applyPatch(run.id, { stepStatuses: {}, edgeStates: {}, stepResults: { a: undefined } });
+      expect(get(run.id)!.stepResults.a).toBeNull();
     });
   });
 
@@ -135,31 +145,6 @@ describe("dagRunStore", () => {
     });
   });
 
-  describe("updateStepResult", () => {
-    test("persists a string result", () => {
-      const run = makeRun();
-      updateStepResult(run.id, "fetch", "some output text");
-      const retrieved = get(run.id)!;
-      expect(retrieved.stepResults.fetch).toBe("some output text");
-    });
-
-    test("persists an object result", () => {
-      const run = makeRun();
-      updateStepResult(run.id, "parse", { valid: true, count: 5 });
-      const retrieved = get(run.id)!;
-      expect(retrieved.stepResults.parse).toEqual({ valid: true, count: 5 });
-    });
-
-    test("does not clobber other step results", () => {
-      const run = makeRun();
-      updateStepResult(run.id, "a", "result-a");
-      updateStepResult(run.id, "b", "result-b");
-      const retrieved = get(run.id)!;
-      expect(retrieved.stepResults.a).toBe("result-a");
-      expect(retrieved.stepResults.b).toBe("result-b");
-    });
-  });
-
   describe("updateStatus", () => {
     test("marks run as completed", () => {
       const run = makeRun();
@@ -177,37 +162,6 @@ describe("dagRunStore", () => {
     });
   });
 
-  describe("classifyIncomingEdges", () => {
-    test("is ready when all incoming edges are satisfied", () => {
-      const states = { "a:c": "satisfied", "b:c": "satisfied" } as const;
-      expect(classifyIncomingEdges(states, ["a:c", "b:c"])).toBe("ready");
-    });
-
-    test("is ready when satisfied and dead edges are mixed", () => {
-      const states = { "approve:combine": "satisfied", "reject:combine": "dead" } as const;
-      expect(classifyIncomingEdges(states, ["approve:combine", "reject:combine"])).toBe("ready");
-    });
-
-    test("is waiting while any incoming edge is pending", () => {
-      const states = { "a:c": "satisfied", "b:c": "pending" } as const;
-      expect(classifyIncomingEdges(states, ["a:c", "b:c"])).toBe("waiting");
-    });
-
-    test("is waiting when an incoming edge has no recorded state", () => {
-      const states = { "a:c": "dead" } as const;
-      expect(classifyIncomingEdges(states, ["a:c", "b:c"])).toBe("waiting");
-    });
-
-    test("is dead when all incoming edges are dead", () => {
-      const states = { "x:z": "dead", "y:z": "dead" } as const;
-      expect(classifyIncomingEdges(states, ["x:z", "y:z"])).toBe("dead");
-    });
-
-    test("is dead for an empty edge list", () => {
-      expect(classifyIncomingEdges({}, [])).toBe("dead");
-    });
-  });
-
   describe("edgeId helper", () => {
     test("creates ID without branch", () => {
       expect(edgeId("a", "b")).toBe("a:b");
@@ -215,24 +169,6 @@ describe("dagRunStore", () => {
 
     test("creates ID with branch", () => {
       expect(edgeId("decide", "path-a", "then")).toBe("decide:path-a:then");
-    });
-  });
-
-  describe("isActiveRunStatus", () => {
-    test("running is active", () => {
-      expect(isActiveRunStatus("running")).toBe(true);
-    });
-
-    test("waiting-signal is active", () => {
-      expect(isActiveRunStatus("waiting-signal")).toBe(true);
-    });
-
-    test("completed is not active", () => {
-      expect(isActiveRunStatus("completed")).toBe(false);
-    });
-
-    test("failed is not active", () => {
-      expect(isActiveRunStatus("failed")).toBe(false);
     });
   });
 

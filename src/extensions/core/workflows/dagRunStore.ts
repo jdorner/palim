@@ -12,42 +12,17 @@ import type { RunTemplateInfo } from "@shared/workflows";
 import { publicBaseUrl } from "@src/config";
 import { eq, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
+import type { DagRunStatus, EdgeState, RunPatch, StepStatus } from "./runKernel";
 import { workflowRuns } from "./runSchema";
+
+// Run status types and the active-status rule belong to the run kernel;
+// re-exported here for callers that only read runs.
+export type { DagRunStatus, EdgeState, RunPatch, StepStatus } from "./runKernel";
+export { isActiveRunStatus } from "./runKernel";
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-/** Run status values for a DAG workflow execution. */
-export type DagRunStatus = "running" | "waiting-signal" | "completed" | "failed";
-
-/**
- * Whether a run status represents an active (non-terminal) execution.
- *
- * Both `running` and `waiting-signal` are active: the run is still in progress,
- * it just may be paused on a `waitFor` node. Only `completed` and `failed` are
- * terminal. Coordinator control-flow guards use this to decide whether to keep
- * advancing the graph, so a run paused on one branch does not freeze other
- * branches that are still executing.
- *
- * @param status - The run status to test
- * @returns true when the run is still in progress (running or waiting-signal)
- */
-export function isActiveRunStatus(status: DagRunStatus): boolean {
-  return status === "running" || status === "waiting-signal";
-}
-
-/** State of a single edge in the DAG during execution. */
-export type EdgeState = "pending" | "satisfied" | "dead";
-
-/**
- * Status of a single step in the DAG during execution.
- *
- * `waiting-signal` marks a `waitFor` node that has registered its signal and is
- * paused pending delivery (or timeout). It is a non-terminal, non-running state:
- * the step is neither actively executing a job nor finished.
- */
-export type StepStatus = "pending" | "running" | "waiting-signal" | "completed" | "failed" | "dead";
 
 /**
  * A DAG workflow run record.
@@ -242,54 +217,10 @@ export function toRunTemplateInfo(
 }
 
 /**
- * Updates a single edge state atomically.
- *
- * @param runId - The run identifier
- * @param edgeKey - The edge ID (e.g. "a:b" or "decide:x:then")
- * @param state - The new edge state
- */
-export function updateEdgeState(runId: string, edgeKey: string, state: EdgeState): void {
-  const jsonPath = `$.__edges.${edgeKey}`;
-  const jsonValue = JSON.stringify(state);
-
-  db.update(workflowRuns)
-    .set({
-      stepResults: sql`json_set(${workflowRuns.stepResults}, ${jsonPath}, json(${jsonValue}))`,
-      updatedAt: Date.now(),
-    })
-    .where(eq(workflowRuns.id, runId))
-    .run();
-}
-
-/**
- * Updates multiple edge states atomically in a single statement.
- *
- * @param runId - The run identifier
- * @param updates - Map of edge ID to new state
- */
-export function updateEdgeStates(runId: string, updates: Record<string, EdgeState>): void {
-  if (Object.keys(updates).length === 0) return;
-
-  // Build a chained json_set expression
-  const entries = Object.entries(updates);
-  let expr = sql`${workflowRuns.stepResults}`;
-  for (const [key, state] of entries) {
-    const jsonPath = `$.__edges.${key}`;
-    const jsonValue = JSON.stringify(state);
-    expr = sql`json_set(${expr}, ${jsonPath}, json(${jsonValue}))`;
-  }
-
-  db.update(workflowRuns)
-    .set({
-      stepResults: expr,
-      updatedAt: Date.now(),
-    })
-    .where(eq(workflowRuns.id, runId))
-    .run();
-}
-
-/**
  * Updates a single step's status.
+ *
+ * Writes outside the run kernel; production code changes run state only
+ * through {@link applyPatch}. Kept for setting up run state directly (tests).
  *
  * @param runId - The run identifier
  * @param slug - The step slug
@@ -308,39 +239,8 @@ export function updateStepStatus(runId: string, slug: string, status: StepStatus
     .run();
 }
 
-/**
- * Persists a step's result value.
- *
- * @param runId - The run identifier
- * @param stepSlug - The step slug
- * @param result - The result value to store
- */
-export function updateStepResult(runId: string, stepSlug: string, result: unknown): void {
-  const jsonPath = `$.${stepSlug}`;
-  const jsonValue = JSON.stringify(result);
-
-  db.update(workflowRuns)
-    .set({
-      stepResults: sql`json_set(${workflowRuns.stepResults}, ${jsonPath}, json(${jsonValue}))`,
-      updatedAt: Date.now(),
-    })
-    .where(eq(workflowRuns.id, runId))
-    .run();
-}
-
 /** Path/value pairs per `json_set` call in {@link applyPatch}. */
 const PATCH_BATCH = 40;
-
-/** State changes to a run, applied key by key (see `RunPatch` in `runKernel.ts`). */
-export interface DagRunPatch {
-  /** New run status, when it changed. */
-  status?: DagRunStatus;
-  /** Failure reason stored with `status` (null clears it). */
-  failureReason?: string | null;
-  stepStatuses: Record<string, StepStatus>;
-  edgeStates: Record<string, EdgeState>;
-  stepResults: Record<string, unknown>;
-}
 
 /**
  * Applies a patch in one statement. Each step status, edge state and result is
@@ -350,7 +250,7 @@ export interface DagRunPatch {
  * @param runId - The run identifier
  * @param patch - The changes to apply
  */
-export function applyPatch(runId: string, patch: DagRunPatch): void {
+export function applyPatch(runId: string, patch: RunPatch): void {
   const writes: [string, unknown][] = [
     ...Object.entries(patch.stepResults).map(([slug, value]): [string, unknown] => [`$.${slug}`, value]),
     ...Object.entries(patch.stepStatuses).map(([slug, value]): [string, unknown] => [`$.__statuses.${slug}`, value]),
@@ -381,6 +281,9 @@ export function applyPatch(runId: string, patch: DagRunPatch): void {
 /**
  * Updates the run status and optional failure reason.
  *
+ * Writes outside the run kernel; production code changes run state only
+ * through {@link applyPatch}. Kept for setting up run state directly (tests).
+ *
  * @param runId - The run identifier
  * @param status - The new status value
  * @param failureReason - Optional failure reason (relevant when status is "failed")
@@ -394,46 +297,6 @@ export function updateStatus(runId: string, status: DagRunStatus, failureReason?
     })
     .where(eq(workflowRuns.id, runId))
     .run();
-}
-
-/**
- * Join-barrier verdict for a step, derived from the states of its incoming edges.
- *
- * - `"waiting"`: at least one incoming edge is unresolved (pending or unknown)
- * - `"dead"`: every incoming edge is resolved and none is satisfied
- * - `"ready"`: every incoming edge is resolved and at least one is satisfied
- */
-export type JoinVerdict = "waiting" | "dead" | "ready";
-
-/**
- * Applies the join barrier to a step's incoming edges.
- *
- * This is the single readiness rule of the DAG engine: a step may run once all
- * incoming edges are resolved (`satisfied` or `dead`) and at least one is
- * `satisfied`; if all are `dead`, the step is unreachable.
- *
- * An empty edge list yields `"dead"` (nothing can satisfy it); callers handle
- * root steps separately.
- *
- * @param edgeStates - Per-run edge states keyed by edge ID
- * @param incomingEdgeIds - IDs of the step's incoming edges
- * @returns The join verdict for the step
- */
-export function classifyIncomingEdges(
-  edgeStates: Readonly<Record<string, EdgeState>>,
-  incomingEdgeIds: readonly string[],
-): JoinVerdict {
-  let hasSatisfied = false;
-  for (const eid of incomingEdgeIds) {
-    const state = edgeStates[eid];
-    if (state === "satisfied") {
-      hasSatisfied = true;
-    } else if (state !== "dead") {
-      // pending or unknown: not resolved yet
-      return "waiting";
-    }
-  }
-  return hasSatisfied ? "ready" : "dead";
 }
 
 /**

@@ -5,8 +5,16 @@
 
 import { describe, expect, test } from "bun:test";
 import { edgeId } from "@shared/workflowTopology";
-import type { DagRunStatus, EdgeState, StepStatus } from "./dagRunStore";
-import { advance, type IterationState, type RunEffect, type RunEvent, type RunState } from "./runKernel";
+import type { DagRunStatus, EdgeState, StepStatus } from "./runKernel";
+import {
+  advance,
+  classifyIncomingEdges,
+  type IterationState,
+  isActiveRunStatus,
+  type RunEffect,
+  type RunEvent,
+  type RunState,
+} from "./runKernel";
 import type { DagWorkflowDefinition, Edge } from "./schemas";
 
 type Steps = DagWorkflowDefinition["steps"];
@@ -323,6 +331,8 @@ describe("inline nodes", () => {
     const { patch, effects } = advance(runOf(def, { steps: { wait: "running" } }), def, {
       type: "waitRegistered",
       slug: "wait",
+      event: "approve",
+      inputSchema: null,
     });
     expect(patch).toMatchObject({ status: "waiting-signal", stepStatuses: { wait: "waiting-signal" } });
     expect(broadcasts(effects)).toEqual(["workflow_step_waiting:wait"]);
@@ -330,7 +340,7 @@ describe("inline nodes", () => {
 
   test("a wait registered after its step was swept changes nothing", () => {
     const run = runOf(def, { steps: { wait: "dead" } });
-    const { patch } = advance(run, def, { type: "waitRegistered", slug: "wait" });
+    const { patch } = advance(run, def, { type: "waitRegistered", slug: "wait", event: "approve", inputSchema: null });
     expect(patch).toEqual({ stepStatuses: {}, edgeStates: {}, stepResults: {} });
   });
 
@@ -392,5 +402,54 @@ describe("run guards", () => {
     const { patch, effects } = advance(run, def, { type: "stepCompleted", slug: "b", result: 2 });
     expect(patch.status).toBe("completed");
     expect(broadcasts(effects)).toEqual(["workflow_completed"]);
+  });
+});
+
+describe("classifyIncomingEdges", () => {
+  test("is ready when all incoming edges are satisfied", () => {
+    const states = { "a:c": "satisfied", "b:c": "satisfied" } as const;
+    expect(classifyIncomingEdges(states, ["a:c", "b:c"])).toBe("ready");
+  });
+
+  test("is ready when satisfied and dead edges are mixed", () => {
+    const states = { "approve:combine": "satisfied", "reject:combine": "dead" } as const;
+    expect(classifyIncomingEdges(states, ["approve:combine", "reject:combine"])).toBe("ready");
+  });
+
+  test("is waiting while any incoming edge is pending", () => {
+    const states = { "a:c": "satisfied", "b:c": "pending" } as const;
+    expect(classifyIncomingEdges(states, ["a:c", "b:c"])).toBe("waiting");
+  });
+
+  test("is waiting when an incoming edge has no recorded state", () => {
+    const states = { "a:c": "dead" } as const;
+    expect(classifyIncomingEdges(states, ["a:c", "b:c"])).toBe("waiting");
+  });
+
+  test("is dead when all incoming edges are dead", () => {
+    const states = { "x:z": "dead", "y:z": "dead" } as const;
+    expect(classifyIncomingEdges(states, ["x:z", "y:z"])).toBe("dead");
+  });
+
+  test("is dead for an empty edge list", () => {
+    expect(classifyIncomingEdges({}, [])).toBe("dead");
+  });
+});
+
+describe("isActiveRunStatus", () => {
+  test("running is active", () => {
+    expect(isActiveRunStatus("running")).toBe(true);
+  });
+
+  test("waiting-signal is active", () => {
+    expect(isActiveRunStatus("waiting-signal")).toBe(true);
+  });
+
+  test("completed is not active", () => {
+    expect(isActiveRunStatus("completed")).toBe(false);
+  });
+
+  test("failed is not active", () => {
+    expect(isActiveRunStatus("failed")).toBe(false);
   });
 });

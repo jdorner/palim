@@ -18,26 +18,81 @@
 import type { WorkflowWebSocketEvent } from "@shared/workflows";
 import { edgeId, type TopologyEdge, type WorkflowTopology } from "@shared/workflowTopology";
 import { type CaseStepResult, describeControlFlowStep, type IfStepResult } from "./controlFlowEvaluation";
-import {
-  classifyIncomingEdges,
-  type DagRunPatch,
-  type DagRunStatus,
-  type DagWorkflowRun,
-  type EdgeState,
-  isActiveRunStatus,
-  type StepStatus,
-} from "./dagRunStore";
+import type { DagWorkflowRun } from "./dagRunStore";
 import { definitionTopology } from "./definitionTopology";
-import { HUMAN_TASK_SIGNAL_EVENT } from "./humanTask";
-import type {
-  DagAggregatorStep,
-  DagCaseStep,
-  DagIfStep,
-  DagIteratorStep,
-  DagWaitForStep,
-  DagWorkflowDefinition,
-} from "./schemas";
+import type { DagAggregatorStep, DagCaseStep, DagIfStep, DagIteratorStep, DagWorkflowDefinition } from "./schemas";
 import { DAG_CF_TYPES } from "./schemas";
+
+/** Run status values for a DAG workflow execution. */
+export type DagRunStatus = "running" | "waiting-signal" | "completed" | "failed";
+
+/**
+ * Whether a run status represents an active (non-terminal) execution.
+ *
+ * Both `running` and `waiting-signal` are active: the run is still in progress,
+ * it just may be paused on a `waitFor` node. Only `completed` and `failed` are
+ * terminal. Coordinator control-flow guards use this to decide whether to keep
+ * advancing the graph, so a run paused on one branch does not freeze other
+ * branches that are still executing.
+ *
+ * @param status - The run status to test
+ * @returns true when the run is still in progress (running or waiting-signal)
+ */
+export function isActiveRunStatus(status: DagRunStatus): boolean {
+  return status === "running" || status === "waiting-signal";
+}
+
+/** State of a single edge in the DAG during execution. */
+export type EdgeState = "pending" | "satisfied" | "dead";
+
+/**
+ * Status of a single step in the DAG during execution.
+ *
+ * `waiting-signal` marks a `waitFor` node that has registered its signal and is
+ * paused pending delivery (or timeout). It is a non-terminal, non-running state:
+ * the step is neither actively executing a job nor finished.
+ */
+export type StepStatus = "pending" | "running" | "waiting-signal" | "completed" | "failed" | "dead";
+
+/**
+ * Join-barrier verdict for a step, derived from the states of its incoming edges.
+ *
+ * - `"waiting"`: at least one incoming edge is unresolved (pending or unknown)
+ * - `"dead"`: every incoming edge is resolved and none is satisfied
+ * - `"ready"`: every incoming edge is resolved and at least one is satisfied
+ */
+export type JoinVerdict = "waiting" | "dead" | "ready";
+
+/**
+ * Applies the join barrier to a step's incoming edges.
+ *
+ * This is the single readiness rule of the DAG engine: a step may run once all
+ * incoming edges are resolved (`satisfied` or `dead`) and at least one is
+ * `satisfied`; if all are `dead`, the step is unreachable.
+ *
+ * An empty edge list yields `"dead"` (nothing can satisfy it); callers handle
+ * root steps separately.
+ *
+ * @param edgeStates - Per-run edge states keyed by edge ID
+ * @param incomingEdgeIds - IDs of the step's incoming edges
+ * @returns The join verdict for the step
+ */
+export function classifyIncomingEdges(
+  edgeStates: Readonly<Record<string, EdgeState>>,
+  incomingEdgeIds: readonly string[],
+): JoinVerdict {
+  let hasSatisfied = false;
+  for (const eid of incomingEdgeIds) {
+    const state = edgeStates[eid];
+    if (state === "satisfied") {
+      hasSatisfied = true;
+    } else if (state !== "dead") {
+      // pending or unknown: not resolved yet
+      return "waiting";
+    }
+  }
+  return hasSatisfied ? "ready" : "dead";
+}
 
 /** The part of a run the kernel reads. */
 export type RunState = Pick<
@@ -71,10 +126,13 @@ export type RunEvent =
   | { type: "iteratorEvaluated"; slug: string; items: unknown[] }
   /** A new run starts: every root step is activated. */
   | { type: "runStarted" }
-  /** The shell created a waitFor/humanTask node's signal (and task): the branch pauses. */
-  | { type: "waitRegistered"; slug: string }
+  /** The shell created a waitFor/humanTask node's signal: the branch pauses, announcing what it waits for. */
+  | { type: "waitRegistered"; slug: string; event: string; inputSchema: WaitInputSchema }
   /** A step failed; the run fails fast. */
   | { type: "stepFailed"; slug: string; reason: string };
+
+/** The input schema announced with a waiting step. */
+export type WaitInputSchema = Extract<WorkflowWebSocketEvent, { type: "workflow_step_waiting" }>["inputSchema"];
 
 /** Something the shell must do after applying the patch, in order. */
 export type RunEffect =
@@ -87,8 +145,16 @@ export type RunEffect =
   | { type: "broadcast"; event: WorkflowWebSocketEvent }
   | { type: "log"; level: "debug" | "info" | "warn" | "error"; message: string };
 
-/** State changes to apply to a run, key by key. */
-export type RunPatch = DagRunPatch;
+/** State changes to apply to a run, key by key (applied by `dagRunStore.applyPatch`). */
+export interface RunPatch {
+  /** New run status, when it changed. */
+  status?: DagRunStatus;
+  /** Failure reason stored with `status` (null clears it). */
+  failureReason?: string | null;
+  stepStatuses: Record<string, StepStatus>;
+  edgeStates: Record<string, EdgeState>;
+  stepResults: Record<string, unknown>;
+}
 
 /** The outcome of one event. */
 export interface Transition {
@@ -265,7 +331,7 @@ class GraphRules {
         }
         break;
       case "waitRegistered":
-        this.waitRegistered(event.slug);
+        this.waitRegistered(event.slug, event.event, event.inputSchema);
         break;
     }
     this.checkCompletion();
@@ -333,23 +399,15 @@ class GraphRules {
    * run wait. Ignored unless the step is still running (it was activated and
    * not swept since); the shell then withdraws the signal.
    */
-  private waitRegistered(slug: string): void {
+  private waitRegistered(slug: string, event: string, inputSchema: WaitInputSchema): void {
     const { t } = this;
-    const stepDef = this.definition.steps[slug];
-    if (!stepDef || t.statuses[slug] !== "running") {
+    if (!this.definition.steps[slug] || t.statuses[slug] !== "running") {
       t.log("warn", `DAG coordinator: step "${slug}" in run ${t.runId} is "${t.statuses[slug]}", not waiting`);
       return;
     }
     t.setStatus(slug, "waiting-signal");
     t.setRunStatus("waiting-signal");
-    const wait = stepDef.type === "waitFor" ? (stepDef as DagWaitForStep) : null;
-    t.broadcast({
-      type: "workflow_step_waiting",
-      workflowRunId: t.runId,
-      stepSlug: slug,
-      event: wait ? wait.event : HUMAN_TASK_SIGNAL_EVENT,
-      inputSchema: wait?.inputSchema ?? null,
-    });
+    t.broadcast({ type: "workflow_step_waiting", workflowRunId: t.runId, stepSlug: slug, event, inputSchema });
   }
 
   /** Broadcasts the completion of an inline node (no job, so the run id stands in for it). */

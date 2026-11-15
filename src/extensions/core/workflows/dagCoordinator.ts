@@ -29,7 +29,7 @@ import {
   resolveHumanTaskFields,
   WORKFLOW_TASK_SOURCE,
 } from "./humanTask";
-import { advance, type RunEffect, type RunEvent, type RunPatch } from "./runKernel";
+import { advance, type RunEffect, type RunEvent, type RunPatch, type WaitInputSchema } from "./runKernel";
 import type {
   ConditionDef,
   DagCaseStep,
@@ -538,7 +538,7 @@ async function registerWaitForNode(
 
   // The kernel pauses the step and the run (waiting-signal). Both are
   // non-terminal: a delivered signal resumes them, a timeout fails the run.
-  if (!(await pauseOnSignal(runId, slug, signalRecord.id, deps))) return;
+  if (!(await pauseOnSignal(signalRecord, deps))) return;
 
   log.info(
     `DAG waitFor node "${slug}" in run ${runId}: waiting for signal "${stepDef.event}" (${signalRecord.scope}${
@@ -625,7 +625,7 @@ async function registerHumanTaskNode(
   }
 
   // Pause first, then create the task: a declined pause leaves no task behind.
-  if (!(await pauseOnSignal(runId, slug, signalRecord.id, deps))) return;
+  if (!(await pauseOnSignal(signalRecord, deps))) return;
 
   // The pause's effects awaited. Check again right before creating the task
   // (createTask is synchronous), so a run failed in the meantime gets no task.
@@ -689,19 +689,17 @@ function stillRunning(runId: string, slug: string): boolean {
  * When the kernel declines (the step is no longer running), the signal is
  * withdrawn so it cannot be delivered.
  *
- * @param runId - The workflow run ID
- * @param slug - The waiting step
- * @param signalId - The signal just created for it
+ * @param signal - The signal just created for the waiting step (its event and input schema are announced)
  * @param deps - Injected dependencies
  * @returns Whether the step now waits on the signal
  */
-async function pauseOnSignal(
-  runId: string,
-  slug: string,
-  signalId: string,
-  deps: DagCoordinatorDeps,
-): Promise<boolean> {
-  const { patch } = await processEvent(runId, { type: "waitRegistered", slug }, deps);
+async function pauseOnSignal(signal: signalStore.SignalRecord, deps: DagCoordinatorDeps): Promise<boolean> {
+  const { runId, stepSlug: slug, id: signalId } = signal;
+  const { patch } = await processEvent(
+    runId,
+    { type: "waitRegistered", slug, event: signal.event, inputSchema: signal.inputSchema as WaitInputSchema },
+    deps,
+  );
   if (patch.stepStatuses[slug] === "waiting-signal") return true;
   signalStore.markCancelled(signalId);
   return false;
