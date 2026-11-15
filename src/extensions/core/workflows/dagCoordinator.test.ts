@@ -826,4 +826,38 @@ describe("dispatch vs. fast completion", () => {
       .map((e) => e.type);
     expect(bEvents).toEqual(["workflow_step_completed"]);
   });
+
+  test("work queued behind a dispatch does not start once that job has failed the run", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "fail-during-add-wf",
+      trigger: { type: "manual" },
+      steps: {
+        a: { type: "agent", prompt: "start" },
+        b: { type: "agent", prompt: "fails fast" },
+        wait: { type: "waitFor", event: "approve" },
+      },
+      edges: [
+        { from: "a", to: "b" },
+        { from: "a", to: "wait" },
+      ],
+    };
+
+    const run = initRun(def);
+    dagRunStore.updateStepStatus(run.id, "a", "running");
+    const deps = createTestDeps(def);
+    deps.flowProducer = {
+      add: async (job: any) => {
+        // The worker fails the job before add() returns.
+        await handleDagStepFailure(run.id, job.data.stepSlug, "boom", deps);
+        return { job: { id: "job-b" } };
+      },
+    } as any;
+
+    await handleDagStepCompletion(run.id, "a", "done", "job-a", deps);
+
+    const finalRun = dagRunStore.get(run.id)!;
+    expect(finalRun.status).toBe("failed");
+    expect(finalRun.stepStatuses.wait).toBe("dead");
+    expect(signalStore.listWaitingForRun(run.id)).toEqual([]);
+  });
 });

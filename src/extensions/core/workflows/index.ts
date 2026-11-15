@@ -63,7 +63,7 @@ import { createWorkflowFileIndex, type WorkflowFileIndex } from "./workflowFileI
 
 const manifest = {
   name: "workflows",
-  version: "2.9.2",
+  version: "2.9.3",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,

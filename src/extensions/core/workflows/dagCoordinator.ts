@@ -1,26 +1,27 @@
 /**
- * DAG Coordinator - orchestrates step dispatch based on edge state transitions.
+ * DAG Coordinator - the I/O shell around the run kernel.
  *
- * Called by the queue's `completed` and `failed` event handlers.
- * After a step completes or fails:
- * - Updates edge states and step statuses in the Run Store
- * - Evaluates CF nodes inline when their incoming edges are resolved
- * - Dispatches ready successor steps
- * - Propagates dead edges downstream
- * - Detects run completion or triggers fail-fast
+ * Called by the queue's `completed` and `failed` event handlers, signal
+ * delivery and the engine (inline roots). Every state change goes through
+ * {@link advance} in `runKernel.ts`: the shell loads the run, asks the kernel
+ * what the event changes, applies that patch in one statement, then executes
+ * the kernel's effects in order: enqueue jobs, resolve control-flow templates
+ * (feeding the answer back as the next event), register waits, broadcast, log.
+ *
+ * Loading, deciding and applying happen without an `await` in between, so no
+ * other handler can interleave with a transition. Effects run afterwards and
+ * re-load the run when they need its state.
  *
  * @module
  */
 
 import type { HitlApi, Logger } from "@ext/types";
 import type { WorkflowWebSocketEvent } from "@shared/workflows";
-import type { WorkflowTopology } from "@shared/workflowTopology";
 import type { FlowProducer } from "bunqueue/client";
 import { evaluateCondition } from "./condition";
-import { type CaseStepResult, describeControlFlowStep, type IfStepResult } from "./controlFlowEvaluation";
 import { buildDagStepJob, type SessionFactory } from "./dagEngine";
+import type { DagWorkflowRun } from "./dagRunStore";
 import * as dagRunStore from "./dagRunStore";
-import { type DagWorkflowRun, edgeId } from "./dagRunStore";
 import { definitionTopology } from "./definitionTopology";
 import {
   HUMAN_TASK_SIGNAL_EVENT,
@@ -28,9 +29,9 @@ import {
   resolveHumanTaskFields,
   WORKFLOW_TASK_SOURCE,
 } from "./humanTask";
+import { advance, type RunEffect, type RunEvent } from "./runKernel";
 import type {
   ConditionDef,
-  DagAggregatorStep,
   DagCaseStep,
   DagHumanTaskStep,
   DagIfStep,
@@ -38,16 +39,13 @@ import type {
   DagStep,
   DagWaitForStep,
   DagWorkflowDefinition,
-  Edge,
 } from "./schemas";
 import { DAG_CF_TYPES } from "./schemas";
 import * as signalStore from "./signalStore";
 import * as signalTimers from "./signalTimers";
 import { resolveTemplates, type TemplateContext } from "./template";
 
-// ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
+export type { IterationState } from "./runKernel";
 
 /**
  * Dependencies injected into the DAG coordinator.
@@ -72,27 +70,13 @@ export interface DagCoordinatorDeps {
   hitl?: HitlApi;
 }
 
-/**
- * Incoming edge ids of a step, for join-barrier checks against run edge states.
- *
- * @param topology - The workflow topology
- * @param slug - The step slug
- * @returns The ids of the edges ending at the step
- */
-function incomingEdgeIdsOf(topology: WorkflowTopology, slug: string): string[] {
-  return topology.incoming(slug).map((e) => edgeId(e.from, e.to, e.branch));
-}
-
 // ---------------------------------------------------------------------------
-// Step Completion Handler
+// Entry points
 // ---------------------------------------------------------------------------
 
 /**
- * Handles a completed DAG workflow step.
- *
- * Persists the step result, marks the step completed, satisfies outgoing edges,
- * and checks successor steps for readiness (dispatching them or evaluating
- * CF nodes inline).
+ * Handles a completed DAG workflow step: stores its result, satisfies its
+ * outgoing edges and starts every successor whose join barrier is released.
  *
  * @param runId - The workflow run ID
  * @param stepSlug - The slug of the completed step
@@ -107,821 +91,276 @@ export async function handleDagStepCompletion(
   jobId: string,
   deps: DagCoordinatorDeps,
 ): Promise<void> {
-  const { log, broadcast, getWorkflowDefinition } = deps;
-
-  // Broadcast step completed
-  broadcast({
-    type: "workflow_step_completed",
-    workflowRunId: runId,
-    stepSlug,
-    jobId,
-  });
-
-  // Read current run state
-  const run = dagRunStore.get(runId);
-  if (!run) {
-    log.error(`DAG coordinator: run ${runId} not found`);
-    return;
-  }
-
-  // Skip if run is no longer active (already failed/completed). A run paused on
-  // a waitFor node (waiting-signal) is still active and must keep processing
-  // completions from its other branches.
-  if (!dagRunStore.isActiveRunStatus(run.status)) {
-    log.warn(`DAG coordinator: run ${runId} is "${run.status}", ignoring completion of step "${stepSlug}"`);
-    return;
-  }
-
-  // Persist step result and mark step completed
-  dagRunStore.updateStepResult(runId, stepSlug, result);
-  dagRunStore.updateStepStatus(runId, stepSlug, "completed");
-
-  // Get workflow definition for topology
-  const definition = getWorkflowDefinition(run.workflowName);
-  if (!definition) {
-    failRun(runId, stepSlug, `Workflow definition "${run.workflowName}" no longer available`, deps);
-    return;
-  }
-
-  const topology = definitionTopology(definition);
-
-  // Mark all outgoing edges from this step as "satisfied"
-  const outEdges = topology.outgoing(stepSlug);
-  for (const edge of outEdges) {
-    const eid = edgeId(edge.from, edge.to, edge.branch);
-    dagRunStore.updateEdgeState(runId, eid, "satisfied");
-  }
-
-  // Re-read run state after updates
-  const updatedRun = dagRunStore.get(runId)!;
-
-  // Check successor steps for readiness
-  await checkSuccessors(runId, outEdges, updatedRun, definition, topology, deps);
-}
-
-// ---------------------------------------------------------------------------
-// CF Node Inline Evaluation
-// ---------------------------------------------------------------------------
-
-/**
- * Evaluates a CF node inline (if/case) and marks edges accordingly.
- *
- * @param runId - The workflow run ID
- * @param stepSlug - The CF node slug
- * @param run - Current run state
- * @param definition - The workflow definition
- * @param topology - Precomputed graph topology
- * @param deps - Injected dependencies
- */
-async function evaluateCfNode(
-  runId: string,
-  stepSlug: string,
-  run: DagWorkflowRun,
-  definition: DagWorkflowDefinition,
-  topology: WorkflowTopology,
-  deps: DagCoordinatorDeps,
-): Promise<void> {
-  const { log } = deps;
-  const stepDef = definition.steps[stepSlug]!;
-
-  if (stepDef.type === "if") {
-    await evaluateIfNode(runId, stepSlug, stepDef as DagIfStep, run, definition, topology, deps);
-  } else if (stepDef.type === "case") {
-    await evaluateCaseNode(runId, stepSlug, stepDef as DagCaseStep, run, definition, topology, deps);
-  } else if (stepDef.type === "iterator") {
-    await evaluateIteratorNode(runId, stepSlug, stepDef as DagIteratorStep, run, definition, topology, deps);
-  } else {
-    log.error(`DAG coordinator: unknown CF node type "${stepDef.type}" for step "${stepSlug}"`);
-    failRun(runId, stepSlug, `Unknown CF node type: ${stepDef.type}`, deps);
-  }
+  deps.broadcast({ type: "workflow_step_completed", workflowRunId: runId, stepSlug, jobId });
+  await processEvent(runId, { type: "stepCompleted", slug: stepSlug, result }, deps);
 }
 
 /**
- * Evaluates an `if` node: resolves condition, marks chosen/dead edges, checks successors.
- */
-async function evaluateIfNode(
-  runId: string,
-  stepSlug: string,
-  stepDef: DagIfStep,
-  run: DagWorkflowRun,
-  definition: DagWorkflowDefinition,
-  topology: WorkflowTopology,
-  deps: DagCoordinatorDeps,
-): Promise<void> {
-  const { log, broadcast } = deps;
-
-  // Build template context from accumulated results
-  const templateCtx: TemplateContext = {
-    triggerPayload: run.triggerPayload ?? undefined,
-    stepResults: run.stepResults,
-    stepConfigs: buildStepConfigs(definition),
-    run: dagRunStore.toRunTemplateInfo(run),
-  };
-
-  // Resolve the ref template
-  let resolvedValue: unknown;
-  try {
-    const { resolved, warnings } = await resolveTemplates(stepDef.condition.ref, templateCtx);
-    const hasUnresolvable = warnings.some((w) => w.includes("Unresolvable") || w.includes("Unknown step slug"));
-    if (hasUnresolvable || resolved.includes("{{")) {
-      resolvedValue = undefined;
-    } else {
-      resolvedValue = resolved;
-    }
-  } catch (err) {
-    log.error(`DAG coordinator: template resolution failed for if node "${stepSlug}" in run ${runId}:`, err);
-    failRun(runId, stepSlug, `Template resolution failed: ${err instanceof Error ? err.message : String(err)}`, deps);
-    return;
-  }
-
-  // Evaluate condition
-  let conditionResult: boolean;
-  try {
-    conditionResult = evaluateCondition(resolvedValue, stepDef.condition as ConditionDef);
-  } catch (err) {
-    log.error(`DAG coordinator: condition evaluation failed for if node "${stepSlug}" in run ${runId}:`, err);
-    failRun(runId, stepSlug, `Condition evaluation failed: ${err instanceof Error ? err.message : String(err)}`, deps);
-    return;
-  }
-
-  const chosenBranch = conditionResult ? "then" : "else";
-
-  // Mark step completed with result
-  const ifResult: IfStepResult = {
-    condition: conditionResult,
-    chosenBranch,
-    value: typeof resolvedValue === "string" ? resolvedValue : null,
-  };
-  dagRunStore.updateStepResult(runId, stepSlug, ifResult);
-  dagRunStore.updateStepStatus(runId, stepSlug, "completed");
-
-  // Mark edges: chosen branch = satisfied, others = dead
-  const outEdges = topology.outgoing(stepSlug);
-  for (const edge of outEdges) {
-    const eid = edgeId(edge.from, edge.to, edge.branch);
-    if (edge.branch === chosenBranch) {
-      dagRunStore.updateEdgeState(runId, eid, "satisfied");
-    } else {
-      dagRunStore.updateEdgeState(runId, eid, "dead");
-    }
-  }
-
-  // Broadcast
-  broadcast({
-    type: "workflow_step_completed",
-    workflowRunId: runId,
-    stepSlug,
-    jobId: runId,
-    chosenBranch,
-    evaluation: describeControlFlowStep(stepDef, ifResult),
-  });
-
-  log.info(`DAG if node "${stepSlug}" in run ${runId}: condition=${conditionResult}, branch="${chosenBranch}"`);
-
-  // Re-read run state and check successors
-  const updatedRun = dagRunStore.get(runId)!;
-  await checkSuccessors(runId, outEdges, updatedRun, definition, topology, deps);
-}
-
-/**
- * Picks the branch a `case` node takes when no path matched.
- *
- * `default` names the fallback branch key (a path key or a key of its own).
- * An edge with the literal branch `"default"` is the fallback when the named
- * key has no edge or no `default` is declared, so definitions written for the
- * earlier engine (which always routed to `"default"`) keep working.
- *
- * @param stepDef - The case step definition
- * @param outEdges - The case node's outgoing edges
- * @returns The fallback branch key, or null when the node has no fallback
- */
-function caseFallbackBranch(stepDef: DagCaseStep, outEdges: readonly Edge[]): string | null {
-  const hasEdge = (branch: string) => outEdges.some((e) => e.branch === branch);
-  if (stepDef.default && hasEdge(stepDef.default)) return stepDef.default;
-  if (hasEdge("default")) return "default";
-  return stepDef.default ?? null;
-}
-
-/**
- * Evaluates a `case` node: resolves match, marks chosen/dead edges, checks successors.
- */
-async function evaluateCaseNode(
-  runId: string,
-  stepSlug: string,
-  stepDef: DagCaseStep,
-  run: DagWorkflowRun,
-  definition: DagWorkflowDefinition,
-  topology: WorkflowTopology,
-  deps: DagCoordinatorDeps,
-): Promise<void> {
-  const { log, broadcast } = deps;
-
-  // Build template context from accumulated results
-  const templateCtx: TemplateContext = {
-    triggerPayload: run.triggerPayload ?? undefined,
-    stepResults: run.stepResults,
-    stepConfigs: buildStepConfigs(definition),
-    run: dagRunStore.toRunTemplateInfo(run),
-  };
-
-  // Resolve the match expression
-  let resolvedMatch: string;
-  try {
-    const { resolved } = await resolveTemplates(stepDef.match, templateCtx);
-    resolvedMatch = resolved;
-  } catch (err) {
-    log.error(`DAG coordinator: template resolution failed for case node "${stepSlug}" in run ${runId}:`, err);
-    failRun(runId, stepSlug, `Template resolution failed: ${err instanceof Error ? err.message : String(err)}`, deps);
-    return;
-  }
-
-  // Match against path keys
-  let matchedBranch: string | null = null;
-  for (const key of stepDef.paths) {
-    if (resolvedMatch === key) {
-      matchedBranch = key;
-      break;
-    }
-  }
-
-  const outEdges = topology.outgoing(stepSlug);
-
-  // Fall back to the default branch
-  const fallback = matchedBranch === null;
-  if (fallback) {
-    matchedBranch = caseFallbackBranch(stepDef, outEdges);
-  }
-
-  if (matchedBranch === null) {
-    failRun(
-      runId,
-      stepSlug,
-      `Case node "${stepSlug}" - no path matched "${resolvedMatch}" and no default defined. Paths: [${stepDef.paths.join(", ")}]`,
-      deps,
-    );
-    return;
-  }
-
-  // Mark step completed with result
-  const caseResult: CaseStepResult = { matched: matchedBranch, value: resolvedMatch, fallback };
-  dagRunStore.updateStepResult(runId, stepSlug, caseResult);
-  dagRunStore.updateStepStatus(runId, stepSlug, "completed");
-
-  // Mark edges: matched branch = satisfied, others = dead
-  for (const edge of outEdges) {
-    const eid = edgeId(edge.from, edge.to, edge.branch);
-    if (edge.branch === matchedBranch) {
-      dagRunStore.updateEdgeState(runId, eid, "satisfied");
-    } else {
-      dagRunStore.updateEdgeState(runId, eid, "dead");
-    }
-  }
-
-  // Broadcast
-  broadcast({
-    type: "workflow_step_completed",
-    workflowRunId: runId,
-    stepSlug,
-    jobId: runId,
-    chosenBranch: matchedBranch,
-    evaluation: describeControlFlowStep(stepDef, caseResult),
-  });
-
-  log.info(`DAG case node "${stepSlug}" in run ${runId}: matched="${matchedBranch}"`);
-
-  // Re-read run state and check successors
-  const updatedRun = dagRunStore.get(runId)!;
-  await checkSuccessors(runId, outEdges, updatedRun, definition, topology, deps);
-}
-
-// ---------------------------------------------------------------------------
-// Iterator/Aggregator Evaluation
-// ---------------------------------------------------------------------------
-
-/**
- * Iteration state stored in the iterator's step result.
- * Persisted in dagRunStore via updateStepResult.
- */
-export interface IterationState {
-  /** The full array of items to iterate over. */
-  items: unknown[];
-  /** Zero-based index of the current iteration. */
-  cursor: number;
-  /** Collected results from completed iterations. */
-  iterationResults: unknown[];
-  /** The variable name for the current item in templates. */
-  as: string;
-}
-
-/**
- * Evaluates an `iterator` node: resolves items, initializes iteration state,
- * and satisfies the `each` branch edge to kick off the first iteration.
- *
- * If the items array is empty, the iterator short-circuits: it directly
- * marks the paired aggregator as completed with empty results.
- */
-async function evaluateIteratorNode(
-  runId: string,
-  stepSlug: string,
-  stepDef: DagIteratorStep,
-  run: DagWorkflowRun,
-  definition: DagWorkflowDefinition,
-  topology: WorkflowTopology,
-  deps: DagCoordinatorDeps,
-): Promise<void> {
-  const { log, broadcast } = deps;
-
-  // Build template context for resolving the items expression
-  const templateCtx: TemplateContext = {
-    triggerPayload: run.triggerPayload ?? undefined,
-    stepResults: run.stepResults,
-    stepConfigs: buildStepConfigs(definition),
-    run: dagRunStore.toRunTemplateInfo(run),
-  };
-
-  // Resolve the items template expression
-  let itemsJson: string;
-  try {
-    const { resolved } = await resolveTemplates(stepDef.items, templateCtx);
-    itemsJson = resolved;
-  } catch (err) {
-    failRun(
-      runId,
-      stepSlug,
-      `Iterator items template resolution failed: ${err instanceof Error ? err.message : String(err)}`,
-      deps,
-    );
-    return;
-  }
-
-  // Parse as JSON array
-  let items: unknown[];
-  try {
-    const parsed = JSON.parse(itemsJson);
-    if (!Array.isArray(parsed)) {
-      failRun(runId, stepSlug, `Iterator items resolved to ${typeof parsed}, expected array`, deps);
-      return;
-    }
-    items = parsed;
-  } catch (err) {
-    failRun(
-      runId,
-      stepSlug,
-      `Iterator items is not valid JSON: ${err instanceof Error ? err.message : String(err)}`,
-      deps,
-    );
-    return;
-  }
-
-  const asName = stepDef.as ?? "item";
-
-  // Initialize iteration state
-  const iterState: IterationState = { items, cursor: 0, iterationResults: [], as: asName };
-  dagRunStore.updateStepResult(runId, stepSlug, iterState);
-
-  // Handle empty array: short-circuit to aggregator completion
-  if (items.length === 0) {
-    dagRunStore.updateStepStatus(runId, stepSlug, "completed");
-    broadcast({ type: "workflow_step_completed", workflowRunId: runId, stepSlug, jobId: runId });
-    log.info(`Iterator "${stepSlug}" in run ${runId}: empty items array, short-circuiting`);
-
-    // Mark aggregator completed with empty results
-    const aggSlug = topology.aggregatorOf(stepSlug);
-    if (aggSlug) {
-      const aggResult = { results: [], totalItems: 0, succeeded: 0, failed: 0 };
-      dagRunStore.updateStepResult(runId, aggSlug, aggResult);
-      dagRunStore.updateStepStatus(runId, aggSlug, "completed");
-      broadcast({ type: "workflow_step_completed", workflowRunId: runId, stepSlug: aggSlug, jobId: runId });
-
-      // Satisfy aggregator's outgoing edges and check its successors
-      const aggOutEdges = topology.outgoing(aggSlug);
-      for (const edge of aggOutEdges) {
-        const eid = edgeId(edge.from, edge.to, edge.branch);
-        dagRunStore.updateEdgeState(runId, eid, "satisfied");
-      }
-      const updatedRun = dagRunStore.get(runId)!;
-      await checkSuccessors(runId, aggOutEdges, updatedRun, definition, topology, deps);
-    }
-    return;
-  }
-
-  // Mark iterator completed (it only evaluates once)
-  dagRunStore.updateStepStatus(runId, stepSlug, "completed");
-  broadcast({ type: "workflow_step_completed", workflowRunId: runId, stepSlug, jobId: runId });
-
-  // Satisfy the "each" branch edge to dispatch the body
-  const outEdges = topology.outgoing(stepSlug);
-  for (const edge of outEdges) {
-    const eid = edgeId(edge.from, edge.to, edge.branch);
-    if (edge.branch === "each") {
-      dagRunStore.updateEdgeState(runId, eid, "satisfied");
-    }
-  }
-
-  log.info(`Iterator "${stepSlug}" in run ${runId}: ${items.length} items, starting iteration 0`);
-
-  // Re-read run state and check successors (dispatch body steps)
-  const updatedRun = dagRunStore.get(runId)!;
-  await checkSuccessors(runId, outEdges, updatedRun, definition, topology, deps);
-}
-
-/**
- * Resets all body step statuses and body edges to `pending`.
- * Called by the aggregator between iterations to allow re-execution.
- *
- * @param runId - The workflow run ID
- * @param bodySlugs - Set of body step slugs to reset
- * @param bodyEdgeIds - Set of body edge IDs to reset
- */
-function resetBodySubgraph(runId: string, bodySlugs: ReadonlySet<string>, bodyEdgeIds: ReadonlySet<string>): void {
-  for (const slug of bodySlugs) {
-    dagRunStore.updateStepStatus(runId, slug, "pending");
-  }
-  const edgeUpdates: Record<string, "pending"> = {};
-  for (const eid of bodyEdgeIds) {
-    edgeUpdates[eid] = "pending";
-  }
-  if (Object.keys(edgeUpdates).length > 0) {
-    dagRunStore.updateEdgeStates(runId, edgeUpdates);
-  }
-}
-
-/**
- * Evaluates an `aggregator` node: collects the current iteration's result,
- * advances the cursor, and either resets the body for the next iteration
- * or completes with collected results.
- */
-async function evaluateAggregatorNode(
-  runId: string,
-  stepSlug: string,
-  _stepDef: DagAggregatorStep,
-  run: DagWorkflowRun,
-  definition: DagWorkflowDefinition,
-  topology: WorkflowTopology,
-  deps: DagCoordinatorDeps,
-): Promise<void> {
-  const { log, broadcast } = deps;
-
-  const iterSlug = _stepDef.iterator;
-  const iterState = run.stepResults[iterSlug] as IterationState | undefined;
-
-  if (!iterState) {
-    failRun(runId, stepSlug, `Aggregator "${stepSlug}" cannot read iterator state from "${iterSlug}"`, deps);
-    return;
-  }
-
-  // The body subgraph between the iterator and this aggregator
-  const body = topology.iteratorBody(iterSlug);
-  const bodySlugs = body?.steps ?? new Set<string>();
-  const bodyEdgeIds = new Set((body?.edges ?? []).map((e) => edgeId(e.from, e.to, e.branch)));
-
-  // Collect results from the body's terminal steps for this iteration
-  const iterationResult: Record<string, unknown> = {};
-  for (const slug of body?.terminals ?? []) {
-    iterationResult[slug] = run.stepResults[slug];
-  }
-
-  // Append to iteration results and advance cursor
-  iterState.iterationResults.push(iterationResult);
-  iterState.cursor += 1;
-
-  // Persist updated iteration state on the iterator
-  dagRunStore.updateStepResult(runId, iterSlug, iterState);
-
-  if (iterState.cursor < iterState.items.length) {
-    // More items: reset body and re-dispatch
-    log.info(
-      `Aggregator "${stepSlug}" in run ${runId}: iteration ${iterState.cursor - 1} complete, advancing to ${iterState.cursor}/${iterState.items.length}`,
-    );
-
-    // Reset body subgraph
-    resetBodySubgraph(runId, bodySlugs, bodyEdgeIds);
-
-    // Reset aggregator itself to pending so it can be re-triggered
-    dagRunStore.updateStepStatus(runId, stepSlug, "pending");
-
-    // Re-satisfy the iterator's "each" edge to re-dispatch body
-    const iterOutEdges = topology.outgoing(iterSlug);
-    for (const edge of iterOutEdges) {
-      if (edge.branch === "each") {
-        const eid = edgeId(edge.from, edge.to, edge.branch);
-        dagRunStore.updateEdgeState(runId, eid, "satisfied");
-      }
-    }
-
-    // Check successors to dispatch the body again
-    const updatedRun = dagRunStore.get(runId)!;
-    await checkSuccessors(runId, iterOutEdges, updatedRun, definition, topology, deps);
-  } else {
-    // All items processed: complete the aggregator
-    const aggResult = {
-      results: iterState.iterationResults,
-      totalItems: iterState.items.length,
-      succeeded: iterState.iterationResults.length,
-      failed: 0,
-    };
-
-    dagRunStore.updateStepResult(runId, stepSlug, aggResult);
-    dagRunStore.updateStepStatus(runId, stepSlug, "completed");
-
-    broadcast({ type: "workflow_step_completed", workflowRunId: runId, stepSlug, jobId: runId });
-
-    log.info(`Aggregator "${stepSlug}" in run ${runId}: all ${iterState.items.length} iterations complete`);
-
-    // Satisfy outgoing edges and check downstream successors
-    const outEdges = topology.outgoing(stepSlug);
-    for (const edge of outEdges) {
-      const eid = edgeId(edge.from, edge.to, edge.branch);
-      dagRunStore.updateEdgeState(runId, eid, "satisfied");
-    }
-
-    const updatedRun = dagRunStore.get(runId)!;
-    await checkSuccessors(runId, outEdges, updatedRun, definition, topology, deps);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Successor Dispatch Logic
-// ---------------------------------------------------------------------------
-
-/**
- * Checks successors of recently-resolved edges for readiness.
- *
- * For each unique successor step referenced by the edges:
- * - If the step is a CF node and all its incoming edges are resolved: evaluate inline
- * - If the step is an execution node and all its incoming edges are resolved: dispatch
- * - If all incoming edges are dead (no satisfied): propagate deadness
- * - Otherwise: do nothing (wait for more edges to resolve)
- */
-async function checkSuccessors(
-  runId: string,
-  edges: readonly Edge[],
-  run: DagWorkflowRun,
-  definition: DagWorkflowDefinition,
-  topology: WorkflowTopology,
-  deps: DagCoordinatorDeps,
-): Promise<void> {
-  // Collect unique successor slugs from the edges
-  const successorSlugs = new Set(edges.map((e) => e.to));
-
-  for (const slug of successorSlugs) {
-    // Skip if step is not pending (already running/completed/dead)
-    if (run.stepStatuses[slug] !== "pending") continue;
-
-    const incomingEdgeIds = incomingEdgeIdsOf(topology, slug);
-    if (incomingEdgeIds.length === 0) continue; // root node — shouldn't happen here
-
-    const verdict = dagRunStore.classifyIncomingEdges(run.edgeStates, incomingEdgeIds);
-    if (verdict === "waiting") continue;
-
-    if (verdict === "dead") {
-      // All incoming edges are dead — propagate deadness
-      await propagateDead(runId, slug, definition, topology, deps);
-      // Re-read run state after propagation
-      const freshRun = dagRunStore.get(runId);
-      if (!freshRun || !dagRunStore.isActiveRunStatus(freshRun.status)) return;
-      // Update local run reference for subsequent iterations
-      Object.assign(run, freshRun);
-      continue;
-    }
-
-    // Step is ready (all edges resolved, at least one satisfied)
-    await activateReadyStep(runId, slug, definition, topology, deps);
-    const postRun = dagRunStore.get(runId);
-    if (!postRun || !dagRunStore.isActiveRunStatus(postRun.status)) return;
-    Object.assign(run, postRun);
-  }
-
-  // After processing all successors, check for run completion
-  await checkRunCompletion(runId, topology, deps);
-}
-
-/**
- * Activates a step whose incoming edges are all resolved with at least one satisfied.
- *
- * Inline node types never go through the queue: CF nodes (`if`/`case`/`iterator`)
- * and aggregators are evaluated in the coordinator, `waitFor` registers a signal.
- * All other types are dispatched as queue jobs. Every readiness path (successor
- * checks and dead-edge propagation) must route through here so inline types are
- * never dispatched to the worker.
- *
- * @param runId - The workflow run ID
- * @param slug - The ready step slug
- * @param definition - The workflow definition
- * @param topology - Precomputed graph topology
- * @param deps - Injected dependencies
- */
-async function activateReadyStep(
-  runId: string,
-  slug: string,
-  definition: DagWorkflowDefinition,
-  topology: WorkflowTopology,
-  deps: DagCoordinatorDeps,
-): Promise<void> {
-  const stepDef = definition.steps[slug]!;
-
-  if (DAG_CF_TYPES.has(stepDef.type)) {
-    // CF node: evaluate inline
-    dagRunStore.updateStepStatus(runId, slug, "running");
-    await evaluateCfNode(runId, slug, dagRunStore.get(runId)!, definition, topology, deps);
-  } else if (stepDef.type === "waitFor") {
-    // WaitFor node: register a signal and pause this branch (no queue job)
-    await registerWaitForNode(runId, slug, stepDef as DagWaitForStep, definition, deps);
-  } else if (stepDef.type === "humanTask") {
-    // Human task node: create a portal task and pause this branch (no queue job)
-    await registerHumanTaskNode(runId, slug, stepDef as DagHumanTaskStep, definition, deps);
-  } else if (stepDef.type === "aggregator") {
-    // Aggregator node: evaluate inline (collect results, advance iteration or complete)
-    dagRunStore.updateStepStatus(runId, slug, "running");
-    const run = dagRunStore.get(runId)!;
-    await evaluateAggregatorNode(runId, slug, stepDef as DagAggregatorStep, run, definition, topology, deps);
-  } else {
-    // Execution node: dispatch as a job
-    await dispatchStep(runId, slug, stepDef as DagStep, dagRunStore.get(runId)!, definition, deps);
-  }
-}
-
-/**
- * Dispatches a single step as a queue job.
- */
-async function dispatchStep(
-  runId: string,
-  slug: string,
-  stepDef: DagStep,
-  run: DagWorkflowRun,
-  definition: DagWorkflowDefinition,
-  deps: DagCoordinatorDeps,
-): Promise<void> {
-  const { flowProducer, sessionFactory, log, broadcast } = deps;
-
-  const allStepDefs: Record<string, unknown> = {};
-  for (const [s, d] of Object.entries(definition.steps)) {
-    allStepDefs[s] = { slug: s, ...d };
-  }
-
-  const job = buildDagStepJob(slug, {
-    workflowRunId: runId,
-    workflowName: run.workflowName,
-    stepDef,
-    allStepDefs,
-    sessionFactory,
-    triggerPayload: run.triggerPayload ?? undefined,
-    iteratorSlug: definitionTopology(definition).enclosingIterator(slug),
-    ...(run.createdByUserId ? { initiatorUserId: run.createdByUserId } : {}),
-  });
-
-  // Mark the step running before enqueueing: the in-process worker can pick up
-  // and finish a fast job before add() resolves, and a status write after the
-  // await would clobber its "completed" (or "failed") state.
-  dagRunStore.updateStepStatus(runId, slug, "running");
-
-  try {
-    const result = await flowProducer.add(job);
-
-    // Only announce the start while the step is still running; a late
-    // started event after its completion would show it active again.
-    if (dagRunStore.get(runId)?.stepStatuses[slug] === "running") {
-      broadcast({
-        type: "workflow_step_started",
-        workflowRunId: runId,
-        stepSlug: slug,
-        jobId: result.job.id,
-      });
-    }
-
-    log.debug(`DAG coordinator: dispatched step "${slug}" for run ${runId} (job ${result.job.id})`);
-  } catch (err) {
-    log.error(`DAG coordinator: failed to dispatch step "${slug}" for run ${runId}:`, err);
-    failRun(runId, slug, `Failed to dispatch step: ${err instanceof Error ? err.message : String(err)}`, deps);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Dead Edge Propagation
-// ---------------------------------------------------------------------------
-
-/**
- * Propagates dead state through a step and all its downstream successors.
- *
- * When all incoming edges to a step are dead, the step becomes unreachable.
- * Its outgoing edges are marked dead, and successors are recursively checked.
- */
-async function propagateDead(
-  runId: string,
-  slug: string,
-  definition: DagWorkflowDefinition,
-  topology: WorkflowTopology,
-  deps: DagCoordinatorDeps,
-): Promise<void> {
-  const { log, broadcast } = deps;
-
-  // Mark step as dead
-  dagRunStore.updateStepStatus(runId, slug, "dead");
-  broadcast({ type: "workflow_step_dead", workflowRunId: runId, stepSlug: slug });
-  log.debug(`DAG coordinator: step "${slug}" in run ${runId} is dead (all incoming edges dead)`);
-
-  // Mark all outgoing edges as dead
-  const outEdges = topology.outgoing(slug);
-  for (const edge of outEdges) {
-    const eid = edgeId(edge.from, edge.to, edge.branch);
-    dagRunStore.updateEdgeState(runId, eid, "dead");
-  }
-
-  // Recursively check successors
-  if (outEdges.length > 0) {
-    for (const edge of outEdges) {
-      // Re-read per successor: earlier iterations may have activated or killed steps
-      const updatedRun = dagRunStore.get(runId)!;
-      if (!dagRunStore.isActiveRunStatus(updatedRun.status)) return;
-
-      const successorSlug = edge.to;
-      if (updatedRun.stepStatuses[successorSlug] !== "pending") continue;
-
-      const incomingEdgeIds = incomingEdgeIdsOf(topology, successorSlug);
-      const verdict = dagRunStore.classifyIncomingEdges(updatedRun.edgeStates, incomingEdgeIds);
-
-      if (verdict === "dead") {
-        await propagateDead(runId, successorSlug, definition, topology, deps);
-      } else if (verdict === "ready") {
-        // This successor just became ready (dead edges from this step + satisfied from others)
-        await activateReadyStep(runId, successorSlug, definition, topology, deps);
-      }
-    }
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Run Completion Detection
-// ---------------------------------------------------------------------------
-
-/**
- * Checks if the workflow run is complete.
- *
- * A run is complete when all terminal steps (no outgoing edges) are in a
- * terminal state (completed or dead). Every other step leads to a terminal, so
- * nothing is left pending or running then. All terminals may be dead: a control
- * flow node that took a branch without edges ends the run normally.
- */
-async function checkRunCompletion(runId: string, topology: WorkflowTopology, deps: DagCoordinatorDeps): Promise<void> {
-  const { log, broadcast } = deps;
-
-  const run = dagRunStore.get(runId);
-  if (!run || !dagRunStore.isActiveRunStatus(run.status)) return;
-
-  const allTerminalsDone = topology.terminals.every((slug) => {
-    const status = run.stepStatuses[slug];
-    return status === "completed" || status === "dead";
-  });
-
-  if (allTerminalsDone) {
-    dagRunStore.updateStatus(runId, "completed");
-    broadcast({ type: "workflow_completed", workflowRunId: runId });
-    log.info(`DAG workflow run ${runId} completed`);
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Inline Root Evaluation
-// ---------------------------------------------------------------------------
-
-/**
- * Evaluates an inline root node (a CF or waitFor node with no incoming edges).
- *
- * Called by the engine when a workflow's root steps are all inline nodes that
- * cannot be dispatched as queue jobs. Marks the node running and evaluates it
- * inline (CF) or registers it (waitFor).
+ * Evaluates an inline root node (a CF, waitFor or humanTask node with no
+ * incoming edges). Called by the engine, which dispatches only job roots.
  *
  * @param runId - The workflow run ID
  * @param slug - The inline root node slug
  * @param deps - Injected dependencies
  */
 export async function evaluateInlineRoot(runId: string, slug: string, deps: DagCoordinatorDeps): Promise<void> {
-  const { log, getWorkflowDefinition } = deps;
-
   const run = dagRunStore.get(runId);
-  if (!run || !dagRunStore.isActiveRunStatus(run.status)) return;
-
-  const definition = getWorkflowDefinition(run.workflowName);
-  if (!definition) {
-    failRun(runId, slug, `Workflow definition "${run.workflowName}" no longer available`, deps);
+  const type = run ? deps.getWorkflowDefinition(run.workflowName)?.steps[slug]?.type : undefined;
+  if (type !== undefined && !DAG_CF_TYPES.has(type) && type !== "waitFor" && type !== "humanTask") {
+    deps.log.warn(`DAG coordinator: evaluateInlineRoot called for non-inline step "${slug}" (type: ${type})`);
     return;
   }
+  await processEvent(runId, { type: "activate", slug }, deps);
+}
 
-  const stepDef = definition.steps[slug];
-  if (!stepDef) return;
+/**
+ * Resumes a workflow run after a `waitFor` or `humanTask` node receives its
+ * signal: the payload becomes the step's result and its successors start.
+ * Called by `deliverSignal` after it has claimed the signal.
+ *
+ * @param runId - The workflow run ID
+ * @param stepSlug - The waiting node slug
+ * @param payload - The signal payload (becomes the step's result)
+ * @param deps - Injected dependencies
+ */
+export async function resumeWaitForNode(
+  runId: string,
+  stepSlug: string,
+  payload: unknown,
+  deps: DagCoordinatorDeps,
+): Promise<void> {
+  // With several concurrent waits the run stays waiting-signal until the last
+  // signal is delivered, matching the signal-delivery guard.
+  const otherSignalsPending = signalStore.listWaitingForRun(runId).some((s) => s.stepSlug !== stepSlug);
+  await processEvent(runId, { type: "signalReceived", slug: stepSlug, payload, otherSignalsPending }, deps);
+}
 
-  const topology = definitionTopology(definition);
-
-  if (DAG_CF_TYPES.has(stepDef.type)) {
-    dagRunStore.updateStepStatus(runId, slug, "running");
-    await evaluateCfNode(runId, slug, dagRunStore.get(runId)!, definition, topology, deps);
-  } else if (stepDef.type === "waitFor") {
-    await registerWaitForNode(runId, slug, stepDef as DagWaitForStep, definition, deps);
-  } else if (stepDef.type === "humanTask") {
-    await registerHumanTaskNode(runId, slug, stepDef as DagHumanTaskStep, definition, deps);
-  } else {
-    log.warn(`DAG coordinator: evaluateInlineRoot called for non-inline step "${slug}" (type: ${stepDef.type})`);
+/**
+ * Handles a failed DAG workflow step: fails the run, sweeps every open step
+ * to dead and cancels the given in-flight jobs.
+ *
+ * @param runId - The workflow run ID
+ * @param stepSlug - The slug of the failed step
+ * @param error - Error message or description
+ * @param deps - Injected dependencies
+ * @param jobIdsToCancel - Optional list of in-flight job IDs to cancel
+ */
+export async function handleDagStepFailure(
+  runId: string,
+  stepSlug: string,
+  error: string,
+  deps: DagCoordinatorDeps,
+  jobIdsToCancel?: string[],
+): Promise<void> {
+  await failStep(runId, stepSlug, error, deps);
+  if (!deps.cancelJob) return;
+  for (const jobId of jobIdsToCancel ?? []) {
+    try {
+      await deps.cancelJob(jobId);
+    } catch {
+      // Best effort
+    }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Shell
+// ---------------------------------------------------------------------------
+
+/**
+ * Applies one event: load the run, let the kernel decide, apply the patch,
+ * then execute the effects in order.
+ *
+ * @param runId - The workflow run ID
+ * @param event - The event
+ * @param deps - Injected dependencies
+ */
+async function processEvent(runId: string, event: RunEvent, deps: DagCoordinatorDeps): Promise<void> {
+  const run = dagRunStore.get(runId);
+  if (!run) {
+    deps.log.error(`DAG coordinator: run ${runId} not found (${event.type} of step "${event.slug}")`);
+    return;
+  }
+  const definition = deps.getWorkflowDefinition(run.workflowName);
+  const { patch, effects } = advance(run, definition, event);
+  dagRunStore.applyPatch(runId, patch);
+  for (const effect of effects) {
+    await runEffect(run, definition, effect, deps);
+  }
+}
+
+/**
+ * Fails the run at a step (through the kernel's fail-fast rule).
+ *
+ * @param runId - The workflow run ID
+ * @param slug - The failing step
+ * @param reason - Failure reason
+ * @param deps - Injected dependencies
+ */
+async function failStep(runId: string, slug: string, reason: string, deps: DagCoordinatorDeps): Promise<void> {
+  await processEvent(runId, { type: "stepFailed", slug, reason }, deps);
+}
+
+/**
+ * Executes one kernel effect.
+ *
+ * @param run - The run as loaded before the transition (identity fields only are read)
+ * @param definition - The run's workflow definition
+ * @param effect - The effect
+ * @param deps - Injected dependencies
+ */
+async function runEffect(
+  run: DagWorkflowRun,
+  definition: DagWorkflowDefinition | undefined,
+  effect: RunEffect,
+  deps: DagCoordinatorDeps,
+): Promise<void> {
+  switch (effect.type) {
+    case "broadcast":
+      deps.broadcast(effect.event);
+      return;
+    case "log":
+      deps.log[effect.level](effect.message);
+      return;
+  }
+
+  // Work effects are only emitted with a definition.
+  const stepDef = definition?.steps[effect.slug];
+  if (!definition || !stepDef) return;
+
+  // The kernel marked the step running. An earlier effect's await may have let
+  // another handler fail the run (sweeping the step to dead) in the meantime;
+  // then the work must not start, or a wait would revive the failed run.
+  if (dagRunStore.get(run.id)?.stepStatuses[effect.slug] !== "running") return;
+
+  switch (effect.type) {
+    case "dispatch":
+      await dispatchStep(run, effect.slug, stepDef as DagStep, definition, deps);
+      return;
+    case "evaluate": {
+      const event = await evaluateControlFlow(run.id, effect.slug, stepDef as DagStep, definition, deps);
+      if (event) await processEvent(run.id, event, deps);
+      return;
+    }
+    case "register":
+      if (stepDef.type === "waitFor") {
+        await registerWaitForNode(run.id, effect.slug, stepDef as DagWaitForStep, definition, deps);
+      } else {
+        await registerHumanTaskNode(run.id, effect.slug, stepDef as DagHumanTaskStep, definition, deps);
+      }
+      return;
+  }
+}
+
+/**
+ * Enqueues a step as a job. The kernel has already marked it running: the
+ * in-process worker can finish a fast job before `add()` resolves, and a status
+ * write after the await would clobber its "completed" (or "failed") state.
+ */
+async function dispatchStep(
+  run: DagWorkflowRun,
+  slug: string,
+  stepDef: DagStep,
+  definition: DagWorkflowDefinition,
+  deps: DagCoordinatorDeps,
+): Promise<void> {
+  const { flowProducer, sessionFactory, log, broadcast } = deps;
+
+  const job = buildDagStepJob(slug, {
+    workflowRunId: run.id,
+    workflowName: run.workflowName,
+    stepDef,
+    allStepDefs: buildStepConfigs(definition),
+    sessionFactory,
+    triggerPayload: run.triggerPayload ?? undefined,
+    iteratorSlug: definitionTopology(definition).enclosingIterator(slug),
+    ...(run.createdByUserId ? { initiatorUserId: run.createdByUserId } : {}),
+  });
+
+  try {
+    const result = await flowProducer.add(job);
+
+    // Only announce the start while the step is still running; a late
+    // started event after its completion would show it active again.
+    if (dagRunStore.get(run.id)?.stepStatuses[slug] === "running") {
+      broadcast({ type: "workflow_step_started", workflowRunId: run.id, stepSlug: slug, jobId: result.job.id });
+    }
+    log.debug(`DAG coordinator: dispatched step "${slug}" for run ${run.id} (job ${result.job.id})`);
+  } catch (err) {
+    log.error(`DAG coordinator: failed to dispatch step "${slug}" for run ${run.id}:`, err);
+    await failStep(run.id, slug, `Failed to dispatch step: ${errorMessage(err)}`, deps);
+  }
+}
+
+/**
+ * Resolves an if/case/iterator node's templates against the current run state
+ * and turns the answer into the event the kernel needs. A resolution error
+ * fails the step instead.
+ *
+ * @returns The evaluation event, or null when the run is gone or the step failed
+ */
+async function evaluateControlFlow(
+  runId: string,
+  slug: string,
+  stepDef: DagStep,
+  definition: DagWorkflowDefinition,
+  deps: DagCoordinatorDeps,
+): Promise<RunEvent | null> {
+  const run = dagRunStore.get(runId);
+  if (!run || !dagRunStore.isActiveRunStatus(run.status)) return null;
+  const ctx = templateContext(run, definition);
+
+  const fail = async (reason: string, err?: unknown): Promise<null> => {
+    if (err !== undefined) deps.log.error(`DAG coordinator: ${reason} for "${slug}" in run ${runId}:`, err);
+    await failStep(runId, slug, err === undefined ? reason : `${reason}: ${errorMessage(err)}`, deps);
+    return null;
+  };
+
+  if (stepDef.type === "if") {
+    const { condition } = stepDef as DagIfStep;
+    let value: unknown;
+    try {
+      const { resolved, warnings } = await resolveTemplates(condition.ref, ctx);
+      const unresolvable = warnings.some((w) => w.includes("Unresolvable") || w.includes("Unknown step slug"));
+      value = unresolvable || resolved.includes("{{") ? undefined : resolved;
+    } catch (err) {
+      return fail("Template resolution failed", err);
+    }
+    try {
+      const result = evaluateCondition(value, condition as ConditionDef);
+      return { type: "ifEvaluated", slug, condition: result, value: typeof value === "string" ? value : null };
+    } catch (err) {
+      return fail("Condition evaluation failed", err);
+    }
+  }
+
+  if (stepDef.type === "case") {
+    try {
+      const { resolved } = await resolveTemplates((stepDef as DagCaseStep).match, ctx);
+      return { type: "caseEvaluated", slug, value: resolved };
+    } catch (err) {
+      return fail("Template resolution failed", err);
+    }
+  }
+
+  if (stepDef.type === "iterator") {
+    let itemsJson: string;
+    try {
+      itemsJson = (await resolveTemplates((stepDef as DagIteratorStep).items, ctx)).resolved;
+    } catch (err) {
+      return fail(`Iterator items template resolution failed: ${errorMessage(err)}`);
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(itemsJson);
+    } catch (err) {
+      return fail(`Iterator items is not valid JSON: ${errorMessage(err)}`);
+    }
+    if (!Array.isArray(parsed)) return fail(`Iterator items resolved to ${typeof parsed}, expected array`);
+    return { type: "iteratorEvaluated", slug, items: parsed };
+  }
+
+  return fail(`Unknown CF node type: ${stepDef.type}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -967,12 +406,12 @@ async function registerWaitForNode(
     try {
       const { resolved, warnings } = await resolveTemplates(stepDef.correlate, templateCtx);
       if (warnings.length > 0 || resolved.includes("{{")) {
-        failRun(runId, slug, `Correlation key could not be resolved: ${warnings.join("; ") || resolved}`, deps);
+        await failStep(runId, slug, `Correlation key could not be resolved: ${warnings.join("; ") || resolved}`, deps);
         return;
       }
       correlationKey = resolved;
     } catch (err) {
-      failRun(
+      await failStep(
         runId,
         slug,
         `Correlation key resolution failed: ${err instanceof Error ? err.message : String(err)}`,
@@ -984,7 +423,7 @@ async function registerWaitForNode(
 
   // Create a signal record so the delivery endpoints can find this waiting step.
   // Do this before flipping any status so a store failure leaves the run intact
-  // for failRun to mark failed.
+  // for failStep to mark failed.
   let signalRecord: signalStore.SignalRecord;
   try {
     signalRecord = signalStore.create({
@@ -999,7 +438,7 @@ async function registerWaitForNode(
     });
   } catch (err) {
     log.error(`DAG coordinator: signal store error for waitFor "${slug}" in run ${runId}:`, err);
-    failRun(runId, slug, `Signal Store unavailable: ${err instanceof Error ? err.message : String(err)}`, deps);
+    await failStep(runId, slug, `Signal Store unavailable: ${err instanceof Error ? err.message : String(err)}`, deps);
     return;
   }
 
@@ -1058,7 +497,7 @@ async function registerHumanTaskNode(
 ): Promise<void> {
   const { log, broadcast, hitl } = deps;
   if (!hitl) {
-    failRun(runId, slug, "Human tasks are disabled (set HITL_ENABLED=true)", deps);
+    await failStep(runId, slug, "Human tasks are disabled (set HITL_ENABLED=true)", deps);
     return;
   }
 
@@ -1074,7 +513,12 @@ async function registerHumanTaskNode(
       run: dagRunStore.toRunTemplateInfo(run),
     });
   } catch (err) {
-    failRun(runId, slug, `Human task could not be prepared: ${err instanceof Error ? err.message : String(err)}`, deps);
+    await failStep(
+      runId,
+      slug,
+      `Human task could not be prepared: ${err instanceof Error ? err.message : String(err)}`,
+      deps,
+    );
     return;
   }
 
@@ -1091,7 +535,7 @@ async function registerHumanTaskNode(
     });
   } catch (err) {
     log.error(`DAG coordinator: signal store error for humanTask "${slug}" in run ${runId}:`, err);
-    failRun(runId, slug, `Signal Store unavailable: ${err instanceof Error ? err.message : String(err)}`, deps);
+    await failStep(runId, slug, `Signal Store unavailable: ${err instanceof Error ? err.message : String(err)}`, deps);
     return;
   }
 
@@ -1118,7 +562,12 @@ async function registerHumanTaskNode(
   } catch (err) {
     // The signal must not linger as deliverable without a task behind it.
     signalStore.markCancelled(signalRecord.id);
-    failRun(runId, slug, `Human task could not be created: ${err instanceof Error ? err.message : String(err)}`, deps);
+    await failStep(
+      runId,
+      slug,
+      `Human task could not be created: ${err instanceof Error ? err.message : String(err)}`,
+      deps,
+    );
     return;
   }
 
@@ -1143,204 +592,27 @@ async function registerHumanTaskNode(
 }
 
 // ---------------------------------------------------------------------------
-// WaitFor Resume
-// ---------------------------------------------------------------------------
-
-/**
- * Resumes a workflow run after a `waitFor` node receives its signal.
- *
- * Marks the waitFor node completed with the signal payload as its result,
- * satisfies its outgoing edges, and dispatches ready successors. Called by
- * `deliverSignal` after it has claimed the signal.
- *
- * @param runId - The workflow run ID
- * @param stepSlug - The waitFor node slug
- * @param payload - The signal payload (becomes the step's result)
- * @param deps - Injected dependencies
- */
-export async function resumeWaitForNode(
-  runId: string,
-  stepSlug: string,
-  payload: unknown,
-  deps: DagCoordinatorDeps,
-): Promise<void> {
-  const { log, getWorkflowDefinition } = deps;
-
-  const run = dagRunStore.get(runId);
-  if (!run) {
-    log.error(`DAG coordinator: run ${runId} not found for waitFor resume`);
-    return;
-  }
-
-  // Do not resume a run that has already terminated (e.g. another branch failed
-  // it, or a timeout fired). Reviving it to running would clobber the terminal
-  // status and dispatch successors of an already-dead run.
-  if (!dagRunStore.isActiveRunStatus(run.status)) {
-    log.warn(`DAG coordinator: run ${runId} is "${run.status}", ignoring waitFor resume for step "${stepSlug}"`);
-    return;
-  }
-
-  const definition = getWorkflowDefinition(run.workflowName);
-  if (!definition) {
-    failRun(runId, stepSlug, `Workflow definition "${run.workflowName}" no longer available`, deps);
-    return;
-  }
-
-  const topology = definitionTopology(definition);
-
-  // Persist payload as the waitFor step result and mark completed
-  dagRunStore.updateStepResult(runId, stepSlug, payload);
-  dagRunStore.updateStepStatus(runId, stepSlug, "completed");
-
-  // Revert the run to running only when no other waitFor node is still paused.
-  // With multiple concurrent waits, the run stays waiting-signal until the last
-  // signal is delivered, keeping the run status and the signal-delivery guard
-  // consistent with the remaining pending signals.
-  const otherSignalsPending = signalStore.listWaitingForRun(runId).some((s) => s.stepSlug !== stepSlug);
-  dagRunStore.updateStatus(runId, otherSignalsPending ? "waiting-signal" : "running");
-
-  // Satisfy outgoing edges
-  const outEdges = topology.outgoing(stepSlug);
-  for (const edge of outEdges) {
-    const eid = edgeId(edge.from, edge.to, edge.branch);
-    dagRunStore.updateEdgeState(runId, eid, "satisfied");
-  }
-
-  // Check successors
-  const updatedRun = dagRunStore.get(runId)!;
-  await checkSuccessors(runId, outEdges, updatedRun, definition, topology, deps);
-}
-
-// ---------------------------------------------------------------------------
-// Fail-Fast
-// ---------------------------------------------------------------------------
-
-/**
- * Handles a failed DAG workflow step.
- *
- * Marks the run as failed, cancels all in-flight jobs, and marks
- * remaining pending steps as dead.
- *
- * @param runId - The workflow run ID
- * @param stepSlug - The slug of the failed step
- * @param error - Error message or description
- * @param deps - Injected dependencies
- * @param jobIdsToCancel - Optional list of in-flight job IDs to cancel
- */
-export async function handleDagStepFailure(
-  runId: string,
-  stepSlug: string,
-  error: string,
-  deps: DagCoordinatorDeps,
-  jobIdsToCancel?: string[],
-): Promise<void> {
-  const { log, broadcast, cancelJob } = deps;
-
-  log.error(`DAG coordinator: step "${stepSlug}" failed in run ${runId}: ${error}`);
-
-  // Mark step as failed
-  dagRunStore.updateStepStatus(runId, stepSlug, "failed");
-
-  // Mark run as failed
-  dagRunStore.updateStatus(runId, "failed", `Step "${stepSlug}" failed: ${error}`);
-
-  // Broadcast failure
-  broadcast({
-    type: "workflow_failed",
-    workflowRunId: runId,
-    failedStep: stepSlug,
-    error,
-  });
-
-  // Cancel in-flight jobs if cancellation function is available
-  if (cancelJob && jobIdsToCancel) {
-    for (const jid of jobIdsToCancel) {
-      try {
-        await cancelJob(jid);
-      } catch {
-        // Best effort
-      }
-    }
-  }
-
-  // Mark remaining non-terminal steps as dead. This includes waitFor nodes
-  // paused on a signal (waiting-signal): when the run fails, a paused branch is
-  // no longer reachable and must be swept like pending/running steps.
-  const run = dagRunStore.get(runId);
-  if (run) {
-    for (const [slug, status] of Object.entries(run.stepStatuses)) {
-      if (status === "pending" || status === "running" || status === "waiting-signal") {
-        dagRunStore.updateStepStatus(runId, slug, "dead");
-        broadcast({ type: "workflow_step_dead", workflowRunId: runId, stepSlug: slug });
-      }
-    }
-  }
-}
-
-/**
- * Marks a run as failed (convenience wrapper used by other modules).
- *
- * Unlike {@link handleDagStepFailure} (the queue-job failure path), this is
- * used by inline-evaluated nodes (iterator/if/case/aggregator and dispatch
- * guards) that have no backing queue job. It mirrors that path's status
- * handling: the offending step is marked `failed` and every remaining
- * non-terminal step is swept to `dead`, so the run does not leave a step stuck
- * in a `running`/`pending` state (which the UI would render as still active).
- *
- * @param runId - The run ID
- * @param stepSlug - The step that caused failure
- * @param reason - Failure reason
- * @param deps - Dependencies (only log and broadcast needed)
- */
-function failRun(
-  runId: string,
-  stepSlug: string,
-  reason: string,
-  deps: Pick<DagCoordinatorDeps, "log" | "broadcast">,
-): void {
-  const { log, broadcast } = deps;
-  log.error(`DAG run ${runId} failed at step "${stepSlug}": ${reason}`);
-
-  try {
-    // Mark the offending step failed before failing the run so the UI does not
-    // leave it spinning in a non-terminal state.
-    dagRunStore.updateStepStatus(runId, stepSlug, "failed");
-    dagRunStore.updateStatus(runId, "failed", reason);
-  } catch {
-    // best effort
-  }
-
-  broadcast({
-    type: "workflow_failed",
-    workflowRunId: runId,
-    failedStep: stepSlug,
-    error: reason,
-  });
-
-  // Sweep remaining non-terminal steps to dead, matching handleDagStepFailure.
-  // A failed run means any still-pending/running/paused sibling branch is no
-  // longer reachable and must not keep showing as active.
-  try {
-    const run = dagRunStore.get(runId);
-    if (run) {
-      for (const [slug, status] of Object.entries(run.stepStatuses)) {
-        if (status === "pending" || status === "running" || status === "waiting-signal") {
-          dagRunStore.updateStepStatus(runId, slug, "dead");
-          broadcast({ type: "workflow_step_dead", workflowRunId: runId, stepSlug: slug });
-        }
-      }
-    }
-  } catch {
-    // best effort
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /**
- * Builds step configs lookup from a DAG definition.
+ * Builds the template context of a run.
+ *
+ * @param run - The run
+ * @param definition - Its workflow definition
+ * @returns Trigger payload, step results and configs, and run info
+ */
+function templateContext(run: DagWorkflowRun, definition: DagWorkflowDefinition): TemplateContext {
+  return {
+    triggerPayload: run.triggerPayload ?? undefined,
+    stepResults: run.stepResults,
+    stepConfigs: buildStepConfigs(definition),
+    run: dagRunStore.toRunTemplateInfo(run),
+  };
+}
+
+/**
+ * Builds the step configs lookup (each step definition with its slug) from a DAG definition.
  */
 function buildStepConfigs(definition: DagWorkflowDefinition): Record<string, unknown> {
   const configs: Record<string, unknown> = {};
@@ -1348,4 +620,9 @@ function buildStepConfigs(definition: DagWorkflowDefinition): Record<string, unk
     configs[slug] = { slug, ...stepDef };
   }
   return configs;
+}
+
+/** The message of a thrown value. */
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
 }

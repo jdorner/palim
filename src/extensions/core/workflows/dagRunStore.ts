@@ -328,6 +328,56 @@ export function updateStepResult(runId: string, stepSlug: string, result: unknow
     .run();
 }
 
+/** Path/value pairs per `json_set` call in {@link applyPatch}. */
+const PATCH_BATCH = 40;
+
+/** State changes to a run, applied key by key (see `RunPatch` in `runKernel.ts`). */
+export interface DagRunPatch {
+  /** New run status, when it changed. */
+  status?: DagRunStatus;
+  /** Failure reason stored with `status` (null clears it). */
+  failureReason?: string | null;
+  stepStatuses: Record<string, StepStatus>;
+  edgeStates: Record<string, EdgeState>;
+  stepResults: Record<string, unknown>;
+}
+
+/**
+ * Applies a patch in one statement. Each step status, edge state and result is
+ * written with its own `json_set`, never by replacing the whole blob, so keys
+ * written concurrently by another handler survive.
+ *
+ * @param runId - The run identifier
+ * @param patch - The changes to apply
+ */
+export function applyPatch(runId: string, patch: DagRunPatch): void {
+  const writes: [string, unknown][] = [
+    ...Object.entries(patch.stepResults).map(([slug, value]): [string, unknown] => [`$.${slug}`, value]),
+    ...Object.entries(patch.stepStatuses).map(([slug, value]): [string, unknown] => [`$.__statuses.${slug}`, value]),
+    ...Object.entries(patch.edgeStates).map(([key, value]): [string, unknown] => [`$.__edges.${key}`, value]),
+  ];
+  if (writes.length === 0 && patch.status === undefined) return;
+
+  // json_set takes many path/value pairs; batch them to stay well below
+  // SQLite's function-argument and expression-depth limits.
+  let expr = sql`${workflowRuns.stepResults}`;
+  for (let i = 0; i < writes.length; i += PATCH_BATCH) {
+    const pairs = writes
+      .slice(i, i + PATCH_BATCH)
+      .map(([path, value]) => sql`${path}, json(${JSON.stringify(value) ?? "null"})`);
+    expr = sql`json_set(${expr}, ${sql.join(pairs, sql`, `)})`;
+  }
+
+  db.update(workflowRuns)
+    .set({
+      ...(writes.length > 0 ? { stepResults: expr } : {}),
+      ...(patch.status !== undefined ? { status: patch.status, failureReason: patch.failureReason ?? null } : {}),
+      updatedAt: Date.now(),
+    })
+    .where(eq(workflowRuns.id, runId))
+    .run();
+}
+
 /**
  * Updates the run status and optional failure reason.
  *
