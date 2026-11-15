@@ -2,8 +2,9 @@
  * Template Scope Registry -- Pure TypeScript module for computing
  * autocomplete suggestions for workflow template expressions.
  *
- * Mirrors the scope rules from the backend templateValidation.ts.
- * No Svelte or DOM dependencies.
+ * Graph rules (which steps run before the edited one, which iterator body it
+ * sits in) come from `shared/workflowTopology.ts`, the same analysis the backend
+ * validator and runtime use. No Svelte or DOM dependencies.
  */
 
 import { resolvedSelfFields, type SelfReferenceOrder } from "../../../shared/extensions";
@@ -17,6 +18,7 @@ import {
   resolveIteratorItemSchema,
   walkSchemaPath,
 } from "../../../shared/workflows";
+import { analyzeWorkflowGraph, type TopologyEdge, type WorkflowTopology } from "../../../shared/workflowTopology";
 import { type CoreKey, translateCore } from "./i18nCore";
 import { getEnumOptions, isEnum } from "./schemaForm";
 
@@ -51,19 +53,11 @@ export interface Suggestion {
 
 /**
  * An edge in a workflow DAG, expressed in slugs (matching the serialized
- * backend workflow representation rather than the editor's id-based draft edges).
+ * backend workflow representation rather than the editor's id-based draft
+ * edges). The optional `branch` label identifies structural branches, notably
+ * the iterator `each` edge that starts a loop body.
  */
-export interface SlugEdge {
-  from: string;
-  to: string;
-  /**
-   * Optional branch label carried from the draft edge (e.g. `"each"` on an
-   * iterator's body edge, `"then"`/`"else"` on an `if`). Preserved so scope
-   * computation can identify structural branches - notably the iterator `each`
-   * edge that starts a loop body. Dominator/ancestor computation ignores it.
-   */
-  branch?: string;
-}
+export type SlugEdge = TopologyEdge;
 
 /**
  * Configuration for the scope registry.
@@ -397,86 +391,29 @@ export function getConfigSuggestions(
   return [];
 }
 
+const topologyCache = new WeakMap<ScopeConfig, WorkflowTopology>();
+
 /**
- * Computes the set of step slugs whose `result` is guaranteed available when
- * referenced from `currentSlug`. A slug qualifies only when it is both an
- * ancestor of (runs before) and a dominator of (guaranteed to execute, i.e. not
- * sitting on a skippable conditional branch) the current step. This mirrors the
- * backend rule in `dagTemplateValidation.ts` exactly, so autocomplete offers the
- * same references the runtime is guaranteed to resolve and never offers a
- * forward / branch-skippable reference.
+ * The graph analysis of the draft in a scope configuration, memoized per
+ * configuration object. Without edges every step is a root, so no other step
+ * runs before the current one and no iterator body exists.
  *
- * Dominators use the classic iterative fixpoint: dom(entry) = {entry}, and for
- * every other node dom(n) = {n} ∩ dom(pred) over all predecessors, iterated to a
- * fixpoint. A dominator is always an ancestor, so the dominator test alone is
- * sufficient.
- *
- * @param steps - Steps carrying a slug (order is irrelevant; precedence is DAG-derived)
- * @param edges - DAG edges in slug space; when undefined every step is treated as
- *   an entry node, so only `currentSlug` dominates itself and no other step qualifies
- * @param currentSlug - Slug of the step currently being edited
- * @returns Set of valid result-reference slugs (includes `currentSlug`; callers exclude it)
+ * @param config - The scope configuration
+ * @returns The draft's topology
  */
-function computeValidResultRefs(
-  steps: Array<{ slug: string }>,
-  edges: SlugEdge[] | undefined,
-  currentSlug: string | undefined,
-): Set<string> {
-  const slugs = steps.map((s) => s.slug);
-  if (!currentSlug || slugs.length === 0) return new Set();
-
-  // Direct predecessors of each step (from edges in slug space).
-  const preds = new Map<string, Set<string>>();
-  for (const s of slugs) preds.set(s, new Set());
-  if (edges) {
-    for (const e of edges) {
-      if (preds.has(e.to)) preds.get(e.to)!.add(e.from);
-    }
+function topologyOf(config: ScopeConfig): WorkflowTopology {
+  let topology = topologyCache.get(config);
+  if (!topology) {
+    topology = analyzeWorkflowGraph(config.steps, config.edges ?? []);
+    topologyCache.set(config, topology);
   }
-  // Entry nodes have no incoming edges.
-  const entries = slugs.filter((s) => preds.get(s)?.size === 0);
-
-  // Iterative dominator fixpoint. Entry nodes are dominated only by themselves;
-  // every other node starts pessimistically dominated by all nodes, then is
-  // narrowed by intersecting the dominator sets of its predecessors.
-  const dom = new Map<string, Set<string>>();
-  for (const s of slugs) {
-    dom.set(s, entries.includes(s) ? new Set([s]) : new Set(slugs));
-  }
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const s of slugs) {
-      if (entries.includes(s)) continue;
-      let intersection: Set<string> | null = null;
-      for (const p of [...(preds.get(s) ?? [])]) {
-        const pDom = dom.get(p)!;
-        if (intersection === null) {
-          intersection = new Set(pDom);
-        } else {
-          for (const d of [...intersection]) {
-            if (!pDom.has(d)) intersection.delete(d);
-          }
-        }
-      }
-      const merged: Set<string> = intersection ? new Set(intersection) : new Set<string>();
-      merged.add(s);
-      const prev = dom.get(s)!;
-      if (prev.size !== merged.size || [...merged].some((d) => !prev.has(d))) {
-        dom.set(s, merged);
-        changed = true;
-      }
-    }
-  }
-
-  const curDom = dom.get(currentSlug) ?? new Set([currentSlug]);
-  return curDom;
+  return topology;
 }
 
 /**
  * Whether `{{steps.<slug>.result}}` is a valid reference from the step being
- * edited: the referenced step must be a preceding dominator (see
- * {@link computeValidResultRefs}), or the current step itself when its type
+ * edited: the referenced step must run before it on every path (an ancestor
+ * and a dominator, as the backend validator requires), or the current step itself when its type
  * supports self-reference (`config.allowsSelfReference`): it then reads values
  * set earlier in the same execution (e.g. set-variables entries above the
  * field) or, inside an iterator body, the previous pass's result.
@@ -492,7 +429,7 @@ function isResultReferenceable(config: ScopeConfig, slug: string): boolean {
     const allowed = ownResultFields(config);
     return allowed === null || allowed.length > 0;
   }
-  return computeValidResultRefs(config.steps, config.edges, current.slug).has(slug);
+  return topologyOf(config).runsBefore(slug, current.slug);
 }
 
 /**
@@ -532,59 +469,24 @@ interface IteratorBinding {
 }
 
 /**
- * Finds the iterator binding in scope for the current step, if any.
- *
- * A step is "in scope" of an iterator when it sits on the iterator body: the
- * subgraph forward-reachable from the iterator's `each` branch edge and
- * backward-reachable from the paired aggregator (the aggregator whose
- * `iterator` field names the iterator). This mirrors the backend's
- * `computeBodySubgraph`/`getIterationPrefixesForStep`, so the editor offers the
- * loop variable exactly where the runtime binds it. When branch labels are
- * absent from the edges (older drafts), the `each` edge cannot be identified and
- * no binding is returned - a conservative miss rather than a wrong offer.
+ * Finds the iterator binding in scope for the current step, if any: the
+ * iterator whose body (per the shared topology, the same body the runtime binds
+ * the loop variable in) contains the step. When branch labels are absent from
+ * the edges (older drafts), the `each` edge cannot be identified and no binding
+ * is returned - a conservative miss rather than a wrong offer.
  *
  * @param config - The scope configuration (steps, edges, current step index)
  * @returns The in-scope iterator binding, or `undefined` when the current step is not in any iterator body
  */
 function findEnclosingIterator(config: ScopeConfig): IteratorBinding | undefined {
   const currentSlug = config.steps[config.currentStepIndex]?.slug;
-  if (!currentSlug || !config.edges) return undefined;
-
-  // Forward adjacency in slug space.
-  const forward = new Map<string, SlugEdge[]>();
-  for (const step of config.steps) forward.set(step.slug, []);
-  for (const e of config.edges) forward.get(e.from)?.push(e);
-
-  for (const iterStep of config.steps) {
-    if (iterStep.type !== "iterator") continue;
-    const iteratorSlug = iterStep.slug;
-
-    // The paired aggregator names this iterator via its `iterator` field.
-    const aggregator = config.steps.find((s) => s.type === "aggregator" && s.iterator === iteratorSlug);
-    if (!aggregator) continue;
-
-    // Forward BFS from the iterator's `each` target(s), stopping at (not through)
-    // the aggregator. Any visited step is inside this iterator's body.
-    const body = new Set<string>();
-    const queue: string[] = [];
-    for (const e of forward.get(iteratorSlug) ?? []) {
-      if (e.branch === "each") queue.push(e.to);
-    }
-    while (queue.length > 0) {
-      const cur = queue.shift()!;
-      if (cur === aggregator.slug || body.has(cur)) continue;
-      body.add(cur);
-      for (const e of forward.get(cur) ?? []) queue.push(e.to);
-    }
-
-    if (body.has(currentSlug)) {
-      const itemsExpr = typeof iterStep.items === "string" ? iterStep.items : "";
-      const as = typeof iterStep.as === "string" && iterStep.as.length > 0 ? iterStep.as : "item";
-      return { as, itemsExpr };
-    }
-  }
-
-  return undefined;
+  if (!currentSlug) return undefined;
+  const iteratorSlug = topologyOf(config).enclosingIterator(currentSlug);
+  const iterStep = iteratorSlug === undefined ? undefined : config.steps.find((s) => s.slug === iteratorSlug);
+  if (!iterStep) return undefined;
+  const itemsExpr = typeof iterStep.items === "string" ? iterStep.items : "";
+  const as = typeof iterStep.as === "string" && iterStep.as.length > 0 ? iterStep.as : "item";
+  return { as, itemsExpr };
 }
 
 /**
@@ -829,36 +731,6 @@ function suggestionToNode(config: ScopeConfig, parent: string[], s: Suggestion, 
 }
 
 /**
- * Orders steps by execution (topological order of the DAG, draft order among
- * steps that are ready at the same time). Steps on a cycle keep draft order at
- * the end.
- */
-function executionOrder<T extends { slug: string }>(steps: T[], edges: SlugEdge[] | undefined): T[] {
-  const indegree = new Map(steps.map((s) => [s.slug, 0]));
-  for (const e of edges ?? []) {
-    if (indegree.has(e.to) && indegree.has(e.from)) indegree.set(e.to, indegree.get(e.to)! + 1);
-  }
-  const ordered: T[] = [];
-  const done = new Set<string>();
-  let ready = steps.filter((s) => indegree.get(s.slug) === 0);
-  while (ready.length > 0) {
-    const next: T[] = [];
-    for (const step of ready) {
-      ordered.push(step);
-      done.add(step.slug);
-      for (const e of edges ?? []) {
-        if (e.from !== step.slug || !indegree.has(e.to)) continue;
-        const left = indegree.get(e.to)! - 1;
-        indegree.set(e.to, left);
-        if (left === 0) next.push(steps.find((s) => s.slug === e.to)!);
-      }
-    }
-    ready = steps.filter((s) => next.includes(s));
-  }
-  return [...ordered, ...steps.filter((s) => !done.has(s.slug))];
-}
-
-/**
  * Builds the variable picker tree for the step being edited: everything a
  * `{{...}}` expression in that step may reference, grouped into tabs.
  *
@@ -882,7 +754,11 @@ export function buildScopeTree(config: ScopeConfig): ScopeTreeGroup[] {
   if (payload) trigger.children = payload;
   data.push(trigger);
 
-  for (const step of executionOrder(config.steps, config.edges)) {
+  const bySlug = new Map<string, ScopeConfig["steps"][number]>();
+  for (const step of config.steps) if (!bySlug.has(step.slug)) bySlug.set(step.slug, step);
+  for (const step of topologyOf(config)
+    .executionOrder()
+    .map((slug) => bySlug.get(slug)!)) {
     // `result` is offered only when the step's result is guaranteed available here.
     const resultOffered = getSuggestions(config, ["steps", step.slug], "result").some((s) => s.label === "result");
     if (!resultOffered) continue;

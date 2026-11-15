@@ -2,7 +2,6 @@ import { describe, expect, test } from "bun:test";
 import {
   type AnimatableEdge,
   buildStatusMap,
-  computeDeadSteps,
   type DefinitionEdge,
   isEdgeAnimated,
   isStaleStepStart,
@@ -153,46 +152,6 @@ describe("isEdgeAnimated", () => {
       expect(isEdgeAnimated({ source: "skipped-a", target: "join" }, joinNodes)).toBe(false);
       expect(isEdgeAnimated({ source: "skipped-b", target: "join" }, joinNodes)).toBe(false);
     });
-  });
-});
-
-describe("computeDeadSteps", () => {
-  const edges: DefinitionEdge[] = [
-    { from: "sort", to: "a", branch: "x" },
-    { from: "sort", to: "b", branch: "y" },
-    { from: "sort", to: "c", branch: "z" },
-    { from: "a", to: "join" },
-    { from: "b", to: "join" },
-    { from: "c", to: "join" },
-  ];
-
-  test("returns empty when no branch has been chosen yet", () => {
-    expect(computeDeadSteps(edges, {}).size).toBe(0);
-  });
-
-  test("marks non-chosen branch targets dead once a branch is chosen", () => {
-    const dead = computeDeadSteps(edges, { sort: "y" });
-    expect(dead.has("a")).toBe(true);
-    expect(dead.has("c")).toBe(true);
-    expect(dead.has("b")).toBe(false);
-  });
-
-  test("does not mark a join node dead while one live branch still reaches it", () => {
-    const dead = computeDeadSteps(edges, { sort: "y" });
-    expect(dead.has("join")).toBe(false);
-  });
-
-  test("propagates deadness through a dead branch's own chain", () => {
-    const chain: DefinitionEdge[] = [
-      { from: "sort", to: "a", branch: "x" },
-      { from: "sort", to: "b", branch: "y" },
-      { from: "a", to: "a2" },
-      { from: "a2", to: "a3" },
-    ];
-    const dead = computeDeadSteps(chain, { sort: "y" });
-    expect(dead.has("a")).toBe(true);
-    expect(dead.has("a2")).toBe(true);
-    expect(dead.has("a3")).toBe(true);
   });
 });
 

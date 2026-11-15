@@ -13,6 +13,7 @@
  * @module
  */
 
+import { analyzeWorkflowGraph } from "@shared/workflowTopology";
 import type { DagWorkflowDefinition, Edge } from "./schemas";
 import { DAG_CF_TYPES } from "./schemas";
 
@@ -297,34 +298,6 @@ function detectCycles(slugs: Set<string>, edges: Edge[]): DagValidationError[] {
 }
 
 /**
- * Computes root steps (steps with no incoming edges).
- *
- * @param definition - The DAG workflow definition
- * @returns Array of slugs that are root steps
- */
-export function computeRootSteps(definition: DagWorkflowDefinition): string[] {
-  const incoming = new Set<string>();
-  for (const edge of definition.edges) {
-    incoming.add(edge.to);
-  }
-  return Object.keys(definition.steps).filter((slug) => !incoming.has(slug));
-}
-
-/**
- * Computes terminal steps (steps with no outgoing edges).
- *
- * @param definition - The DAG workflow definition
- * @returns Array of slugs that are terminal steps
- */
-export function computeTerminalSteps(definition: DagWorkflowDefinition): string[] {
-  const outgoing = new Set<string>();
-  for (const edge of definition.edges) {
-    outgoing.add(edge.from);
-  }
-  return Object.keys(definition.steps).filter((slug) => !outgoing.has(slug));
-}
-
-/**
  * Validates iterator/aggregator pairing rules.
  *
  * With the single-reference model, only the aggregator carries the `iterator`
@@ -340,16 +313,7 @@ export function validateIteratorPairing(definition: DagWorkflowDefinition): DagV
   const errors: DagValidationError[] = [];
   const { steps, edges } = definition;
 
-  // Build forward adjacency for reachability checks
-  const adjacency = new Map<string, string[]>();
-  for (const slug of Object.keys(steps)) {
-    adjacency.set(slug, []);
-  }
-  for (const edge of edges) {
-    if (adjacency.has(edge.from)) {
-      adjacency.get(edge.from)!.push(edge.to);
-    }
-  }
+  const topology = analyzeWorkflowGraph(steps, edges);
 
   // Collect iterators and aggregators
   const iteratorSlugs = new Set<string>();
@@ -397,20 +361,7 @@ export function validateIteratorPairing(definition: DagWorkflowDefinition): DagV
       referencedIterators.set(iterSlug, aggSlug);
     }
 
-    // Reachability
-    const reachable = new Set<string>();
-    const queue = [iterSlug];
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      for (const neighbor of adjacency.get(current) ?? []) {
-        if (!reachable.has(neighbor)) {
-          reachable.add(neighbor);
-          queue.push(neighbor);
-        }
-      }
-    }
-
-    if (!reachable.has(aggSlug)) {
+    if (!topology.ancestors(aggSlug).has(iterSlug)) {
       errors.push({
         code: "aggregator_unreachable",
         message: `Aggregator "${aggSlug}" is not reachable from its paired iterator "${iterSlug}"`,

@@ -14,13 +14,14 @@
 
 import type { HitlApi, Logger } from "@ext/types";
 import type { WorkflowWebSocketEvent } from "@shared/workflows";
+import type { WorkflowTopology } from "@shared/workflowTopology";
 import type { FlowProducer } from "bunqueue/client";
 import { evaluateCondition } from "./condition";
 import { type CaseStepResult, describeControlFlowStep, type IfStepResult } from "./controlFlowEvaluation";
-import { buildDagStepJob, buildIncomingEdgeMap, buildOutgoingEdgeMap, type SessionFactory } from "./dagEngine";
+import { buildDagStepJob, type SessionFactory } from "./dagEngine";
 import * as dagRunStore from "./dagRunStore";
 import { type DagWorkflowRun, edgeId } from "./dagRunStore";
-import { computeTerminalSteps } from "./dagValidation";
+import { definitionTopology } from "./definitionTopology";
 import {
   HUMAN_TASK_SIGNAL_EVENT,
   type ResolvedHumanTaskFields,
@@ -72,30 +73,14 @@ export interface DagCoordinatorDeps {
 }
 
 /**
- * Precomputed graph topology for a workflow definition.
- * Computed once per definition and reused across all coordinator calls for that workflow.
- */
-export interface DagGraphTopology {
-  /** Map of step slug to incoming edge IDs. */
-  incomingEdges: Map<string, string[]>;
-  /** Map of step slug to outgoing edges. */
-  outgoingEdges: Map<string, Edge[]>;
-  /** Terminal step slugs (no outgoing edges). */
-  terminalSteps: Set<string>;
-}
-
-/**
- * Builds the graph topology for a DAG workflow definition.
+ * Incoming edge ids of a step, for join-barrier checks against run edge states.
  *
- * @param definition - The DAG workflow definition
- * @returns Precomputed graph topology
+ * @param topology - The workflow topology
+ * @param slug - The step slug
+ * @returns The ids of the edges ending at the step
  */
-function buildGraphTopology(definition: DagWorkflowDefinition): DagGraphTopology {
-  return {
-    incomingEdges: buildIncomingEdgeMap(definition),
-    outgoingEdges: buildOutgoingEdgeMap(definition),
-    terminalSteps: new Set(computeTerminalSteps(definition)),
-  };
+function incomingEdgeIdsOf(topology: WorkflowTopology, slug: string): string[] {
+  return topology.incoming(slug).map((e) => edgeId(e.from, e.to, e.branch));
 }
 
 // ---------------------------------------------------------------------------
@@ -158,10 +143,10 @@ export async function handleDagStepCompletion(
     return;
   }
 
-  const topology = buildGraphTopology(definition);
+  const topology = definitionTopology(definition);
 
   // Mark all outgoing edges from this step as "satisfied"
-  const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
+  const outEdges = topology.outgoing(stepSlug);
   for (const edge of outEdges) {
     const eid = edgeId(edge.from, edge.to, edge.branch);
     dagRunStore.updateEdgeState(runId, eid, "satisfied");
@@ -193,7 +178,7 @@ async function evaluateCfNode(
   stepSlug: string,
   run: DagWorkflowRun,
   definition: DagWorkflowDefinition,
-  topology: DagGraphTopology,
+  topology: WorkflowTopology,
   deps: DagCoordinatorDeps,
 ): Promise<void> {
   const { log } = deps;
@@ -220,7 +205,7 @@ async function evaluateIfNode(
   stepDef: DagIfStep,
   run: DagWorkflowRun,
   definition: DagWorkflowDefinition,
-  topology: DagGraphTopology,
+  topology: WorkflowTopology,
   deps: DagCoordinatorDeps,
 ): Promise<void> {
   const { log, broadcast } = deps;
@@ -271,7 +256,7 @@ async function evaluateIfNode(
   dagRunStore.updateStepStatus(runId, stepSlug, "completed");
 
   // Mark edges: chosen branch = satisfied, others = dead
-  const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
+  const outEdges = topology.outgoing(stepSlug);
   for (const edge of outEdges) {
     const eid = edgeId(edge.from, edge.to, edge.branch);
     if (edge.branch === chosenBranch) {
@@ -326,7 +311,7 @@ async function evaluateCaseNode(
   stepDef: DagCaseStep,
   run: DagWorkflowRun,
   definition: DagWorkflowDefinition,
-  topology: DagGraphTopology,
+  topology: WorkflowTopology,
   deps: DagCoordinatorDeps,
 ): Promise<void> {
   const { log, broadcast } = deps;
@@ -359,7 +344,7 @@ async function evaluateCaseNode(
     }
   }
 
-  const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
+  const outEdges = topology.outgoing(stepSlug);
 
   // Fall back to the default branch
   const fallback = matchedBranch === null;
@@ -441,7 +426,7 @@ async function evaluateIteratorNode(
   stepDef: DagIteratorStep,
   run: DagWorkflowRun,
   definition: DagWorkflowDefinition,
-  topology: DagGraphTopology,
+  topology: WorkflowTopology,
   deps: DagCoordinatorDeps,
 ): Promise<void> {
   const { log, broadcast } = deps;
@@ -501,7 +486,7 @@ async function evaluateIteratorNode(
     log.info(`Iterator "${stepSlug}" in run ${runId}: empty items array, short-circuiting`);
 
     // Mark aggregator completed with empty results
-    const aggSlug = findAggregatorForIterator(stepSlug, definition);
+    const aggSlug = topology.aggregatorOf(stepSlug);
     if (aggSlug) {
       const aggResult = { results: [], totalItems: 0, succeeded: 0, failed: 0 };
       dagRunStore.updateStepResult(runId, aggSlug, aggResult);
@@ -509,7 +494,7 @@ async function evaluateIteratorNode(
       broadcast({ type: "workflow_step_completed", workflowRunId: runId, stepSlug: aggSlug, jobId: runId });
 
       // Satisfy aggregator's outgoing edges and check its successors
-      const aggOutEdges = topology.outgoingEdges.get(aggSlug) ?? [];
+      const aggOutEdges = topology.outgoing(aggSlug);
       for (const edge of aggOutEdges) {
         const eid = edgeId(edge.from, edge.to, edge.branch);
         dagRunStore.updateEdgeState(runId, eid, "satisfied");
@@ -525,7 +510,7 @@ async function evaluateIteratorNode(
   broadcast({ type: "workflow_step_completed", workflowRunId: runId, stepSlug, jobId: runId });
 
   // Satisfy the "each" branch edge to dispatch the body
-  const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
+  const outEdges = topology.outgoing(stepSlug);
   for (const edge of outEdges) {
     const eid = edgeId(edge.from, edge.to, edge.branch);
     if (edge.branch === "each") {
@@ -541,124 +526,6 @@ async function evaluateIteratorNode(
 }
 
 /**
- * Computes the set of body step slugs between an iterator and its aggregator.
- *
- * Body = all nodes reachable from the iterator's `each` branch target
- * that are also backwards-reachable from the aggregator, excluding the
- * aggregator itself.
- *
- * @param definition - The workflow definition
- * @param iteratorSlug - The iterator step slug
- * @param aggregatorSlug - The aggregator step slug
- * @returns Set of body step slugs
- */
-export function computeBodySubgraph(
-  definition: DagWorkflowDefinition,
-  iteratorSlug: string,
-  aggregatorSlug: string,
-): { bodySlugs: Set<string>; bodyEdgeIds: Set<string> } {
-  const { edges } = definition;
-
-  // Build forward adjacency
-  const forward = new Map<string, Edge[]>();
-  for (const slug of Object.keys(definition.steps)) {
-    forward.set(slug, []);
-  }
-  for (const edge of edges) {
-    forward.get(edge.from)?.push(edge);
-  }
-
-  // Build backward adjacency
-  const backward = new Map<string, string[]>();
-  for (const slug of Object.keys(definition.steps)) {
-    backward.set(slug, []);
-  }
-  for (const edge of edges) {
-    backward.get(edge.to)?.push(edge.from);
-  }
-
-  // Forward-reachable from iterator's "each" target(s)
-  const forwardReachable = new Set<string>();
-  const fwQueue: string[] = [];
-  for (const edge of forward.get(iteratorSlug) ?? []) {
-    if (edge.branch === "each" && !forwardReachable.has(edge.to)) {
-      forwardReachable.add(edge.to);
-      fwQueue.push(edge.to);
-    }
-  }
-  while (fwQueue.length > 0) {
-    const current = fwQueue.shift()!;
-    if (current === aggregatorSlug) continue; // Don't traverse past aggregator
-    for (const edge of forward.get(current) ?? []) {
-      if (!forwardReachable.has(edge.to)) {
-        forwardReachable.add(edge.to);
-        fwQueue.push(edge.to);
-      }
-    }
-  }
-
-  // Backward-reachable from aggregator (stopping at iterator)
-  const backwardReachable = new Set<string>();
-  const bwQueue: string[] = [];
-  for (const source of backward.get(aggregatorSlug) ?? []) {
-    if (source !== iteratorSlug && !backwardReachable.has(source)) {
-      backwardReachable.add(source);
-      bwQueue.push(source);
-    }
-  }
-  while (bwQueue.length > 0) {
-    const current = bwQueue.shift()!;
-    if (current === iteratorSlug) continue;
-    for (const source of backward.get(current) ?? []) {
-      if (source !== iteratorSlug && !backwardReachable.has(source)) {
-        backwardReachable.add(source);
-        bwQueue.push(source);
-      }
-    }
-  }
-
-  // Body = intersection of forward-reachable and backward-reachable, minus aggregator
-  const bodySlugs = new Set<string>();
-  for (const slug of forwardReachable) {
-    if (slug !== aggregatorSlug && backwardReachable.has(slug)) {
-      bodySlugs.add(slug);
-    }
-  }
-
-  // Collect body edge IDs (edges where both from and to are body steps, or from iterator each to body, or body to aggregator)
-  const bodyEdgeIds = new Set<string>();
-  for (const edge of edges) {
-    const fromIsBody = bodySlugs.has(edge.from);
-    const toIsBody = bodySlugs.has(edge.to);
-    const fromIsIterator = edge.from === iteratorSlug && edge.branch === "each";
-    const toIsAggregator = edge.to === aggregatorSlug;
-
-    if ((fromIsBody && toIsBody) || (fromIsIterator && toIsBody) || (fromIsBody && toIsAggregator)) {
-      bodyEdgeIds.add(edgeId(edge.from, edge.to, edge.branch));
-    }
-  }
-
-  return { bodySlugs, bodyEdgeIds };
-}
-
-/**
- * Returns the terminal steps of an iterator body: body steps with no outgoing
- * edge to another body step (only to the aggregator). The aggregator collects
- * their results, keyed by slug, once per iteration.
- *
- * @param definition - The workflow definition
- * @param bodySlugs - The body step slugs (from {@link computeBodySubgraph})
- * @returns Terminal body step slugs
- */
-export function computeBodyTerminalSlugs(definition: DagWorkflowDefinition, bodySlugs: Set<string>): string[] {
-  const hasBodySuccessor = new Set<string>();
-  for (const edge of definition.edges) {
-    if (bodySlugs.has(edge.from) && bodySlugs.has(edge.to)) hasBodySuccessor.add(edge.from);
-  }
-  return [...bodySlugs].filter((slug) => !hasBodySuccessor.has(slug));
-}
-
-/**
  * Resets all body step statuses and body edges to `pending`.
  * Called by the aggregator between iterations to allow re-execution.
  *
@@ -666,7 +533,7 @@ export function computeBodyTerminalSlugs(definition: DagWorkflowDefinition, body
  * @param bodySlugs - Set of body step slugs to reset
  * @param bodyEdgeIds - Set of body edge IDs to reset
  */
-function resetBodySubgraph(runId: string, bodySlugs: Set<string>, bodyEdgeIds: Set<string>): void {
+function resetBodySubgraph(runId: string, bodySlugs: ReadonlySet<string>, bodyEdgeIds: ReadonlySet<string>): void {
   for (const slug of bodySlugs) {
     dagRunStore.updateStepStatus(runId, slug, "pending");
   }
@@ -690,7 +557,7 @@ async function evaluateAggregatorNode(
   _stepDef: DagAggregatorStep,
   run: DagWorkflowRun,
   definition: DagWorkflowDefinition,
-  topology: DagGraphTopology,
+  topology: WorkflowTopology,
   deps: DagCoordinatorDeps,
 ): Promise<void> {
   const { log, broadcast } = deps;
@@ -703,12 +570,14 @@ async function evaluateAggregatorNode(
     return;
   }
 
-  // Compute body subgraph
-  const { bodySlugs, bodyEdgeIds } = computeBodySubgraph(definition, iterSlug, stepSlug);
+  // The body subgraph between the iterator and this aggregator
+  const body = topology.iteratorBody(iterSlug);
+  const bodySlugs = body?.steps ?? new Set<string>();
+  const bodyEdgeIds = new Set((body?.edges ?? []).map((e) => edgeId(e.from, e.to, e.branch)));
 
   // Collect results from the body's terminal steps for this iteration
   const iterationResult: Record<string, unknown> = {};
-  for (const slug of computeBodyTerminalSlugs(definition, bodySlugs)) {
+  for (const slug of body?.terminals ?? []) {
     iterationResult[slug] = run.stepResults[slug];
   }
 
@@ -732,7 +601,7 @@ async function evaluateAggregatorNode(
     dagRunStore.updateStepStatus(runId, stepSlug, "pending");
 
     // Re-satisfy the iterator's "each" edge to re-dispatch body
-    const iterOutEdges = topology.outgoingEdges.get(iterSlug) ?? [];
+    const iterOutEdges = topology.outgoing(iterSlug);
     for (const edge of iterOutEdges) {
       if (edge.branch === "each") {
         const eid = edgeId(edge.from, edge.to, edge.branch);
@@ -760,7 +629,7 @@ async function evaluateAggregatorNode(
     log.info(`Aggregator "${stepSlug}" in run ${runId}: all ${iterState.items.length} iterations complete`);
 
     // Satisfy outgoing edges and check downstream successors
-    const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
+    const outEdges = topology.outgoing(stepSlug);
     for (const edge of outEdges) {
       const eid = edgeId(edge.from, edge.to, edge.branch);
       dagRunStore.updateEdgeState(runId, eid, "satisfied");
@@ -786,10 +655,10 @@ async function evaluateAggregatorNode(
  */
 async function checkSuccessors(
   runId: string,
-  edges: Edge[],
+  edges: readonly Edge[],
   run: DagWorkflowRun,
   definition: DagWorkflowDefinition,
-  topology: DagGraphTopology,
+  topology: WorkflowTopology,
   deps: DagCoordinatorDeps,
 ): Promise<void> {
   // Collect unique successor slugs from the edges
@@ -799,7 +668,7 @@ async function checkSuccessors(
     // Skip if step is not pending (already running/completed/dead)
     if (run.stepStatuses[slug] !== "pending") continue;
 
-    const incomingEdgeIds = topology.incomingEdges.get(slug) ?? [];
+    const incomingEdgeIds = incomingEdgeIdsOf(topology, slug);
     if (incomingEdgeIds.length === 0) continue; // root node — shouldn't happen here
 
     const verdict = dagRunStore.classifyIncomingEdges(run.edgeStates, incomingEdgeIds);
@@ -846,7 +715,7 @@ async function activateReadyStep(
   runId: string,
   slug: string,
   definition: DagWorkflowDefinition,
-  topology: DagGraphTopology,
+  topology: WorkflowTopology,
   deps: DagCoordinatorDeps,
 ): Promise<void> {
   const stepDef = definition.steps[slug]!;
@@ -870,35 +739,6 @@ async function activateReadyStep(
     // Execution node: dispatch as a job
     await dispatchStep(runId, slug, stepDef as DagStep, dagRunStore.get(runId)!, definition, deps);
   }
-}
-
-/**
- * Finds the aggregator slug paired to a given iterator by scanning step definitions.
- * Returns undefined if no aggregator references this iterator.
- */
-function findAggregatorForIterator(iteratorSlug: string, definition: DagWorkflowDefinition): string | undefined {
-  for (const [slug, stepDef] of Object.entries(definition.steps)) {
-    if (stepDef.type === "aggregator") {
-      const aggDef = stepDef as DagAggregatorStep;
-      if (aggDef.iterator === iteratorSlug) return slug;
-    }
-  }
-  return undefined;
-}
-
-/**
- * Finds the iterator slug that owns the body containing a given step.
- * Returns undefined if the step is not inside any iteration body.
- */
-function findIteratorForBodyStep(slug: string, definition: DagWorkflowDefinition): string | undefined {
-  for (const [iterSlug, stepDef] of Object.entries(definition.steps)) {
-    if (stepDef.type !== "iterator") continue;
-    const aggSlug = findAggregatorForIterator(iterSlug, definition);
-    if (!aggSlug) continue;
-    const { bodySlugs } = computeBodySubgraph(definition, iterSlug, aggSlug);
-    if (bodySlugs.has(slug)) return iterSlug;
-  }
-  return undefined;
 }
 
 /**
@@ -926,7 +766,7 @@ async function dispatchStep(
     allStepDefs,
     sessionFactory,
     triggerPayload: run.triggerPayload ?? undefined,
-    iteratorSlug: findIteratorForBodyStep(slug, definition),
+    iteratorSlug: definitionTopology(definition).enclosingIterator(slug),
     ...(run.createdByUserId ? { initiatorUserId: run.createdByUserId } : {}),
   });
 
@@ -970,7 +810,7 @@ async function propagateDead(
   runId: string,
   slug: string,
   definition: DagWorkflowDefinition,
-  topology: DagGraphTopology,
+  topology: WorkflowTopology,
   deps: DagCoordinatorDeps,
 ): Promise<void> {
   const { log, broadcast } = deps;
@@ -981,7 +821,7 @@ async function propagateDead(
   log.debug(`DAG coordinator: step "${slug}" in run ${runId} is dead (all incoming edges dead)`);
 
   // Mark all outgoing edges as dead
-  const outEdges = topology.outgoingEdges.get(slug) ?? [];
+  const outEdges = topology.outgoing(slug);
   for (const edge of outEdges) {
     const eid = edgeId(edge.from, edge.to, edge.branch);
     dagRunStore.updateEdgeState(runId, eid, "dead");
@@ -997,7 +837,7 @@ async function propagateDead(
       const successorSlug = edge.to;
       if (updatedRun.stepStatuses[successorSlug] !== "pending") continue;
 
-      const incomingEdgeIds = topology.incomingEdges.get(successorSlug) ?? [];
+      const incomingEdgeIds = incomingEdgeIdsOf(topology, successorSlug);
       const verdict = dagRunStore.classifyIncomingEdges(updatedRun.edgeStates, incomingEdgeIds);
 
       if (verdict === "dead") {
@@ -1022,13 +862,13 @@ async function propagateDead(
  * nothing is left pending or running then. All terminals may be dead: a control
  * flow node that took a branch without edges ends the run normally.
  */
-async function checkRunCompletion(runId: string, topology: DagGraphTopology, deps: DagCoordinatorDeps): Promise<void> {
+async function checkRunCompletion(runId: string, topology: WorkflowTopology, deps: DagCoordinatorDeps): Promise<void> {
   const { log, broadcast } = deps;
 
   const run = dagRunStore.get(runId);
   if (!run || !dagRunStore.isActiveRunStatus(run.status)) return;
 
-  const allTerminalsDone = [...topology.terminalSteps].every((slug) => {
+  const allTerminalsDone = topology.terminals.every((slug) => {
     const status = run.stepStatuses[slug];
     return status === "completed" || status === "dead";
   });
@@ -1070,7 +910,7 @@ export async function evaluateInlineRoot(runId: string, slug: string, deps: DagC
   const stepDef = definition.steps[slug];
   if (!stepDef) return;
 
-  const topology = buildGraphTopology(definition);
+  const topology = definitionTopology(definition);
 
   if (DAG_CF_TYPES.has(stepDef.type)) {
     dagRunStore.updateStepStatus(runId, slug, "running");
@@ -1346,7 +1186,7 @@ export async function resumeWaitForNode(
     return;
   }
 
-  const topology = buildGraphTopology(definition);
+  const topology = definitionTopology(definition);
 
   // Persist payload as the waitFor step result and mark completed
   dagRunStore.updateStepResult(runId, stepSlug, payload);
@@ -1360,7 +1200,7 @@ export async function resumeWaitForNode(
   dagRunStore.updateStatus(runId, otherSignalsPending ? "waiting-signal" : "running");
 
   // Satisfy outgoing edges
-  const outEdges = topology.outgoingEdges.get(stepSlug) ?? [];
+  const outEdges = topology.outgoing(stepSlug);
   for (const edge of outEdges) {
     const eid = edgeId(edge.from, edge.to, edge.branch);
     dagRunStore.updateEdgeState(runId, eid, "satisfied");
