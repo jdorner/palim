@@ -36,12 +36,6 @@ import type {
   RunAgentOptions,
 } from "@src/extensions";
 import { ExtensionRegistry } from "@src/extensions";
-import {
-  deleteByIds as deleteRunsByIds,
-  get as getDagRun,
-  isActiveRunStatus,
-} from "@src/extensions/core/workflows/dagRunStore";
-import { deleteByRunIds as deleteSignalsByRunIds } from "@src/extensions/core/workflows/signalStore";
 import type { EventBus } from "@src/extensions/engine/eventBus";
 import { ExtensionWatcher } from "@src/extensions/engine/extensionWatcher";
 import { ExternalDependencyResolver } from "@src/extensions/engine/externalDependencyResolver";
@@ -65,6 +59,7 @@ import { mapAgentEventToChatEvent } from "@src/web/chatEvents";
 import type { QueueMonitor } from "@src/web/monitor";
 import { createWebServer, startWebServer } from "@src/web/server";
 import { registerSessionChat, unregisterSessionChat } from "@src/web/sessionChatMap";
+import { forgetWorkflowRuns, workflowRunCleanDecision } from "@src/web/workflowRunHooks";
 import { shutdownManager } from "bunqueue/client";
 import type { AnyElysia } from "elysia";
 import { createCoreQueues } from "./queueFactory";
@@ -462,31 +457,17 @@ export class AppBootstrap {
     // ---------------------------------------------------------------------------
     await this.registry.initializeAll(this.registryInitDeps);
 
-    // Wire workflow run store and session cleanup when jobs are cleaned from the
+    // Wire workflow run and session cleanup when jobs are cleaned from the
     // queue monitor. Extracts workflowRunId and sessionId from cached job entries
     // before eviction.
     const sessionStore = getSessionStore(getDb());
 
-    // Decide how workflow step jobs participate in "clean completed"/"clean
-    // failed": a run's steps are cleaned together when the PARENT run's status
-    // matches the clean type, regardless of each step's own queue state. This is
-    // required because a step's queue state does not reflect the run - a step is
-    // "completed" at the queue level while the run is still running or paused on
-    // a waitFor signal, and a failed run's steps are a mix of "completed" (the
-    // steps that ran) and "failed" (the one that broke). So:
-    //   - active run (running / waiting-signal): "keep" (never cleaned).
-    //   - terminal run whose status matches the clean type: "remove" (clean the
-    //     whole run's steps, ignoring their individual queue states).
-    //   - terminal run whose status mismatches the clean type: "keep".
-    // Non-workflow jobs and orphaned step jobs (no run record) return "default"
-    // and clean by the normal rule (own state === clean type).
-    this.monitor.setCleanGuard((job, cleanType) => {
-      if (!job.workflowRunId) return "default";
-      const run = getDagRun(job.workflowRunId);
-      if (!run) return "default";
-      if (isActiveRunStatus(run.status)) return "keep";
-      return run.status === cleanType ? "remove" : "keep";
-    });
+    // Workflow step jobs clean together with their run (the workflows
+    // extension decides from the run's status; see workflowRunHooks.ts).
+    // Non-workflow jobs clean by the normal rule (own state === clean type).
+    this.monitor.setCleanGuard((job, cleanType) =>
+      job.workflowRunId ? workflowRunCleanDecision(job.workflowRunId, cleanType) : "default",
+    );
 
     this.monitor.setOnBeforeJobsRemoved((jobIds, getCachedJob) => {
       // Map each affected workflow run to its name (for the removal broadcast).
@@ -501,17 +482,9 @@ export class AppBootstrap {
           sessionIds.add(cached.sessionId);
         }
       }
-      if (runNames.size > 0) {
-        const ids = [...runNames.keys()];
-        deleteSignalsByRunIds(ids);
-        deleteRunsByIds(ids);
-        // Notify workflow views (detail page run list/counts) that these runs
-        // are gone, mirroring the cancel path. Without this the "Runs (N)" count
-        // and failed-run list stay stale after "clean completed"/"clean failed".
-        for (const [runId, workflowName] of runNames) {
-          this.monitor.broadcast({ type: "workflow_run_removed", workflowRunId: runId, workflowName });
-        }
-      }
+      // The runs' signals, timers, tasks, and records go with their jobs
+      // (the same teardown as deleting a run).
+      forgetWorkflowRuns(runNames);
       // Delete associated sessions (and their messages) for cleaned jobs, but
       // preserve chat conversations - only non-chat sessions are removed.
       if (sessionIds.size > 0) {

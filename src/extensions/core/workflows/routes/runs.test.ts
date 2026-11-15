@@ -1,14 +1,14 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { ExtensionContext, Logger, ManagedQueuePort, RouteHandler } from "@ext/types";
+import type { ExtensionContext, Logger, RouteHandler } from "@ext/types";
 import type { ResolvedPrincipal } from "@src/auth";
 import { buildAbility } from "@src/auth";
 import { createTestDb } from "@src/test/db";
 import { setPrincipal } from "@src/web/auth";
 import { requestUserId } from "@src/web/triggerOwnership";
 import type { Context } from "elysia";
-import type { DagStepJobData } from "../dagEngine";
 import * as dagRunStore from "../dagRunStore";
 import { initSignalStore } from "../signalStore";
+import { createWorkflowRuns, type StepsQueue } from "../workflowRuns";
 import { registerRunsRoutes } from "./runs";
 import type { WorkflowRouteDeps } from "./types";
 
@@ -19,13 +19,18 @@ function runDetailHandler(): RouteHandler {
     routes: { register: (method: string, path: string, h: RouteHandler) => handlers.set(`${method} ${path}`, h) },
     auth: { requestUserId },
   } as unknown as ExtensionContext;
-  const deps = {
-    ctx,
-    logger: { info() {}, warn() {}, error() {}, debug() {} } as unknown as Logger,
-    store: new Map(),
-    stepsQueue: { getAllJobs: async () => [] } as unknown as ManagedQueuePort<DagStepJobData>,
+  const log = { info() {}, warn() {}, error() {}, debug() {} } as unknown as Logger;
+  const runs = createWorkflowRuns({
+    stepsQueue: { getAllJobs: async () => [], onEvent() {} } as unknown as StepsQueue,
+    flowProducer: {} as never,
+    sessionFactory: {} as never,
+    log,
+    broadcast() {},
+    emitEvent() {},
+    getWorkflowDefinition: () => undefined,
     hitl: undefined,
-  } as unknown as WorkflowRouteDeps;
+  });
+  const deps = { ctx, logger: log, store: new Map(), runs, hitlEnabled: false } as unknown as WorkflowRouteDeps;
   registerRunsRoutes(deps);
   const handler = handlers.get("GET /runs/:runId");
   if (!handler) throw new Error("run detail route not registered");

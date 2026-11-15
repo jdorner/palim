@@ -4,12 +4,11 @@
  * @module
  */
 
-import type { ExtensionContext, HitlApi, Logger, ManagedQueuePort } from "@ext/types";
-import type { DagCoordinatorDeps } from "../dagCoordinator";
-import type { DagStepJobData } from "../dagEngine";
+import type { ExtensionContext, Logger } from "@ext/types";
 import type { DagWorkflowDefinition } from "../schemas";
 import type { TriggerRefLookup } from "../triggerRefs";
 import type { WorkflowAnalysis } from "../workflowAnalysis";
+import type { WorkflowRuns } from "../workflowRuns";
 
 /** State and services of a workflows extension instance that its routes use. */
 export interface WorkflowRouteDeps {
@@ -19,15 +18,10 @@ export interface WorkflowRouteDeps {
   store: Map<string, DagWorkflowDefinition>;
   /** Directory holding the workflow JSON5 files. */
   workflowsDir: string;
-  stepsQueue: ManagedQueuePort<DagStepJobData>;
-  coordinatorDeps: DagCoordinatorDeps;
-  hitl: HitlApi | undefined;
-  /** Dispatches a workflow run and announces it to clients. */
-  dispatchAndAnnounce: (
-    wf: DagWorkflowDefinition,
-    payload: unknown,
-    initiatorUserId?: string,
-  ) => Promise<{ workflowRunId: string; jobIds: string[] }>;
+  /** The run lifecycle (start, describe, remove, signal delivery deps). */
+  runs: WorkflowRuns;
+  /** Whether the human task service is configured (`humanTask` steps available). */
+  hitlEnabled: boolean;
   /**
    * Schedules a debounced reload of one workflow file from disk (the file
    * watcher usually reports the same write; the duplicate is merged).
