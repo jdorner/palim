@@ -12,8 +12,8 @@ import type { Logger, WorkflowDispatchResult } from "@ext/types";
 import type { FlowJob, FlowProducer } from "bunqueue/client";
 import * as dagRunStore from "./dagRunStore";
 import { type EdgeState, edgeId, type StepStatus } from "./dagRunStore";
-import { computeRootSteps } from "./dagValidation";
-import type { DagStep, DagWorkflowDefinition, Edge } from "./schemas";
+import { definitionTopology } from "./definitionTopology";
+import type { DagStep, DagWorkflowDefinition } from "./schemas";
 import { DAG_CF_TYPES } from "./schemas";
 
 /**
@@ -169,7 +169,7 @@ export async function dispatchDagWorkflow(
   }
 
   // Compute root steps (no incoming edges)
-  const rootSlugs = computeRootSteps(definition);
+  const rootSlugs = [...definitionTopology(definition).roots];
 
   // Filter out non-dispatchable root nodes (CF, waitFor, humanTask are handled inline,
   // not dispatched as queue jobs).
@@ -231,45 +231,4 @@ export async function dispatchDagWorkflow(
   }
 
   return { workflowRunId, jobIds };
-}
-
-/**
- * Builds the incoming-edge map for a DAG workflow definition.
- *
- * Maps each step slug to the list of edge IDs that target it.
- * Used by the coordinator for join-barrier checks.
- *
- * @param definition - The DAG workflow definition
- * @returns Map of step slug to array of incoming edge IDs
- */
-export function buildIncomingEdgeMap(definition: DagWorkflowDefinition): Map<string, string[]> {
-  const map = new Map<string, string[]>();
-  for (const slug of Object.keys(definition.steps)) {
-    map.set(slug, []);
-  }
-  for (const edge of definition.edges) {
-    const eid = edgeId(edge.from, edge.to, edge.branch);
-    map.get(edge.to)!.push(eid);
-  }
-  return map;
-}
-
-/**
- * Builds the outgoing-edge map for a DAG workflow definition.
- *
- * Maps each step slug to the list of edges originating from it.
- * Used by the coordinator to determine successors after step completion.
- *
- * @param definition - The DAG workflow definition
- * @returns Map of step slug to array of outgoing edges
- */
-export function buildOutgoingEdgeMap(definition: DagWorkflowDefinition): Map<string, Edge[]> {
-  const map = new Map<string, Edge[]>();
-  for (const slug of Object.keys(definition.steps)) {
-    map.set(slug, []);
-  }
-  for (const edge of definition.edges) {
-    map.get(edge.from)!.push(edge);
-  }
-  return map;
 }

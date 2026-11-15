@@ -564,6 +564,26 @@ describe("validateDagWorkflowTemplates - function-call syntax", () => {
     expect(warnings.filter((w) => w.message.includes("Unknown function"))).toEqual([]);
   });
 
+  test("flags the loop variable in a step branching off the body without reaching the aggregator", async () => {
+    // The runtime binds the loop variable only in the body that rejoins the aggregator.
+    const def = wf(
+      {
+        images: { type: "iterator", items: "{{trigger.payload}}", as: "image" },
+        convert: { type: "agent", prompt: "{{image.dataUrl}}" },
+        notify: { type: "agent", prompt: "{{image.dataUrl}}" },
+        collect: { type: "aggregator", iterator: "images" },
+      },
+      [
+        { from: "images", to: "convert", branch: "each" },
+        { from: "convert", to: "collect" },
+        { from: "convert", to: "notify" },
+      ],
+    );
+    const warnings = await validateDagWorkflowTemplates(def);
+    expect(warnings.map((w) => w.stepSlug)).toEqual(["notify"]);
+    expect(warnings[0]!.message).toContain('Unknown expression prefix "image"');
+  });
+
   test("does not flag nested function calls", async () => {
     const def = iteratorWf('{"data": "{{ jsonEscape(stripDataUri(image.dataUrl)) }}"}');
     const warnings = await validateDagWorkflowTemplates(def);

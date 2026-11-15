@@ -50,7 +50,7 @@
     "publish": "bun scripts/publish.ts",
     "setup": "bun scripts/setup.ts",
     "start": "bun src/main.ts",
-    "test": "AGENT=1 bun test src/"
+    "test": "AGENT=1 bun test src/ shared/"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.6",

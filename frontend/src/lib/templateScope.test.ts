@@ -1683,6 +1683,45 @@ describe("buildScopeTree", () => {
     expect(labels).toContain("itemIndex");
   });
 
+  test("a step branching off the body without reaching the aggregator is outside it", () => {
+    // The runtime binds the loop variable only in the body that rejoins the aggregator.
+    const iter: ScopeConfig = {
+      ...config,
+      steps: [
+        { slug: "loop", type: "iterator", items: "{{trigger.payload.rows}}", as: "row" },
+        { slug: "body", type: "agent" },
+        { slug: "notify", type: "agent" },
+        { slug: "done", type: "aggregator", iterator: "loop" },
+      ],
+      currentStepIndex: 2,
+      edges: [
+        { from: "loop", to: "body", branch: "each" },
+        { from: "body", to: "done" },
+        { from: "body", to: "notify" },
+      ],
+    };
+    const labels = buildScopeTree(iter)[0]!.nodes.map((n) => n.label);
+    expect(labels).not.toContain("row");
+    expect(labels).not.toContain("itemIndex");
+  });
+
+  test("a rootless cycle offers no step results", () => {
+    const cyclic: ScopeConfig = {
+      ...config,
+      steps: [
+        { slug: "p", type: "agent" },
+        { slug: "q", type: "agent" },
+        { slug: "r", type: "agent" },
+      ],
+      currentStepIndex: 0,
+      edges: [
+        { from: "p", to: "q" },
+        { from: "q", to: "p" },
+      ],
+    };
+    expect(getSuggestions(cyclic, ["steps", "r"], "").map((s) => s.label)).toEqual(["config"]);
+  });
+
   test("filterScopeTree keeps matches with their ancestors and subtrees", () => {
     const data = byId("data");
     expect(filterScopeTree(data, "")).toBe(data);

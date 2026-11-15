@@ -1,12 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Value } from "@sinclair/typebox/value";
-import {
-  computeRootSteps,
-  computeTerminalSteps,
-  validateCfEdges,
-  validateDag,
-  validateIteratorPairing,
-} from "./dagValidation";
+import { validateCfEdges, validateDag, validateIteratorPairing } from "./dagValidation";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema } from "./schemas";
 
 /** Helper to create a minimal valid DAG definition for testing. */
@@ -381,52 +375,6 @@ describe("validateCfEdges", () => {
       ],
     });
     expect(validateCfEdges(def)).toEqual([]);
-  });
-});
-
-describe("computeRootSteps", () => {
-  test("identifies single root", () => {
-    const def = makeDag();
-    expect(computeRootSteps(def)).toEqual(["a"]);
-  });
-
-  test("identifies multiple roots in parallel fan-in", () => {
-    const def = makeDag({
-      steps: {
-        a: { type: "agent", prompt: "root 1" },
-        b: { type: "agent", prompt: "root 2" },
-        c: { type: "agent", prompt: "join" },
-      },
-      edges: [
-        { from: "a", to: "c" },
-        { from: "b", to: "c" },
-      ],
-    });
-    const roots = computeRootSteps(def);
-    expect(roots.sort()).toEqual(["a", "b"]);
-  });
-});
-
-describe("computeTerminalSteps", () => {
-  test("identifies single terminal", () => {
-    const def = makeDag();
-    expect(computeTerminalSteps(def)).toEqual(["b"]);
-  });
-
-  test("identifies multiple terminals in fan-out", () => {
-    const def = makeDag({
-      steps: {
-        a: { type: "agent", prompt: "start" },
-        b: { type: "agent", prompt: "end 1" },
-        c: { type: "agent", prompt: "end 2" },
-      },
-      edges: [
-        { from: "a", to: "b" },
-        { from: "a", to: "c" },
-      ],
-    });
-    const terminals = computeTerminalSteps(def);
-    expect(terminals.sort()).toEqual(["b", "c"]);
   });
 });
 

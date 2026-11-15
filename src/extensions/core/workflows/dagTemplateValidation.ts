@@ -24,6 +24,7 @@ import {
   walkSchemaPath,
 } from "@shared/workflows";
 import justin from "subscript/justin";
+import { definitionTopology } from "./definitionTopology";
 import type { DagStepDef, DagWorkflowDefinition } from "./schemas";
 import { findHyphenatedStepRefs, quoteHyphenatedStepRefs } from "./stepRefs";
 import type { TemplateSecretResolver } from "./template";
@@ -157,122 +158,6 @@ function collectStringFields(path: string, value: unknown, out: [string, string]
   }
 }
 
-/**
- * Computes the set of ancestor slugs for each step in the DAG.
- *
- * An ancestor of step X is any step from which X is reachable following edges.
- * Used to validate that template references point to steps that will have
- * completed before the referencing step runs.
- *
- * @param definition - The DAG workflow definition
- * @returns Map of step slug to set of ancestor slugs
- */
-function computeAncestors(definition: DagWorkflowDefinition): Map<string, Set<string>> {
-  const directPreds = new Map<string, Set<string>>();
-  for (const slug of Object.keys(definition.steps)) {
-    directPreds.set(slug, new Set());
-  }
-  for (const edge of definition.edges) {
-    directPreds.get(edge.to)?.add(edge.from);
-  }
-
-  const ancestorCache = new Map<string, Set<string>>();
-
-  function resolve(slug: string, visiting: Set<string>): Set<string> {
-    const cached = ancestorCache.get(slug);
-    if (cached) return cached;
-    if (visiting.has(slug)) return new Set(); // cycle guard (shouldn't happen in a valid DAG)
-
-    visiting.add(slug);
-    const ancestors = new Set<string>();
-    for (const pred of directPreds.get(slug) ?? []) {
-      ancestors.add(pred);
-      for (const a of resolve(pred, visiting)) ancestors.add(a);
-    }
-    visiting.delete(slug);
-    ancestorCache.set(slug, ancestors);
-    return ancestors;
-  }
-
-  const result = new Map<string, Set<string>>();
-  for (const slug of Object.keys(definition.steps)) {
-    result.set(slug, resolve(slug, new Set()));
-  }
-  return result;
-}
-
-/**
- * Computes the dominator set for each step in the DAG.
- *
- * A step D dominates step N if every path from an entry node (a step with no
- * incoming edges) to N passes through D. By convention a step dominates itself.
- *
- * This is stricter than ancestry: an ancestor reachable on only *some* paths
- * (e.g. a step on the `else` branch of an `if`, feeding a join node) is NOT a
- * dominator of that join node. Template `steps.<slug>.result` references are
- * only *guaranteed* to resolve at runtime when the referenced step dominates
- * the referencing step; a non-dominating ancestor lives on a conditional branch
- * and may be skipped (dead branch), leaving its result absent.
- *
- * Uses the classic iterative data-flow formulation:
- *   dom(entry) = {entry}
- *   dom(n)     = {n} + intersection over preds p of dom(p)
- * iterated to a fixpoint. DAGs converge in a single reverse-topological-free
- * pass in practice, but the fixpoint loop is robust regardless of node order.
- *
- * @param definition - The DAG workflow definition
- * @returns Map of step slug to the set of steps that dominate it (including itself)
- */
-function computeDominators(definition: DagWorkflowDefinition): Map<string, Set<string>> {
-  const allSlugs = Object.keys(definition.steps);
-  const preds = new Map<string, Set<string>>();
-  for (const slug of allSlugs) preds.set(slug, new Set());
-  for (const edge of definition.edges) {
-    preds.get(edge.to)?.add(edge.from);
-  }
-
-  const entries = allSlugs.filter((slug) => (preds.get(slug)?.size ?? 0) === 0);
-
-  const dom = new Map<string, Set<string>>();
-  for (const slug of allSlugs) {
-    // Entry nodes are dominated only by themselves; every other node starts
-    // pessimistically dominated by all nodes, then is narrowed by intersection.
-    dom.set(slug, entries.includes(slug) ? new Set([slug]) : new Set(allSlugs));
-  }
-
-  let changed = true;
-  while (changed) {
-    changed = false;
-    for (const slug of allSlugs) {
-      if (entries.includes(slug)) continue;
-      const slugPreds = [...(preds.get(slug) ?? [])];
-
-      // Intersection of the dominator sets of all predecessors.
-      let intersection: Set<string> | null = null;
-      for (const p of slugPreds) {
-        const pDom = dom.get(p)!;
-        if (intersection === null) {
-          intersection = new Set(pDom);
-        } else {
-          for (const d of [...intersection]) {
-            if (!pDom.has(d)) intersection.delete(d);
-          }
-        }
-      }
-      const newDom = intersection ?? new Set<string>();
-      newDom.add(slug);
-
-      const prev = dom.get(slug)!;
-      if (prev.size !== newDom.size || [...newDom].some((d) => !prev.has(d))) {
-        dom.set(slug, newDom);
-        changed = true;
-      }
-    }
-  }
-
-  return dom;
-}
-
 /** The iterator whose body a step belongs to. */
 interface EnclosingIterator {
   /** The loop variable name (the iterator's `as`, default "item"). */
@@ -282,53 +167,18 @@ interface EnclosingIterator {
 }
 
 /**
- * Finds the iterator whose body contains a step: reachable from the iterator's
- * `each` targets without passing through its paired aggregator.
+ * Finds the iterator whose body contains a step (see `iteratorBody` in
+ * `shared/workflowTopology.ts`, the same body the runtime binds the loop variable in).
  *
  * @param slug - The step to locate
  * @param definition - The workflow definition
  * @returns The enclosing iterator, or `null` when the step is not in an iterator body
  */
 function findEnclosingIterator(slug: string, definition: DagWorkflowDefinition): EnclosingIterator | null {
-  for (const [iterSlug, stepDef] of Object.entries(definition.steps)) {
-    if (stepDef.type !== "iterator") continue;
-    const iterDef = stepDef as { type: "iterator"; items: string; as?: string };
-
-    // Find the aggregator that references this iterator
-    let aggSlug: string | undefined;
-    for (const [s, d] of Object.entries(definition.steps)) {
-      if (d.type === "aggregator" && (d as { iterator: string }).iterator === iterSlug) {
-        aggSlug = s;
-        break;
-      }
-    }
-    if (!aggSlug) continue;
-
-    // Quick check: is this slug reachable from the iterator's each target
-    // and before the aggregator? Use forward BFS from each targets.
-    const forward = new Map<string, string[]>();
-    for (const s of Object.keys(definition.steps)) forward.set(s, []);
-    for (const edge of definition.edges) forward.get(edge.from)?.push(edge.to);
-
-    const reachable = new Set<string>();
-    const eachTargets: string[] = [];
-    for (const edge of definition.edges) {
-      if (edge.from === iterSlug && edge.branch === "each") eachTargets.push(edge.to);
-    }
-    const queue = [...eachTargets];
-    while (queue.length > 0) {
-      const current = queue.shift()!;
-      if (current === aggSlug) continue; // Don't pass through aggregator
-      if (reachable.has(current)) continue;
-      reachable.add(current);
-      for (const neighbor of forward.get(current) ?? []) {
-        if (!reachable.has(neighbor)) queue.push(neighbor);
-      }
-    }
-
-    if (reachable.has(slug)) return { as: iterDef.as ?? "item", items: iterDef.items };
-  }
-  return null;
+  const iterSlug = definitionTopology(definition).enclosingIterator(slug);
+  if (iterSlug === undefined) return null;
+  const iterDef = definition.steps[iterSlug] as { items: string; as?: string };
+  return { as: iterDef.as ?? "item", items: iterDef.items };
 }
 
 /** Literal keywords and operators that the identifier scan must not treat as paths. */
@@ -456,8 +306,7 @@ export async function validateDagWorkflowTemplates(
         ),
       }
     : null;
-  const ancestors = computeAncestors(definition);
-  const dominators = computeDominators(definition);
+  const topology = definitionTopology(definition);
 
   // An iterator alias named like a built-in function hides that function in
   // the iterator body (the alias wins at runtime).
@@ -681,8 +530,7 @@ export async function validateDagWorkflowTemplates(
             }
 
             if (accessor === "result" && referencedSlug !== slug) {
-              const stepAncestors = ancestors.get(slug) ?? new Set();
-              if (!stepAncestors.has(referencedSlug)) {
+              if (!topology.ancestors(slug).has(referencedSlug)) {
                 warnings.push({
                   stepSlug: slug,
                   field: fieldName,
@@ -690,8 +538,7 @@ export async function validateDagWorkflowTemplates(
                 });
                 continue;
               }
-              const stepDominators = dominators.get(slug) ?? new Set();
-              if (!stepDominators.has(referencedSlug)) {
+              if (!topology.dominators(slug).has(referencedSlug)) {
                 warnings.push({
                   stepSlug: slug,
                   field: fieldName,

@@ -52,6 +52,7 @@ portal/src/           # End-user portal (separate package; `$lib` = frontend/src
 
 ### Workflows
 
+- Graph rules (dominators, iterator bodies, dead branches, roots/terminals) live only in `shared/workflowTopology.ts`. Backend and frontend both call `analyzeWorkflowGraph`; never re-derive them locally.
 - Every signal delivery goes through `deliverSignal` (`signalDelivery.ts`). Never resume a waiting step another way.
 - A portal workflow's run-as binding lives in `app_config` (`portalRunAs.ts`), never in the workflow JSON5, because the sandbox can write that file.
 - Template functions must be total (never throw; bad input yields `""`, `null`, `[]`, or `NaN`) and read data fields through `ownProp`. Their names and categories come only from `shared/templateFunctionMeta.ts`, which backend, validator, and frontend autocomplete all share.

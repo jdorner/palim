@@ -84,17 +84,8 @@ export interface DagWorkflowRun {
 // Edge ID helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Computes a deterministic edge ID from an edge definition.
- *
- * @param from - Source step slug
- * @param to - Target step slug
- * @param branch - Optional branch label (for CF edges)
- * @returns Edge ID string
- */
-export function edgeId(from: string, to: string, branch?: string): string {
-  return branch ? `${from}:${to}:${branch}` : `${from}:${to}`;
-}
+/** Deterministic edge id (`from:to[:branch]`), defined with the other graph rules in shared/. */
+export { edgeId } from "@shared/workflowTopology";
 
 // ---------------------------------------------------------------------------
 // Module-level DB

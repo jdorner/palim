@@ -12,6 +12,8 @@
  * the exact same rules.
  */
 
+import { analyzeWorkflowGraph, type TopologyEdge } from "../../../shared/workflowTopology";
+
 /** Status vocabulary understood by the graph renderer. */
 export type GraphStepStatus = "waiting" | "active" | "completed" | "failed" | "waiting-signal" | "skipped";
 
@@ -101,66 +103,15 @@ export function settleOpenSteps<T extends { slug: string; status: string }>(
 }
 
 /** A DAG edge from the workflow definition. */
-export interface DefinitionEdge {
-  from: string;
-  to: string;
-  branch?: string;
-}
-
-/**
- * Computes the set of steps that are "dead" (on a branch that was not taken)
- * given the branches chosen so far by control-flow nodes.
- *
- * This mirrors the backend's dead-edge propagation so the graph can render the
- * ghost/skipped appearance live during a run, rather than only after reload:
- * - For a decided CF node, edges whose branch != the chosen branch are dead.
- * - A node becomes dead when ALL of its incoming edges are dead (it is no
- *   longer reachable). Deadness then propagates through its outgoing edges.
- * - Nodes reachable via at least one non-dead edge (e.g. a join node fed by a
- *   live branch) are NOT marked dead.
- *
- * @param edges - The workflow definition edges.
- * @param chosenBranches - Map of CF step slug to the branch it selected.
- * @returns Set of step slugs that are dead.
- */
-export function computeDeadSteps(edges: DefinitionEdge[], chosenBranches: Record<string, string>): Set<string> {
-  // An edge is dead if it leaves a decided CF node on a non-chosen branch.
-  const deadEdge = (e: DefinitionEdge): boolean => {
-    const chosen = chosenBranches[e.from];
-    return chosen !== undefined && e.branch !== undefined && e.branch !== chosen;
-  };
-
-  const dead = new Set<string>();
-  let changed = true;
-
-  // Fixed-point: a node is dead when it has incoming edges and every one of them
-  // is either a dead branch edge or comes from an already-dead node.
-  while (changed) {
-    changed = false;
-    for (const edge of edges) {
-      // Skip targets already known dead.
-      if (dead.has(edge.to)) continue;
-
-      const incoming = edges.filter((e) => e.to === edge.to);
-      if (incoming.length === 0) continue;
-
-      const allIncomingDead = incoming.every((e) => deadEdge(e) || dead.has(e.from));
-      if (allIncomingDead) {
-        dead.add(edge.to);
-        changed = true;
-      }
-    }
-  }
-
-  return dead;
-}
+export type DefinitionEdge = TopologyEdge;
 
 /**
  * Builds a slug -> graph-status map from a run's steps, normalizing each status.
  *
  * Steps present in the definition but absent from the run are:
  * - "skipped" if they are on a branch that was not taken (derived from
- *   `chosenBranches`), so the ghost appearance shows live during the run;
+ *   `chosenBranches` by the shared topology's dead-branch rule), so the ghost
+ *   appearance shows live during the run;
  * - "skipped" if the run has finished (completed/failed) and they never ran;
  * - otherwise left absent so the renderer falls back to "waiting".
  *
@@ -184,7 +135,10 @@ export function buildStatusMap(
     map[step.slug] = normalizeStepStatus(step.status);
   }
 
-  const deadSteps = computeDeadSteps(edges, chosenBranches);
+  const deadSteps = analyzeWorkflowGraph(
+    definitionSlugs.map((slug) => ({ slug })),
+    edges,
+  ).deadSteps(chosenBranches);
   const runFinished = runStatus === "completed" || runStatus === "failed";
 
   for (const slug of definitionSlugs) {

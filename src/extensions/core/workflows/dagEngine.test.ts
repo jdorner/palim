@@ -7,7 +7,7 @@
 
 import { beforeEach, describe, expect, test } from "bun:test";
 import { createTestDb } from "@src/test/db";
-import { buildDagStepJob, buildIncomingEdgeMap, buildOutgoingEdgeMap, dispatchDagWorkflow } from "./dagEngine";
+import { buildDagStepJob, dispatchDagWorkflow } from "./dagEngine";
 import * as dagRunStore from "./dagRunStore";
 import type { DagWorkflowDefinition } from "./schemas";
 
@@ -188,51 +188,5 @@ describe("buildDagStepJob", () => {
     expect(job.data!.sessionId).toContain("session-");
     expect(job.queueName).toBe("workflows:steps");
     expect(job.name).toBe("fetch");
-  });
-});
-
-describe("buildIncomingEdgeMap", () => {
-  test("maps step slugs to incoming edge IDs", () => {
-    const def: DagWorkflowDefinition = {
-      name: "test",
-      trigger: { type: "manual" },
-      steps: {
-        a: { type: "agent", prompt: "x" },
-        b: { type: "agent", prompt: "y" },
-        c: { type: "agent", prompt: "z" },
-      },
-      edges: [
-        { from: "a", to: "c" },
-        { from: "b", to: "c" },
-      ],
-    };
-
-    const map = buildIncomingEdgeMap(def);
-    expect(map.get("a")).toEqual([]);
-    expect(map.get("b")).toEqual([]);
-    expect(map.get("c")!.sort()).toEqual(["a:c", "b:c"]);
-  });
-});
-
-describe("buildOutgoingEdgeMap", () => {
-  test("maps step slugs to outgoing edges", () => {
-    const def: DagWorkflowDefinition = {
-      name: "test",
-      trigger: { type: "manual" },
-      steps: {
-        a: { type: "agent", prompt: "x" },
-        b: { type: "agent", prompt: "y" },
-        c: { type: "agent", prompt: "z" },
-      },
-      edges: [
-        { from: "a", to: "b" },
-        { from: "a", to: "c" },
-      ],
-    };
-
-    const map = buildOutgoingEdgeMap(def);
-    expect(map.get("a")!.length).toBe(2);
-    expect(map.get("b")).toEqual([]);
-    expect(map.get("c")).toEqual([]);
   });
 });
