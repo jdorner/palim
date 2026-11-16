@@ -22,11 +22,13 @@ A workflow is a set of named `steps` plus an `edges` array that wires them toget
 This skill covers the concept and the CLI. For the details, read the companion skills:
 
 - **Authoring a definition** (schema, edges, prompts, per-step tools/skills, template variables, secrets, triggers, worked examples, execution model): run `skill read workflow-writing`
+- **Turning a task solved in this chat into a workflow** (keep the calls that worked, parameterize inputs, test before going live): run `skill read workflow-crystallize`
 - **Step type reference** (every step type's fields, examples, and behavior, including types added by extensions): run `workflow step-types`, then `workflow step-types <type>`
 
 ## When to use
 
 - When the user wants to create a new multi-step pipeline
+- When the user wants a task just solved in this chat turned into a workflow ("make that a workflow", "automate what we just did"): read `workflow-crystallize`
 - When the user wants to modify, inspect, or delete an existing workflow
 - When the user asks about chaining agent tasks, automations, or pipelines
 - When the user needs parallel execution, joins, conditional logic, data-driven loops, approval gates, or inter-workflow coordination
