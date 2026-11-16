@@ -215,7 +215,7 @@ Get run status with per-step states. `if`/`case` steps carry an `evaluation` (ex
 
 ### GET /ext/workflows/runs/:runId/logs
 
-Get per-step execution logs for a run.
+Get per-step execution logs for a run, in run order. Steps that ran as jobs carry their job logs. Steps that ran inline in the coordinator (`humanTask`, `waitFor`, `if`/`case`, dead branches) are listed with their run status; an inline failure carries the run's failure reason as a log line, and `if`/`case` steps carry their decision.
 
 ### POST /ext/workflows/runs/:runId/steps/:slug/signal
 
