@@ -17,6 +17,7 @@ import alert from "comark/plugins/alert";
 import componentsPlugin from "comark/plugins/components";
 import frontmatter from "comark/plugins/frontmatter";
 import html from "comark/plugins/html";
+import linkify from "comark/plugins/linkify";
 // Import the mermaid PARSER plugin from the core package (light, no renderer).
 // Importing from `@comark/svelte/plugins/mermaid` would statically pull in the
 // heavy `beautiful-mermaid` renderer and defeat the lazy load below, since that
@@ -46,8 +47,11 @@ const rangiPlugin = rangi({
 // We turn off Comark's built-in default plugins via `registerDefaultPlugins:
 // false` (passed as `options` to <Markdown> below) so we can re-register every
 // default EXCEPT `attributes`. Keep this list in sync with Comark's defaults
-// (frontmatter, alert, html, task-list, components) minus attributes.
+// (linkify, frontmatter, alert, html, task-list, components) minus attributes.
+// linkify keeps its strict defaults: only URLs with a scheme and emails are
+// linked, so file names like `README.md` (a valid TLD) stay plain text.
 const plugins: ComarkPlugin[] = [
+  linkify(),
   frontmatter(),
   alert(),
   html(),
