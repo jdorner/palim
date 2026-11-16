@@ -23,7 +23,7 @@ The **Run** button on a workflow's page starts a run without a payload. Its menu
 
 ## Drafts
 
-A workflow with `"draft": true` is a draft. It is loaded, listed with a **Draft** badge, and can be run by hand (the Run buttons, `POST /ext/workflows/run/:name`, `workflow trigger`), so you can test it. Nothing else starts it: not its webhook, schedule, or file watcher trigger, not another workflow (`start-workflow`, `ctx.workflows.dispatch`, which fail with `Workflow is a draft: <name>`), and not the portal, which does not offer it.
+A workflow with `"draft": true` is a draft. It is loaded, listed with a **Draft** badge, and can be run by hand (the Run buttons, `POST /ext/workflows/run/:name`, `workflow trigger`), so you can test it. Nothing else starts it: not its webhook, schedule, or file watcher trigger, not another workflow (`start-workflow`, `ctx.workflows.dispatch`, which fail with `Workflow is a draft: <name>`), and not the portal, which does not offer it. A workflow with a `start-workflow` step that names a draft gets a warning on that step, since the step fails until the draft is activated.
 
 A draft's page shows a banner with an **Activate** button. Activating removes `draft` from the file as it is on disk (comments and any changes made since you opened the page are kept), and from then on the workflow starts like any other. Saving a draft in the editor keeps it a draft.
 

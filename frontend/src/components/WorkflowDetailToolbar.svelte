@@ -78,6 +78,22 @@ const menuItemClass =
   "flex items-center gap-2 px-2 py-1.5 text-sm rounded-sm cursor-pointer outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground";
 
 let confirmingDelete = $state(false);
+
+// A closing menu returns focus to its trigger. When the item opens the payload
+// dialog, that would pull focus out of the dialog right after it focused its
+// field, so the menu skips the return for that one close.
+let openingPayloadDialog = false;
+
+function selectRunWithPayload() {
+  openingPayloadDialog = true;
+  onRunWithPayload();
+}
+
+function keepDialogFocus(e: Event) {
+  if (!openingPayloadDialog) return;
+  openingPayloadDialog = false;
+  e.preventDefault();
+}
 </script>
 
 <div class="flex items-center justify-between gap-2 mb-4 shrink-0">
@@ -165,9 +181,10 @@ let confirmingDelete = $state(false);
               <DropdownMenu.Content
                 align="end"
                 sideOffset={4}
+                onCloseAutoFocus={keepDialogFocus}
                 class="z-9999 min-w-40 rounded-md border border-border bg-background p-1 shadow-lg"
               >
-                <DropdownMenu.Item class={menuItemClass} onSelect={onRunWithPayload}>
+                <DropdownMenu.Item class={menuItemClass} onSelect={selectRunWithPayload}>
                   <BracketsCurlyIcon size={14} aria-hidden="true" />
                   {t("workflows.runWithPayload")}
                 </DropdownMenu.Item>
@@ -204,9 +221,10 @@ let confirmingDelete = $state(false);
             <DropdownMenu.Content
               align="end"
               sideOffset={4}
+              onCloseAutoFocus={keepDialogFocus}
               class="z-9999 min-w-40 rounded-md border border-border bg-background p-1 shadow-lg"
             >
-              <DropdownMenu.Item class={menuItemClass} onSelect={onRunWithPayload}>
+              <DropdownMenu.Item class={menuItemClass} onSelect={selectRunWithPayload}>
                 <BracketsCurlyIcon size={14} aria-hidden="true" />
                 {t("workflows.runWithPayload")}
               </DropdownMenu.Item>

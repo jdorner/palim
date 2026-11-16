@@ -184,6 +184,7 @@ function enterEditMode() {
   if (!workflow) return;
   editDraft = draftFromWorkflow(workflow);
   editBaseline = JSON.stringify(editDraft);
+  activateError = null;
   saveError = null;
   saveErrorDetails = [];
   validationErrors = new Map();
@@ -754,6 +755,8 @@ async function fetchWorkflow() {
   if (!name) return;
   loading = true;
   error = null;
+  // A failed activation belongs to the workflow and state it happened in.
+  activateError = null;
   try {
     const res = await authFetch(`/ext/workflows/${name}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -816,11 +819,31 @@ async function activateWorkflow() {
       activateError = data?.error ?? `HTTP ${res.status}`;
       return;
     }
-    await fetchWorkflow();
+    // Flip the flag in place rather than reloading the page (which would drop
+    // the selection and scroll position), then pick up the definition that was
+    // activated in case it changed on disk since this page loaded.
+    workflow = { ...workflow, draft: false };
+    await refreshDefinition();
   } catch (err) {
     activateError = err instanceof Error ? err.message : t("workflows.activateFailed");
   } finally {
     activating = false;
+  }
+}
+
+/**
+ * Replaces the shown workflow with the stored one without the loading state.
+ * Best effort: on failure the page keeps what it shows.
+ */
+async function refreshDefinition() {
+  if (!name || editMode) return;
+  try {
+    const res = await authFetch(`/ext/workflows/${name}`);
+    if (!res.ok) return;
+    const fresh = normalizeWorkflow(await res.json());
+    if (fresh.name === name && !editMode) workflow = fresh;
+  } catch {
+    /* the flag is already updated; a reload shows the rest */
   }
 }
 

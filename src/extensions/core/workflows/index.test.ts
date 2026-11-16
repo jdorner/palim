@@ -5,7 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionContext, StepTypeHandler } from "@ext/types";
 import { Type } from "@sinclair/typebox";
-import { resolveDispatchTarget, workflowsForTrigger } from "./autoStart";
+import { getDraftTargetWarnings, resolveDispatchTarget, workflowsForTrigger } from "./autoStart";
 import type { DagWorkflowDefinition } from "./schemas";
 import { buildStepJobIdMap } from "./stepJobs";
 import { getTriggerRefWarnings, type TriggerRefLookup } from "./triggerRefs";
@@ -311,6 +311,29 @@ describe("automatic starts skip drafts and disabled workflows", () => {
 
   test("dispatch refuses a draft", () => {
     expect(() => resolveDispatchTarget(draft, "draft")).toThrow("Workflow is a draft: draft");
+  });
+
+  test("a start-workflow step that targets a draft is warned about", () => {
+    const caller: DagWorkflowDefinition = {
+      name: "caller",
+      trigger: { type: "manual" },
+      steps: {
+        "to-draft": { type: "start-workflow", workflowName: "draft" },
+        "to-live": { type: "start-workflow", workflowName: "live" },
+        "to-missing": { type: "start-workflow", workflowName: "nope" },
+        templated: { type: "start-workflow", workflowName: "{{trigger.payload.name}}" },
+        other: { type: "agent", prompt: "draft" },
+      },
+      edges: [],
+    };
+    const loaded = new Map([live, draft].map((w) => [w.name, w]));
+    expect(getDraftTargetWarnings(caller, (n) => loaded.get(n))).toEqual([
+      {
+        stepSlug: "to-draft",
+        field: "workflowName",
+        message: 'Workflow "draft" is a draft: this step fails until it is activated',
+      },
+    ]);
   });
 
   test("dispatch refuses a disabled workflow and a missing one", () => {

@@ -296,7 +296,7 @@ export function createExtension(): Extension {
         runs,
         hitlEnabled: hitl !== undefined,
         scheduleReload: (filename) => state.reloads?.schedule(filename),
-        analyzeWorkflow: createWorkflowAnalyzer(ctx),
+        analyzeWorkflow: createWorkflowAnalyzer(ctx, (target) => store.get(target)),
       });
     },
 
