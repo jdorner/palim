@@ -33,7 +33,7 @@ The step result (`{{steps.review.result.*}}`):
 - `respondedBy` - `{ id, username, displayName }` of the person who answered (null when expired)
 - `respondedAt`, `taskId`
 
-Branch on the answer with a `case` step: `{ "type": "case", "match": "{{steps.review.result.outcome}}", "paths": ["approve", "reject", "expired"] }`, with edges `branch: "approve"`, `"reject"`, and `"expired"` (the last one only when `onTimeout` is `"expire"`).
+Branch on the answer with a `case` step: `{ "type": "case", "match": "{{steps.review.result.outcome}}", "paths": ["approve", "reject", "expired"] }`, with edges `branch: "approve"`, `"reject"`, and `"expired"` (the last one only when `onTimeout` is `"expire"`). `workflow validate` reports outcomes that have no path in such a `case` (unless it has a `default`).
 
 Behavior:
 

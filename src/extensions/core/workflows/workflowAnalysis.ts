@@ -19,6 +19,7 @@ import { type TemplateWarning, validateDagWorkflowTemplates } from "./dagTemplat
 import { validateIteratorPairing } from "./dagValidation";
 import { definitionTopology } from "./definitionTopology";
 import { humanTaskOutputSchema } from "./humanTask";
+import { getOutcomeCoverageWarnings } from "./outcomeCoverage";
 import { compileOutputSchema, resolveTriggerOutputSchemaJson } from "./outputSchemaCompiler";
 import { getPortalRunAs } from "./portalRunAs";
 import type { DagAggregatorStep, DagHumanTaskStep, DagWorkflowDefinition, OutputSchemaShorthand } from "./schemas";
@@ -340,7 +341,7 @@ export interface WorkflowAnalysis {
  * Creates the analyzer shared by the list, detail, and draft-analysis routes,
  * so the three cannot diverge. It resolves a workflow's output schemas and
  * collects every advisory warning (trigger refs, templates, step dependencies,
- * iterator pairing, schema compiler).
+ * iterator pairing, human task outcome coverage, schema compiler).
  *
  * @param ctx - Extension context (step types, secrets, variables)
  * @param lookupWorkflow - Returns the loaded workflow of a name; enables the draft-target warnings
@@ -410,6 +411,7 @@ export function createWorkflowAnalyzer(
         ...getDependencyWarnings(def, ctx),
         ...(lookupWorkflow ? getDraftTargetWarnings(def, lookupWorkflow) : []),
         ...pairingWarnings,
+        ...getOutcomeCoverageWarnings(def),
         ...schemaWarnings,
       ],
     };

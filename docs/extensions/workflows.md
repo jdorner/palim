@@ -113,6 +113,8 @@ A `humanTask` step asks a person: it creates a task in the [portal](../portal.md
 
 `title`, `body`, `context` values and assignee entries support `{{template}}` expressions. Without `outcomes`, the task offers approve / reject. On timeout the run fails, or with `onTimeout: "expire"` it continues with `outcome: "expired"`. A task cancelled by a manager fails the run, and a run that fails or is deleted cancels its open tasks. The run page shows the waiting task and, with `hitl:manage`, lets you cancel it.
 
+Branch on the answer with a `case` whose `match` is `{{steps.<slug>.result.outcome}}`. The editor and `workflow validate` warn when an outcome (including `expired` with `onTimeout: "expire"`) has no path in that `case` and the `case` has no `default`, since choosing it would fail the run, and when a path matches no outcome of the task.
+
 ### Signals
 
 Each `waitFor` step that is reached creates a signal record for exactly that step of that run. How it can be resumed:
