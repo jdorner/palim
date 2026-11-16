@@ -46,6 +46,7 @@
     "check": "bunx biome check --write",
     "cli": "bun src/sandboxCLI.ts",
     "dev": "bun run --watch src/main.ts",
+    "eval:workflows": "bun src/eval/workflows/run.ts",
     "reset-admin": "bun src/tools/resetAdmin.ts",
     "publish": "bun scripts/publish.ts",
     "setup": "bun scripts/setup.ts",
