@@ -16,6 +16,7 @@ import { Value } from "@sinclair/typebox/value";
 import type { CommandContext, ExecResult, IFileSystem } from "just-bash";
 import { validateDagWorkflowTemplates } from "../../../dagTemplateValidation";
 import { validateCfEdges, validateDag } from "../../../dagValidation";
+import { getOutcomeCoverageWarnings } from "../../../outcomeCoverage";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePrompt } from "../../../schemas";
 
 /** Relative path to the workflows directory within the agent's working directory. */
@@ -163,22 +164,49 @@ interface ApiTemplateWarning {
 }
 
 /**
- * Fetches server-side template warnings for a loaded workflow.
- * Returns the warnings array from the API, or null if the workflow is not
- * loaded or the server is unavailable.
+ * Fetches the server's advisory warnings (templates, secrets, trigger refs,
+ * outcome coverage, ...) for the given definition. The definition is posted,
+ * so the result never reflects a stale copy the server has loaded.
+ * Returns null if the server is unavailable.
  */
 async function fetchServerWarnings(
   scriptCtx: SkillScriptContext,
-  workflowName: string,
+  definition: DagWorkflowDefinition,
 ): Promise<ApiTemplateWarning[] | null> {
   try {
-    const resp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/${workflowName}`);
+    const resp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/meta/analyze`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(definition),
+    });
     if (!resp.ok) return null;
     const data = (await resp.json()) as { warnings?: ApiTemplateWarning[] };
     return data.warnings ?? null;
   } catch {
     return null;
   }
+}
+
+/**
+ * The warnings the sandbox can compute without the server: template
+ * expressions and outcome coverage.
+ */
+async function localWarnings(definition: DagWorkflowDefinition): Promise<ApiTemplateWarning[]> {
+  return [
+    ...(await validateDagWorkflowTemplates(definition, { workflowName: definition.name })),
+    ...getOutcomeCoverageWarnings(definition),
+  ];
+}
+
+/**
+ * The server's warnings for a definition, or the local ones when the server
+ * is unavailable.
+ */
+async function collectWarnings(
+  scriptCtx: SkillScriptContext,
+  definition: DagWorkflowDefinition,
+): Promise<ApiTemplateWarning[]> {
+  return (await fetchServerWarnings(scriptCtx, definition)) ?? (await localWarnings(definition));
 }
 
 /**
@@ -207,12 +235,12 @@ async function fetchServerValidationErrors(
 }
 
 /**
- * Formats template warnings into a human-readable block for shell output.
+ * Formats advisory warnings into a human-readable block for shell output.
  */
 function formatWarnings(warnings: ApiTemplateWarning[]): string {
   if (warnings.length === 0) return "";
   const lines = warnings.map((w) => `  [${w.stepSlug}.${w.field}] ${w.message}`);
-  return `\nTemplate warnings:\n${lines.join("\n")}`;
+  return `\nWarnings:\n${lines.join("\n")}`;
 }
 
 function buildListHandler() {
@@ -351,14 +379,11 @@ function buildWriteHandler(scriptCtx: SkillScriptContext) {
       };
     }
 
-    // Template expression validation (local check, then try server-side for secret validation)
-    const localWarnings = await validateDagWorkflowTemplates(definition, { workflowName: definition.name });
-
     await fs.writeFile(filePath, `${Bun.JSON5.stringify(parsed, null, 2)}`);
 
-    // After write, try server-side validation (includes secret store checks)
-    const serverWarnings = await fetchServerWarnings(scriptCtx, definition.name);
-    const warnings = serverWarnings ?? localWarnings;
+    // Advisory warnings for the definition just written (server-side when
+    // available, which adds secret and trigger-ref checks)
+    const warnings = await collectWarnings(scriptCtx, definition);
     const warningOutput = formatWarnings(warnings);
     const draftNote = keptDraft ? "\nIt was a draft and stays one; the user activates it in the workflow editor." : "";
 
@@ -434,10 +459,8 @@ function buildValidateHandler(scriptCtx: SkillScriptContext) {
       };
     }
 
-    // Template expression validation (try server-side first for secret checks, fallback to local)
-    const serverWarnings = await fetchServerWarnings(scriptCtx, definition.name);
-    const localWarnings = await validateDagWorkflowTemplates(definition, { workflowName: definition.name });
-    const warnings = serverWarnings ?? localWarnings;
+    // Advisory warnings (server-side when available, else local)
+    const warnings = await collectWarnings(scriptCtx, definition);
 
     const stepCount = Object.keys(definition.steps).length;
     const warningOutput = formatWarnings(warnings);

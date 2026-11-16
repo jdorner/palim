@@ -57,7 +57,7 @@ import { createWorkflowRuns, type WorkflowRuns } from "./workflowRuns";
 
 const manifest = {
   name: "workflows",
-  version: "2.10.2",
+  version: "2.11.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,

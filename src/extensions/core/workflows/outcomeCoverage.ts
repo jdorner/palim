@@ -10,11 +10,31 @@
  */
 
 import type { TemplateWarning } from "./dagTemplateValidation";
+import { definitionTopology } from "./definitionTopology";
 import { humanTaskOutcomeIds } from "./humanTask";
-import type { DagCaseStep, DagHumanTaskStep, DagWorkflowDefinition } from "./schemas";
+import { caseFallbackBranch } from "./runKernel";
+import { DAG_SLUG_SOURCE, type DagCaseStep, type DagHumanTaskStep, type DagWorkflowDefinition } from "./schemas";
 
 /** A `match` that is exactly one `{{steps.<slug>.result.outcome}}` template. */
-const OUTCOME_MATCH = /^\{\{\s*steps\.([a-z][a-z0-9-]*)\.result\.outcome\s*\}\}$/;
+const OUTCOME_MATCH = new RegExp(`^\\{\\{\\s*steps\\.(${DAG_SLUG_SOURCE})\\.result\\.outcome\\s*\\}\\}$`);
+
+/** Any `steps.<slug>.result.outcome` reference inside a `match`. */
+const OUTCOME_REF = new RegExp(`\\bsteps\\.(${DAG_SLUG_SOURCE})\\.result\\.outcome\\b`, "g");
+
+/**
+ * The human task whose outcome a `match` uses in some form other than exactly
+ * `{{steps.<slug>.result.outcome}}`, or null when it uses none.
+ *
+ * @param match - The case step's `match`
+ * @param definition - The workflow definition
+ * @returns The human task's slug, or null
+ */
+function uncheckedOutcomeRef(match: string, definition: DagWorkflowDefinition): string | null {
+  for (const [, slug] of match.matchAll(OUTCOME_REF)) {
+    if (slug && definition.steps[slug]?.type === "humanTask") return slug;
+  }
+  return null;
+}
 
 /**
  * Warns about `case` steps whose `match` is exactly
@@ -26,7 +46,11 @@ const OUTCOME_MATCH = /^\{\{\s*steps\.([a-z][a-z0-9-]*)\.result\.outcome\s*\}\}$
  * - one warning per path that is neither an outcome nor the `default` key.
  *
  * A path without an outgoing edge stays silent: that branch just ends the run.
+ * A `match` that uses a human task's outcome in another form (a function
+ * call, text around it) gets one warning saying the coverage is not checked.
  * Every other `match` is ignored.
+ *
+ * The fallback rule is the kernel's own ({@link caseFallbackBranch}).
  *
  * @param definition - The workflow definition
  * @returns One warning per uncovered outcome or stale path, on the `case` step's `paths`
@@ -40,12 +64,22 @@ export function getOutcomeCoverageWarnings(definition: DagWorkflowDefinition): T
     if (typeof caseStep.match !== "string" || !Array.isArray(caseStep.paths)) continue;
     const taskSlug = OUTCOME_MATCH.exec(caseStep.match)?.[1];
     const task = taskSlug ? definition.steps[taskSlug] : undefined;
-    if (!taskSlug || task?.type !== "humanTask") continue;
+    if (!taskSlug || task?.type !== "humanTask") {
+      const unchecked = uncheckedOutcomeRef(caseStep.match, definition);
+      if (unchecked) {
+        warnings.push({
+          stepSlug: slug,
+          field: "match",
+          message: `Outcome coverage of "${unchecked}" is not checked: use exactly {{steps.${unchecked}.result.outcome}} as the match`,
+        });
+      }
+      continue;
+    }
 
     const humanTask = task as DagHumanTaskStep;
     const expected = humanTaskOutcomeIds(humanTask);
     const paths = new Set(caseStep.paths);
-    const hasFallback = !!caseStep.default || definition.edges.some((e) => e.from === slug && e.branch === "default");
+    const hasFallback = caseFallbackBranch(caseStep, definitionTopology(definition).outgoing(slug)) !== null;
 
     if (!hasFallback) {
       for (const outcome of expected) {
@@ -64,7 +98,7 @@ export function getOutcomeCoverageWarnings(definition: DagWorkflowDefinition): T
       if (expectedSet.has(path) || path === caseStep.default) continue;
       const reason =
         path === "expired"
-          ? `"${taskSlug}" has no such outcome (it needs onTimeout: "expire")`
+          ? `"${taskSlug}" has no such outcome (it needs a timeout and onTimeout: "expire")`
           : `"${taskSlug}" has no such outcome`;
       warnings.push({
         stepSlug: slug,

@@ -136,21 +136,22 @@ export function expiredResult(taskId: string, at: number): HumanTaskStepResult {
 /**
  * The values a `humanTask` step's `outcome` result can take: the declared
  * outcome ids (the default approve / reject when none are declared), plus
- * `expired` when `onTimeout` is `"expire"`.
+ * `expired` when the step has a `timeout` and `onTimeout` is `"expire"`
+ * (without a timeout the task never expires).
  *
  * @param step - The step definition
  * @returns The possible outcome values, in declaration order
  */
-export function humanTaskOutcomeIds(step: Pick<DagHumanTaskStep, "outcomes" | "onTimeout">): string[] {
+export function humanTaskOutcomeIds(step: Pick<DagHumanTaskStep, "outcomes" | "timeout" | "onTimeout">): string[] {
   const ids = (step.outcomes ?? DEFAULT_HUMAN_TASK_OUTCOMES).map((o) => o.id);
-  if (step.onTimeout === "expire") ids.push("expired");
+  if (step.timeout && step.onTimeout === "expire") ids.push("expired");
   return ids;
 }
 
 /**
  * The built-in output schema of a `humanTask` step, for template validation
  * and autocomplete. `outcome` enumerates the declared outcomes (plus
- * `expired` with `onTimeout: "expire"`); `data` follows the form schema.
+ * `expired` with a `timeout` and `onTimeout: "expire"`); `data` follows the form schema.
  *
  * @param step - The step definition
  * @returns The JSON Schema of the step result

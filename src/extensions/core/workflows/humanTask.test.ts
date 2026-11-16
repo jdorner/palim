@@ -320,6 +320,7 @@ describe("humanTaskOutputSchema", () => {
         { id: "ok", label: "OK" },
         { id: "no", label: "No" },
       ],
+      timeout: 60_000,
       onTimeout: "expire",
       form: { type: "object", properties: { n: { type: "number" } } },
     }) as { properties: Record<string, any> };

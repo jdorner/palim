@@ -73,7 +73,18 @@ describe("getOutcomeCoverageWarnings", () => {
   test("an expired path without onTimeout expire never matches, even with a default", () => {
     const def = wf({ outcomes: OUTCOMES }, { paths: ["approve", "reject", "rework", "expired"], default: "reject" });
     expect(messages(def)).toEqual([
-      'Path "expired" of "route" never matches: "review" has no such outcome (it needs onTimeout: "expire")',
+      'Path "expired" of "route" never matches: "review" has no such outcome (it needs a timeout and onTimeout: "expire")',
+    ]);
+  });
+
+  test("onTimeout expire without a timeout never expires", () => {
+    expect(
+      messages(wf({ outcomes: OUTCOMES, onTimeout: "expire" }, { paths: ["approve", "reject", "rework"] })),
+    ).toEqual([]);
+    expect(
+      messages(wf({ outcomes: OUTCOMES, onTimeout: "expire" }, { paths: ["approve", "reject", "rework", "expired"] })),
+    ).toEqual([
+      'Path "expired" of "route" never matches: "review" has no such outcome (it needs a timeout and onTimeout: "expire")',
     ]);
   });
 
@@ -124,9 +135,21 @@ describe("getOutcomeCoverageWarnings", () => {
     expect(messages(wf({}, { match: "{{steps.missing.result.outcome}}", paths: ["x"] }))).toEqual([]);
   });
 
-  test("ignores a match with text around the template", () => {
-    expect(messages(wf({}, { match: "outcome: {{steps.review.result.outcome}}", paths: ["x"] }))).toEqual([]);
-    expect(messages(wf({}, { match: "{{steps.review.result.outcome}}-x", paths: ["x"] }))).toEqual([]);
+  test("says the coverage is not checked for another form of the outcome", () => {
+    const unchecked =
+      'Outcome coverage of "review" is not checked: use exactly {{steps.review.result.outcome}} as the match';
+    for (const match of [
+      "outcome: {{steps.review.result.outcome}}",
+      "{{steps.review.result.outcome}}-x",
+      "{{ lower(steps.review.result.outcome) }}",
+    ]) {
+      const warnings = getOutcomeCoverageWarnings(wf({}, { match, paths: ["x"] }));
+      expect(warnings).toEqual([{ stepSlug: "route", field: "match", message: unchecked }]);
+    }
+  });
+
+  test("no unchecked hint for another step's outcome field", () => {
+    expect(messages(wf({}, { match: "{{ lower(steps.done.result.outcome) }}", paths: ["x"] }))).toEqual([]);
   });
 
   test("a workflow without a human task has no warnings", () => {

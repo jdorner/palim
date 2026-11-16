@@ -66,6 +66,17 @@ const TWO_STEP_WORKFLOW = `{
   ]
 }`;
 
+/** A human task whose `reject` outcome has no path in the following case. */
+const UNCOVERED_OUTCOME_WORKFLOW = `{
+  "name": "offline-review",
+  "trigger": { "type": "manual" },
+  "steps": {
+    "review": { "type": "humanTask", "title": "Review", "assignees": { "roles": ["portal-user"] } },
+    "route": { "type": "case", "match": "{{steps.review.result.outcome}}", "paths": ["approve"] }
+  },
+  "edges": [{ "from": "review", "to": "route" }]
+}`;
+
 /** A DAG workflow with an edge referencing a non-existent step (structural error). */
 const BAD_EDGE_WORKFLOW = `{
   "name": "bad-workflow",
@@ -156,6 +167,19 @@ describe("workflow command", () => {
               (slug) => `step "${slug}" (command): Invalid "sandbox-exec" step config: Expected string (at /command)`,
             );
           return Response.json({ valid: errors.length === 0, errors });
+        }
+
+        // POST /meta/analyze - advisory warnings for a posted definition.
+        // "offline-*" workflows simulate an unavailable server; "server-warned"
+        // gets one warning naming the posted steps.
+        if (reqPath === "/meta/analyze" && req.method === "POST") {
+          const def = body as { name?: string; steps?: Record<string, unknown> };
+          if (def?.name?.startsWith("offline-")) return new Response("unavailable", { status: 503 });
+          const warnings =
+            def?.name === "server-warned"
+              ? [{ stepSlug: "build", field: "prompt", message: `analyzed ${Object.keys(def.steps ?? {}).join(",")}` }]
+              : [];
+          return Response.json({ valid: true, warnings, errors: [] });
         }
 
         // GET /meta/step-types - engine and extension step type metadata
@@ -593,6 +617,28 @@ describe("workflow command", () => {
   // ---------------------------------------------------------------------------
 
   describe("validate", () => {
+    test("reports the server's warnings for the definition on disk", async () => {
+      const ctx = await makeCtxWithFiles({
+        "server-warned.json5": VALID_WORKFLOW.replace('"deploy-app"', '"server-warned"'),
+      });
+
+      const result = await command(["validate", "server-warned"], ctx);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Warnings:\n  [build.prompt] analyzed build");
+      expect(received.some((r) => r.method === "POST" && r.path === "/meta/analyze")).toBe(true);
+      expect(received.some((r) => r.method === "GET" && r.path === "/server-warned")).toBe(false);
+    });
+
+    test("reports outcome coverage locally when the server is unavailable", async () => {
+      const ctx = await makeCtxWithFiles({ "offline-review.json5": UNCOVERED_OUTCOME_WORKFLOW });
+
+      const result = await command(["validate", "offline-review"], ctx);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(
+        '[route.paths] Outcome "reject" of "review" has no path in "route": choosing it fails the run',
+      );
+    });
+
     test("validates a correct workflow", async () => {
       const ctx = await makeCtxWithFiles({ "deploy-app.json5": VALID_WORKFLOW });
 

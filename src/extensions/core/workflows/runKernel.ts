@@ -206,7 +206,7 @@ export function advance(run: RunState, definition: DagWorkflowDefinition | undef
  * @param outEdges - The case node's outgoing edges
  * @returns The fallback branch key, or null when the node has no fallback
  */
-function caseFallbackBranch(stepDef: DagCaseStep, outEdges: readonly TopologyEdge[]): string | null {
+export function caseFallbackBranch(stepDef: DagCaseStep, outEdges: readonly TopologyEdge[]): string | null {
   const hasEdge = (branch: string) => outEdges.some((e) => e.branch === branch);
   if (stepDef.default && hasEdge(stepDef.default)) return stepDef.default;
   if (hasEdge("default")) return "default";
