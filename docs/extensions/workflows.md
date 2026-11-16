@@ -33,6 +33,10 @@ The agent writes drafts with `workflow write --draft`. Rewriting an existing dra
 
 Solve a task with the agent in chat, then ask it to turn the result into a workflow ("make that a workflow", "do this every morning"). The agent follows its `workflow-crystallize` skill: it lists the calls it made, keeps only the ones whose results were used, turns values that change between runs into `{{trigger.payload.<field>}}` inputs, maps each call to the most deterministic step type, and shows you the mapping for approval. It writes the workflow as a draft with the trigger you asked for, offers one test run with this conversation's values, and leaves activation to you.
 
+## Designing a workflow in chat
+
+Describe a process that does not exist yet ("I need an approval process for expenses") and the agent designs it with you, following its `workflow-design` skill. It asks one topic at a time, in this order: what starts the workflow and which values change per run, the main path, where a person decides or supplies data (who, which choices, which form fields, what happens on a deadline), what follows each choice, and how the run ends. It writes a draft as soon as the main path is known, then adds one change per turn, validating each one. After every change it shows an outline of the steps and a list of open points, such as a human task outcome that has no branch yet. It offers one test run per branch; for a human task you give the answer in the portal. Activation stays with you.
+
 ## Trigger Types
 
 | Type          | Description                                                               | Source                                    |
@@ -225,7 +229,7 @@ Cancel all steps of a workflow run.
 
 ## Agent Skill
 
-The extension provides a `workflows` skill with sandbox commands (plus the `workflow-writing` and `workflow-crystallize` skills on authoring and on turning a chat task into a workflow):
+The extension provides a `workflows` skill with sandbox commands (plus the `workflow-writing`, `workflow-crystallize`, and `workflow-design` skills on authoring, on turning a chat task into a workflow, and on designing a new workflow with the user):
 
 - `workflow list` - List all workflow definitions
 - `workflow read "<name>"` - Read a workflow's JSON5 definition

@@ -8,6 +8,8 @@ description: How to author workflow JSON5 definitions - schema, graph edges, pro
 
 Detailed authoring reference for workflow JSON5 definitions. For an overview of what workflows are and the CLI commands, read the `workflows` skill first. For each step type's fields, examples, and behavior, run `workflow step-types <type>`.
 
+If the user asks for a new workflow and this chat has not solved the task yet, read `workflow-design` first and follow its steps; use this skill as the reference while you do.
+
 ## Workflow authoring checklist
 
 When creating or modifying a workflow, be sure to follow these steps meticulously in the order listed.
