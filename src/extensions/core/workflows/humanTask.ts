@@ -12,6 +12,7 @@
  */
 
 import type { HitlApi, HitlTaskRecord } from "@ext/types";
+import { DEFAULT_HUMAN_TASK_OUTCOMES } from "@shared/portal";
 import type { OutputSchema } from "@shared/workflows";
 import type { DagHumanTaskStep } from "./schemas";
 import { resolveTemplates, type TemplateContext } from "./template";
@@ -133,16 +134,30 @@ export function expiredResult(taskId: string, at: number): HumanTaskStepResult {
 }
 
 /**
+ * The values a `humanTask` step's `outcome` result can take: the declared
+ * outcome ids (the default approve / reject when none are declared), plus
+ * `expired` when the step has a `timeout` and `onTimeout` is `"expire"`
+ * (without a timeout the task never expires).
+ *
+ * @param step - The step definition
+ * @returns The possible outcome values, in declaration order
+ */
+export function humanTaskOutcomeIds(step: Pick<DagHumanTaskStep, "outcomes" | "timeout" | "onTimeout">): string[] {
+  const ids = (step.outcomes ?? DEFAULT_HUMAN_TASK_OUTCOMES).map((o) => o.id);
+  if (step.timeout && step.onTimeout === "expire") ids.push("expired");
+  return ids;
+}
+
+/**
  * The built-in output schema of a `humanTask` step, for template validation
  * and autocomplete. `outcome` enumerates the declared outcomes (plus
- * `expired` with `onTimeout: "expire"`); `data` follows the form schema.
+ * `expired` with a `timeout` and `onTimeout: "expire"`); `data` follows the form schema.
  *
  * @param step - The step definition
  * @returns The JSON Schema of the step result
  */
 export function humanTaskOutputSchema(step: DagHumanTaskStep): OutputSchema {
-  const outcomeIds = (step.outcomes ?? [{ id: "approve" }, { id: "reject" }]).map((o) => o.id);
-  if (step.onTimeout === "expire") outcomeIds.push("expired");
+  const outcomeIds = humanTaskOutcomeIds(step);
   return {
     type: "object",
     properties: {

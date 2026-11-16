@@ -165,8 +165,11 @@ export function normalizePrompt(prompt: string | string[]): string {
 // DAG Workflow Schemas (steps map + edges array)
 // ---------------------------------------------------------------------------
 
+/** Unanchored slug pattern for DAG step map keys, for embedding in larger patterns. */
+export const DAG_SLUG_SOURCE = "[a-z][a-z0-9-]*";
+
 /** Slug pattern for DAG step map keys (same constraints as before). */
-const DagSlugPattern = "^[a-z][a-z0-9-]*$";
+const DagSlugPattern = `^${DAG_SLUG_SOURCE}$`;
 
 /**
  * An agent step definition for DAG format (no slug field — slug is the map key).
