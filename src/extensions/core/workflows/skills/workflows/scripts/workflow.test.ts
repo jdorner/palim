@@ -494,6 +494,48 @@ describe("workflow command", () => {
       expect(Bun.JSON5.parse(content)).toStrictEqual(Bun.JSON5.parse(VALID_WORKFLOW));
     });
 
+    test("--draft marks the written workflow as a draft", async () => {
+      const ctx = makeCtx();
+      const result = await command(["write", "--draft", "deploy-app", VALID_WORKFLOW], ctx);
+      expect(result.exitCode).toBe(0);
+      const content = await ctx.fs.readFile(ctx.fs.resolvePath(WORKFLOWS_DIR, "deploy-app.json5"));
+      expect(Bun.JSON5.parse(content)).toStrictEqual({ ...(Bun.JSON5.parse(VALID_WORKFLOW) as object), draft: true });
+    });
+
+    test("without --draft, a draft in the content is kept and none is added", async () => {
+      const ctx = makeCtx();
+      const asDraft = JSON.stringify({ ...(Bun.JSON5.parse(VALID_WORKFLOW) as object), draft: true });
+      expect((await command(["write", "deploy-app", asDraft], ctx)).exitCode).toBe(0);
+      const kept = Bun.JSON5.parse(await ctx.fs.readFile(ctx.fs.resolvePath(WORKFLOWS_DIR, "deploy-app.json5")));
+      expect(kept).toHaveProperty("draft", true);
+
+      const other = makeCtx();
+      expect((await command(["write", "deploy-app", VALID_WORKFLOW], other)).exitCode).toBe(0);
+      const plain = Bun.JSON5.parse(await other.fs.readFile(other.fs.resolvePath(WORKFLOWS_DIR, "deploy-app.json5")));
+      expect(plain).not.toHaveProperty("draft");
+    });
+
+    test("rewriting an existing draft without --draft keeps it a draft", async () => {
+      const ctx = makeCtx();
+      expect((await command(["write", "--draft", "deploy-app", VALID_WORKFLOW], ctx)).exitCode).toBe(0);
+      const filePath = ctx.fs.resolvePath(WORKFLOWS_DIR, "deploy-app.json5");
+
+      const plain = await command(["write", "deploy-app", VALID_WORKFLOW], ctx);
+      expect(plain.exitCode).toBe(0);
+      expect(plain.stdout).toContain("stays one");
+      expect(Bun.JSON5.parse(await ctx.fs.readFile(filePath))).toHaveProperty("draft", true);
+
+      const explicit = JSON.stringify({ ...(Bun.JSON5.parse(VALID_WORKFLOW) as object), draft: false });
+      expect((await command(["write", "deploy-app", explicit], ctx)).exitCode).toBe(0);
+      expect(Bun.JSON5.parse(await ctx.fs.readFile(filePath))).toHaveProperty("draft", true);
+    });
+
+    test("list marks drafts", async () => {
+      const draft = JSON.stringify({ ...(Bun.JSON5.parse(VALID_WORKFLOW) as object), draft: true });
+      const ctx = await makeCtxWithFiles({ "deploy-app.json5": draft });
+      expect((await command(["list"], ctx)).stdout).toContain("[draft]");
+    });
+
     test("rejects invalid workflow (schema validation)", async () => {
       const result = await command(["write", "bad", INVALID_WORKFLOW], makeCtx());
       expect(result.exitCode).toBe(1);

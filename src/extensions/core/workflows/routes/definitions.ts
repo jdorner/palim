@@ -26,6 +26,43 @@ const GroupPatchSchema = Type.Object(
 /** Top-level keys a newly added `group` member is placed after, in priority order. */
 const GROUP_INSERT_AFTER = ["description", "name"];
 
+/** Body of `PATCH /:name/draft`: `false` activates the workflow, `true` makes it a draft. */
+const DraftPatchSchema = Type.Object({ draft: Type.Boolean() }, { additionalProperties: false });
+
+/** Top-level keys a newly added `draft` member is placed after, in priority order. */
+const DRAFT_INSERT_AFTER = ["enabled", "trigger", "group", "description", "name"];
+
+/**
+ * Sets or removes one top-level member of a workflow file, keeping its
+ * comments and formatting. Falls back to rewriting the parsed file (losing
+ * comments) when the text cannot be edited in place.
+ *
+ * @param targetFile - Absolute path of the workflow JSON5 file
+ * @param key - Top-level key to set or remove
+ * @param value - New value, or `undefined` to remove the member
+ * @param insertAfter - Preferred preceding keys for a newly inserted member
+ * @param logger - Logger for the fallback warning
+ * @throws When the file cannot be read, parsed, or written
+ */
+async function writeTopLevelMember(
+  targetFile: string,
+  key: string,
+  value: unknown,
+  insertAfter: string[],
+  logger: WorkflowRouteDeps["logger"],
+): Promise<void> {
+  const text = await Bun.file(targetFile).text();
+  let next = setTopLevelJson5Property(text, key, value, insertAfter);
+  if (next === null) {
+    logger.warn(`Rewriting "${targetFile}" without its comments: in-place ${key} edit failed`);
+    const parsed = Bun.JSON5.parse(text) as Record<string, unknown>;
+    if (value === undefined) delete parsed[key];
+    else parsed[key] = value;
+    next = JSON.stringify(parsed, null, 2);
+  }
+  if (next !== text) await Bun.write(targetFile, next);
+}
+
 /**
  * Finds the JSON5 file in the workflows directory that defines a workflow.
  *
@@ -91,6 +128,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
           trigger: w.trigger,
           stepCount: Object.keys(w.steps).length,
           enabled: w.enabled ?? true,
+          draft: w.draft === true,
           steps: Object.entries(w.steps).map(([slug, s]) => ({ slug, type: s.type })),
           edges: w.edges,
           activeRuns,
@@ -265,17 +303,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
     if (!targetFile) return Response.json({ error: "Workflow file not found on disk" }, { status: 404 });
 
     try {
-      const text = await Bun.file(targetFile).text();
-      let next = setTopLevelJson5Property(text, "group", group, GROUP_INSERT_AFTER);
-      if (next === null) {
-        // The text could not be edited in place; rewrite it from the parsed file.
-        logger.warn(`Rewriting "${targetFile}" without its comments: in-place group edit failed`);
-        const parsed = Bun.JSON5.parse(text) as Record<string, unknown>;
-        if (group === undefined) delete parsed.group;
-        else parsed.group = group;
-        next = JSON.stringify(parsed, null, 2);
-      }
-      if (next !== text) await Bun.write(targetFile, next);
+      await writeTopLevelMember(targetFile, "group", group, GROUP_INSERT_AFTER, logger);
     } catch (err) {
       logger.error(`Failed to write workflow file "${targetFile}":`, err);
       return Response.json({ error: "Failed to write workflow file" }, { status: 500 });
@@ -285,6 +313,44 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
     store.set(name, group === undefined ? rest : { ...rest, group });
     scheduleReload(path.basename(targetFile));
     return Response.json({ ok: true, group: group ?? null });
+  });
+
+  /**
+   * Activates a draft (`{ draft: false }`) or turns a workflow back into one
+   * (`{ draft: true }`).
+   *
+   * Like the group route it changes only the `draft` member of the JSON5 file
+   * as it is on disk, so it never overwrites a newer definition with a stale
+   * copy held by a client, keeps comments, does not re-validate, and leaves a
+   * portal workflow's run-as binding alone.
+   */
+  ctx.routes.register("PATCH", "/:name/draft", async (reqCtx) => {
+    const name = (reqCtx.params as Record<string, string>).name ?? "";
+    const body = reqCtx.body;
+    if (!Value.Check(DraftPatchSchema, body)) {
+      const errors = [...Value.Errors(DraftPatchSchema, body)];
+      return Response.json(
+        { error: "Validation failed", details: errors.map((e) => `${e.path}: ${e.message}`).join(", ") },
+        { status: 400 },
+      );
+    }
+
+    const wf = store.get(name);
+    if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
+    const targetFile = await findWorkflowFile(workflowsDir, name);
+    if (!targetFile) return Response.json({ error: "Workflow file not found on disk" }, { status: 404 });
+
+    try {
+      await writeTopLevelMember(targetFile, "draft", body.draft ? true : undefined, DRAFT_INSERT_AFTER, logger);
+    } catch (err) {
+      logger.error(`Failed to write workflow file "${targetFile}":`, err);
+      return Response.json({ error: "Failed to write workflow file" }, { status: 500 });
+    }
+
+    const { draft: _previous, ...rest } = wf;
+    store.set(name, body.draft ? { ...rest, draft: true } : rest);
+    scheduleReload(path.basename(targetFile));
+    return Response.json({ ok: true, draft: body.draft });
   });
 
   ctx.routes.register("DELETE", "/:name", async (reqCtx) => {

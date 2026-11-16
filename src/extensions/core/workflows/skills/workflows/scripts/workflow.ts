@@ -1,7 +1,7 @@
 /**
  * Registers the `workflow` shell command for managing workflow JSON5 definitions.
  *
- * Subcommands: list, step-types, read, write, validate, delete, trigger, runs, logs, cancel
+ * Subcommands: list, step-types, read, write (`--draft`), validate, delete, trigger, runs, logs, cancel
  */
 
 import {
@@ -87,6 +87,13 @@ export function buildWorkflowCommand(scriptCtx: SkillScriptContext) {
         args: [
           { name: "name", description: "Workflow name (becomes <name>.json5)" },
           { name: "content", description: "Full JSON5 content of the workflow" },
+        ],
+        options: [
+          {
+            name: "draft",
+            boolean: true,
+            description: "Save as a draft: runnable by hand, but its trigger does not start it until activated",
+          },
         ],
         handler: buildWriteHandler(scriptCtx),
       },
@@ -232,7 +239,8 @@ function buildListHandler() {
             : 0;
         const trigger = (parsed?.trigger as Record<string, unknown>)?.type ?? "?";
         const enabled = parsed?.enabled !== false;
-        lines.push(`  ${name} (${entry}) - ${stepCount} steps, trigger: ${trigger}${enabled ? "" : " [disabled]"}`);
+        const status = !enabled ? " [disabled]" : parsed?.draft === true ? " [draft]" : "";
+        lines.push(`  ${name} (${entry}) - ${stepCount} steps, trigger: ${trigger}${status}`);
       } catch {
         lines.push(`  ${entry} - (parse error)`);
       }
@@ -259,6 +267,23 @@ function buildReadHandler() {
   };
 }
 
+/**
+ * Tells whether the workflow file at a path currently holds a draft.
+ *
+ * @param fs - The sandbox filesystem
+ * @param filePath - Resolved path of the workflow file
+ * @returns True when the file exists, parses, and has `draft: true`
+ */
+async function isDraftOnDisk(fs: IFileSystem, filePath: string): Promise<boolean> {
+  try {
+    if (!(await fs.exists(filePath))) return false;
+    const existing = Bun.JSON5.parse(await fs.readFile(filePath)) as Record<string, unknown> | null;
+    return existing?.draft === true;
+  } catch {
+    return false;
+  }
+}
+
 function buildWriteHandler(scriptCtx: SkillScriptContext) {
   return async (ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
     const { fs, cwd } = ctx;
@@ -273,6 +298,16 @@ function buildWriteHandler(scriptCtx: SkillScriptContext) {
       parsed = Bun.JSON5.parse(content) as Record<string, unknown>;
     } catch (err) {
       return { exitCode: 1, stdout: "", stderr: `JSON5 parse error: ${(err as Error).message}` };
+    }
+
+    // `--draft` marks the workflow as a draft. A workflow that is already a
+    // draft on disk stays one whatever the new content says: rewriting it (e.g.
+    // to fix it after a test run) must not put it live. Only the user activates.
+    const dir = getWorkflowsDir(fs, cwd);
+    const filePath = fs.resolvePath(dir, `${name}.json5`);
+    const keptDraft = !args.flag("draft") && (await isDraftOnDisk(fs, filePath));
+    if ((args.flag("draft") || keptDraft) && parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      parsed.draft = true;
     }
 
     // Normalize prompt arrays for validation
@@ -319,16 +354,19 @@ function buildWriteHandler(scriptCtx: SkillScriptContext) {
     // Template expression validation (local check, then try server-side for secret validation)
     const localWarnings = await validateDagWorkflowTemplates(definition, { workflowName: definition.name });
 
-    const dir = getWorkflowsDir(fs, cwd);
-    const filePath = fs.resolvePath(dir, `${name}.json5`);
     await fs.writeFile(filePath, `${Bun.JSON5.stringify(parsed, null, 2)}`);
 
     // After write, try server-side validation (includes secret store checks)
     const serverWarnings = await fetchServerWarnings(scriptCtx, definition.name);
     const warnings = serverWarnings ?? localWarnings;
     const warningOutput = formatWarnings(warnings);
+    const draftNote = keptDraft ? "\nIt was a draft and stays one; the user activates it in the workflow editor." : "";
 
-    return { exitCode: 0, stdout: `Workflow "${name}" written to ${filePath}${warningOutput}`, stderr: "" };
+    return {
+      exitCode: 0,
+      stdout: `Workflow "${name}" written to ${filePath}${draftNote}${warningOutput}`,
+      stderr: "",
+    };
   };
 }
 

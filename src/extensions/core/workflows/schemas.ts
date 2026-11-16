@@ -502,6 +502,11 @@ export const DagWorkflowDefinitionSchema = Type.Object(
     group: Type.Optional(WorkflowGroupSchema),
     trigger: TriggerSchema,
     enabled: Type.Optional(Type.Boolean()),
+    /**
+     * A draft is loaded, listed, and can be run by hand, but no event trigger,
+     * other workflow, or the portal starts it. See {@link isAutoStartable}.
+     */
+    draft: Type.Optional(Type.Boolean()),
     steps: Type.Record(Type.String({ pattern: DagSlugPattern }), DagStepDefSchema, {
       minProperties: 1,
       // Without this, keys that do not match the slug pattern are accepted unchecked.
@@ -514,6 +519,19 @@ export const DagWorkflowDefinitionSchema = Type.Object(
 
 /** TypeScript type for a validated DAG workflow definition. */
 export type DagWorkflowDefinition = Static<typeof DagWorkflowDefinitionSchema>;
+
+/**
+ * Decides whether a workflow may start without a person asking for it: from
+ * its event trigger, from another workflow (`start-workflow`,
+ * `ctx.workflows.dispatch`), or from the portal. A manual run from the editor
+ * or the API is always allowed. This is the only place that rule lives.
+ *
+ * @param def - The workflow definition
+ * @returns True when event triggers, other workflows, and the portal may start this workflow
+ */
+export function isAutoStartable(def: Pick<DagWorkflowDefinition, "enabled" | "draft">): boolean {
+  return def.enabled !== false && def.draft !== true;
+}
 
 /** Control flow step types in DAG format. */
 export const DAG_CF_TYPES = new Set(["if", "case", "iterator"]);

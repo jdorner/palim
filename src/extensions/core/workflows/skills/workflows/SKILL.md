@@ -53,6 +53,7 @@ Use `workflow step-types` to discover which step types are available in this dep
 ```sh
 workflow read "<name>"                 # display full JSON5 content
 workflow write "<name>" "<json5>"      # create or overwrite (validates first)
+workflow write --draft "<name>" "<json5>"  # same, saved as a draft: runnable by hand, its trigger does not start it
 workflow validate "<name>"             # validate against schema
 workflow delete "<name>"               # delete a workflow file
 workflow trigger "<name>" "<payload>"  # trigger a run (payload optional, use "" if empty)
@@ -102,4 +103,5 @@ workflow validate "my-pipeline"
 
 - Workflow names must be unique across all files; step slugs (the `steps` map keys) must match `^[a-z][a-z0-9-]*$`.
 - Disabled workflows (`enabled: false`) are skipped during loading.
+- Drafts (`draft: true`, set by `workflow write --draft`) are loaded and can be run with `workflow trigger`, but their trigger, other workflows, and the portal do not start them. Rewriting a draft with `workflow write` keeps it a draft, with or without `--draft`. The user activates a draft in the workflow editor; never remove `draft` yourself.
 - Always ask for approval before triggering a workflow run!

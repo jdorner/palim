@@ -41,8 +41,8 @@ Follow these steps in order.
 
    Inputs: `city` (string, was "Berlin"), `days` (number, was 3).
 
-7. **Write with a manual trigger.** Use `"trigger": { "type": "manual", "outputSchema": { ... } }`, even if the user wants a schedule, webhook, or file watcher. Nothing must fire before it is tested. Then run `workflow validate "<name>"` and resolve every warning.
+7. **Write it as a draft.** Use the trigger the user wants (schedule, webhook, file watcher, or manual), with the inputs in its `outputSchema`. If it needs a webhook, schedule, or watcher, create that first: a draft ignores its trigger, so nothing fires yet. Then write with `workflow write --draft "<name>" '<json5>'`, run `workflow validate "<name>"`, and resolve every warning.
 
 8. **Offer one test run.** Propose `workflow trigger "<name>" '<json>'` with this conversation's values as the payload. Warn that side effects (messages sent, files written) happen again. Run it only after the user agrees. Check the result with `workflow logs "<run-id>"` and compare it with what the conversation produced. Fix and re-test if it differs.
 
-9. **Switch the trigger last.** Only after a successful test and the user's go-ahead: create the webhook, schedule, or file watcher, then rewrite the workflow with that trigger and its `ref`.
+9. **Let the user activate it.** Tell the user the workflow is a draft: it runs only by hand until they open it in the workflow editor and click **Activate**. Never remove `draft` yourself.

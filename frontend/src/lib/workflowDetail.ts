@@ -89,6 +89,8 @@ export interface WorkflowDetail {
   group?: string;
   trigger: WorkflowTrigger;
   enabled?: boolean;
+  /** A draft runs only by hand; its trigger, other workflows, and the portal do not start it. */
+  draft?: boolean;
   /** DAG steps normalized to an array with slug + synthetic id (array editor). */
   steps: StepDef[];
   /**

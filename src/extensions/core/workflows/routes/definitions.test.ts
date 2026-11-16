@@ -21,6 +21,7 @@ let dir: string;
 let store: Map<string, DagWorkflowDefinition>;
 let reloads: string[];
 let handler: RouteHandler;
+let draftHandler: RouteHandler;
 
 beforeEach(async () => {
   dir = mkdtempSync(path.join(tmpdir(), "palim-wf-group-"));
@@ -43,6 +44,9 @@ beforeEach(async () => {
   const h = handlers.get("PATCH /:name/group");
   if (!h) throw new Error("group route not registered");
   handler = h;
+  const d = handlers.get("PATCH /:name/draft");
+  if (!d) throw new Error("draft route not registered");
+  draftHandler = d;
 });
 
 afterEach(() => {
@@ -94,5 +98,44 @@ describe("PATCH /:name/group", () => {
 
   test("unknown workflow is 404", async () => {
     expect((await patch("missing", { group: "G" })).status).toBe(404);
+  });
+});
+
+describe("PATCH /:name/draft", () => {
+  const patchDraft = (name: string, body: unknown): Promise<Response> =>
+    Promise.resolve(draftHandler({ params: { name }, body } as unknown as Context));
+
+  test("marks a workflow as a draft in place and activates it again", async () => {
+    const res = await patchDraft("report", { draft: true });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, draft: true });
+    expect(await fileText()).toBe(
+      FILE.replace(`trigger: { type: "manual" },\n`, `trigger: { type: "manual" },\n  draft: true,\n`),
+    );
+    expect(store.get("report")?.draft).toBe(true);
+
+    const back = await patchDraft("report", { draft: false });
+    expect(await back.json()).toEqual({ ok: true, draft: false });
+    expect(await fileText()).toBe(FILE);
+    expect(store.get("report") && "draft" in store.get("report")!).toBe(false);
+    expect(reloads).toEqual(["nightly.json5", "nightly.json5"]);
+  });
+
+  test("activating keeps a definition on disk that is newer than the loaded one", async () => {
+    const newer = FILE.replace(`prompt: "hi"`, `prompt: "fixed"`).replace(
+      `trigger: { type: "manual" },\n`,
+      `trigger: { type: "manual" },\n  draft: true,\n`,
+    );
+    await Bun.write(path.join(dir, "nightly.json5"), newer);
+    expect((await patchDraft("report", { draft: false })).status).toBe(200);
+    expect(await fileText()).toBe(FILE.replace(`prompt: "hi"`, `prompt: "fixed"`));
+  });
+
+  test("rejects invalid bodies and unknown workflows", async () => {
+    for (const body of [{}, { draft: "no" }, { draft: null }, { draft: false, extra: 1 }]) {
+      expect((await patchDraft("report", body)).status).toBe(400);
+    }
+    expect((await patchDraft("missing", { draft: false })).status).toBe(404);
+    expect(await fileText()).toBe(FILE);
   });
 });

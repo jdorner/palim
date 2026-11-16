@@ -416,6 +416,7 @@ export function draftFromWorkflow(workflow: WorkflowDetail): WorkflowDraft {
         : {}),
     },
     enabled: workflow.enabled ?? true,
+    ...(workflow.draft === true ? { draft: true } : {}),
     steps: workflow.steps.map((s) => toStepDraft({ ...s })),
     edges: (workflow.edges ?? []).map((e) => ({ ...e })),
   };

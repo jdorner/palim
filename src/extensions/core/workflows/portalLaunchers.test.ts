@@ -51,9 +51,11 @@ describe("toPortalLauncher", () => {
     });
   });
 
-  test("skips other trigger types and disabled workflows", () => {
+  test("skips other trigger types, disabled workflows, and drafts", () => {
     expect(toPortalLauncher(wf("m", { type: "manual" }), "u1")).toBeNull();
     expect(toPortalLauncher(wf("p", { type: "portal" }, { enabled: false }), "u1")).toBeNull();
+    expect(toPortalLauncher(wf("d", { type: "portal" }, { draft: true }), "u1")).toBeNull();
+    expect(toPortalLauncher(wf("d", { type: "portal" }, { draft: false }), "u1")).not.toBeNull();
   });
 });
 
@@ -62,11 +64,12 @@ describe("createPortalLauncherProvider", () => {
     ["receipts", wf("receipts", { type: "portal" })],
     ["manual", wf("manual", { type: "manual" })],
     ["off", wf("off", { type: "portal" }, { enabled: false })],
+    ["sketch", wf("sketch", { type: "portal" }, { draft: true })],
   ]);
-  const bindings: Record<string, string> = { receipts: "u1", manual: "u1", off: "u1" };
+  const bindings: Record<string, string> = { receipts: "u1", manual: "u1", off: "u1", sketch: "u1" };
   const runAsOf = (name: string) => bindings[name] ?? null;
 
-  test("lists enabled portal workflows with their bindings", () => {
+  test("lists enabled, non-draft portal workflows with their bindings", () => {
     const provider = createPortalLauncherProvider(store, async () => ({ workflowRunId: "r" }), runAsOf);
     expect(provider.list().map((l) => [l.name, l.runAsUserId])).toEqual([["receipts", "u1"]]);
   });
@@ -85,11 +88,13 @@ describe("createPortalLauncherProvider", () => {
     expect(calls).toEqual([["receipts", { x: 1 }, "u1"]]);
     await expect(provider.start("manual", {}, "u1")).rejects.toThrow();
     await expect(provider.start("off", {}, "u1")).rejects.toThrow();
+    await expect(provider.start("sketch", {}, "u1")).rejects.toThrow();
+    expect(calls).toHaveLength(1);
     await expect(provider.start("missing", {}, "u1")).rejects.toThrow();
   });
 
-  test("counts the portal workflows bound to the user, disabled ones included", () => {
-    expect(countPortalWorkflowsRunAs(store, "u1", runAsOf)).toBe(2);
+  test("counts the portal workflows bound to the user, disabled ones and drafts included", () => {
+    expect(countPortalWorkflowsRunAs(store, "u1", runAsOf)).toBe(3);
     expect(countPortalWorkflowsRunAs(store, "u2", runAsOf)).toBe(0);
   });
 });

@@ -52,8 +52,10 @@ import {
 } from "$lib/workflowValidation";
 import { BUILTIN_STEP_TYPES, type StepTypeDescriptor, WorkflowBuilder } from "$shared/workflowBuilder";
 import DetailPanelModeToggle from "../components/DetailPanelModeToggle.svelte";
+import RunWithPayloadDialog from "../components/RunWithPayloadDialog.svelte";
 import StepTypePickerPopover from "../components/StepTypePickerPopover.svelte";
 import WorkflowDetailToolbar from "../components/WorkflowDetailToolbar.svelte";
+import WorkflowDraftBanner from "../components/WorkflowDraftBanner.svelte";
 import WorkflowGraph from "../components/WorkflowGraph.svelte";
 import WorkflowMetaFields from "../components/WorkflowMetaFields.svelte";
 import WorkflowRunsTab from "../components/WorkflowRunsTab.svelte";
@@ -763,11 +765,20 @@ async function fetchWorkflow() {
   }
 }
 
-async function triggerRun() {
+/**
+ * Starts a run and opens it. Without a payload the request has no body, as
+ * before; with one, the payload is sent as the JSON body.
+ *
+ * @param payload - The trigger payload, or undefined for a plain run
+ */
+async function triggerRun(payload?: unknown) {
   if (!name) return;
   try {
     const res = await authFetch(`/ext/workflows/run/${name}`, {
       method: "POST",
+      ...(payload === undefined
+        ? {}
+        : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }),
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const result = (await res.json()) as { workflowRunId: string };
@@ -777,6 +788,39 @@ async function triggerRun() {
     });
   } catch (err) {
     console.error("Failed to trigger workflow:", err);
+  }
+}
+
+let payloadDialogOpen = $state(false);
+
+let activating = $state(false);
+let activateError = $state<string | null>(null);
+
+/**
+ * Activates a draft. The server removes only the `draft` member of the file as
+ * it is on disk, so a definition changed since this page loaded (e.g. by the
+ * agent) is activated as it is, not overwritten with the copy shown here.
+ */
+async function activateWorkflow() {
+  if (!workflow || editMode) return;
+  activating = true;
+  activateError = null;
+  try {
+    const res = await authFetch(`/ext/workflows/${encodeURIComponent(workflow.name)}/draft`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ draft: false }),
+    });
+    if (!res.ok) {
+      const data = (await res.json().catch(() => null)) as { error?: string } | null;
+      activateError = data?.error ?? `HTTP ${res.status}`;
+      return;
+    }
+    await fetchWorkflow();
+  } catch (err) {
+    activateError = err instanceof Error ? err.message : t("workflows.activateFailed");
+  } finally {
+    activating = false;
   }
 }
 
@@ -940,9 +984,19 @@ onDestroy(() => {
       onSave={saveWorkflow}
       onCancelEdit={requestCancelEdit}
       onEdit={enterEditMode}
-      onRun={triggerRun}
+      onRun={() => triggerRun()}
+      onRunWithPayload={() => {
+        payloadDialogOpen = true;
+      }}
       onDelete={deleteWorkflow}
     />
+
+    {#if workflow.draft}
+      <WorkflowDraftBanner canActivate={!editMode} {activating} onActivate={activateWorkflow} />
+    {/if}
+    {#if activateError}
+      <WorkflowSaveError error={activateError} details={[]} />
+    {/if}
 
     {#if saveError}
       <WorkflowSaveError error={saveError} details={saveErrorDetails} />
@@ -1046,6 +1100,20 @@ onDestroy(() => {
     onselect={confirmEdgeInsert}
     onclose={() => {
       edgeInsertContext = null;
+    }}
+  />
+{/if}
+
+{#if workflow}
+  <RunWithPayloadDialog
+    open={payloadDialogOpen}
+    outputSchema={workflow.trigger.outputSchema}
+    onRun={(payload) => {
+      payloadDialogOpen = false;
+      triggerRun(payload);
+    }}
+    onClose={() => {
+      payloadDialogOpen = false;
     }}
   />
 {/if}

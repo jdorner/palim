@@ -1,6 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { normalizeWorkflow } from "./workflowDetail";
 import {
   branchFromHandle,
+  draftFromWorkflow,
   draftNodeErrors,
   errorsAfterStepRemoval,
   graphEdgesToDraftEdges,
@@ -228,6 +230,31 @@ describe("outputSchema round-trip", () => {
       edges: [],
     });
     expect(out.trigger).toEqual({ type: "webhook", ref: "hook", outputSchema: { task: { id: "string" } } });
+  });
+});
+
+describe("draft flag round-trip", () => {
+  /** Loads a definition as the detail page does and serializes it back as a save would. */
+  function roundTrip(raw: Record<string, unknown>): Record<string, unknown> {
+    return serializeWorkflowDraft(draftFromWorkflow(normalizeWorkflow(raw)));
+  }
+
+  const definition = {
+    name: "wf",
+    trigger: { type: "webhook", ref: "hook" },
+    steps: { a: { type: "agent", prompt: "p" } },
+    edges: [],
+    warnings: [],
+    runs: [],
+  };
+
+  test("a draft stays a draft through load, edit draft, and save", () => {
+    expect(roundTrip({ ...definition, draft: true }).draft).toBe(true);
+  });
+
+  test("a workflow that is not a draft gets no draft field", () => {
+    expect(roundTrip(definition)).not.toHaveProperty("draft");
+    expect(roundTrip({ ...definition, draft: false })).not.toHaveProperty("draft");
   });
 });
 
