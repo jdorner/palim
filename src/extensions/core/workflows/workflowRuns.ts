@@ -156,10 +156,13 @@ export interface WorkflowRuns {
    */
   describe(runId: string, opts?: { resultsFor?: string }): Promise<RunDescription | null>;
   /**
-   * Reads the execution logs of each step job of a run.
+   * Reads the execution logs of a run's steps in run order. Steps that ran as
+   * jobs carry their job logs; steps the coordinator handled inline (human
+   * tasks, signal waits, control flow, dead branches) carry their run-record
+   * status and, when known, a synthesized line with their error or decision.
    *
    * @param runId - The run
-   * @returns The logs, or null when the run has no jobs
+   * @returns The logs, or null when neither the run record nor any job exists
    */
   stepLogs(runId: string): Promise<RunStepLogs | null>;
   /**
@@ -419,15 +422,35 @@ export function createWorkflowRuns(deps: WorkflowRunsDeps): WorkflowRuns {
     },
 
     async stepLogs(runId) {
-      const jobs = await jobsOf(runId);
-      if (jobs.length === 0) return null;
-      const steps = await Promise.all(
-        jobs.map(async (s) => {
-          const jobLogs = await stepsQueue.getJobLogs(s.id);
-          return { slug: s.stepSlug, type: s.stepDef.type, status: s.state, logs: jobLogs.logs, count: jobLogs.count };
-        }),
-      );
-      return { runId, steps };
+      const run = dagRunStore.get(runId);
+      const jobs = (await jobsOf(runId)).sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+      if (jobs.length === 0 && !run) return null;
+
+      const jobEntry = async (s: (typeof jobs)[number]): Promise<RunStepLogs["steps"][number]> => {
+        const jobLogs = await stepsQueue.getJobLogs(s.id);
+        return { slug: s.stepSlug, type: s.stepDef.type, status: s.state, logs: jobLogs.logs, count: jobLogs.count };
+      };
+
+      const wf = run ? deps.getWorkflowDefinition(run.workflowName) : undefined;
+      const entries: Promise<RunStepLogs["steps"][number]>[] = [];
+      const listed = new Set<string>();
+      for (const [slug, status] of Object.entries(run?.stepStatuses ?? {})) {
+        listed.add(slug);
+        const stepJobs = jobs.filter((j) => j.stepSlug === slug);
+        if (stepJobs.length > 0) {
+          entries.push(...stepJobs.map(jobEntry));
+          continue;
+        }
+        // No job: the coordinator handled the step inline, so the run record
+        // is its only trace (see `describe`).
+        const stepDef = wf?.steps[slug];
+        const logs = inlineStepLogs(status, describeControlFlowStep(stepDef, run?.stepResults[slug]), run);
+        entries.push(Promise.resolve({ slug, type: stepDef?.type ?? "unknown", status, logs, count: logs.length }));
+      }
+      // Jobs of steps the run record does not know (the record is gone).
+      entries.push(...jobs.filter((j) => !listed.has(j.stepSlug)).map(jobEntry));
+
+      return { runId, steps: await Promise.all(entries) };
     },
 
     async remove(runId) {
@@ -464,4 +487,28 @@ export function createWorkflowRuns(deps: WorkflowRunsDeps): WorkflowRuns {
       uninstallHumanTasks?.();
     },
   };
+}
+
+/**
+ * Synthesized log lines for a step that ran without a job.
+ *
+ * @param status - The step's run-record status
+ * @param evaluation - The control-flow decision, for `if` and `case` nodes
+ * @param run - The run record (for the failure reason and its time)
+ * @returns The lines; empty when the record holds nothing to report
+ */
+function inlineStepLogs(
+  status: string,
+  evaluation: ControlFlowEvaluation | undefined,
+  run: dagRunStore.DagWorkflowRun | null,
+): RunStepLogs["steps"][number]["logs"] {
+  const timestamp = run?.updatedAt ?? 0;
+  if (evaluation) {
+    const value = evaluation.value === undefined ? "" : ` (value: ${JSON.stringify(evaluation.value)})`;
+    const fallback = evaluation.fallback ? ", fallback" : "";
+    return [{ message: `${evaluation.expression}${value} -> branch "${evaluation.branch}"${fallback}`, timestamp }];
+  }
+  // A step that failed inline: the run's failure reason is its only error record.
+  if (status === "failed" && run?.failureReason) return [{ message: `Error: ${run.failureReason}`, timestamp }];
+  return [];
 }

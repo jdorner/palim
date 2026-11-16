@@ -268,3 +268,43 @@ describe("rerun", () => {
     expect(await harness.runs.rerun("nope")).toEqual({ ok: false, reason: "run_not_found" });
   });
 });
+
+describe("stepLogs", () => {
+  const review: DagWorkflowDefinition = {
+    name: "review",
+    trigger: { type: "manual" },
+    steps: {
+      extract: { type: "agent", prompt: "extract" },
+      review: { type: "humanTask", title: "Check it" },
+    },
+    edges: [{ from: "extract", to: "review" }],
+  } as DagWorkflowDefinition;
+
+  test("lists inline steps from the run record, with the inline failure as a log line", async () => {
+    harness = createHarness([review], false);
+    const { workflowRunId } = await harness.runs.start(review, null);
+    await harness.fire("completed", "extract", { returnvalue: { text: "ok" } });
+
+    const logs = await harness.runs.stepLogs(workflowRunId);
+
+    expect(logs?.steps.map((s) => [s.slug, s.type, s.status])).toEqual([
+      ["extract", "agent", "completed"],
+      ["review", "humanTask", "failed"],
+    ]);
+    expect(logs?.steps[1]?.logs.map((l) => l.message)).toEqual([
+      "Error: Human tasks are disabled (set HITL_ENABLED=true)",
+    ]);
+  });
+
+  test("lists a waiting signal step that never had a job", async () => {
+    harness = createHarness([waiting]);
+    const { workflowRunId } = await harness.runs.start(waiting, null);
+    const logs = await harness.runs.stepLogs(workflowRunId);
+    expect(logs?.steps).toEqual([{ slug: "wait", type: "waitFor", status: "waiting-signal", logs: [], count: 0 }]);
+  });
+
+  test("answers null for an unknown run", async () => {
+    harness = createHarness([]);
+    expect(await harness.runs.stepLogs("nope")).toBeNull();
+  });
+});
