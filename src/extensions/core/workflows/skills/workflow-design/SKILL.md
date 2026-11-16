@@ -22,16 +22,29 @@ Follow these steps in order.
    4. **Branches:** what happens after each choice, one choice at a time.
    5. **End:** who is told, what is stored, and what should happen when a step fails.
 
-3. **Write early.** As soon as the main path is known, write it as a draft with the trigger the user wants: `workflow write --draft "<name>" '<json5>'`, then `workflow validate "<name>"`. If the trigger needs a webhook, schedule, or watcher, create that first. A draft ignores its trigger, so nothing fires yet.
+3. **Write early.** As soon as the main path is known, write it as a draft with the trigger the user wants: `workflow write --draft "<name>" '<json5>'`. If the trigger needs a webhook, schedule, or watcher, create that first. A draft ignores its trigger, so nothing fires yet. This is the only full write.
 
-4. **Grow it one change per turn.** Add the human task, then the `case`, then one branch at a time. For each change, run `workflow read "<name>"`, change only that part, and write it back with `workflow write "<name>" '<json5>'`. After each change:
-   - run `workflow validate "<name>"` and resolve every warning,
-   - show the outline (step 5),
-   - ask the next question.
+4. **Grow it one change per turn.** Add the human task, then the `case`, then one branch at a time. Make every change with an edit command; never rewrite the whole workflow:
 
-   Never change a step the user did not ask about. Copy all other steps exactly as `workflow read` showed them.
+   ```sh
+   workflow set-step "<name>" "<slug>" '<json5 of the whole step>' --after "<previous-slug>" [--branch "<path>"]
+   workflow add-edge "<name>" "<from>" "<to>" [--branch "<path>"]
+   workflow remove-edge "<name>" "<from>" "<to>" [--branch "<path>"]
+   workflow remove-step "<name>" "<slug>"
+   workflow set-meta "<name>" '{ description: "...", trigger: { ... } }'
+   ```
 
-5. **Show the outline after every change.** A table with one row per step:
+   - A new step needs `--after`, or the edit is refused (every step must be connected). After an `if`, `case`, or `iterator`, also give `--branch`.
+   - `set-step` replaces the whole step: send all its fields, not only the changed ones.
+   - For a step with a multi-line prompt or body, write the step as JSON5 to a file with `write_file` and pass `--file "<path>"` instead of the JSON5 argument.
+   - Each command validates and writes nothing if the result is invalid. Read the error: it says what to change first.
+   - To rename a `case` path, go in this order: `set-step` the case with the new path next to the old one, `add-edge` with the new `--branch`, `remove-edge` with the old `--branch`, then `set-step` the case without the old path.
+   - If the output says a step "runs at the start of every run", you cut its last incoming edge: connect it again with `add-edge` unless the user wants that.
+   - Every command prints the outline and the warnings. Resolve every warning before you ask the next question.
+
+   Never change a step the user did not ask about.
+
+5. **Show the outline after every change.** Base it on the outline the last command printed (or run `workflow outline "<name>"`). Show it as a table with one row per step:
 
    | Step      | Type        | What it does            | Leads to                            |
    | --------- | ----------- | ----------------------- | ----------------------------------- |

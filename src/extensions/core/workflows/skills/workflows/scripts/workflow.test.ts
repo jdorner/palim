@@ -697,6 +697,259 @@ describe("workflow command", () => {
   });
 
   // ---------------------------------------------------------------------------
+  // outline and editing commands
+  // ---------------------------------------------------------------------------
+
+  describe("outline and editing commands", () => {
+    /** A draft: review (human task) -> route (case) -> notify on approve. */
+    const REVIEW_DRAFT = JSON.stringify({
+      name: "review-flow",
+      draft: true,
+      description: "Review",
+      trigger: { type: "manual" },
+      steps: {
+        review: { type: "humanTask", title: "Review", assignees: { roles: ["portal-user"] } },
+        route: { type: "case", match: "{{steps.review.result.outcome}}", paths: ["approve", "reject"] },
+        notify: { type: "agent", prompt: "Tell them" },
+      },
+      edges: [
+        { from: "review", to: "route" },
+        { from: "route", to: "notify", branch: "approve" },
+      ],
+    });
+    const FILE = `${WORKFLOWS_DIR}/review-flow.json5`;
+
+    async function load(ctx: CommandContext): Promise<Record<string, any>> {
+      return Bun.JSON5.parse(await ctx.fs.readFile(FILE)) as Record<string, any>;
+    }
+
+    test("outline prints the steps without writing", async () => {
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": REVIEW_DRAFT });
+      const result = await command(["outline", "review-flow"], ctx);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toStartWith("review-flow (draft) · trigger: manual · inputs: none");
+      expect(result.stdout).toContain("route   case       approve -> notify | reject -> (end)");
+      expect(await ctx.fs.readFile(FILE)).toBe(REVIEW_DRAFT);
+    });
+
+    test("outline reports a missing workflow", async () => {
+      const result = await command(["outline", "nope"], makeCtx());
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Workflow "nope" not found');
+    });
+
+    test("set-step --after --branch adds the step and the branch edge, and keeps the draft", async () => {
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": REVIEW_DRAFT });
+      const result = await command(
+        [
+          "set-step",
+          "review-flow",
+          "rejected",
+          '{ type: "agent", prompt: "Say no" }',
+          "--after",
+          "route",
+          "--branch",
+          "reject",
+        ],
+        ctx,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Step "rejected" created.');
+      expect(result.stdout).toContain('Edge "route" -> "rejected" (branch "reject") added.');
+      expect(result.stdout).toContain("approve -> notify | reject -> rejected");
+      expect(result.stdout).not.toContain("is active");
+      const saved = await load(ctx);
+      expect(saved.draft).toBe(true);
+      expect(saved.steps.rejected).toEqual({ type: "agent", prompt: "Say no" });
+      expect(saved.edges).toContainEqual({ from: "route", to: "rejected", branch: "reject" });
+      // Untouched parts are carried over.
+      expect(saved.steps.review).toEqual(JSON.parse(REVIEW_DRAFT).steps.review);
+      expect(saved.description).toBe("Review");
+    });
+
+    test("set-step --after without --branch links a plain step", async () => {
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": REVIEW_DRAFT });
+      const result = await command(["set-step", "review-flow", "log", '{ type: "noop" }', "--after", "notify"], ctx);
+      expect(result.exitCode).toBe(0);
+      expect((await load(ctx)).edges).toContainEqual({ from: "notify", to: "log" });
+    });
+
+    test("set-step replaces an existing step; --after with an existing edge is noted, not duplicated", async () => {
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": REVIEW_DRAFT });
+      const result = await command(
+        [
+          "set-step",
+          "review-flow",
+          "notify",
+          '{ type: "agent", prompt: "New" }',
+          "--after",
+          "route",
+          "--branch",
+          "approve",
+        ],
+        ctx,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Step "notify" replaced.');
+      expect(result.stdout).toContain("already exists; not added again");
+      const saved = await load(ctx);
+      expect(saved.steps.notify.prompt).toBe("New");
+      expect(saved.edges).toHaveLength(2);
+    });
+
+    test("set-step reads the step from --file", async () => {
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": REVIEW_DRAFT });
+      await ctx.fs.writeFile(`${CWD}/step.json5`, '{ type: "agent", prompt: "line 1\\nline \'2\'" }');
+      const result = await command(["set-step", "review-flow", "notify", "--file", "step.json5"], ctx);
+      expect(result.exitCode).toBe(0);
+      expect((await load(ctx)).steps.notify.prompt).toBe("line 1\nline '2'");
+    });
+
+    test("set-step refuses both content and --file, and neither", async () => {
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": REVIEW_DRAFT });
+      await ctx.fs.writeFile(`${CWD}/step.json5`, '{ type: "noop" }');
+      const both = await command(
+        ["set-step", "review-flow", "notify", '{ type: "noop" }', "--file", "step.json5"],
+        ctx,
+      );
+      expect(both.exitCode).toBe(1);
+      expect(both.stderr).toContain("not both");
+      const neither = await command(["set-step", "review-flow", "notify"], ctx);
+      expect(neither.exitCode).toBe(1);
+      expect(neither.stderr).toContain("Missing step");
+      expect(await ctx.fs.readFile(FILE)).toBe(REVIEW_DRAFT);
+    });
+
+    test("a refused edit writes nothing and says what to do first", async () => {
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": REVIEW_DRAFT });
+      // A new step without --after is not connected.
+      const orphan = await command(["set-step", "review-flow", "lonely", '{ type: "noop" }'], ctx);
+      expect(orphan.exitCode).toBe(1);
+      expect(orphan.stderr).toContain("DAG validation failed");
+      expect(orphan.stderr).toContain('--after "<slug>"');
+      expect(orphan.stderr).toContain("Nothing was written.");
+
+      // Renaming a case path while an edge still uses the old branch.
+      const rename = await command(
+        [
+          "set-step",
+          "review-flow",
+          "route",
+          '{ type: "case", match: "{{steps.review.result.outcome}}", paths: ["ok", "reject"] }',
+        ],
+        ctx,
+      );
+      expect(rename.exitCode).toBe(1);
+      expect(rename.stderr).toContain("new path next to the old one");
+      expect(await ctx.fs.readFile(FILE)).toBe(REVIEW_DRAFT);
+    });
+
+    test("a case path is renamed in the order the hint gives, each step valid", async () => {
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": REVIEW_DRAFT });
+      const match = "{{steps.review.result.outcome}}";
+      const steps = [
+        ["set-step", "review-flow", "route", `{ type: "case", match: "${match}", paths: ["approve", "ok", "reject"] }`],
+        ["add-edge", "review-flow", "route", "notify", "--branch", "ok"],
+        ["remove-edge", "review-flow", "route", "notify", "--branch", "approve"],
+        ["set-step", "review-flow", "route", `{ type: "case", match: "${match}", paths: ["ok", "reject"] }`],
+      ];
+      for (const argv of steps) {
+        const result = await command(argv, ctx);
+        expect(result.stderr).toBe("");
+        expect(result.exitCode).toBe(0);
+        expect(result.stdout).not.toContain("no incoming edge");
+      }
+      const saved = await load(ctx);
+      expect(saved.steps.route.paths).toEqual(["ok", "reject"]);
+      expect(saved.edges).toContainEqual({ from: "route", to: "notify", branch: "ok" });
+      expect(saved.edges).toHaveLength(2);
+    });
+
+    test("an edit that leaves an existing step without incoming edges says it now runs at the start", async () => {
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": REVIEW_DRAFT });
+      expect(
+        (await command(["set-step", "review-flow", "log", '{ type: "noop" }', "--after", "notify"], ctx)).exitCode,
+      ).toBe(0);
+      const result = await command(["remove-edge", "review-flow", "route", "notify"], ctx);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(
+        'Note: step "notify" has no incoming edge now, so it runs at the start of every run.',
+      );
+    });
+
+    test("remove-step removes the step and its edges", async () => {
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": REVIEW_DRAFT });
+      const result = await command(["remove-step", "review-flow", "notify"], ctx);
+      expect(result.exitCode).toBe(0);
+      const saved = await load(ctx);
+      expect(saved.steps.notify).toBeUndefined();
+      expect(saved.edges).toEqual([{ from: "review", to: "route" }]);
+      expect(saved.draft).toBe(true);
+    });
+
+    test("remove-step of an unknown step fails", async () => {
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": REVIEW_DRAFT });
+      const result = await command(["remove-step", "review-flow", "nope"], ctx);
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Unknown step "nope"');
+    });
+
+    test("add-edge and remove-edge", async () => {
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": REVIEW_DRAFT });
+      const added = await command(["add-edge", "review-flow", "route", "notify", "--branch", "reject"], ctx);
+      expect(added.exitCode).toBe(0);
+      expect(added.stdout).toContain("approve -> notify | reject -> notify");
+
+      const removed = await command(["remove-edge", "review-flow", "route", "notify", "--branch", "approve"], ctx);
+      expect(removed.exitCode).toBe(0);
+      expect((await load(ctx)).edges).toEqual([
+        { from: "review", to: "route" },
+        { from: "route", to: "notify", branch: "reject" },
+      ]);
+    });
+
+    test("add-edge from a case without --branch is refused", async () => {
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": REVIEW_DRAFT });
+      const result = await command(["add-edge", "review-flow", "route", "review"], ctx);
+      expect(result.exitCode).toBe(1);
+      expect(await ctx.fs.readFile(FILE)).toBe(REVIEW_DRAFT);
+    });
+
+    test("set-meta changes description and refuses draft", async () => {
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": REVIEW_DRAFT });
+      const result = await command(["set-meta", "review-flow", '{ description: "New", group: "Demo" }'], ctx);
+      expect(result.exitCode).toBe(0);
+      expect(await load(ctx)).toMatchObject({ description: "New", group: "Demo", draft: true });
+
+      const refused = await command(["set-meta", "review-flow", "{ draft: false }"], ctx);
+      expect(refused.exitCode).toBe(1);
+      expect(refused.stderr).toContain('Cannot set "draft"');
+      expect((await load(ctx)).draft).toBe(true);
+    });
+
+    test("an edit of an active workflow says the change is live", async () => {
+      const active = JSON.stringify({ ...JSON.parse(REVIEW_DRAFT), draft: undefined });
+      const ctx = await makeCtxWithFiles({ "review-flow.json5": active });
+      const result = await command(["set-meta", "review-flow", '{ description: "x" }'], ctx);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("The workflow is active: this change is live.");
+    });
+
+    test("write reads the content from --file and refuses both sources", async () => {
+      const ctx = makeCtx();
+      await ctx.fs.writeFile(`${CWD}/wf.json5`, VALID_WORKFLOW);
+      const result = await command(["write", "deploy-app", "--file", "wf.json5"], ctx);
+      expect(result.exitCode).toBe(0);
+      const saved = await ctx.fs.readFile(ctx.fs.resolvePath(WORKFLOWS_DIR, "deploy-app.json5"));
+      expect(Bun.JSON5.parse(saved)).toStrictEqual(Bun.JSON5.parse(VALID_WORKFLOW));
+
+      const both = await command(["write", "deploy-app", VALID_WORKFLOW, "--file", "wf.json5"], ctx);
+      expect(both.exitCode).toBe(1);
+      expect(both.stderr).toContain("not both");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
   // delete
   // ---------------------------------------------------------------------------
 

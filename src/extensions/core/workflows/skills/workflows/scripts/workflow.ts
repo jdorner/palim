@@ -1,7 +1,8 @@
 /**
  * Registers the `workflow` shell command for managing workflow JSON5 definitions.
  *
- * Subcommands: list, step-types, read, write (`--draft`), validate, delete, trigger, runs, logs, cancel
+ * Subcommands: list, step-types, read, outline, write (`--draft`, `--file`), set-step, remove-step,
+ * add-edge, remove-edge, set-meta, validate, delete, trigger, runs, logs, cancel
  */
 
 import {
@@ -12,12 +13,25 @@ import {
   registerProgram,
   type SkillScriptContext,
 } from "@ext/sdk";
+import { analyzeWorkflowGraph } from "@shared/workflowTopology";
 import { Value } from "@sinclair/typebox/value";
 import type { CommandContext, ExecResult, IFileSystem } from "just-bash";
 import { validateDagWorkflowTemplates } from "../../../dagTemplateValidation";
 import { validateCfEdges, validateDag } from "../../../dagValidation";
 import { getOutcomeCoverageWarnings } from "../../../outcomeCoverage";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePrompt } from "../../../schemas";
+import {
+  addEdge,
+  describeEdge,
+  type EditResult,
+  META_FIELDS,
+  type RawDefinition,
+  removeEdge,
+  removeStep,
+  setMeta,
+  setStep,
+} from "./definitionEdit";
+import { renderOutline } from "./outline";
 
 /** Relative path to the workflows directory within the agent's working directory. */
 const WORKFLOWS_DIR = "workflows";
@@ -42,6 +56,18 @@ async function ensureDir(fs: IFileSystem, cwd: string): Promise<void> {
     await fs.writeFile(marker, "");
   }
 }
+
+/** `--file`: read the JSON5 content from a file in the work directory instead of an argument. */
+const FILE_OPTION = {
+  name: "file",
+  description: "Read the JSON5 content from this file in the work directory instead of the argument",
+};
+
+/** `--branch`: branch key of an edge leaving an if, case, or iterator step. */
+const BRANCH_OPTION = {
+  name: "branch",
+  description: "Branch key (edges leaving an if, case, or iterator step)",
+};
 
 /**
  * Builds the `workflow` command handler function.
@@ -83,11 +109,17 @@ export function buildWorkflowCommand(scriptCtx: SkillScriptContext) {
         handler: buildReadHandler(),
       },
       {
+        name: "outline",
+        description: "Show a workflow's steps, where each leads, and its warnings (does not write)",
+        args: [{ name: "name", description: "Workflow name" }],
+        handler: buildOutlineHandler(scriptCtx),
+      },
+      {
         name: "write",
         description: "Create or overwrite a workflow JSON5 file (validates before writing)",
         args: [
           { name: "name", description: "Workflow name (becomes <name>.json5)" },
-          { name: "content", description: "Full JSON5 content of the workflow" },
+          { name: "content", required: false, description: "Full JSON5 content of the workflow (or use --file)" },
         ],
         options: [
           {
@@ -95,8 +127,64 @@ export function buildWorkflowCommand(scriptCtx: SkillScriptContext) {
             boolean: true,
             description: "Save as a draft: runnable by hand, but its trigger does not start it until activated",
           },
+          FILE_OPTION,
         ],
         handler: buildWriteHandler(scriptCtx),
+      },
+      {
+        name: "set-step",
+        description: "Create or replace one step (validates, writes, prints the outline)",
+        args: [
+          { name: "name", description: "Workflow name" },
+          { name: "slug", description: "Step slug" },
+          { name: "content", required: false, description: "The whole step as JSON5 (or use --file)" },
+        ],
+        options: [
+          FILE_OPTION,
+          { name: "after", description: "Also add an edge from this step to the new one" },
+          { name: "branch", description: "Branch of that edge (when --after is an if, case, or iterator step)" },
+        ],
+        handler: buildSetStepHandler(scriptCtx),
+      },
+      {
+        name: "remove-step",
+        description: "Remove one step and every edge from or to it",
+        args: [
+          { name: "name", description: "Workflow name" },
+          { name: "slug", description: "Step slug" },
+        ],
+        handler: buildRemoveStepHandler(scriptCtx),
+      },
+      {
+        name: "add-edge",
+        description: "Add an edge between two steps",
+        args: [
+          { name: "name", description: "Workflow name" },
+          { name: "from", description: "Source step slug" },
+          { name: "to", description: "Target step slug" },
+        ],
+        options: [BRANCH_OPTION],
+        handler: buildEdgeHandler(scriptCtx, "add"),
+      },
+      {
+        name: "remove-edge",
+        description: "Remove the edge between two steps (only the one with --branch, when given)",
+        args: [
+          { name: "name", description: "Workflow name" },
+          { name: "from", description: "Source step slug" },
+          { name: "to", description: "Target step slug" },
+        ],
+        options: [BRANCH_OPTION],
+        handler: buildEdgeHandler(scriptCtx, "remove"),
+      },
+      {
+        name: "set-meta",
+        description: `Set ${META_FIELDS.join(", ")} (shallow merge; null removes description or group)`,
+        args: [
+          { name: "name", description: "Workflow name" },
+          { name: "content", description: "JSON5 object with the fields to set" },
+        ],
+        handler: buildSetMetaHandler(scriptCtx),
       },
       {
         name: "validate",
@@ -234,6 +322,64 @@ async function fetchServerValidationErrors(
   }
 }
 
+/** Outcome of {@link checkDefinition}: the validated definition, or the error output. */
+type CheckResult = { ok: true; definition: DagWorkflowDefinition } | { ok: false; stderr: string; codes: string[] };
+
+/**
+ * The one validation path of `write`, `validate`, and the editing commands:
+ * normalizes prompt arrays (in place), checks the schema, the DAG structure
+ * and control-flow edges, then the server's hard errors (custom step-type
+ * config, which the sandbox cannot check; skipped when the server is
+ * unavailable). Advisory warnings are not part of it.
+ *
+ * @param scriptCtx - Skill script context (server validation)
+ * @param parsed - The parsed definition; prompt arrays are normalized in place
+ * @param schemaErrorTitle - Heading of schema errors (`validate` says "Schema validation failed")
+ * @returns The validated definition, or the error text plus the structural error codes
+ */
+async function checkDefinition(
+  scriptCtx: SkillScriptContext,
+  parsed: Record<string, unknown>,
+  schemaErrorTitle = "Validation failed",
+): Promise<CheckResult> {
+  if (parsed.steps && typeof parsed.steps === "object" && !Array.isArray(parsed.steps)) {
+    for (const step of Object.values(parsed.steps as Record<string, Record<string, unknown>>)) {
+      if (step?.type === "agent" && Array.isArray(step.prompt)) {
+        step.prompt = normalizePrompt(step.prompt as string[]);
+      }
+    }
+  }
+
+  if (!Value.Check(DagWorkflowDefinitionSchema, parsed)) {
+    return {
+      ok: false,
+      stderr: `${schemaErrorTitle}:\n${formatValidationErrors(DagWorkflowDefinitionSchema, parsed, "\n")}`,
+      codes: [],
+    };
+  }
+
+  // Structural DAG validation (cycles, connectivity, CF-edge rules)
+  const definition = parsed as unknown as DagWorkflowDefinition;
+  const structuralErrors = [...validateDag(definition), ...validateCfEdges(definition)];
+  if (structuralErrors.length > 0) {
+    return {
+      ok: false,
+      stderr: `DAG validation failed:\n${structuralErrors.map((e) => `  ${e.message}`).join("\n")}`,
+      codes: structuralErrors.map((e) => e.code),
+    };
+  }
+
+  // Authoritative server-side validation (includes custom step-type config
+  // checks against registered handler schemas, which are not available
+  // locally). If the server is unavailable, the local checks above stand.
+  const serverErrors = await fetchServerValidationErrors(scriptCtx, definition);
+  if (serverErrors && serverErrors.length > 0) {
+    return { ok: false, stderr: `Validation failed:\n${serverErrors.map((e) => `  ${e}`).join("\n")}`, codes: [] };
+  }
+
+  return { ok: true, definition };
+}
+
 /**
  * Formats advisory warnings into a human-readable block for shell output.
  */
@@ -316,7 +462,9 @@ function buildWriteHandler(scriptCtx: SkillScriptContext) {
   return async (ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
     const { fs, cwd } = ctx;
     const name = args.get("name");
-    const content = args.get("content");
+    const source = await readContentSource(ctx, args, "content");
+    if (!source.ok) return { exitCode: 1, stdout: "", stderr: source.stderr };
+    const content = source.text;
 
     await ensureDir(fs, cwd);
 
@@ -338,46 +486,9 @@ function buildWriteHandler(scriptCtx: SkillScriptContext) {
       parsed.draft = true;
     }
 
-    // Normalize prompt arrays for validation
-    if (parsed.steps && typeof parsed.steps === "object" && !Array.isArray(parsed.steps)) {
-      for (const step of Object.values(parsed.steps as Record<string, Record<string, unknown>>)) {
-        if (step.type === "agent" && Array.isArray(step.prompt)) {
-          step.prompt = normalizePrompt(step.prompt as string[]);
-        }
-      }
-    }
-
-    if (!Value.Check(DagWorkflowDefinitionSchema, parsed)) {
-      return {
-        exitCode: 1,
-        stdout: "",
-        stderr: `Validation failed:\n${formatValidationErrors(DagWorkflowDefinitionSchema, parsed, "\n")}`,
-      };
-    }
-
-    // Structural DAG validation (cycles, connectivity, CF-edge rules)
-    const definition = parsed as unknown as DagWorkflowDefinition;
-    const structuralErrors = [...validateDag(definition), ...validateCfEdges(definition)];
-    if (structuralErrors.length > 0) {
-      return {
-        exitCode: 1,
-        stdout: "",
-        stderr: `DAG validation failed:\n${structuralErrors.map((e) => `  ${e.message}`).join("\n")}`,
-      };
-    }
-
-    // Authoritative server-side validation (includes custom step-type config
-    // checks against registered handler schemas, which are not available
-    // locally). Block the write on any hard error. If the server is
-    // unavailable, fall back to the local checks already performed above.
-    const serverErrors = await fetchServerValidationErrors(scriptCtx, definition);
-    if (serverErrors && serverErrors.length > 0) {
-      return {
-        exitCode: 1,
-        stdout: "",
-        stderr: `Validation failed:\n${serverErrors.map((e) => `  ${e}`).join("\n")}`,
-      };
-    }
+    const checked = await checkDefinition(scriptCtx, parsed);
+    if (!checked.ok) return { exitCode: 1, stdout: "", stderr: checked.stderr };
+    const { definition } = checked;
 
     await fs.writeFile(filePath, `${Bun.JSON5.stringify(parsed, null, 2)}`);
 
@@ -420,44 +531,9 @@ function buildValidateHandler(scriptCtx: SkillScriptContext) {
       return { exitCode: 1, stdout: "", stderr: `JSON5 syntax error: ${(err as Error).message}` };
     }
 
-    // Normalize prompt arrays for validation
-    if (parsed.steps && typeof parsed.steps === "object" && !Array.isArray(parsed.steps)) {
-      for (const step of Object.values(parsed.steps as Record<string, Record<string, unknown>>)) {
-        if (step.type === "agent" && Array.isArray(step.prompt)) {
-          step.prompt = normalizePrompt(step.prompt as string[]);
-        }
-      }
-    }
-
-    if (!Value.Check(DagWorkflowDefinitionSchema, parsed)) {
-      return {
-        exitCode: 1,
-        stdout: "",
-        stderr: `Schema validation failed:\n${formatValidationErrors(DagWorkflowDefinitionSchema, parsed, "\n")}`,
-      };
-    }
-
-    // Structural DAG validation
-    const definition = parsed as unknown as DagWorkflowDefinition;
-    const structuralErrors = [...validateDag(definition), ...validateCfEdges(definition)];
-    if (structuralErrors.length > 0) {
-      return {
-        exitCode: 1,
-        stdout: "",
-        stderr: `DAG validation failed:\n${structuralErrors.map((e) => `  ${e.message}`).join("\n")}`,
-      };
-    }
-
-    // Authoritative server-side validation (includes custom step-type config
-    // checks). Report hard errors; fall back to local-only if unavailable.
-    const serverErrors = await fetchServerValidationErrors(scriptCtx, definition);
-    if (serverErrors && serverErrors.length > 0) {
-      return {
-        exitCode: 1,
-        stdout: "",
-        stderr: `Validation failed:\n${serverErrors.map((e) => `  ${e}`).join("\n")}`,
-      };
-    }
+    const checked = await checkDefinition(scriptCtx, parsed, "Schema validation failed");
+    if (!checked.ok) return { exitCode: 1, stdout: "", stderr: checked.stderr };
+    const { definition } = checked;
 
     // Advisory warnings (server-side when available, else local)
     const warnings = await collectWarnings(scriptCtx, definition);
@@ -473,6 +549,230 @@ function buildValidateHandler(scriptCtx: SkillScriptContext) {
     }
 
     return { exitCode: 0, stdout: `✓ Workflow "${name}" is valid (${stepCount} steps)`, stderr: "" };
+  };
+}
+
+/**
+ * Reads JSON5 content from the `content` argument or from `--file` (a file in
+ * the work directory, read through the sandbox filesystem). Exactly one of the
+ * two must be given.
+ *
+ * @param ctx - Command context (filesystem and working directory)
+ * @param args - Parsed arguments with `content` and the `file` option
+ * @param what - What the content is, for messages
+ * @returns The text, or the error output
+ */
+async function readContentSource(
+  ctx: CommandContext,
+  args: ParsedArgs,
+  what: string,
+): Promise<{ ok: true; text: string } | { ok: false; stderr: string }> {
+  const content = args.get("content");
+  const file = args.option("file");
+  if (content && file) {
+    return { ok: false, stderr: `Error: Give the ${what} either as an argument or with --file, not both` };
+  }
+  if (!content && !file) {
+    return { ok: false, stderr: `Error: Missing ${what}: pass it as an argument or with --file "<path>"` };
+  }
+  if (content) return { ok: true, text: content };
+  const path = ctx.fs.resolvePath(ctx.cwd, file);
+  if (!(await ctx.fs.exists(path))) return { ok: false, stderr: `Error: File "${file}" not found` };
+  try {
+    return { ok: true, text: await ctx.fs.readFile(path) };
+  } catch (err) {
+    return { ok: false, stderr: `Error reading file "${file}": ${(err as Error).message}` };
+  }
+}
+
+/**
+ * Loads and parses a workflow file.
+ *
+ * @param ctx - Command context
+ * @param name - Workflow name
+ * @returns The file path and parsed definition, or the error output
+ */
+async function loadDefinition(
+  ctx: CommandContext,
+  name: string,
+): Promise<{ ok: true; filePath: string; parsed: RawDefinition } | { ok: false; stderr: string }> {
+  const filePath = ctx.fs.resolvePath(getWorkflowsDir(ctx.fs, ctx.cwd), `${name}.json5`);
+  if (!(await ctx.fs.exists(filePath))) {
+    return { ok: false, stderr: `Error: Workflow "${name}" not found at ${filePath}` };
+  }
+  try {
+    const parsed = Bun.JSON5.parse(await ctx.fs.readFile(filePath));
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return { ok: false, stderr: `Error: Workflow "${name}" is not a JSON5 object` };
+    }
+    return { ok: true, filePath, parsed: parsed as RawDefinition };
+  } catch (err) {
+    return { ok: false, stderr: `JSON5 syntax error: ${(err as Error).message}` };
+  }
+}
+
+/** What to change first, per structural error code of a refused edit. */
+const EDIT_HINTS: Record<string, string> = {
+  orphaned_step:
+    'Every step needs an edge: create a new step with --after "<slug>"; before removing a step in the middle, connect its neighbors with add-edge.',
+  unreachable_steps: "Connect the unreachable steps to the rest of the workflow with add-edge first.",
+  invalid_case_branch:
+    "An edge uses a branch the case does not declare. To rename a path, go in this order: set-step the case with the new path next to the old one, add-edge with the new --branch, remove-edge with the old --branch, then set-step the case without the old path.",
+  invalid_if_branch: 'Edges leaving an if step take --branch "then" or "else".',
+  invalid_iterator_branch: 'Edges leaving an iterator take --branch "each".',
+  cf_node_unconditional_edge: "Edges leaving an if, case, or iterator step need --branch.",
+  non_cf_edge_has_branch: "Only edges leaving an if, case, or iterator step take --branch.",
+  cycle_detected: "That edge would create a cycle; workflows must not loop back.",
+};
+
+/**
+ * The root steps (no incoming edge) of a definition that may not be valid yet.
+ *
+ * @param definition - The parsed definition
+ * @returns The root slugs (empty when steps or edges are malformed)
+ */
+function rootsOf(definition: RawDefinition): Set<string> {
+  const { steps, edges } = definition;
+  if (!steps || typeof steps !== "object" || Array.isArray(steps) || !Array.isArray(edges)) return new Set();
+  const wellFormed = edges.filter(
+    (e): e is { from: string; to: string } => typeof e?.from === "string" && typeof e?.to === "string",
+  );
+  return new Set(analyzeWorkflowGraph(steps as Record<string, { type?: unknown }>, wellFormed).roots);
+}
+
+/**
+ * Applies one edit to a workflow file: load, edit, validate with
+ * {@link checkDefinition}, write only when there is no hard error, then print
+ * the outline with the warnings. Every field the edit does not touch
+ * (including `draft`) is carried over.
+ *
+ * @param scriptCtx - Skill script context
+ * @param ctx - Command context
+ * @param name - Workflow name
+ * @param edit - The edit; may return notes to print
+ * @returns The command result
+ */
+async function runEdit(
+  scriptCtx: SkillScriptContext,
+  ctx: CommandContext,
+  name: string,
+  edit: (definition: RawDefinition) => EditResult & { notes?: string[] },
+): Promise<ExecResult> {
+  const loaded = await loadDefinition(ctx, name);
+  if (!loaded.ok) return { exitCode: 1, stdout: "", stderr: loaded.stderr };
+
+  const edited = edit(loaded.parsed);
+  if (!edited.ok) return { exitCode: 1, stdout: "", stderr: `Error: ${edited.error}\nNothing was written.` };
+
+  const checked = await checkDefinition(scriptCtx, edited.definition);
+  if (!checked.ok) {
+    const hints = [...new Set(checked.codes.map((c) => EDIT_HINTS[c]).filter(Boolean))];
+    const hintText = hints.length > 0 ? `\n${hints.join("\n")}` : "";
+    return { exitCode: 1, stdout: "", stderr: `${checked.stderr}${hintText}\nNothing was written.` };
+  }
+
+  await ctx.fs.writeFile(loaded.filePath, `${Bun.JSON5.stringify(edited.definition, null, 2)}`);
+  const warnings = await collectWarnings(scriptCtx, checked.definition);
+  const notes = [...(edited.notes ?? [])];
+  // An existing step that lost its last incoming edge is a second root now:
+  // valid, but it runs at the start of every run.
+  const rootsBefore = rootsOf(loaded.parsed);
+  const stepsBefore = (loaded.parsed.steps ?? {}) as object;
+  for (const slug of rootsOf(edited.definition)) {
+    if (Object.hasOwn(stepsBefore, slug) && !rootsBefore.has(slug)) {
+      notes.push(
+        `Note: step "${slug}" has no incoming edge now, so it runs at the start of every run. If that is not intended, connect it with add-edge.`,
+      );
+    }
+  }
+  if (checked.definition.draft !== true && checked.definition.enabled !== false) {
+    notes.push("The workflow is active: this change is live.");
+  }
+  const noteText = notes.map((n) => `\n${n}`).join("");
+  return {
+    exitCode: 0,
+    stdout: `Workflow "${name}" updated.${noteText}\n\n${renderOutline(checked.definition, warnings)}`,
+    stderr: "",
+  };
+}
+
+function buildOutlineHandler(scriptCtx: SkillScriptContext) {
+  return async (ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
+    const name = args.get("name");
+    const loaded = await loadDefinition(ctx, name);
+    if (!loaded.ok) return { exitCode: 1, stdout: "", stderr: loaded.stderr };
+    const checked = await checkDefinition(scriptCtx, loaded.parsed, "Schema validation failed");
+    if (!checked.ok) return { exitCode: 1, stdout: "", stderr: checked.stderr };
+    const warnings = await collectWarnings(scriptCtx, checked.definition);
+    return { exitCode: 0, stdout: renderOutline(checked.definition, warnings), stderr: "" };
+  };
+}
+
+function buildSetStepHandler(scriptCtx: SkillScriptContext) {
+  return async (ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
+    const slug = args.get("slug");
+    const after = args.option("after");
+    const branch = args.option("branch") || undefined;
+    if (branch && !after) return { exitCode: 1, stdout: "", stderr: "Error: --branch needs --after" };
+
+    const source = await readContentSource(ctx, args, "step");
+    if (!source.ok) return { exitCode: 1, stdout: "", stderr: source.stderr };
+    let step: unknown;
+    try {
+      step = Bun.JSON5.parse(source.text);
+    } catch (err) {
+      return { exitCode: 1, stdout: "", stderr: `JSON5 parse error: ${(err as Error).message}` };
+    }
+
+    return runEdit(scriptCtx, ctx, args.get("name"), (definition) => {
+      const existed = Object.hasOwn((definition.steps ?? {}) as object, slug);
+      const set = setStep(definition, slug, step);
+      if (!set.ok) return set;
+      const notes = [`Step "${slug}" ${existed ? "replaced" : "created"}.`];
+      if (!after) return { ...set, notes };
+      const edges = Array.isArray(set.definition.edges) ? (set.definition.edges as Record<string, unknown>[]) : [];
+      if (edges.some((e) => e.from === after && e.to === slug && (e.branch || undefined) === branch)) {
+        notes.push(`Edge ${describeEdge(after, slug, branch)} already exists; not added again.`);
+        return { ...set, notes };
+      }
+      const linked = addEdge(set.definition, after, slug, branch);
+      return linked.ok ? { ...linked, notes: [...notes, `Edge ${describeEdge(after, slug, branch)} added.`] } : linked;
+    });
+  };
+}
+
+function buildRemoveStepHandler(scriptCtx: SkillScriptContext) {
+  return async (ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
+    const slug = args.get("slug");
+    return runEdit(scriptCtx, ctx, args.get("name"), (definition) => {
+      const removed = removeStep(definition, slug);
+      return removed.ok ? { ...removed, notes: [`Step "${slug}" and its edges removed.`] } : removed;
+    });
+  };
+}
+
+function buildEdgeHandler(scriptCtx: SkillScriptContext, mode: "add" | "remove") {
+  return async (ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
+    const from = args.get("from");
+    const to = args.get("to");
+    const branch = args.option("branch") || undefined;
+    return runEdit(scriptCtx, ctx, args.get("name"), (definition) => {
+      const result = mode === "add" ? addEdge(definition, from, to, branch) : removeEdge(definition, from, to, branch);
+      const verb = mode === "add" ? "added" : "removed";
+      return result.ok ? { ...result, notes: [`Edge ${describeEdge(from, to, branch)} ${verb}.`] } : result;
+    });
+  };
+}
+
+function buildSetMetaHandler(scriptCtx: SkillScriptContext) {
+  return async (ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
+    let patch: unknown;
+    try {
+      patch = Bun.JSON5.parse(args.get("content"));
+    } catch (err) {
+      return { exitCode: 1, stdout: "", stderr: `JSON5 parse error: ${(err as Error).message}` };
+    }
+    return runEdit(scriptCtx, ctx, args.get("name"), (definition) => setMeta(definition, patch));
   };
 }
 

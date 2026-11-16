@@ -235,9 +235,16 @@ The extension provides a `workflows` skill with sandbox commands (plus the `work
 
 - `workflow list` - List all workflow definitions
 - `workflow read "<name>"` - Read a workflow's JSON5 definition
-- `workflow write [--draft] "<name>" "<json5>"` - Validate and write a definition; `--draft` saves it as a draft (an existing draft stays a draft either way)
+- `workflow write [--draft] "<name>" "<json5>"` - Validate and write a definition; `--draft` saves it as a draft (an existing draft stays a draft either way); `--file "<path>"` reads the JSON5 from a file in the work directory
+- `workflow outline "<name>"` - Show the steps in execution order, where each leads (per branch for `if` and `case`), human task details, and the warnings
+- `workflow set-step "<name>" "<slug>" "<json5>" [--after "<slug>"] [--branch "<key>"]` - Create or replace one step; `--after` also adds the edge to it, `--file "<path>"` reads the step from a file
+- `workflow remove-step "<name>" "<slug>"` - Remove a step and every edge from or to it
+- `workflow add-edge` / `remove-edge "<name>" "<from>" "<to>" [--branch "<key>"]` - Add or remove an edge
+- `workflow set-meta "<name>" "<json5>"` - Set `description`, `group`, or `trigger`
 - `workflow runs "<name>"` - List recent runs for a workflow
 - `workflow logs "<run-id>"` - Show per-step logs for a workflow run
+
+The editing commands (`set-step`, `remove-step`, `add-edge`, `remove-edge`, `set-meta`) change one thing at a time and keep everything else, `draft` included. Each validates the result like `write` and writes nothing when it is invalid, naming what to change first; on success it prints the outline, with a note when a step lost its last incoming edge and now runs at the start. To rename a `case` path, add the new path next to the old one, move the edge with `add-edge` and `remove-edge`, then drop the old path. On an active workflow the change is live at once.
 
 ## Template Variables
 

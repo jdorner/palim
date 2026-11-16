@@ -54,8 +54,16 @@ Use `workflow step-types` to discover which step types are available in this dep
 
 ```sh
 workflow read "<name>"                 # display full JSON5 content
+workflow outline "<name>"              # steps in order, where each leads, and the warnings
 workflow write "<name>" "<json5>"      # create or overwrite (validates first)
 workflow write --draft "<name>" "<json5>"  # same, saved as a draft: runnable by hand, its trigger does not start it
+workflow write "<name>" --file "<path>"    # same, JSON5 read from a file in the work directory
+workflow set-step "<name>" "<slug>" "<json5>" [--after "<slug>"] [--branch "<key>"]  # create or replace one step
+workflow set-step "<name>" "<slug>" --file "<path>" [--after ...]  # same, step JSON5 read from a file
+workflow remove-step "<name>" "<slug>"           # remove a step and its edges
+workflow add-edge "<name>" "<from>" "<to>" [--branch "<key>"]     # add an edge
+workflow remove-edge "<name>" "<from>" "<to>" [--branch "<key>"]  # remove an edge
+workflow set-meta "<name>" "<json5>"   # set description, group, trigger (null removes description or group)
 workflow validate "<name>"             # validate against schema
 workflow delete "<name>"               # delete a workflow file
 workflow trigger "<name>" "<payload>"  # trigger a run (payload optional, use "" if empty)
@@ -95,11 +103,19 @@ Changes are picked up automatically - no restart needed.
 
 ## Modifying a workflow
 
+Change an existing workflow with one edit command per change, so the parts you were not asked about stay exactly as they are:
+
 ```sh
-workflow read "my-pipeline"
-workflow write "my-pipeline" '<updated-json5>'
-workflow validate "my-pipeline"
+workflow outline "my-pipeline"
+workflow set-step "my-pipeline" "step-two" '{ "type": "agent", "tools": [], "prompt": "Translate this haiku to German: {{steps.step-one.result}}" }'
+workflow set-step "my-pipeline" "step-three" '{ "type": "agent", "prompt": "Count the words: {{steps.step-two.result}}" }' --after "step-two"
 ```
+
+- `set-step` replaces the whole step. A new step needs `--after` (every step must be connected); after an `if`, `case`, or `iterator`, add `--branch`.
+- For a long or multi-line prompt, write the step's JSON5 to a file with `write_file` and pass `--file "<path>"`.
+- Each command validates first and writes nothing when the result would be invalid; the error says what to change first. On success it prints the outline and the warnings.
+- `draft` and every field the command does not address are kept. On an active workflow the change is live at once, so ask first.
+- For a change to the whole file, use `workflow read` and `workflow write` as before.
 
 ## Notes
 
