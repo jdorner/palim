@@ -826,6 +826,8 @@ interface SchemaProperty {
   const?: unknown;
   anyOf?: SchemaProperty[];
   items?: SchemaProperty;
+  properties?: Record<string, SchemaProperty>;
+  required?: string[];
 }
 
 /** An object JSON Schema (subset we render). */
@@ -852,17 +854,48 @@ const ENGINE_OWNER = "workflows";
 
 /**
  * Describes a JSON Schema property's type for a field line, e.g. `string`,
- * `array of string`, or `"GET" | "POST"` for a union of literals.
+ * `array of string`, `"GET" | "POST"` for a union of literals, or
+ * `string | null` for a union of types.
  *
  * @param def - The property schema
  * @returns A short type description (`any` when none is declared)
  */
 function describeType(def: SchemaProperty | undefined): string {
-  if (def?.anyOf?.length && def.anyOf.every((v) => v.const !== undefined)) {
-    return def.anyOf.map((v) => JSON.stringify(v.const)).join(" | ");
+  if (def?.anyOf?.length) {
+    const members = def.anyOf.map((v) => (v.const !== undefined ? JSON.stringify(v.const) : describeType(v)));
+    return [...new Set(members)].join(" | ");
   }
   if (def?.type === "array" && def.items) return `array of ${describeType(def.items)}`;
   return def?.type ?? "any";
+}
+
+/** How many levels of fields `workflow step-types <type>` prints: the top-level fields and two levels below. */
+const MAX_FIELD_DEPTH = 3;
+
+/**
+ * Finds the object schema whose fields belong under a field line: the field
+ * itself, or the only object member of a union such as `object | null`.
+ *
+ * @param def - The property schema
+ * @returns The schema with `properties`, or `undefined` when there is none
+ */
+function objectFieldsOf(def: SchemaProperty | undefined): SchemaProperty | undefined {
+  if (def?.properties && Object.keys(def.properties).length > 0) return def;
+  const members = (def?.anyOf ?? []).filter((v) => v.properties && Object.keys(v.properties).length > 0);
+  return members.length === 1 ? members[0] : undefined;
+}
+
+/**
+ * Finds the item schema of an array of objects (also inside a union such as
+ * `array | null`).
+ *
+ * @param def - The property schema
+ * @returns The item schema with `properties`, or `undefined` when the field is not an array of objects
+ */
+function arrayItemFieldsOf(def: SchemaProperty | undefined): SchemaProperty | undefined {
+  if (def?.type === "array") return objectFieldsOf(def.items);
+  const arrays = (def?.anyOf ?? []).filter((v) => v.type === "array");
+  return arrays.length === 1 ? objectFieldsOf(arrays[0]?.items) : undefined;
 }
 
 /**
@@ -875,20 +908,52 @@ function describeType(def: SchemaProperty | undefined): string {
  * knows what to put in each field without opening the extension source. Returns
  * an empty array when the schema declares no properties.
  *
+ * The fields of a nested object, and of the items of an array of objects
+ * (under an `each item:` line), follow their parent line, indented four more
+ * spaces. Below {@link MAX_FIELD_DEPTH} levels a `...` line stands in for
+ * the fields that are cut.
+ *
  * @param schema - The serialized JSON Schema (a step's config or result)
  * @param indent - Leading whitespace applied to each rendered line
- * @returns One formatted line per field
+ * @param depth - Level of these fields (1 for the top-level fields)
+ * @returns The formatted lines: one per field, plus the lines of nested fields
  */
-function formatSchemaFields(schema: ObjectSchema | undefined, indent: string): string[] {
+function formatSchemaFields(schema: ObjectSchema | undefined, indent: string, depth = 1): string[] {
   const properties = schema?.properties;
   if (!properties || typeof properties !== "object") return [];
   const required = new Set(schema?.required ?? []);
-  return Object.entries(properties).map(([key, def]) => {
+  const nestedIndent = `${indent}    `;
+  const lines: string[] = [];
+  for (const [key, def] of Object.entries(properties)) {
     const req = required.has(key) ? ", required" : "";
     const desc = def?.description ?? def?.title;
     const descSuffix = desc ? `: ${desc}` : "";
-    return `${indent}- ${key} (${describeType(def)}${req})${descSuffix}`;
-  });
+    lines.push(`${indent}- ${key} (${describeType(def)}${req})${descSuffix}`);
+
+    const items = arrayItemFieldsOf(def);
+    const nested = items ?? objectFieldsOf(def);
+    if (!nested) continue;
+    if (depth >= MAX_FIELD_DEPTH) {
+      lines.push(`${nestedIndent}...`);
+      continue;
+    }
+    if (items) lines.push(`${nestedIndent}each item:`);
+    lines.push(...formatSchemaFields(nested, nestedIndent, depth + 1));
+  }
+  return lines;
+}
+
+/**
+ * Tells the author how to read the item fields of each result field that is
+ * a list of objects, once a loop runs over it.
+ *
+ * @param schema - The step type's result schema
+ * @returns One line per top-level array-of-objects field
+ */
+function formatIteratorHints(schema: ObjectSchema | undefined): string[] {
+  return Object.entries(schema?.properties ?? {})
+    .filter(([, def]) => arrayItemFieldsOf(def))
+    .map(([key]) => `Inside an iterator over ${key} with as: "item", read these as {{item.<field>}}.`);
 }
 
 /**
@@ -953,8 +1018,10 @@ function formatStepTypeDetail(entry: StepTypeMetaEntry): string {
   if (configLines.length > 0) lines.push("", "Config fields:", ...configLines);
 
   const resultLines = formatSchemaFields(entry.outputSchema, "  ");
-  if (resultLines.length > 0) lines.push("", "Result fields ({{steps.<slug>.result.<field>}}):", ...resultLines);
-  else if (entry.outputSchema) lines.push("", "Produces a result ({{steps.<slug>.result}}).");
+  if (resultLines.length > 0) {
+    lines.push("", "Result fields ({{steps.<slug>.result.<field>}}):", ...resultLines);
+    lines.push(...formatIteratorHints(entry.outputSchema));
+  } else if (entry.outputSchema) lines.push("", "Produces a result ({{steps.<slug>.result}}).");
 
   if (entry.docs?.trim()) lines.push("", entry.docs.trim());
   return lines.join("\n");
