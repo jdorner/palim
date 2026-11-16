@@ -5,6 +5,7 @@
 import { describe, expect, test } from "bun:test";
 import type { ExtensionContext, StepTypeHandler } from "@ext/types";
 import { Type } from "@sinclair/typebox";
+import { getDraftTargetWarnings, resolveDispatchTarget, workflowsForTrigger } from "./autoStart";
 import type { DagWorkflowDefinition } from "./schemas";
 import { buildStepJobIdMap } from "./stepJobs";
 import { getTriggerRefWarnings, type TriggerRefLookup } from "./triggerRefs";
@@ -270,5 +271,73 @@ describe("getDependencyWarnings (humanTask)", () => {
       mockCtx(false),
     );
     expect(warnings.some((w) => w.message.includes("disabled"))).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Automatic starts: event triggers and dispatch from other workflows
+// ---------------------------------------------------------------------------
+
+describe("automatic starts skip drafts and disabled workflows", () => {
+  /** Builds a webhook-triggered workflow with the given flags. */
+  function hooked(name: string, extra: Partial<DagWorkflowDefinition> = {}): DagWorkflowDefinition {
+    return {
+      name,
+      trigger: { type: "webhook", ref: "hook" },
+      steps: { a: { type: "agent", prompt: "Go" } },
+      edges: [],
+      ...extra,
+    };
+  }
+
+  const live = hooked("live");
+  const explicitlyLive = hooked("explicit", { enabled: true, draft: false });
+  const draft = hooked("draft", { draft: true });
+  const disabled = hooked("off", { enabled: false });
+  const other = { ...hooked("other"), trigger: { type: "webhook" as const, ref: "elsewhere" } };
+
+  test("an event trigger starts only the live workflows with a matching ref", () => {
+    const started = workflowsForTrigger([live, explicitlyLive, draft, disabled, other], "webhook", "hook");
+    expect(started.map((w) => w.name)).toEqual(["live", "explicit"]);
+  });
+
+  test("an event of another trigger type starts nothing", () => {
+    expect(workflowsForTrigger([live], "schedule", "hook")).toEqual([]);
+  });
+
+  test("dispatch from another workflow returns a live workflow", () => {
+    expect(resolveDispatchTarget(live, "live")).toBe(live);
+  });
+
+  test("dispatch refuses a draft", () => {
+    expect(() => resolveDispatchTarget(draft, "draft")).toThrow("Workflow is a draft: draft");
+  });
+
+  test("a start-workflow step that targets a draft is warned about", () => {
+    const caller: DagWorkflowDefinition = {
+      name: "caller",
+      trigger: { type: "manual" },
+      steps: {
+        "to-draft": { type: "start-workflow", workflowName: "draft" },
+        "to-live": { type: "start-workflow", workflowName: "live" },
+        "to-missing": { type: "start-workflow", workflowName: "nope" },
+        templated: { type: "start-workflow", workflowName: "{{trigger.payload.name}}" },
+        other: { type: "agent", prompt: "draft" },
+      },
+      edges: [],
+    };
+    const loaded = new Map([live, draft].map((w) => [w.name, w]));
+    expect(getDraftTargetWarnings(caller, (n) => loaded.get(n))).toEqual([
+      {
+        stepSlug: "to-draft",
+        field: "workflowName",
+        message: 'Workflow "draft" is a draft: this step fails until it is activated',
+      },
+    ]);
+  });
+
+  test("dispatch refuses a disabled workflow and a missing one", () => {
+    expect(() => resolveDispatchTarget(disabled, "off")).toThrow("Workflow is disabled: off");
+    expect(() => resolveDispatchTarget(undefined, "nope")).toThrow("Workflow not found: nope");
   });
 });

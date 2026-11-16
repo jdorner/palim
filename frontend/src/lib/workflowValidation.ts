@@ -44,6 +44,11 @@ export interface WorkflowDraft {
   group: string;
   trigger: DraftTrigger;
   enabled: boolean;
+  /**
+   * The definition's `draft` flag (runs only by hand until activated). Not to be
+   * confused with this edit draft itself; kept so a save does not drop it.
+   */
+  draft?: boolean;
   /** Steps as a flat array with slug (converted to a map on serialize). */
   steps: StepDraft[];
   /** DAG edges connecting steps by synthetic id (converted to slugs on serialize). */
@@ -688,6 +693,9 @@ export function serializeWorkflowDraft(draft: WorkflowDraft): Record<string, unk
     steps,
     edges,
   };
+  if (draft.draft === true) {
+    result.draft = true;
+  }
   if (draft.description) {
     result.description = draft.description;
   }

@@ -9,6 +9,7 @@ import {
   DagIfStepSchema,
   DagWaitForStepSchema,
   DagWorkflowDefinitionSchema,
+  isAutoStartable,
   OutputSchemaSchema,
   type Trigger,
 } from "./schemas";
@@ -311,5 +312,24 @@ describe("OutputSchemaSchema", () => {
 
   test("rejects non-string leaves", () => {
     expect(Value.Check(OutputSchemaSchema, { id: 1 })).toBe(false);
+  });
+});
+
+describe("draft flag", () => {
+  const base = { name: "wf", trigger: { type: "manual" }, steps: { a: { type: "agent", prompt: "Go" } }, edges: [] };
+
+  test("the definition schema accepts a boolean draft and rejects other values", () => {
+    expect(Value.Check(DagWorkflowDefinitionSchema, { ...base, draft: true })).toBe(true);
+    expect(Value.Check(DagWorkflowDefinitionSchema, { ...base, draft: false })).toBe(true);
+    expect(Value.Check(DagWorkflowDefinitionSchema, base)).toBe(true);
+    expect(Value.Check(DagWorkflowDefinitionSchema, { ...base, draft: "yes" })).toBe(false);
+  });
+
+  test("isAutoStartable is false for drafts and disabled workflows only", () => {
+    expect(isAutoStartable({})).toBe(true);
+    expect(isAutoStartable({ enabled: true, draft: false })).toBe(true);
+    expect(isAutoStartable({ draft: true })).toBe(false);
+    expect(isAutoStartable({ enabled: false })).toBe(false);
+    expect(isAutoStartable({ enabled: false, draft: true })).toBe(false);
   });
 });

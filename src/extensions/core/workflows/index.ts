@@ -33,6 +33,7 @@ import { resolveAmbientUserId } from "@src/utils/fetch";
 import { registerTriggerOwnerCounter } from "@src/web/triggerOwnership";
 import { registerWorkflowRunHooks } from "@src/web/workflowRunHooks";
 import type { FSWatcher } from "chokidar";
+import { resolveDispatchTarget, workflowsForTrigger } from "./autoStart";
 import { createDagEmitHandler } from "./dagEmitHandler";
 import type { DagStepJobData } from "./dagEngine";
 import { loadDagWorkflowFiles, loadSingleWorkflow } from "./dagLoader";
@@ -56,7 +57,7 @@ import { createWorkflowRuns, type WorkflowRuns } from "./workflowRuns";
 
 const manifest = {
   name: "workflows",
-  version: "2.9.4",
+  version: "2.10.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -188,13 +189,7 @@ export function createExtension(): Extension {
 
       // Register the dispatch function so all extension contexts can use ctx.workflows.dispatch()
       setWorkflowDispatchFn(async (name, payload) => {
-        const wf = store.get(name);
-        if (!wf) {
-          throw new Error(`Workflow not found: ${name}`);
-        }
-        if (wf.enabled === false) {
-          throw new Error(`Workflow is disabled: ${name}`);
-        }
+        const wf = resolveDispatchTarget(store.get(name), name);
         // Runs started from within a user's job (e.g. a `start-workflow` step or
         // an agent tool) inherit that user as initiator, so they stay scoped to
         // them instead of becoming unowned runs visible to everyone.
@@ -260,14 +255,12 @@ export function createExtension(): Extension {
         sourceLabel: string,
         initiatorUserId?: string,
       ): Promise<void> {
-        for (const wf of store.values()) {
-          if (wf.trigger.type === triggerType && wf.trigger.ref === slug && (wf.enabled ?? true)) {
-            try {
-              const result = await runs.start(wf, payload, initiatorUserId);
-              logger.info(`${sourceLabel} "${slug}" triggered workflow "${wf.name}" -> run ${result.workflowRunId}`);
-            } catch (err) {
-              logger.error(`Failed to dispatch workflow "${wf.name}" for ${sourceLabel.toLowerCase()} "${slug}":`, err);
-            }
+        for (const wf of workflowsForTrigger(store.values(), triggerType, slug)) {
+          try {
+            const result = await runs.start(wf, payload, initiatorUserId);
+            logger.info(`${sourceLabel} "${slug}" triggered workflow "${wf.name}" -> run ${result.workflowRunId}`);
+          } catch (err) {
+            logger.error(`Failed to dispatch workflow "${wf.name}" for ${sourceLabel.toLowerCase()} "${slug}":`, err);
           }
         }
       }
@@ -303,7 +296,7 @@ export function createExtension(): Extension {
         runs,
         hitlEnabled: hitl !== undefined,
         scheduleReload: (filename) => state.reloads?.schedule(filename),
-        analyzeWorkflow: createWorkflowAnalyzer(ctx),
+        analyzeWorkflow: createWorkflowAnalyzer(ctx, (target) => store.get(target)),
       });
     },
 

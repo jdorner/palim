@@ -14,6 +14,7 @@ import WarningIcon from "phosphor-svelte/lib/WarningIcon";
 import { onDestroy } from "svelte";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
+import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { t } from "$lib/i18n.svelte";
@@ -45,6 +46,8 @@ interface WorkflowSummary {
   trigger: { type: string; ref?: string };
   stepCount: number;
   enabled: boolean;
+  /** A draft runs only by hand until it is activated. */
+  draft?: boolean;
   steps: Array<{ slug: string; type: string }>;
   activeRuns: number;
   completedRuns: number;
@@ -337,6 +340,15 @@ $effect(() => {
   </span>
 {/snippet}
 
+{#snippet draftBadge()}
+  <Badge
+    variant="outline"
+    class="shrink-0 font-normal border-amber-500/50 text-amber-600 dark:text-amber-400"
+    title={t("workflows.draftHint")}
+    >{t("workflows.draft")}</Badge
+  >
+{/snippet}
+
 {#snippet cardSubtotals(totals: WorkflowRunCounts)}
   <div class="flex flex-wrap items-center gap-x-4 gap-y-1 pl-5 text-xs text-muted-foreground">
     <span>{t("workflows.activeLabel")} {@render runCount(totals.activeRuns, "text-blue-500")}</span>
@@ -414,9 +426,13 @@ $effect(() => {
                 <div class="flex items-start justify-between gap-2">
                   {@render grip(wf)}
                   <div class="min-w-0 flex-1">
-                    <a href="#/workflows/{wf.name}" class="block overflow-hidden">
-                      <span class="font-medium block truncate">{wf.name}</span>
-                    </a>
+                    <!-- The badge sits beside the link, not in it, so it takes no link underline. -->
+                    <div class="flex items-center gap-2">
+                      <a href="#/workflows/{wf.name}" class="min-w-0 font-medium truncate">{wf.name}</a>
+                      {#if wf.draft}
+                        {@render draftBadge()}
+                      {/if}
+                    </div>
                     {#if wf.description}
                       <p class="text-xs text-muted-foreground mt-0.5 line-clamp-2">{wf.description}</p>
                     {/if}
@@ -573,9 +589,12 @@ $effect(() => {
                     <div class="flex items-start gap-1.5">
                       {@render grip(wf)}
                       <div class="min-w-0 flex-1">
-                        <a href="#/workflows/{wf.name}" class="text-left w-full">
-                          <span class="font-medium">{wf.name}</span></a
-                        >
+                        <div class="flex items-center gap-2">
+                          <a href="#/workflows/{wf.name}" class="font-medium text-left">{wf.name}</a>
+                          {#if wf.draft}
+                            {@render draftBadge()}
+                          {/if}
+                        </div>
                         {#if wf.description}
                           <p class="text-xs text-muted-foreground mt-0.5">{wf.description}</p>
                         {/if}

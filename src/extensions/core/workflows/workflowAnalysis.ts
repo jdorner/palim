@@ -14,6 +14,7 @@ import { Value } from "@sinclair/typebox/value";
 import { resolveHandlerOutputSchema } from "@src/extensions/engine/stepTypeSerialization";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { TemplateVariableResolver } from "@src/variables";
+import { getDraftTargetWarnings } from "./autoStart";
 import { type TemplateWarning, validateDagWorkflowTemplates } from "./dagTemplateValidation";
 import { validateIteratorPairing } from "./dagValidation";
 import { definitionTopology } from "./definitionTopology";
@@ -342,10 +343,12 @@ export interface WorkflowAnalysis {
  * iterator pairing, schema compiler).
  *
  * @param ctx - Extension context (step types, secrets, variables)
+ * @param lookupWorkflow - Returns the loaded workflow of a name; enables the draft-target warnings
  * @returns The analyze function
  */
 export function createWorkflowAnalyzer(
   ctx: ExtensionContext,
+  lookupWorkflow?: (name: string) => DagWorkflowDefinition | undefined,
 ): (def: DagWorkflowDefinition, triggerRefs: TriggerRefLookup) => Promise<WorkflowAnalysis> {
   // Adapter: wrap ctx.internal.secrets into a TemplateSecretResolver for validation
   const secretResolver: TemplateSecretResolver | undefined = ctx.internal?.secrets
@@ -405,6 +408,7 @@ export function createWorkflowAnalyzer(
         ...getTriggerRefWarnings(def, triggerRefs, describeRunAs),
         ...templateWarnings,
         ...getDependencyWarnings(def, ctx),
+        ...(lookupWorkflow ? getDraftTargetWarnings(def, lookupWorkflow) : []),
         ...pairingWarnings,
         ...schemaWarnings,
       ],

@@ -538,6 +538,7 @@ The payload: `{{trigger.payload.file.path}}` (uploaded file, relative to WORK_DI
 
 - Workflow names must be unique across all files; step slugs (the `steps` map keys) must match `^[a-z][a-z0-9-]*$`.
 - Disabled workflows (`enabled: false`) are skipped during loading.
+- Drafts (`draft: true`, written with `workflow write --draft`) run only by hand until the user activates them in the editor.
 - With no `tools` and no `skills`, the agent runs LLM-only (no tools).
 - JSON5 allows `//` and `/* */` comments and trailing commas — use comments for documentation.
 - If an `if`/`case` branch has no matching edge, that branch is simply skipped (dead); use a `fail` step to abort with a meaningful error instead.

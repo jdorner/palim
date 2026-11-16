@@ -1,6 +1,6 @@
 /**
- * Portal launcher provider: offers the enabled workflows with a `portal`
- * trigger to the portal and starts them as their bound run-as account.
+ * Portal launcher provider: offers the auto-startable (enabled, non-draft)
+ * workflows with a `portal` trigger to the portal and starts them as their bound run-as account.
  *
  * @module
  */
@@ -8,18 +8,18 @@
 import type { PortalLauncherDef, PortalLauncherProvider } from "@ext/types";
 import { PORTAL_UPLOAD_DEFAULT_MB } from "@shared/portal";
 import { getPortalRunAs } from "./portalRunAs";
-import type { DagWorkflowDefinition } from "./schemas";
+import { type DagWorkflowDefinition, isAutoStartable } from "./schemas";
 
 /**
  * Builds the launcher for a workflow, or null when it is not a usable
- * portal workflow (other trigger type, or disabled).
+ * portal workflow (other trigger type, disabled, or a draft).
  *
  * @param wf - The workflow definition
  * @param runAsUserId - The bound run-as user id (null when unbound)
  * @returns The launcher, or null
  */
 export function toPortalLauncher(wf: DagWorkflowDefinition, runAsUserId: string | null): PortalLauncherDef | null {
-  if (wf.trigger.type !== "portal" || wf.enabled === false) return null;
+  if (wf.trigger.type !== "portal" || !isAutoStartable(wf)) return null;
   const config = wf.trigger.portal ?? {};
   return {
     name: wf.name,

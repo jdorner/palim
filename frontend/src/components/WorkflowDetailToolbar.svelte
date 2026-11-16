@@ -2,6 +2,8 @@
 import { DropdownMenu } from "bits-ui";
 import ArrowUUpLeftIcon from "phosphor-svelte/lib/ArrowUUpLeftIcon";
 import ArrowUUpRightIcon from "phosphor-svelte/lib/ArrowUUpRightIcon";
+import BracketsCurlyIcon from "phosphor-svelte/lib/BracketsCurlyIcon";
+import CaretDownIcon from "phosphor-svelte/lib/CaretDownIcon";
 import DotsThreeVerticalIcon from "phosphor-svelte/lib/DotsThreeVerticalIcon";
 import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import PlayIcon from "phosphor-svelte/lib/PlayIcon";
@@ -11,7 +13,8 @@ import { Button } from "$lib/components/ui/button";
 import { buttonVariants } from "$lib/components/ui/button/button.svelte";
 /**
  * Header bar of the workflow detail page: back button, title, and the
- * mode-dependent actions (Undo/Redo/Save/Cancel in edit mode; Edit/Run/Delete otherwise,
+ * mode-dependent actions (Undo/Redo/Save/Cancel in edit mode; Edit/Run (with an
+ * optional payload)/Delete otherwise,
  * collapsing into a dropdown on narrow screens). Owns the delete confirmation.
  */
 import { t } from "$lib/i18n.svelte";
@@ -46,6 +49,8 @@ interface Props {
   onEdit: () => void;
   /** Start a workflow run. */
   onRun: () => void;
+  /** Open the dialog that starts a run with a JSON payload. */
+  onRunWithPayload: () => void;
   /** Delete the workflow (after confirmation). */
   onDelete: () => void;
 }
@@ -65,10 +70,30 @@ let {
   onCancelEdit,
   onEdit,
   onRun,
+  onRunWithPayload,
   onDelete,
 }: Props = $props();
 
+const menuItemClass =
+  "flex items-center gap-2 px-2 py-1.5 text-sm rounded-sm cursor-pointer outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground";
+
 let confirmingDelete = $state(false);
+
+// A closing menu returns focus to its trigger. When the item opens the payload
+// dialog, that would pull focus out of the dialog right after it focused its
+// field, so the menu skips the return for that one close.
+let openingPayloadDialog = false;
+
+function selectRunWithPayload() {
+  openingPayloadDialog = true;
+  onRunWithPayload();
+}
+
+function keepDialogFocus(e: Event) {
+  if (!openingPayloadDialog) return;
+  openingPayloadDialog = false;
+  e.preventDefault();
+}
 </script>
 
 <div class="flex items-center justify-between gap-2 mb-4 shrink-0">
@@ -140,10 +165,33 @@ let confirmingDelete = $state(false);
           <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
           {t("common.edit")}
         </Button>
-        <Button size="sm" variant="default" class="text-nowrap" onclick={onRun}>
-          <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-          {t("workflows.runWorkflow")}
-        </Button>
+        <div class="flex items-center">
+          <Button size="sm" variant="default" class="text-nowrap rounded-r-none" onclick={onRun}>
+            <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
+            {t("workflows.runWorkflow")}
+          </Button>
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger
+              class={`${buttonVariants({ variant: "default", size: "sm" })} min-w-0! w-8! p-0! rounded-l-none border-l border-primary-foreground/25`}
+              aria-label={t("workflows.runOptions")}
+            >
+              <CaretDownIcon size={12} aria-hidden="true" />
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                align="end"
+                sideOffset={4}
+                onCloseAutoFocus={keepDialogFocus}
+                class="z-9999 min-w-40 rounded-md border border-border bg-background p-1 shadow-lg"
+              >
+                <DropdownMenu.Item class={menuItemClass} onSelect={selectRunWithPayload}>
+                  <BracketsCurlyIcon size={14} aria-hidden="true" />
+                  {t("workflows.runWithPayload")}
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        </div>
         <Button
           size="sm"
           variant="destructive"
@@ -173,12 +221,14 @@ let confirmingDelete = $state(false);
             <DropdownMenu.Content
               align="end"
               sideOffset={4}
+              onCloseAutoFocus={keepDialogFocus}
               class="z-9999 min-w-40 rounded-md border border-border bg-background p-1 shadow-lg"
             >
-              <DropdownMenu.Item
-                class="flex items-center gap-2 px-2 py-1.5 text-sm rounded-sm cursor-pointer outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
-                onSelect={onEdit}
-              >
+              <DropdownMenu.Item class={menuItemClass} onSelect={selectRunWithPayload}>
+                <BracketsCurlyIcon size={14} aria-hidden="true" />
+                {t("workflows.runWithPayload")}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item class={menuItemClass} onSelect={onEdit}>
                 <PencilSimpleIcon size={14} aria-hidden="true" />
                 {t("common.edit")}
               </DropdownMenu.Item>
