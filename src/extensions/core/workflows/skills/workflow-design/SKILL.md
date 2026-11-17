@@ -11,32 +11,28 @@ The user describes a process that does not exist yet. Build it with them over se
 Follow these steps in order.
 
 1. **Prepare.** Before you ask anything:
-   - Run `skill read workflow-writing`. Its checklist and rules still apply.
+   - Run `skill read workflow-writing`. Its checklist, its loop rules and its edit commands apply here.
    - Run `workflow list` and apply the duplicate guardrail from the `workflows` skill.
    - Run `workflow step-types`, so you know which step types this deployment offers.
 
 2. **Interview, one topic per message.** Ask at most three questions per message. Offer a default for each question, so the user can answer "ok". Do not ask what you can look up yourself. Topics, in this order:
    1. **Start:** what starts the workflow, and which values differ from run to run. These become the trigger and its `outputSchema`.
    2. **Main path:** what happens, step by step, when everything goes well.
-   3. **People:** where a person must decide or supply data. For each such point: who (users or roles), which choices, which form fields, and whether there is a deadline and what happens when it passes.
-   4. **Branches:** what happens after each choice, one choice at a time.
-   5. **End:** who is told, what is stored, and what should happen when a step fails.
+   3. **Volume:** how many items one run handles (one, a few, hundreds), and whether they are handled one by one or all together. Default: one by one.
+   4. **People:** where a person must decide or supply data. For each such point: who (users or roles), which choices, which form fields, and whether there is a deadline and what happens when it passes.
+   5. **Branches:** what happens after each choice, one choice at a time.
+   6. **End:** who is told, what is stored, and what should happen when a step fails.
 
-3. **Write early.** As soon as the main path is known, write it as a draft with the trigger the user wants: `workflow write --draft "<name>" '<json5>'`. If the trigger needs a webhook, schedule, or watcher, create that first. A draft ignores its trigger, so nothing fires yet. This is the only full write.
+   If no step type can do something the user asked for, say so and ask how to proceed (`workflow-writing` checklist, step 3).
 
-4. **Grow it one change per turn.** Add the human task, then the `case`, then one branch at a time. Make every change with an edit command; never rewrite the whole workflow:
+3. **Write early.** As soon as the main path is known, write it as a draft with the trigger the user wants: `workflow write --draft "<name>" '<json5>'`. Always use `--draft` for a new workflow. If the trigger needs a webhook, schedule, or watcher, create that first (a schedule: `schedule create "<id>" "<name>" -p "0 9 * * *" --tz "Europe/Berlin"`). A draft ignores its trigger, so nothing fires yet. This is the only full write.
 
-   ```sh
-   workflow set-step "<name>" "<slug>" '<json5 of the whole step>' --after "<previous-slug>" [--branch "<path>"]
-   workflow add-edge "<name>" "<from>" "<to>" [--branch "<path>"]
-   workflow remove-edge "<name>" "<from>" "<to>" [--branch "<path>"]
-   workflow remove-step "<name>" "<slug>"
-   workflow set-meta "<name>" '{ description: "...", trigger: { ... } }'
-   ```
+   Patterns:
+   - A step returns a list and each item needs its own work: write the steps for one item, then `workflow add-loop`.
+   - A value decides the path: `case`.
+   - A person decides: `humanTask` + `case`.
 
-   - A new step needs `--after`, or the edit is refused (every step must be connected). After an `if`, `case`, or `iterator`, also give `--branch`.
-   - `set-step` replaces the whole step: send all its fields, not only the changed ones.
-   - For a step with a multi-line prompt or body, write the step as JSON5 to a file with `write_file` and pass `--file "<path>"` instead of the JSON5 argument.
+4. **Grow it one change per turn.** Add the human task, then the `case`, then one branch at a time. Make every change with an edit command from `workflow-writing` ("Changing a workflow": `set-step`, `add-edge`, `remove-edge`, `remove-step`, `set-meta`, `add-loop`); never rewrite the whole workflow.
    - Each command validates and writes nothing if the result is invalid. Read the error: it says what to change first.
    - To rename a `case` path, go in this order: `set-step` the case with the new path next to the old one, `add-edge` with the new `--branch`, `remove-edge` with the old `--branch`, then `set-step` the case without the old path.
    - If the output says a step "runs at the start of every run", you cut its last incoming edge: connect it again with `add-edge` unless the user wants that.

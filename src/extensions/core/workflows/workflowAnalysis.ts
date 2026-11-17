@@ -15,9 +15,11 @@ import { resolveHandlerOutputSchema } from "@src/extensions/engine/stepTypeSeria
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { TemplateVariableResolver } from "@src/variables";
 import { getDraftTargetWarnings } from "./autoStart";
+import { getUndeclaredConfigKeyWarnings } from "./configKeys";
 import { type TemplateWarning, validateDagWorkflowTemplates } from "./dagTemplateValidation";
 import { validateIteratorPairing } from "./dagValidation";
 import { definitionTopology } from "./definitionTopology";
+import { getDesignWarnings } from "./designWarnings";
 import { humanTaskOutputSchema } from "./humanTask";
 import { getOutcomeCoverageWarnings } from "./outcomeCoverage";
 import { compileOutputSchema, resolveTriggerOutputSchemaJson } from "./outputSchemaCompiler";
@@ -59,8 +61,9 @@ function serializeHandlerSchema(schema: TSchema): OutputSchema {
 /**
  * The built-in output schema of an `aggregator` step, mirroring the result
  * written by the coordinator: `totalItems`/`succeeded`/`failed` counts and
- * `results`, one object per iteration keyed by the body's terminal steps
- * (each typed with that step's own schema when it has one).
+ * `results`, one object per iteration keyed by the body steps that ran in it
+ * (each typed with that step's own schema when it has one; none is required,
+ * because a step on a branch not taken is absent from that pass).
  *
  * @param definition - The workflow definition
  * @param step - The aggregator step definition
@@ -74,8 +77,8 @@ function aggregatorOutputSchema(
 ): OutputSchema {
   const iterationProperties: Record<string, unknown> = {};
   if (definition.steps[step.iterator]?.type === "iterator") {
-    for (const terminal of definitionTopology(definition).iteratorBody(step.iterator)?.terminals ?? []) {
-      iterationProperties[terminal] = resolveStepSchema(terminal) ?? {};
+    for (const slug of definitionTopology(definition).iteratorBody(step.iterator)?.steps ?? []) {
+      iterationProperties[slug] = resolveStepSchema(slug) ?? {};
     }
   }
   return {
@@ -341,7 +344,8 @@ export interface WorkflowAnalysis {
  * Creates the analyzer shared by the list, detail, and draft-analysis routes,
  * so the three cannot diverge. It resolves a workflow's output schemas and
  * collects every advisory warning (trigger refs, templates, step dependencies,
- * iterator pairing, human task outcome coverage, schema compiler).
+ * undeclared config keys, iterator pairing, human task outcome coverage,
+ * design, schema compiler).
  *
  * @param ctx - Extension context (step types, secrets, variables)
  * @param lookupWorkflow - Returns the loaded workflow of a name; enables the draft-target warnings
@@ -409,9 +413,11 @@ export function createWorkflowAnalyzer(
         ...getTriggerRefWarnings(def, triggerRefs, describeRunAs),
         ...templateWarnings,
         ...getDependencyWarnings(def, ctx),
+        ...getUndeclaredConfigKeyWarnings(def, (type) => ctx.stepTypes.get(type)?.schema),
         ...(lookupWorkflow ? getDraftTargetWarnings(def, lookupWorkflow) : []),
         ...pairingWarnings,
         ...getOutcomeCoverageWarnings(def),
+        ...getDesignWarnings(def, (slug) => outputSchemas.steps[slug] ?? null),
         ...schemaWarnings,
       ],
     };

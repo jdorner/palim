@@ -55,8 +55,8 @@ Use `workflow step-types` to discover which step types are available in this dep
 ```sh
 workflow read "<name>"                 # display full JSON5 content
 workflow outline "<name>"              # steps in order, where each leads, and the warnings
-workflow write "<name>" "<json5>"      # create or overwrite (validates first)
-workflow write --draft "<name>" "<json5>"  # same, saved as a draft: runnable by hand, its trigger does not start it
+workflow write --draft "<name>" "<json5>"  # create as a draft (always for a new workflow): runnable by hand, its trigger does not start it
+workflow write "<name>" "<json5>"      # overwrite (validates first)
 workflow write "<name>" --file "<path>"    # same, JSON5 read from a file in the work directory
 workflow set-step "<name>" "<slug>" "<json5>" [--after "<slug>"] [--branch "<key>"]  # create or replace one step
 workflow set-step "<name>" "<slug>" --file "<path>" [--after ...]  # same, step JSON5 read from a file
@@ -64,6 +64,7 @@ workflow remove-step "<name>" "<slug>"           # remove a step and its edges
 workflow add-edge "<name>" "<from>" "<to>" [--branch "<key>"]     # add an edge
 workflow remove-edge "<name>" "<from>" "<to>" [--branch "<key>"]  # remove an edge
 workflow set-meta "<name>" "<json5>"   # set description, group, trigger (null removes description or group)
+workflow add-loop "<name>" "<slug>" --over "<list>" [--as "<alias>"] --from "<first>" --to "<last>"  # wrap steps in a per-item loop
 workflow validate "<name>"             # validate against schema
 workflow delete "<name>"               # delete a workflow file
 workflow trigger "<name>" "<payload>"  # trigger a run (payload optional, use "" if empty)
@@ -77,7 +78,7 @@ workflow cancel "<run-id>"             # cancel all steps of a running workflow
 For the full schema, edges, prompts, template variables, and triggers, run `skill read workflow-writing`. A minimal two-step pipeline:
 
 ```sh
-workflow write "my-pipeline" '{
+workflow write --draft "my-pipeline" '{
   "name": "my-pipeline",
   "description": "A simple two-step pipeline",
   "trigger": { "type": "manual" },
@@ -99,8 +100,6 @@ workflow write "my-pipeline" '{
 }'
 ```
 
-Changes are picked up automatically - no restart needed.
-
 ## Modifying a workflow
 
 Change an existing workflow with one edit command per change, so the parts you were not asked about stay exactly as they are:
@@ -111,15 +110,13 @@ workflow set-step "my-pipeline" "step-two" '{ "type": "agent", "tools": [], "pro
 workflow set-step "my-pipeline" "step-three" '{ "type": "agent", "prompt": "Count the words: {{steps.step-two.result}}" }' --after "step-two"
 ```
 
-- `set-step` replaces the whole step. A new step needs `--after` (every step must be connected); after an `if`, `case`, or `iterator`, add `--branch`.
-- For a long or multi-line prompt, write the step's JSON5 to a file with `write_file` and pass `--file "<path>"`.
+- `set-step` replaces the whole step. A new step needs `--after`; after an `if`, `case`, or `iterator`, add `--branch`. For a long prompt, pass the step JSON5 in a file with `--file "<path>"`.
+- For a per-item loop, write the steps for one item, then run `workflow add-loop` (`workflow-writing`, "Loops").
 - Each command validates first and writes nothing when the result would be invalid; the error says what to change first. On success it prints the outline and the warnings.
 - `draft` and every field the command does not address are kept. On an active workflow the change is live at once, so ask first.
 - For a change to the whole file, use `workflow read` and `workflow write` as before.
 
 ## Notes
 
-- Workflow names must be unique across all files; step slugs (the `steps` map keys) must match `^[a-z][a-z0-9-]*$`.
-- Disabled workflows (`enabled: false`) are skipped during loading.
 - Drafts (`draft: true`, set by `workflow write --draft`) are loaded and can be run with `workflow trigger`, but their trigger, other workflows, and the portal do not start them. Rewriting a draft with `workflow write` keeps it a draft, with or without `--draft`. The user activates a draft in the workflow editor; never remove `draft` yourself.
 - Always ask for approval before triggering a workflow run!

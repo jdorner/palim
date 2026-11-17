@@ -12,28 +12,22 @@ If the user asks for a new workflow and this chat has not solved the task yet, r
 
 ## Workflow authoring checklist
 
-When creating or modifying a workflow, be sure to follow these steps meticulously in the order listed.
+Follow these steps in order when you create or change a workflow.
 
-1. **Discover step types.** Run `workflow step-types` to list what is available in this deployment (engine plus extension-registered), or `workflow step-types --search "<terms>"` to find one by keyword. Read `workflow step-types <type>` for every type you use. Do not rely on assumptions about what exists
-2. **Choose the most deterministic step type per step.** For each step, pick the most deterministic type that does the job (see the determinism principle above). Reserve `agent` steps for work that genuinely needs an LLM
-3. **Replace `agent` steps where possible.** For any `agent` step, re-check whether a deterministic type (or a command run in a command-running step type) could do the same work. Prefer it
-4. **Ensure the trigger's ref exists.** For a `webhook`, `schedule`, or `filewatcher` trigger, create the referenced webhook/schedule/watcher FIRST - the workflow will not start if `trigger.ref` does not match an existing ref (Manual and portal triggers take no ref.)
-5. **Wire the graph.** Define `steps` and `edges`, respecting branch rules for control-flow nodes (`if`/`case`/`iterator`)
-6. **Approval.** Always ask for permisson before making any changes to the system. Lay out the implementation plan first
-7. **Write.** `workflow write "<name>" '<json5>'`. This validates schema, DAG structure, and custom step-type config. If it fails, fix the reported problem and rewrite - never work around a validation failure
-8. **Validate.** `workflow validate "<name>"` and resolve any reported warnings.
-9. **Do not trigger a run without explicit user approval**
+1. **Discover step types.** Run `workflow step-types` (or `workflow step-types --search "<terms>"`), then `workflow step-types <type>` for every type you use. Do not assume a type exists.
+2. **Prefer deterministic steps.** Pick the most deterministic type for each step (see below). Use `agent` only for work that needs an LLM.
+3. **Missing capability.** If no step type can do an action the user asked for, say so and ask how to proceed. Never write an `agent` step that is told to use a tool, API or CLI you have not seen in `workflow step-types` or in a skill.
+4. **One item at a time.** If a step returns a list and each item needs its own work, write the steps for one item, then wrap them in a loop with `workflow add-loop` (see "Loops" below). Do not put the whole list into one `agent` prompt, unless the step must see all items at once (for example one summary of all).
+5. **Structured hand-offs.** Every `agent` step whose result another step uses gets an `outputSchema`.
+6. **Trigger ref first.** A `webhook`, `schedule` or `filewatcher` trigger needs its webhook, schedule or watcher to exist before the workflow: `webhook create ...`, `schedule create "<id>" "<name>" -p "0 9 * * *" --tz "Europe/Berlin"`, or the `filewatcher` skill.
+7. **Approval.** Ask for permission before you change the system. Show the plan first.
+8. **Write as a draft.** A new workflow is always written with `--draft`: `workflow write --draft "<name>" '<json5>'`. If validation fails, fix the reported problem and write again.
+9. **Validate.** Run `workflow validate "<name>"` and resolve every warning.
+10. **Do not trigger a run without explicit user approval.**
 
 ## Design principle: prefer determinism
 
-**Always** favor predictable, repeatable steps over agent reasoning. Before writing an `agent` step, ask whether the task actually needs an LLM. Use an `agent` step only for genuinely open-ended work (summarizing, classifying, free-form extraction, drafting text). For everything else, use a deterministic step type.
-
-Deciding between the two:
-
-- Deterministic work ("convert / fetch / move / read / write / transform this file", "call this API", "branch on a value", "loop over a list") -> a non-agent step type. Built-in options are `http-request`, `set-variables`, `if`, `case`, `iterator`/`aggregator`, `fail`, `emit`, `waitFor`, and extensions add more (e.g. `convert` from the converter extension turns an image or PDF in the work directory into markdown, `datatable-*` from datatables).
-- Open-ended reasoning -> an `agent` step.
-
-Do not assume the only way to run a command or use a skill is inside an `agent` step. Run `workflow step-types` to see which step types this deployment actually has before defaulting to `agent`; a deployment may provide non-agent step types that run shell commands or skill programs directly.
+Use an `agent` step only for open-ended work: summarizing, classifying, free-form extraction, drafting text. Everything else ("convert / fetch / move / transform", "call this API", "branch on a value", "loop over a list") gets a non-agent step type: built-in `http-request`, `set-variables`, `if`, `case`, `iterator`/`aggregator`, `fail`, `emit`, `waitFor`, plus what extensions add (e.g. `convert`, `datatable-*`). A deployment may also have step types that run shell commands or skill programs directly; check `workflow step-types` before defaulting to `agent`.
 
 ## JSON5 schema
 
@@ -104,6 +98,33 @@ A non-CF step with multiple outgoing edges dispatches all successors in parallel
   { "from": "enrich", "to": "combine" },    // combine waits for BOTH (join barrier)
 ]
 ```
+
+### Loops
+
+To handle each item of a list on its own, write the steps for one item first, then run:
+
+```sh
+workflow add-loop "<name>" "each-item" --over "{{steps.<slug>.result.<list>}}" --as item --from "<first-body-step>" --to "<last-body-step>"
+```
+
+It adds the iterator `each-item` and the aggregator `each-item-done` around the steps from `--from` to `--to`. Inside the loop, read the current item as `{{item}}` or `{{item.<field>}}`, not the whole list. After the loop, read `{{steps.each-item-done.result.results}}`: one entry per item, keyed by the slug of each body step that ran. See the loop example below.
+
+## Changing a workflow
+
+Change an existing workflow with one edit command per change. Each command validates, writes nothing when the result is invalid, and prints the outline and the warnings:
+
+```sh
+workflow set-step "<name>" "<slug>" '<json5 of the whole step>' --after "<previous-slug>" [--branch "<path>"]
+workflow add-edge "<name>" "<from>" "<to>" [--branch "<path>"]
+workflow remove-edge "<name>" "<from>" "<to>" [--branch "<path>"]
+workflow remove-step "<name>" "<slug>"
+workflow set-meta "<name>" '{ description: "...", trigger: { ... } }'
+workflow add-loop "<name>" "<slug>" --over "<list>" [--as "<alias>"] --from "<first>" --to "<last>"
+```
+
+- A new step needs `--after`; after an `if`, `case` or `iterator`, also `--branch`.
+- `set-step` replaces the whole step: send all its fields.
+- For a long prompt, write the step JSON5 to a file with `write_file` and pass `--file "<path>"`.
 
 ## Prompt format
 
@@ -176,17 +197,13 @@ Template expressions support function calls to transform values inline, in addit
 
 There is no pipe/filter syntax: write `join(steps.a.result.list, ", ")`, not `steps.a.result.list | join(", ")`. Bitwise operators (`|`, `&`, `^`, `~`, `<<`, `>>`) are rejected; use `||` and `&&` for logic.
 
-Available built-in functions:
+Common functions (the editor's _Available data_ panel lists all of them):
 
-| Function                   | Description                                                                                                                                                   | Example                                 |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------- |
-| `stripDataUri(value)`      | Remove a leading `data:<type>;base64,` prefix, yielding raw base64. Returns the input unchanged if no such prefix is present.                                 | `stripDataUri(image.dataUrl)`           |
-| `base64Decode(value)`      | Decode a base64 string to UTF-8 text.                                                                                                                         | `base64Decode(steps.fetch.result.body)` |
-| `jsonEscape(value)`        | Escape a value so it is safe to embed inside a JSON string literal (no surrounding quotes added). Use it whenever you interpolate a value into a JSON `body`. | `jsonEscape(steps.extract.result.text)` |
-| `after(value, delimiter)`  | Substring after the first occurrence of `delimiter` (empty string if not found).                                                                              | `after(image.dataUrl, ",")`             |
-| `before(value, delimiter)` | Substring before the first occurrence of `delimiter` (whole string if not found).                                                                             | `before(steps.parse.result.pair, "=")`  |
-| `trim(value)`              | Trim leading/trailing whitespace.                                                                                                                             | `trim(steps.extract.result.name)`       |
-| `nowIso()`                 | Current time as an ISO 8601 string.                                                                                                                           | `nowIso()`                              |
+- `jsonEscape(value)`: escape a value for use inside a JSON string literal, e.g. `jsonEscape(steps.extract.result.text)`
+- `stripDataUri(value)`: drop a leading `data:<type>;base64,` prefix
+- `base64Decode(value)`: base64 to UTF-8 text
+- `after(value, delim)` / `before(value, delim)`: the text after / before the first `delim`
+- `trim(value)`, `nowIso()`
 
 Notes:
 
@@ -198,25 +215,7 @@ Notes:
 
 ### Accessing secrets
 
-Use `{{secret.<KEY>}}` to inject encrypted credentials into prompts without hardcoding them. The secret is decrypted only at runtime, access is checked against the ACL, and every access attempt is logged.
-
-```json5
-{
-  "steps": {
-    "fetch-commits": {
-      "type": "agent",
-      "tools": ["exec"],
-      "prompt": [
-        "Fetch the latest commits from the API:",
-        "web fetch -H \"Authorization: Bearer {{secret.GITEA_API_TOKEN}}\" \"https://git.example.com/api/v1/repos/user/repo/commits?limit=10\"",
-      ],
-    },
-  },
-  "edges": [],
-}
-```
-
-The workflow's consumer identity (`workflow:<name>`) must be listed in the secret's ACL consumers (configured via the web UI when storing the secret in the vault). If access is denied, the template resolves to an empty string and a warning is logged.
+Use `{{secret.<KEY>}}` to inject credentials without hardcoding them (see the prompt example above). The secret is decrypted only at run time, checked against its ACL, and every access is logged. The workflow's identity (`workflow:<name>`) must be listed in the secret's ACL consumers (set in the web UI). If access is denied, the template resolves to an empty string and a warning is logged.
 
 ## Trigger types
 
@@ -246,16 +245,16 @@ The payload is available as `{{trigger.payload}}`. A JSON body is parsed, so fie
 }
 ```
 
-The same `outputSchema` field on an `http-request` (or any agent/custom) step describes its result. It replaces the handler's schema, so include `status` and `body`.
+The same `outputSchema` field on a step describes its result. On an `http-request` (or other custom) step it replaces the handler's schema, so include `status` and `body`. On an `agent` step it makes the agent answer with a JSON object of that shape, so later steps can read `{{steps.<slug>.result.<field>}}`. Do not ask for JSON in the prompt. A field that may be empty needs the hint `"any"`.
 
-**Atomic creation rule:** When creating a webhook-triggered workflow, always create both the webhook and the workflow together in one operation. The workflow will NOT start if `trigger.ref` doesn't match an existing webhook slug.
+Create the ref first: the workflow does not start while `trigger.ref` matches nothing.
 
 ```sh
 # Step 1: Create the webhook
 webhook create "deploy-trigger" "Deploy Trigger" "none" ""
 
 # Step 2: Create the workflow with matching trigger.ref
-workflow write "deploy-pipeline" '{
+workflow write --draft "deploy-pipeline" '{
   "name": "deploy-pipeline",
   "description": "Process deployment notifications",
   "trigger": { "type": "webhook", "ref": "deploy-trigger" },
@@ -286,14 +285,14 @@ Triggered when a matching schedule fires. The scheduler extension emits a `sched
 
 The schedule's prompt and label are available as `{{trigger.payload.prompt}}` and `{{trigger.payload.label}}`.
 
-**Atomic creation rule:** When creating a schedule-triggered workflow, always create both the schedule and the workflow together in one operation. The workflow will NOT start if `trigger.ref` doesn't match an existing scheduler ID.
+Create the ref first: the workflow does not start while `trigger.ref` matches nothing.
 
 ```sh
 # Step 1: Create the schedule via the schedule command
-schedule create "daily-motd-schedule" "Daily MOTD" "Generate and send a daily MOTD" "0 9 * * *" "" "Europe/Berlin"
+schedule create "daily-motd-schedule" "Daily MOTD" -d "Generate and send a daily MOTD" -p "0 9 * * *" --tz "Europe/Berlin"
 
 # Step 2: Create the workflow with matching trigger.ref
-workflow write "daily-motd" '{
+workflow write --draft "daily-motd" '{
   "name": "daily-motd",
   "description": "Generate and send a daily MOTD",
   "trigger": { "type": "schedule", "ref": "daily-motd-schedule" },
@@ -393,36 +392,48 @@ The payload: `{{trigger.payload.file.path}}` (uploaded file, relative to WORK_DI
 }
 ```
 
-### Approval gate workflow
+### Loop over a list
+
+One pass per ticket: classify it, label it, then report the count.
 
 ```json5
 {
-  "name": "deploy-with-approval",
-  "description": "Deploy after human approval",
-  "trigger": { "type": "webhook", "ref": "deploy-request" },
+  "name": "label-tickets",
+  "description": "Classify and label every open ticket",
+  "trigger": { "type": "schedule", "ref": "daily-tickets" },
   "steps": {
-    "prepare": {
-      "type": "agent",
-      "tools": ["exec"],
-      "prompt": "Prepare the deployment package from: {{trigger.payload}}",
+    "fetch-tickets": {
+      "type": "http-request",
+      "url": "https://tickets.example.com/api/tickets?state=open",
+      "method": "GET",
+      "responseFormat": "json",
+      "outputSchema": { "status": "number", "body": { "tickets": [{ "id": "string", "title": "string", "text": "string" }] } },
     },
-    "await-approval": {
-      "type": "waitFor",
-      "event": "deploy.approved",
-      "timeout": 172800000, // 48 hours
-    },
-    "deploy": {
+    "each-ticket": { "type": "iterator", "items": "{{steps.fetch-tickets.result.body.tickets}}", "as": "ticket" },
+    "classify": {
       "type": "agent",
-      "tools": ["exec"],
-      "prompt": [
-        "Deployment approved by: {{steps.await-approval.result.approver}}",
-        "Execute the deployment.",
-      ],
+      "tools": [],
+      "prompt": ["Classify this ticket as bug, question or feature.", "Title: {{ticket.title}}", "{{ticket.text}}"],
+      "outputSchema": { "category": "string", "reason": "string" },
+    },
+    "set-label": {
+      "type": "http-request",
+      "url": "https://tickets.example.com/api/tickets/{{ticket.id}}/labels",
+      "body": "{\"label\": \"{{ jsonEscape(steps.classify.result.category) }}\"}",
+    },
+    "each-ticket-done": { "type": "aggregator", "iterator": "each-ticket" },
+    "report": {
+      "type": "http-request",
+      "url": "https://chat.example.com/hooks/team",
+      "body": "{\"text\": \"Labelled {{steps.each-ticket-done.result.totalItems}} tickets.\"}",
     },
   },
   "edges": [
-    { "from": "prepare", "to": "await-approval" },
-    { "from": "await-approval", "to": "deploy" },
+    { "from": "fetch-tickets", "to": "each-ticket" },
+    { "from": "each-ticket", "to": "classify", "branch": "each" },
+    { "from": "classify", "to": "set-label" },
+    { "from": "set-label", "to": "each-ticket-done" },
+    { "from": "each-ticket-done", "to": "report" },
   ],
 }
 ```
@@ -538,10 +549,8 @@ The payload: `{{trigger.payload.file.path}}` (uploaded file, relative to WORK_DI
 
 ## Notes
 
-- Workflow names must be unique across all files; step slugs (the `steps` map keys) must match `^[a-z][a-z0-9-]*$`.
-- Disabled workflows (`enabled: false`) are skipped during loading.
-- Drafts (`draft: true`, written with `workflow write --draft`) run only by hand until the user activates them in the editor.
-- With no `tools` and no `skills`, the agent runs LLM-only (no tools).
-- JSON5 allows `//` and `/* */` comments and trailing commas — use comments for documentation.
+- Step slugs (the `steps` map keys) must match `^[a-z][a-z0-9-]*$`; workflow names must be unique.
+- Drafts (`draft: true`) run only by hand until the user activates them in the editor. Disabled workflows (`enabled: false`) are not loaded.
+- With no `tools` and no `skills`, the agent runs LLM-only.
+- JSON5 allows comments and trailing commas.
 - If an `if`/`case` branch has no matching edge, that branch is simply skipped (dead); use a `fail` step to abort with a meaningful error instead.
-- Always ask for approval before triggering a workflow run!

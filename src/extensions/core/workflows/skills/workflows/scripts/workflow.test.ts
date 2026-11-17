@@ -218,6 +218,62 @@ describe("workflow command", () => {
               },
             },
             {
+              type: "mail-fetch",
+              label: "Mail Fetch",
+              description: "Reads mails.",
+              extensionName: "mail",
+              category: "action",
+              configSchema: {
+                type: "object",
+                properties: {
+                  search: {
+                    type: "object",
+                    description: "Search criteria",
+                    properties: { seen: { type: "boolean", description: "Read state" } },
+                  },
+                  folders: { type: "array", items: { type: "string" }, description: "Folders to read" },
+                },
+              },
+              outputSchema: {
+                type: "object",
+                required: ["messages"],
+                properties: {
+                  count: { type: "number", description: "Number of mails" },
+                  messages: {
+                    type: "array",
+                    description: "The mails",
+                    items: {
+                      type: "object",
+                      required: ["uid"],
+                      properties: {
+                        uid: { type: "number", description: "Mail id" },
+                        subject: { anyOf: [{ type: "string" }, { type: "null" }], description: "Subject line" },
+                        kind: { anyOf: [{ const: "plain" }, { const: "html" }, { type: "null" }] },
+                        from: {
+                          type: "array",
+                          description: "Senders",
+                          items: {
+                            type: "object",
+                            properties: {
+                              address: { type: "string", description: "Mail address" },
+                              org: {
+                                type: "object",
+                                description: "Organisation",
+                                properties: { name: { type: "string", description: "Too deep to show" } },
+                              },
+                            },
+                          },
+                        },
+                        sender: {
+                          anyOf: [{ type: "object", properties: { name: { type: "string" } } }, { type: "null" }],
+                        },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+            {
               type: "fail",
               label: "Fail",
               extensionName: "core-wf-steps",
@@ -396,7 +452,7 @@ describe("workflow command", () => {
     test("lists engine and extension step types, one line each, grouped by owner", async () => {
       const result = await command(["step-types"], makeCtx());
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("Available workflow step types (3):");
+      expect(result.stdout).toContain("Available workflow step types (4):");
       expect(result.stdout).toContain("Engine (agent and control flow):");
       expect(result.stdout).toMatch(/iterator\s+Runs the steps inside it once for each item of a list\./);
       expect(result.stdout).toContain("From extension core-wf-steps:");
@@ -424,6 +480,72 @@ describe("workflow command", () => {
       expect(result.stdout).toContain('- method ("GET" | "POST"): HTTP method (defaults to POST)');
       expect(result.stdout).toContain("- status (number): HTTP status code");
       expect(result.stdout).toContain("Omit `headers` when you have none.");
+    });
+
+    test("leaves a step type without nested fields unchanged", async () => {
+      const result = await command(["step-types", "http-request"], makeCtx());
+      expect(result.stdout).toBe(
+        [
+          "http-request - HTTP Request (from core-wf-steps) [action]",
+          "Sends an HTTP request.",
+          "",
+          "Config fields:",
+          "  - url (string, required): The URL to request",
+          '  - method ("GET" | "POST"): HTTP method (defaults to POST)',
+          "",
+          "Result fields ({{steps.<slug>.result.<field>}}):",
+          "  - status (number): HTTP status code",
+          "",
+          "Omit `headers` when you have none.",
+        ].join("\n"),
+      );
+    });
+
+    test("shows the fields of a nested config object, and leaves an array of scalars as one line", async () => {
+      const { stdout } = await command(["step-types", "mail-fetch"], makeCtx());
+      expect(stdout).toContain(
+        ["  - search (object): Search criteria", "      - seen (boolean): Read state"].join("\n"),
+      );
+      expect(stdout).toContain("  - folders (array of string): Folders to read\n\nResult fields");
+    });
+
+    test("shows the item fields of an array of objects, with required flags", async () => {
+      const { stdout } = await command(["step-types", "mail-fetch"], makeCtx());
+      expect(stdout).toContain(
+        [
+          "  - messages (array of object, required): The mails",
+          "      each item:",
+          "      - uid (number, required): Mail id",
+        ].join("\n"),
+      );
+      expect(stdout).toContain(
+        [
+          "      - from (array of object): Senders",
+          "          each item:",
+          "          - address (string): Mail address",
+        ].join("\n"),
+      );
+    });
+
+    test("renders unions of types, also mixed with literals, and the fields of an object-or-null", async () => {
+      const { stdout } = await command(["step-types", "mail-fetch"], makeCtx());
+      expect(stdout).toContain("      - subject (string | null): Subject line");
+      expect(stdout).toContain('      - kind ("plain" | "html" | null)');
+      expect(stdout).toContain(["      - sender (object | null)", "          - name (string)"].join("\n"));
+    });
+
+    test("cuts nested fields below three levels with an ellipsis", async () => {
+      const { stdout } = await command(["step-types", "mail-fetch"], makeCtx());
+      expect(stdout).toContain(["          - org (object): Organisation", "              ..."].join("\n"));
+      expect(stdout).not.toContain("Too deep to show");
+    });
+
+    test("says how to read item fields inside an iterator, only for arrays of objects", async () => {
+      const { stdout } = await command(["step-types", "mail-fetch"], makeCtx());
+      expect(stdout).toContain('Inside an iterator over messages with as: "item", read these as {{item.<field>}}.');
+      expect(stdout.match(/Inside an iterator over/g)).toHaveLength(1);
+      const plain = await command(["step-types", "http-request"], makeCtx());
+      expect(plain.stdout).not.toContain("Inside an iterator");
     });
 
     test("shows an engine step type's docs", async () => {
@@ -730,6 +852,89 @@ describe("workflow command", () => {
       expect(result.stdout).toStartWith("review-flow (draft) · trigger: manual · inputs: none");
       expect(result.stdout).toContain("route   case       approve -> notify | reject -> (end)");
       expect(await ctx.fs.readFile(FILE)).toBe(REVIEW_DRAFT);
+    });
+
+    test("add-loop wraps the steps, prints the outline and what is left to change", async () => {
+      const LINEAR = JSON.stringify({
+        name: "tagging",
+        draft: true,
+        trigger: { type: "manual" },
+        steps: {
+          fetch: { type: "agent", prompt: "Fetch" },
+          classify: { type: "agent", prompt: "Classify {{ steps.fetch.result.messages }}" },
+          tag: { type: "agent", prompt: 'Tag {{steps.classify.result.label}} and {{steps["classify"].result}}' },
+          notify: {
+            type: "agent",
+            prompt: "Report {{steps.fetch.result.messagesCount}} {{steps.fetch.result.messages.length}}",
+          },
+          other: { type: "agent", prompt: "Unrelated {{steps.classify-more.result}}" },
+          "classify-more": { type: "agent", prompt: "x" },
+        },
+        edges: [
+          { from: "fetch", to: "classify" },
+          { from: "classify", to: "tag" },
+          { from: "tag", to: "notify" },
+          { from: "fetch", to: "classify-more" },
+          { from: "classify-more", to: "other" },
+        ],
+      });
+      const file = `${WORKFLOWS_DIR}/tagging.json5`;
+      const ctx = await makeCtxWithFiles({ "tagging.json5": LINEAR });
+      const result = await command(
+        [
+          "add-loop",
+          "tagging",
+          "each-mail",
+          "--over",
+          "{{steps.fetch.result.messages}}",
+          "--as",
+          "mail",
+          "--from",
+          "classify",
+          "--to",
+          "classify",
+        ],
+        ctx,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Iterator "each-mail" and aggregator "each-mail-done" added around "classify".');
+      expect(result.stdout).toMatch(/each-mail\s+iterator/);
+      expect(result.stdout).toEndWith(
+        [
+          "Loop added. Now change these steps:",
+          '- Replace {{steps.fetch.result.messages}} in "classify" with {{mail}} or {{mail.<field>}}.',
+          '- "tag" is after the loop but reads "classify". Move it into the loop, or read {{steps.each-mail-done.result.results}}.',
+          "- Results of all passes: {{steps.each-mail-done.result.results}}.",
+        ].join("\n"),
+      );
+      const written = Bun.JSON5.parse(await ctx.fs.readFile(file)) as Record<string, any>;
+      expect(written.draft).toBe(true);
+      expect(written.edges).toContainEqual({ from: "each-mail", to: "classify", branch: "each" });
+
+      // Refused: nothing changes on disk.
+      const before = await ctx.fs.readFile(file);
+      const refused = await command(
+        [
+          "add-loop",
+          "tagging",
+          "again",
+          "--over",
+          "{{steps.fetch.result.messages}}",
+          "--from",
+          "classify",
+          "--to",
+          "classify",
+        ],
+        ctx,
+      );
+      expect(refused.exitCode).toBe(1);
+      expect(refused.stderr).toContain('already inside the loop "each-mail"');
+      expect(refused.stderr).toContain("Nothing was written.");
+      expect(await ctx.fs.readFile(file)).toBe(before);
+
+      const incomplete = await command(["add-loop", "tagging", "x", "--from", "fetch"], ctx);
+      expect(incomplete.exitCode).toBe(1);
+      expect(incomplete.stderr).toContain("add-loop needs --over, --to");
     });
 
     test("outline reports a missing workflow", async () => {

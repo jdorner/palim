@@ -280,7 +280,7 @@ describe("buildOutputSchemas", () => {
   });
 
   describe("aggregator", () => {
-    test("emits the counts and per-iteration results keyed by the body's terminal steps", () => {
+    test("emits the counts and per-iteration results keyed by every body step", () => {
       const definition = {
         name: "fixture-workflow",
         trigger: { type: "manual" },
@@ -306,7 +306,7 @@ describe("buildOutputSchemas", () => {
       expect(props.failed).toEqual({ type: "number" });
       expect(props.results).toEqual({
         type: "array",
-        items: { type: "object", properties: { store: outputSchemas.steps.store } },
+        items: { type: "object", properties: { fetch: {}, store: outputSchemas.steps.store } },
       });
     });
 

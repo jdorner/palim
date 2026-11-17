@@ -493,8 +493,13 @@ class GraphRules {
     }
 
     const body = topology.iteratorBody(iterSlug);
+    // Every body step that ran in this pass. A step on a branch not taken is
+    // "dead" this pass and is left out, so its result from an earlier pass is
+    // not recorded again.
     const iterationResult: Record<string, unknown> = {};
-    for (const s of body?.terminals ?? []) iterationResult[s] = t.results[s];
+    for (const s of body?.steps ?? []) {
+      if (t.statuses[s] === "completed") iterationResult[s] = t.results[s];
+    }
     const state: IterationState = {
       ...prev,
       cursor: prev.cursor + 1,

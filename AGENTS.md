@@ -90,6 +90,7 @@ bun run dev              # Start with file watching
 bun run check            # Lint and format (Biome)
 bun run cli              # Sandbox CLI (interactive shell)
 bun run test             # Backend tests only; also run `bun test` in frontend/ and portal/
+bun run eval:workflows   # Workflow design eval: chat agent writes workflows, checks print as a table (needs the LLM; --runs, --scenario, --model)
 bun run reset-admin [username]   # Break-glass: re-enable user, grant admin, print new password
 cd frontend && bun run build     # Build frontend
 cd portal && bun install && bun run build  # Build portal (served at /portal/; dev: bun run dev on :5174)

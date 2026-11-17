@@ -28,5 +28,5 @@ Agent step with skills — the agent gets the full skill context and can read sk
 
 - `prompt` is a string or an array of lines (joined with newlines); it supports `{{template}}` expressions.
 - `tools` lists the tool names the agent may call; `skills` lists the skills it may read.
-- Optional `outputSchema` declares the shape of the answer (JSON5 type hints) so later steps can reference `{{steps.<slug>.result.<path>}}`.
+- Optional `outputSchema` (JSON5 type hints, e.g. `{ category: "string", total: "number" }`) makes the agent answer with a JSON object of that shape. The object becomes the result, so later steps read `{{steps.<slug>.result.category}}`. You do not need to ask for JSON in the prompt. Every field must be filled with its type; a field that may be empty needs the hint `"any"`. Without `outputSchema` the result is free text.
 - Prefer deterministic step types over `agent`; use an `agent` step only when no deterministic type fits.

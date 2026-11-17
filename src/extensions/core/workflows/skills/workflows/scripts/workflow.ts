@@ -2,7 +2,7 @@
  * Registers the `workflow` shell command for managing workflow JSON5 definitions.
  *
  * Subcommands: list, step-types, read, outline, write (`--draft`, `--file`), set-step, remove-step,
- * add-edge, remove-edge, set-meta, validate, delete, trigger, runs, logs, cancel
+ * add-edge, remove-edge, set-meta, add-loop, validate, delete, trigger, runs, logs, cancel
  */
 
 import {
@@ -18,10 +18,12 @@ import { Value } from "@sinclair/typebox/value";
 import type { CommandContext, ExecResult, IFileSystem } from "just-bash";
 import { validateDagWorkflowTemplates } from "../../../dagTemplateValidation";
 import { validateCfEdges, validateDag } from "../../../dagValidation";
+import { getDesignWarnings } from "../../../designWarnings";
 import { getOutcomeCoverageWarnings } from "../../../outcomeCoverage";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePrompt } from "../../../schemas";
 import {
   addEdge,
+  addLoop,
   describeEdge,
   type EditResult,
   META_FIELDS,
@@ -187,6 +189,22 @@ export function buildWorkflowCommand(scriptCtx: SkillScriptContext) {
         handler: buildSetMetaHandler(scriptCtx),
       },
       {
+        name: "add-loop",
+        description:
+          "Wrap the steps from --from to --to in an iterator over --over and its aggregator <slug>-done (validates, writes, prints the outline)",
+        args: [
+          { name: "name", description: "Workflow name" },
+          { name: "slug", description: "Slug of the new iterator" },
+        ],
+        options: [
+          { name: "over", description: "The list to iterate over, e.g. {{steps.fetch.result.items}}" },
+          { name: "as", description: 'Name of the loop variable (default "item")' },
+          { name: "from", description: "First step of the loop body" },
+          { name: "to", description: "Last step of the loop body (the same as --from for one step)" },
+        ],
+        handler: buildAddLoopHandler(scriptCtx),
+      },
+      {
         name: "validate",
         description: "Validate a workflow JSON5 file against the schema",
         args: [{ name: "name", description: "Workflow name to validate" }],
@@ -277,12 +295,15 @@ async function fetchServerWarnings(
 
 /**
  * The warnings the sandbox can compute without the server: template
- * expressions and outcome coverage.
+ * expressions, outcome coverage, and agent results read as data.
  */
 async function localWarnings(definition: DagWorkflowDefinition): Promise<ApiTemplateWarning[]> {
   return [
     ...(await validateDagWorkflowTemplates(definition, { workflowName: definition.name })),
     ...getOutcomeCoverageWarnings(definition),
+    // Without the server no step type schema is known, so only the design
+    // warnings that need none are reported here.
+    ...getDesignWarnings(definition, () => null),
   ];
 }
 
@@ -644,19 +665,20 @@ function rootsOf(definition: RawDefinition): Set<string> {
  * Applies one edit to a workflow file: load, edit, validate with
  * {@link checkDefinition}, write only when there is no hard error, then print
  * the outline with the warnings. Every field the edit does not touch
- * (including `draft`) is carried over.
+ * (including `draft`) is carried over. Notes are printed before the outline,
+ * `after` lines below it.
  *
  * @param scriptCtx - Skill script context
  * @param ctx - Command context
  * @param name - Workflow name
- * @param edit - The edit; may return notes to print
+ * @param edit - The edit; may return notes to print before and lines to print after the outline
  * @returns The command result
  */
 async function runEdit(
   scriptCtx: SkillScriptContext,
   ctx: CommandContext,
   name: string,
-  edit: (definition: RawDefinition) => EditResult & { notes?: string[] },
+  edit: (definition: RawDefinition) => EditResult & { notes?: string[]; after?: string[] },
 ): Promise<ExecResult> {
   const loaded = await loadDefinition(ctx, name);
   if (!loaded.ok) return { exitCode: 1, stdout: "", stderr: loaded.stderr };
@@ -691,7 +713,9 @@ async function runEdit(
   const noteText = notes.map((n) => `\n${n}`).join("");
   return {
     exitCode: 0,
-    stdout: `Workflow "${name}" updated.${noteText}\n\n${renderOutline(checked.definition, warnings)}`,
+    stdout: `Workflow "${name}" updated.${noteText}\n\n${renderOutline(checked.definition, warnings)}${
+      edited.after?.length ? `\n\n${edited.after.join("\n")}` : ""
+    }`,
     stderr: "",
   };
 }
@@ -764,6 +788,94 @@ function buildEdgeHandler(scriptCtx: SkillScriptContext, mode: "add" | "remove")
   };
 }
 
+/**
+ * Collects every string inside a JSON-like value.
+ *
+ * @param value - A step definition or part of one
+ * @param into - Receives the strings
+ */
+function collectStrings(value: unknown, into: string[]): void {
+  if (typeof value === "string") into.push(value);
+  else if (Array.isArray(value)) for (const item of value) collectStrings(item, into);
+  else if (value && typeof value === "object") for (const v of Object.values(value)) collectStrings(v, into);
+}
+
+/** Escapes a string for use inside a regular expression. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Matches a reference to a step's result: `steps.<slug>.result` or
+ * `steps["<slug>"].result`, where the slug is not the start of a longer one.
+ *
+ * @param slug - The step slug
+ * @returns The pattern
+ */
+function resultRefPattern(slug: string): RegExp {
+  const name = escapeRegExp(slug);
+  return new RegExp(`steps(?:\\.${name}|\\[\\s*["']${name}["']\\s*\\])\\.result\\b`);
+}
+
+function buildAddLoopHandler(scriptCtx: SkillScriptContext) {
+  return async (ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
+    const slug = args.get("slug");
+    const over = args.option("over");
+    const from = args.option("from");
+    const to = args.option("to");
+    const as = args.option("as") || undefined;
+    const missing = [!over && "--over", !from && "--from", !to && "--to"].filter(Boolean);
+    if (missing.length > 0) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `Error: add-loop needs ${missing.join(", ")}. Example: workflow add-loop "<name>" "each-item" --over "{{steps.<slug>.result.<list>}}" --as item --from "<first-body-step>" --to "<last-body-step>"`,
+      };
+    }
+    return runEdit(scriptCtx, ctx, args.get("name"), (definition) => {
+      const result = addLoop(definition, { slug, over, as, from, to });
+      if (!result.ok) return result;
+      const alias = as ?? "item";
+      const steps = result.definition.steps as Record<string, unknown>;
+      const stringsOf = (slug: string): string[] => {
+        const strings: string[] = [];
+        collectStrings(steps[slug], strings);
+        return strings;
+      };
+      const results = `{{steps.${result.aggregator}.result.results}}`;
+      // The list path, not followed by more of a name (`messagesCount`) or a member (`.length`).
+      const overRef = new RegExp(`${escapeRegExp(result.over.slice(2, -2))}(?![\\w$.-])`);
+      const stale = result.body.filter((s) => stringsOf(s).some((text) => overRef.test(text)));
+      // Steps after the loop that read a body step get only the last pass's result.
+      const loopSteps = new Set([...result.body, slug, result.aggregator]);
+      const outsideReaders = Object.keys(steps)
+        .filter((s) => !loopSteps.has(s))
+        .flatMap((reader) => {
+          const texts = stringsOf(reader);
+          const read = result.body.filter((b) => texts.some((text) => resultRefPattern(b).test(text)));
+          return read.length > 0 ? [{ reader, read }] : [];
+        });
+      const after = [
+        stale.length + outsideReaders.length > 0 ? "Loop added. Now change these steps:" : "Loop added.",
+        ...stale.map((s) => `- Replace ${result.over} in "${s}" with {{${alias}}} or {{${alias}.<field>}}.`),
+        ...outsideReaders.map(
+          ({ reader, read }) =>
+            `- "${reader}" is after the loop but reads ${read.map((b) => `"${b}"`).join(", ")}. Move it into the loop, or read ${results}.`,
+        ),
+        `- Results of all passes: ${results}.`,
+      ];
+      return {
+        ok: true,
+        definition: result.definition,
+        notes: [
+          `Iterator "${slug}" and aggregator "${result.aggregator}" added around ${result.body.map((s) => `"${s}"`).join(", ")}.`,
+        ],
+        after,
+      };
+    });
+  };
+}
+
 function buildSetMetaHandler(scriptCtx: SkillScriptContext) {
   return async (ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
     let patch: unknown;
@@ -826,6 +938,8 @@ interface SchemaProperty {
   const?: unknown;
   anyOf?: SchemaProperty[];
   items?: SchemaProperty;
+  properties?: Record<string, SchemaProperty>;
+  required?: string[];
 }
 
 /** An object JSON Schema (subset we render). */
@@ -852,17 +966,48 @@ const ENGINE_OWNER = "workflows";
 
 /**
  * Describes a JSON Schema property's type for a field line, e.g. `string`,
- * `array of string`, or `"GET" | "POST"` for a union of literals.
+ * `array of string`, `"GET" | "POST"` for a union of literals, or
+ * `string | null` for a union of types.
  *
  * @param def - The property schema
  * @returns A short type description (`any` when none is declared)
  */
 function describeType(def: SchemaProperty | undefined): string {
-  if (def?.anyOf?.length && def.anyOf.every((v) => v.const !== undefined)) {
-    return def.anyOf.map((v) => JSON.stringify(v.const)).join(" | ");
+  if (def?.anyOf?.length) {
+    const members = def.anyOf.map((v) => (v.const !== undefined ? JSON.stringify(v.const) : describeType(v)));
+    return [...new Set(members)].join(" | ");
   }
   if (def?.type === "array" && def.items) return `array of ${describeType(def.items)}`;
   return def?.type ?? "any";
+}
+
+/** How many levels of fields `workflow step-types <type>` prints: the top-level fields and two levels below. */
+const MAX_FIELD_DEPTH = 3;
+
+/**
+ * Finds the object schema whose fields belong under a field line: the field
+ * itself, or the only object member of a union such as `object | null`.
+ *
+ * @param def - The property schema
+ * @returns The schema with `properties`, or `undefined` when there is none
+ */
+function objectFieldsOf(def: SchemaProperty | undefined): SchemaProperty | undefined {
+  if (def?.properties && Object.keys(def.properties).length > 0) return def;
+  const members = (def?.anyOf ?? []).filter((v) => v.properties && Object.keys(v.properties).length > 0);
+  return members.length === 1 ? members[0] : undefined;
+}
+
+/**
+ * Finds the item schema of an array of objects (also inside a union such as
+ * `array | null`).
+ *
+ * @param def - The property schema
+ * @returns The item schema with `properties`, or `undefined` when the field is not an array of objects
+ */
+function arrayItemFieldsOf(def: SchemaProperty | undefined): SchemaProperty | undefined {
+  if (def?.type === "array") return objectFieldsOf(def.items);
+  const arrays = (def?.anyOf ?? []).filter((v) => v.type === "array");
+  return arrays.length === 1 ? objectFieldsOf(arrays[0]?.items) : undefined;
 }
 
 /**
@@ -875,20 +1020,52 @@ function describeType(def: SchemaProperty | undefined): string {
  * knows what to put in each field without opening the extension source. Returns
  * an empty array when the schema declares no properties.
  *
+ * The fields of a nested object, and of the items of an array of objects
+ * (under an `each item:` line), follow their parent line, indented four more
+ * spaces. Below {@link MAX_FIELD_DEPTH} levels a `...` line stands in for
+ * the fields that are cut.
+ *
  * @param schema - The serialized JSON Schema (a step's config or result)
  * @param indent - Leading whitespace applied to each rendered line
- * @returns One formatted line per field
+ * @param depth - Level of these fields (1 for the top-level fields)
+ * @returns The formatted lines: one per field, plus the lines of nested fields
  */
-function formatSchemaFields(schema: ObjectSchema | undefined, indent: string): string[] {
+function formatSchemaFields(schema: ObjectSchema | undefined, indent: string, depth = 1): string[] {
   const properties = schema?.properties;
   if (!properties || typeof properties !== "object") return [];
   const required = new Set(schema?.required ?? []);
-  return Object.entries(properties).map(([key, def]) => {
+  const nestedIndent = `${indent}    `;
+  const lines: string[] = [];
+  for (const [key, def] of Object.entries(properties)) {
     const req = required.has(key) ? ", required" : "";
     const desc = def?.description ?? def?.title;
     const descSuffix = desc ? `: ${desc}` : "";
-    return `${indent}- ${key} (${describeType(def)}${req})${descSuffix}`;
-  });
+    lines.push(`${indent}- ${key} (${describeType(def)}${req})${descSuffix}`);
+
+    const items = arrayItemFieldsOf(def);
+    const nested = items ?? objectFieldsOf(def);
+    if (!nested) continue;
+    if (depth >= MAX_FIELD_DEPTH) {
+      lines.push(`${nestedIndent}...`);
+      continue;
+    }
+    if (items) lines.push(`${nestedIndent}each item:`);
+    lines.push(...formatSchemaFields(nested, nestedIndent, depth + 1));
+  }
+  return lines;
+}
+
+/**
+ * Tells the author how to read the item fields of each result field that is
+ * a list of objects, once a loop runs over it.
+ *
+ * @param schema - The step type's result schema
+ * @returns One line per top-level array-of-objects field
+ */
+function formatIteratorHints(schema: ObjectSchema | undefined): string[] {
+  return Object.entries(schema?.properties ?? {})
+    .filter(([, def]) => arrayItemFieldsOf(def))
+    .map(([key]) => `Inside an iterator over ${key} with as: "item", read these as {{item.<field>}}.`);
 }
 
 /**
@@ -953,8 +1130,10 @@ function formatStepTypeDetail(entry: StepTypeMetaEntry): string {
   if (configLines.length > 0) lines.push("", "Config fields:", ...configLines);
 
   const resultLines = formatSchemaFields(entry.outputSchema, "  ");
-  if (resultLines.length > 0) lines.push("", "Result fields ({{steps.<slug>.result.<field>}}):", ...resultLines);
-  else if (entry.outputSchema) lines.push("", "Produces a result ({{steps.<slug>.result}}).");
+  if (resultLines.length > 0) {
+    lines.push("", "Result fields ({{steps.<slug>.result.<field>}}):", ...resultLines);
+    lines.push(...formatIteratorHints(entry.outputSchema));
+  } else if (entry.outputSchema) lines.push("", "Produces a result ({{steps.<slug>.result}}).");
 
   if (entry.docs?.trim()) lines.push("", entry.docs.trim());
   return lines.join("\n");

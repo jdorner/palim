@@ -66,6 +66,8 @@ Run an AI agent with a prompt, optional tools, and optional skills:
 }
 ```
 
+The result is the agent's text answer. With an `outputSchema` (for example `{ category: "string", total: "number" }`), the prompt also asks for one JSON object of that shape, and the parsed object becomes the result, so later steps can read `{{steps.<slug>.result.category}}`. Every declared field must be present with its type, and `null` is accepted only for a field with the hint `"any"`; extra fields are kept. A bare `{{steps.<slug>.result}}` then gives that object as JSON text, not the model's prose. An answer that does not match gets one follow-up asking for a corrected answer. If that one does not match either, the step fails and the error lists the mismatches.
+
 ### HTTP Request Steps
 
 Make an outbound HTTP request (provided by the `core-wf-steps` extension):
@@ -85,6 +87,7 @@ The `http-request` step type supports additional options: custom `headers`, `tim
 
 - `if` - conditional branching; branches are expressed as edges with `branch: "then"` / `branch: "else"`
 - `case` - multi-way branching; `paths` is an array of branch key strings, branches connected via `branch` edges. When nothing matches, the run takes the branch named by `default` (a path key or a key of its own), or else an edge with `branch: "default"`; without either, the run fails
+- `iterator` / `aggregator` - run the body steps between them once per item of a list, one item after the other. The aggregator's result is `{ results, totalItems, succeeded, failed }`. `results` has one object per pass, keyed by the slug of every body step that ran in that pass; a step on a branch not taken in that pass is absent. A failed body step fails the run, so `succeeded` always equals `totalItems` and `failed` is 0; neither counts categories. Count those from `results` instead.
 - `waitFor` - pauses its own branch until an external signal arrives (blocks only its successors, not the whole run)
 - `humanTask` - asks a person in the portal and pauses its own branch until they answer (see [Human Tasks](#human-tasks)) - experimental, requires `HITL_ENABLED=true`
 - `emit` - broadcasts a signal to workflows waiting on that event (fire-and-forget)
@@ -241,10 +244,11 @@ The extension provides a `workflows` skill with sandbox commands (plus the `work
 - `workflow remove-step "<name>" "<slug>"` - Remove a step and every edge from or to it
 - `workflow add-edge` / `remove-edge "<name>" "<from>" "<to>" [--branch "<key>"]` - Add or remove an edge
 - `workflow set-meta "<name>" "<json5>"` - Set `description`, `group`, or `trigger`
+- `workflow add-loop "<name>" "<slug>" --over "<list>" [--as "<alias>"] --from "<first>" --to "<last>"` - Wrap the steps from `--from` to `--to` in an iterator `<slug>` over `--over` and its aggregator `<slug>-done`: edges into the first step now enter the iterator, edges out of the last step now leave the aggregator. Afterwards it names the body steps that still read the whole list and the steps after the loop that read a body step. It refuses a body with edges to or from outside it, and a body already inside a loop
 - `workflow runs "<name>"` - List recent runs for a workflow
 - `workflow logs "<run-id>"` - Show per-step logs for a workflow run
 
-The editing commands (`set-step`, `remove-step`, `add-edge`, `remove-edge`, `set-meta`) change one thing at a time and keep everything else, `draft` included. Each validates the result like `write` and writes nothing when it is invalid, naming what to change first; on success it prints the outline, with a note when a step lost its last incoming edge and now runs at the start. To rename a `case` path, add the new path next to the old one, move the edge with `add-edge` and `remove-edge`, then drop the old path. On an active workflow the change is live at once.
+The editing commands (`set-step`, `remove-step`, `add-edge`, `remove-edge`, `set-meta`, `add-loop`) change one thing at a time and keep everything else, `draft` included. Each validates the result like `write` and writes nothing when it is invalid, naming what to change first; on success it prints the outline, with a note when a step lost its last incoming edge and now runs at the start. To rename a `case` path, add the new path next to the old one, move the edge with `add-edge` and `remove-edge`, then drop the old path. On an active workflow the change is live at once.
 
 ## Template Variables
 
@@ -263,6 +267,15 @@ Anything inside `{{...}}` that is not a plain dot-path is evaluated as an expres
 To link to another run, combine the base URL with its workflow name and run ID, e.g. `{{run.baseUrl}}/#/workflows/{{trigger.payload.workflow.workflowName}}/runs/{{trigger.payload.workflow.workflowRunId}}`.
 
 In the editor, typing `{{` in a field opens autocomplete (Ctrl+Space reopens it). To browse instead, open **Available data** from the step panel header (or press Ctrl+Shift+Space in a field): a panel beside the step lists the trigger payload, the results of the steps that run before this one, the loop variable inside an iterator, global variables, secrets, env variables, run fields, and functions. Clicking an entry inserts it at the cursor of the field you were editing. Once switched on, the panel stays on (also across reloads), but it only shows while you are editing a field with expression support.
+
+## Design warnings
+
+Besides template and config errors, the editor and every `workflow` command that writes or validates show four advisory warnings about shapes that validate and run, but break on real data:
+
+- **Whole list in a prompt.** An `agent` step's prompt contains a bare `{{steps.<slug>.result.<path>}}` that resolves to a list of objects (for example the messages of `imap-fetch`). It works with three items and overflows the model's context with fifty. Put the step inside an `iterator` over that list and read one item with `{{item.<field>}}`. Keep it only when the step must see all items at once, such as one summary of all. A placeholder wrapped in a function (`{{toJson(...)}}`) and an aggregator's `results` do not warn.
+- **Free text read as data.** An `agent` step has no `outputSchema`, but another step reads a field of its result: `{{steps.<agent>.result.<field>}}`, or through the aggregator of its loop (`{{steps.<aggregator>.result.results.<n>.<agent>.<field>}}`). Without a schema the result is the model's text, so the field does not exist. Add an `outputSchema`. Passing the bare `{{steps.<agent>.result}}` to a notification or another prompt is fine and does not warn.
+- **Loop step read after the loop.** A step after an `iterator`'s aggregator reads the result of a step inside the loop body, e.g. `{{steps.classify.result.label}}`. Body results are kept from pass to pass, so this gets the last pass's result only. Move the step into the loop, or read the results of all passes with `{{steps.<aggregator>.result.results}}`. `workflow add-loop` lists such steps after it wraps a body.
+- **Undeclared config key.** A step sets a key, at any depth, that its step type's config schema does not declare (for example `search: { unseen: true }` where the field is `seen`). Most step types reject unknown keys outright; this warning covers nested objects whose schema does not say so, where the handler would ignore the key without a word. Objects that set `additionalProperties` or `patternProperties` are left open on purpose and are not checked.
 
 ## Hot Reload
 

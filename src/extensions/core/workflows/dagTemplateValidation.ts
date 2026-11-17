@@ -271,6 +271,36 @@ function decomposeExpression(expr: string, slugs: Iterable<string>): ExprDecompo
   return { pathRefs, functionNames };
 }
 
+/** One `{{...}}` placeholder of a template field, decomposed. */
+export interface TemplateReference {
+  /** The trimmed expression text (without braces). */
+  expr: string;
+  /** True when the expression is a single dot-path (no operators, calls, or literals). */
+  plain: boolean;
+  /** The path references the expression uses (the expression itself when `plain`). */
+  pathRefs: string[];
+}
+
+/**
+ * Lists the placeholders of a template string with the path references each
+ * one uses. The decomposition is the validator's own, so other checks read
+ * references exactly as {@link validateDagWorkflowTemplates} does.
+ *
+ * @param text - A template field value
+ * @param slugs - The workflow's step slugs (hyphenated `steps.<slug>` references are kept whole)
+ * @returns One entry per placeholder, in order
+ */
+export function templateReferences(text: string, slugs: Iterable<string>): TemplateReference[] {
+  const slugList = [...slugs];
+  const refs: TemplateReference[] = [];
+  for (const match of text.matchAll(TEMPLATE_PATTERN)) {
+    const expr = match[1]!.trim();
+    const plain = isPlainPath(expr);
+    refs.push({ expr, plain, pathRefs: plain ? [expr] : decomposeExpression(expr, slugList).pathRefs });
+  }
+  return refs;
+}
+
 /**
  * Validate all template expressions in a DAG workflow definition.
  *
