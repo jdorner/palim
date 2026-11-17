@@ -244,10 +244,11 @@ The extension provides a `workflows` skill with sandbox commands (plus the `work
 - `workflow remove-step "<name>" "<slug>"` - Remove a step and every edge from or to it
 - `workflow add-edge` / `remove-edge "<name>" "<from>" "<to>" [--branch "<key>"]` - Add or remove an edge
 - `workflow set-meta "<name>" "<json5>"` - Set `description`, `group`, or `trigger`
+- `workflow add-loop "<name>" "<slug>" --over "<list>" [--as "<alias>"] --from "<first>" --to "<last>"` - Wrap the steps from `--from` to `--to` in an iterator `<slug>` over `--over` and its aggregator `<slug>-done`: edges into the first step now enter the iterator, edges out of the last step now leave the aggregator. Afterwards it names the body steps that still read the whole list and the steps after the loop that read a body step. It refuses a body with edges to or from outside it, and a body already inside a loop
 - `workflow runs "<name>"` - List recent runs for a workflow
 - `workflow logs "<run-id>"` - Show per-step logs for a workflow run
 
-The editing commands (`set-step`, `remove-step`, `add-edge`, `remove-edge`, `set-meta`) change one thing at a time and keep everything else, `draft` included. Each validates the result like `write` and writes nothing when it is invalid, naming what to change first; on success it prints the outline, with a note when a step lost its last incoming edge and now runs at the start. To rename a `case` path, add the new path next to the old one, move the edge with `add-edge` and `remove-edge`, then drop the old path. On an active workflow the change is live at once.
+The editing commands (`set-step`, `remove-step`, `add-edge`, `remove-edge`, `set-meta`, `add-loop`) change one thing at a time and keep everything else, `draft` included. Each validates the result like `write` and writes nothing when it is invalid, naming what to change first; on success it prints the outline, with a note when a step lost its last incoming edge and now runs at the start. To rename a `case` path, add the new path next to the old one, move the edge with `add-edge` and `remove-edge`, then drop the old path. On an active workflow the change is live at once.
 
 ## Template Variables
 
