@@ -266,10 +266,11 @@ In the editor, typing `{{` in a field opens autocomplete (Ctrl+Space reopens it)
 
 ## Design warnings
 
-Besides template and config errors, the editor and every `workflow` command that writes or validates show three advisory warnings about shapes that validate and run, but break on real data:
+Besides template and config errors, the editor and every `workflow` command that writes or validates show four advisory warnings about shapes that validate and run, but break on real data:
 
 - **Whole list in a prompt.** An `agent` step's prompt contains a bare `{{steps.<slug>.result.<path>}}` that resolves to a list of objects (for example the messages of `imap-fetch`). It works with three items and overflows the model's context with fifty. Put the step inside an `iterator` over that list and read one item with `{{item.<field>}}`. Keep it only when the step must see all items at once, such as one summary of all. A placeholder wrapped in a function (`{{toJson(...)}}`) and an aggregator's `results` do not warn.
 - **Free text read as data.** An `agent` step has no `outputSchema`, but another step reads a field of its result: `{{steps.<agent>.result.<field>}}`, or through the aggregator of its loop (`{{steps.<aggregator>.result.results.<n>.<agent>.<field>}}`). Without a schema the result is the model's text, so the field does not exist. Add an `outputSchema`. Passing the bare `{{steps.<agent>.result}}` to a notification or another prompt is fine and does not warn.
+- **Loop step read after the loop.** A step after an `iterator`'s aggregator reads the result of a step inside the loop body, e.g. `{{steps.classify.result.label}}`. Body results are kept from pass to pass, so this gets the last pass's result only. Move the step into the loop, or read the results of all passes with `{{steps.<aggregator>.result.results}}`. `workflow add-loop` lists such steps after it wraps a body.
 - **Undeclared config key.** A step sets a key, at any depth, that its step type's config schema does not declare (for example `search: { unseen: true }` where the field is `seen`). Most step types reject unknown keys outright; this warning covers nested objects whose schema does not say so, where the handler would ignore the key without a word. Objects that set `additionalProperties` or `patternProperties` are left open on purpose and are not checked.
 
 ## Hot Reload

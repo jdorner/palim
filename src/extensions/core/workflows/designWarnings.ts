@@ -8,6 +8,9 @@
  * - **Free text read as data:** an agent step without `outputSchema` whose
  *   result another step reads a field of. Without a schema the result is the
  *   model's text, so the field does not exist.
+ * - **Loop step read after the loop:** a step outside an iterator body reads
+ *   the result of a step inside it. Body results are kept from pass to pass,
+ *   so after the loop the reference gets the last pass's result only.
  *
  * @module
  */
@@ -50,7 +53,10 @@ function parseResultRef(pathRef: string, slugs: ReadonlySet<string>): ResultRef 
  * Fires when an agent step's prompt contains a bare `{{steps.<slug>.result...}}`
  * placeholder (not wrapped in a function or expression) whose schema is an
  * array of objects. A reference to an `aggregator` is exempt: summarising the
- * collected results after a loop is the intended use.
+ * collected results after a loop is the intended use. Outside a loop the
+ * message names the `workflow add-loop` command. Inside one it says to read
+ * the loop variable when the list is the one being iterated, and only warns
+ * about the size for any other list.
  *
  * @param definition - The workflow definition
  * @param resolveStepOutputSchema - The resolved output schema of a step, or `null` when unknown
@@ -61,9 +67,14 @@ function getWholeListWarnings(
   resolveStepOutputSchema: (slug: string) => OutputSchema | null,
 ): TemplateWarning[] {
   const slugs = new Set(Object.keys(definition.steps));
+  const topology = definitionTopology(definition);
   const warnings: TemplateWarning[] = [];
   for (const [slug, step] of Object.entries(definition.steps)) {
     if (step.type !== "agent") continue;
+    const iterator = topology.enclosingIterator(slug);
+    const iteratorStep = iterator ? (definition.steps[iterator] as { items?: string; as?: string }) : undefined;
+    const alias = iteratorStep?.as ?? "item";
+    const iteratedRef = iteratorStep?.items?.replace(/^\s*\{\{\s*|\s*\}\}\s*$/g, "");
     const reported = new Set<string>();
     for (const [field, text] of getTemplateFields(step)) {
       for (const ref of templateReferences(text, slugs)) {
@@ -77,7 +88,11 @@ function getWholeListWarnings(
         warnings.push({
           stepSlug: slug,
           field,
-          message: `The prompt gets the whole list {{${ref.expr}}}. With many or large items this overflows the model's context. To handle one item per pass, put this step inside an iterator over that list. Keep it as is only if the step must see all items at once (for example one summary of all).`,
+          message: !iterator
+            ? `The prompt gets the whole list {{${ref.expr}}}. With many or large items this overflows the model's context. To handle one item per pass, run: workflow add-loop "${definition.name}" "each-item" --over "{{${ref.expr}}}" --as item --from "${slug}" --to "${slug}". Keep it as is only if the step must see all items at once (for example one summary of all).`
+            : ref.expr === iteratedRef
+              ? `The prompt gets the whole list {{${ref.expr}}} on every pass of the loop "${iterator}". Read the current item instead: {{${alias}}} or {{${alias}.<field>}}.`
+              : `The prompt gets the whole list {{${ref.expr}}} on every pass of the loop "${iterator}". With many or large items this overflows the model's context. Keep it only if every pass needs all of these items.`,
         });
       }
     }
@@ -150,8 +165,51 @@ function getFreeTextAsDataWarnings(definition: DagWorkflowDefinition): TemplateW
 }
 
 /**
+ * Warns about steps outside a loop that read the result of a step inside it.
+ * Such a reference resolves to the last pass's result only; the results of
+ * all passes are the aggregator's `results`.
+ *
+ * Readers inside the same body are fine (they read the current pass), and so
+ * is the aggregator. A reader that runs before the loop is left to the
+ * template validator, which reports it as not an ancestor.
+ *
+ * @param definition - The workflow definition
+ * @returns One warning per reader and body step, on the reader's field
+ */
+function getReadAfterLoopWarnings(definition: DagWorkflowDefinition): TemplateWarning[] {
+  const slugs = new Set(Object.keys(definition.steps));
+  const topology = definitionTopology(definition);
+  const warnings: TemplateWarning[] = [];
+  for (const [reader, step] of Object.entries(definition.steps)) {
+    const readerLoop = topology.enclosingIterator(reader);
+    const reported = new Set<string>();
+    for (const [field, text] of getTemplateFields(step)) {
+      for (const ref of templateReferences(text, slugs)) {
+        for (const pathRef of ref.pathRefs) {
+          const result = parseResultRef(pathRef, slugs);
+          if (!result || reported.has(result.slug)) continue;
+          const loop = topology.enclosingIterator(result.slug);
+          if (loop === undefined || loop === readerLoop || reader === loop) continue;
+          const aggregator = topology.aggregatorOf(loop);
+          if (aggregator === undefined || reader === aggregator || !topology.ancestors(reader).has(aggregator))
+            continue;
+          reported.add(result.slug);
+          warnings.push({
+            stepSlug: reader,
+            field,
+            message: `Step "${reader}" is after the loop "${loop}" but reads "${result.slug}", which runs once per item: it gets only the last pass's result. Move "${reader}" into the loop, or read {{steps.${aggregator}.result.results}}.`,
+          });
+        }
+      }
+    }
+  }
+  return warnings;
+}
+
+/**
  * Collects the design warnings of a workflow: whole lists pasted into agent
- * prompts, and agent results read as data without an `outputSchema`.
+ * prompts, agent results read as data without an `outputSchema`, and loop
+ * steps read after the loop.
  *
  * Pure: the output schemas are passed in, resolved once by the analyzer.
  *
@@ -163,5 +221,9 @@ export function getDesignWarnings(
   definition: DagWorkflowDefinition,
   resolveStepOutputSchema: (slug: string) => OutputSchema | null,
 ): TemplateWarning[] {
-  return [...getWholeListWarnings(definition, resolveStepOutputSchema), ...getFreeTextAsDataWarnings(definition)];
+  return [
+    ...getWholeListWarnings(definition, resolveStepOutputSchema),
+    ...getFreeTextAsDataWarnings(definition),
+    ...getReadAfterLoopWarnings(definition),
+  ];
 }

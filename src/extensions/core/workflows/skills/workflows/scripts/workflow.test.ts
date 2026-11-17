@@ -854,6 +854,89 @@ describe("workflow command", () => {
       expect(await ctx.fs.readFile(FILE)).toBe(REVIEW_DRAFT);
     });
 
+    test("add-loop wraps the steps, prints the outline and what is left to change", async () => {
+      const LINEAR = JSON.stringify({
+        name: "tagging",
+        draft: true,
+        trigger: { type: "manual" },
+        steps: {
+          fetch: { type: "agent", prompt: "Fetch" },
+          classify: { type: "agent", prompt: "Classify {{ steps.fetch.result.messages }}" },
+          tag: { type: "agent", prompt: 'Tag {{steps.classify.result.label}} and {{steps["classify"].result}}' },
+          notify: {
+            type: "agent",
+            prompt: "Report {{steps.fetch.result.messagesCount}} {{steps.fetch.result.messages.length}}",
+          },
+          other: { type: "agent", prompt: "Unrelated {{steps.classify-more.result}}" },
+          "classify-more": { type: "agent", prompt: "x" },
+        },
+        edges: [
+          { from: "fetch", to: "classify" },
+          { from: "classify", to: "tag" },
+          { from: "tag", to: "notify" },
+          { from: "fetch", to: "classify-more" },
+          { from: "classify-more", to: "other" },
+        ],
+      });
+      const file = `${WORKFLOWS_DIR}/tagging.json5`;
+      const ctx = await makeCtxWithFiles({ "tagging.json5": LINEAR });
+      const result = await command(
+        [
+          "add-loop",
+          "tagging",
+          "each-mail",
+          "--over",
+          "{{steps.fetch.result.messages}}",
+          "--as",
+          "mail",
+          "--from",
+          "classify",
+          "--to",
+          "classify",
+        ],
+        ctx,
+      );
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Iterator "each-mail" and aggregator "each-mail-done" added around "classify".');
+      expect(result.stdout).toMatch(/each-mail\s+iterator/);
+      expect(result.stdout).toEndWith(
+        [
+          "Loop added. Now change these steps:",
+          '- Replace {{steps.fetch.result.messages}} in "classify" with {{mail}} or {{mail.<field>}}.',
+          '- "tag" is after the loop but reads "classify". Move it into the loop, or read {{steps.each-mail-done.result.results}}.',
+          "- Results of all passes: {{steps.each-mail-done.result.results}}.",
+        ].join("\n"),
+      );
+      const written = Bun.JSON5.parse(await ctx.fs.readFile(file)) as Record<string, any>;
+      expect(written.draft).toBe(true);
+      expect(written.edges).toContainEqual({ from: "each-mail", to: "classify", branch: "each" });
+
+      // Refused: nothing changes on disk.
+      const before = await ctx.fs.readFile(file);
+      const refused = await command(
+        [
+          "add-loop",
+          "tagging",
+          "again",
+          "--over",
+          "{{steps.fetch.result.messages}}",
+          "--from",
+          "classify",
+          "--to",
+          "classify",
+        ],
+        ctx,
+      );
+      expect(refused.exitCode).toBe(1);
+      expect(refused.stderr).toContain('already inside the loop "each-mail"');
+      expect(refused.stderr).toContain("Nothing was written.");
+      expect(await ctx.fs.readFile(file)).toBe(before);
+
+      const incomplete = await command(["add-loop", "tagging", "x", "--from", "fetch"], ctx);
+      expect(incomplete.exitCode).toBe(1);
+      expect(incomplete.stderr).toContain("add-loop needs --over, --to");
+    });
+
     test("outline reports a missing workflow", async () => {
       const result = await command(["outline", "nope"], makeCtx());
       expect(result.exitCode).toBe(1);

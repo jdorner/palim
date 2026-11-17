@@ -68,7 +68,7 @@ describe("getDesignWarnings", () => {
         stepSlug: "classify",
         field: "prompt",
         message:
-          "The prompt gets the whole list {{steps.fetch-mails.result.messages}}. With many or large items this overflows the model's context. To handle one item per pass, put this step inside an iterator over that list. Keep it as is only if the step must see all items at once (for example one summary of all).",
+          'The prompt gets the whole list {{steps.fetch-mails.result.messages}}. With many or large items this overflows the model\'s context. To handle one item per pass, run: workflow add-loop "design" "each-item" --over "{{steps.fetch-mails.result.messages}}" --as item --from "classify" --to "classify". Keep it as is only if the step must see all items at once (for example one summary of all).',
       },
       {
         stepSlug: "classify",
@@ -129,12 +129,89 @@ describe("getDesignWarnings", () => {
       ).toEqual([]);
     });
 
+    test("inside a loop, says to read the loop variable instead", () => {
+      const stale = withStep(LOOP, "classify", {
+        type: "agent",
+        prompt: "Classify {{steps.fetch-mails.result.messages}}",
+        outputSchema: { label: "string" },
+      });
+      expect(getDesignWarnings(stale, schemas)).toEqual([
+        {
+          stepSlug: "classify",
+          field: "prompt",
+          message:
+            'The prompt gets the whole list {{steps.fetch-mails.result.messages}} on every pass of the loop "each-mail". Read the current item instead: {{mail}} or {{mail.<field>}}.',
+        },
+      ]);
+    });
+
+    test("inside a loop, another list gets the size warning, not the advice to read the item", () => {
+      const other = withStep(LOOP, "classify", {
+        type: "agent",
+        prompt: "Classify {{mail.subject}} with one of {{steps.fetch-mails.result.labels}}",
+        outputSchema: { label: "string" },
+      });
+      const withLabels: OutputSchema = {
+        ...FETCH_SCHEMA,
+        properties: {
+          ...(FETCH_SCHEMA.properties as object),
+          labels: { type: "array", items: { type: "object", properties: { name: { type: "string" } } } },
+        },
+      };
+      const [warning] = getDesignWarnings(other, (slug) => (slug === "fetch-mails" ? withLabels : null));
+      expect(warning!.message).toBe(
+        'The prompt gets the whole list {{steps.fetch-mails.result.labels}} on every pass of the loop "each-mail". With many or large items this overflows the model\'s context. Keep it only if every pass needs all of these items.',
+      );
+    });
+
     test("only looks at agent steps", () => {
       const def = withStep(TAGGING, "classify", {
         type: "http-request",
         body: "{{steps.fetch-mails.result.messages}}",
       });
       expect(getDesignWarnings(def, schemas).filter((w) => w.field !== "outputSchema")).toEqual([]);
+    });
+  });
+
+  describe("loop step read after the loop", () => {
+    const after = (message: string) =>
+      getDesignWarnings(withStep(LOOP, "notify", { type: "notify-ntfy", message }), schemas);
+
+    test("warns on a step after the aggregator that reads a body step", () => {
+      expect(after("{{steps.classify.result.label}} and {{steps.classify.result}}")).toEqual([
+        {
+          stepSlug: "notify",
+          field: "message",
+          message:
+            'Step "notify" is after the loop "each-mail" but reads "classify", which runs once per item: it gets only the last pass\'s result. Move "notify" into the loop, or read {{steps.each-mail-done.result.results}}.',
+        },
+      ]);
+    });
+
+    test("is silent for the aggregator's results and for readers inside the same body", () => {
+      expect(after("{{steps.each-mail-done.result.results}}")).toEqual([]);
+      const inBody = wf(
+        {
+          ...LOOP.steps,
+          store: { type: "notify-ntfy", message: "{{steps.classify.result.label}}" },
+        },
+        [
+          { from: "fetch-mails", to: "each-mail" },
+          { from: "each-mail", to: "classify", branch: "each" },
+          { from: "classify", to: "store" },
+          { from: "store", to: "each-mail-done" },
+          { from: "each-mail-done", to: "notify" },
+        ],
+      );
+      expect(getDesignWarnings(inBody, schemas)).toEqual([]);
+    });
+
+    test("is silent for a reader that is not after the loop", () => {
+      const parallel = wf(
+        { ...LOOP.steps, side: { type: "notify-ntfy", message: "{{steps.classify.result.label}}" } },
+        [...LOOP.edges, { from: "fetch-mails", to: "side" }],
+      );
+      expect(getDesignWarnings(parallel, schemas).filter((w) => w.stepSlug === "side")).toEqual([]);
     });
   });
 

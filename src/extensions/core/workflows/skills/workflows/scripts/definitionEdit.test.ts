@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { addEdge, type RawDefinition, removeEdge, removeStep, setMeta, setStep } from "./definitionEdit";
+import { addEdge, addLoop, type RawDefinition, removeEdge, removeStep, setMeta, setStep } from "./definitionEdit";
 
 /** a -> route (case) -> yes | no */
 function def(): RawDefinition {
@@ -125,5 +125,137 @@ describe("setMeta", () => {
   test("refuses a non-object and an empty object", () => {
     expect(error(setMeta(def(), "x"))).toContain("must be a JSON5 object");
     expect(error(setMeta(def(), {}))).toContain("Nothing to set");
+  });
+});
+
+/** fetch -> classify -> tag -> notify */
+function linear(): RawDefinition {
+  return {
+    name: "tagging",
+    draft: true,
+    trigger: { type: "manual" },
+    steps: {
+      fetch: { type: "imap-fetch" },
+      classify: { type: "agent", prompt: "Classify {{steps.fetch.result.messages}}" },
+      tag: { type: "noop" },
+      notify: { type: "noop" },
+    },
+    edges: [
+      { from: "fetch", to: "classify" },
+      { from: "classify", to: "tag" },
+      { from: "tag", to: "notify" },
+    ],
+  };
+}
+
+const LOOP = { slug: "each-mail", over: "{{steps.fetch.result.messages}}", as: "mail" };
+
+describe("addLoop", () => {
+  test("wraps a one-step body and leaves the input untouched", () => {
+    const input = linear();
+    const result = addLoop(input, { ...LOOP, from: "classify", to: "classify" });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.aggregator).toBe("each-mail-done");
+    expect(result.body).toEqual(["classify"]);
+    const steps = result.definition.steps as Record<string, unknown>;
+    expect(steps["each-mail"]).toEqual({ type: "iterator", items: "{{steps.fetch.result.messages}}", as: "mail" });
+    expect(steps["each-mail-done"]).toEqual({ type: "aggregator", iterator: "each-mail" });
+    expect(steps.classify).toEqual((input.steps as Record<string, unknown>).classify);
+    expect(result.definition.edges).toEqual([
+      { from: "fetch", to: "each-mail" },
+      { from: "each-mail-done", to: "tag" },
+      { from: "tag", to: "notify" },
+      { from: "each-mail", to: "classify", branch: "each" },
+      { from: "classify", to: "each-mail-done" },
+    ]);
+    expect(input.edges).toEqual(linear().edges);
+    expect(result.definition.draft).toBe(true);
+  });
+
+  test("wraps a multi-step body, including steps on parallel paths between first and last", () => {
+    const def = linear();
+    (def.steps as Record<string, unknown>).side = { type: "noop" };
+    (def.edges as unknown[]).push({ from: "classify", to: "side" }, { from: "side", to: "tag" });
+    const result = addLoop(def, { ...LOOP, from: "classify", to: "tag" });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.body.sort()).toEqual(["classify", "side", "tag"]);
+    expect(result.definition.edges).toContainEqual({ from: "classify", to: "tag" });
+    expect(result.definition.edges).toContainEqual({ from: "each-mail-done", to: "notify" });
+    expect(result.definition.edges).toContainEqual({ from: "tag", to: "each-mail-done" });
+  });
+
+  test("makes the iterator the root when the body starts the graph, and accepts --over without braces", () => {
+    const result = addLoop(linear(), { slug: "each", over: "trigger.payload.rows", from: "fetch", to: "fetch" });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.over).toBe("{{trigger.payload.rows}}");
+    expect((result.definition.steps as Record<string, Record<string, unknown>>).each).toEqual({
+      type: "iterator",
+      items: "{{trigger.payload.rows}}",
+    });
+    const edges = result.definition.edges as { from: string; to: string }[];
+    expect(edges.some((e) => e.to === "each")).toBe(false);
+    expect(edges).toContainEqual({ from: "each-done", to: "classify" });
+  });
+
+  test("ends the graph with the aggregator when the body is at the end", () => {
+    const result = addLoop(linear(), { ...LOOP, from: "notify", to: "notify" });
+    if (!result.ok) throw new Error(result.error);
+    const edges = result.definition.edges as { from: string; to: string }[];
+    expect(edges.some((e) => e.from === "each-mail-done")).toBe(false);
+    expect(edges).toContainEqual({ from: "tag", to: "each-mail" });
+  });
+
+  test("keeps the branch of an edge that entered the body", () => {
+    const result = addLoop(def(), { slug: "each", over: "{{steps.a.result}}", from: "yes", to: "yes" });
+    if (!result.ok) throw new Error(result.error);
+    expect(result.definition.edges).toContainEqual({ from: "route", to: "each", branch: "yes" });
+  });
+
+  describe("refusals", () => {
+    const refuse = (definition: RawDefinition, options: Partial<Parameters<typeof addLoop>[1]>) => {
+      const result = addLoop(definition, { ...LOOP, from: "classify", to: "tag", ...options });
+      if (result.ok) throw new Error("expected a refusal");
+      return result.error;
+    };
+
+    test("taken slugs", () => {
+      expect(refuse(linear(), { slug: "classify" })).toContain('A step "classify" already exists');
+      const def = linear();
+      (def.steps as Record<string, unknown>)["each-mail-done"] = { type: "noop" };
+      expect(refuse(def, {})).toContain('A step "each-mail-done" already exists');
+    });
+
+    test("unknown steps and an empty list", () => {
+      expect(refuse(linear(), { from: "nope" })).toContain('Unknown step "nope"');
+      expect(refuse(linear(), { to: "nope" })).toContain('Unknown step "nope"');
+      expect(refuse(linear(), { over: "{{ }}" })).toContain("--over needs");
+    });
+
+    test("a last step not reachable from the first", () => {
+      expect(refuse(linear(), { from: "tag", to: "classify" })).toContain('"classify" cannot be reached from "tag"');
+    });
+
+    test("a body step with an edge from or to outside the body", () => {
+      const into = linear();
+      (into.edges as unknown[]).push({ from: "fetch", to: "tag" });
+      expect(refuse(into, {})).toContain('Body step "tag" also has an edge from "fetch"');
+      const out = linear();
+      (out.edges as unknown[]).push({ from: "classify", to: "notify" });
+      expect(refuse(out, {})).toContain('Body step "classify" also has an edge to "notify"');
+    });
+
+    test("a body inside or around another loop, and a branching last step", () => {
+      const looped = addLoop(linear(), { ...LOOP, from: "classify", to: "tag" });
+      if (!looped.ok) throw new Error(looped.error);
+      expect(refuse(looped.definition, { slug: "inner", from: "classify", to: "classify" })).toContain(
+        'already inside the loop "each-mail"',
+      );
+      expect(refuse(looped.definition, { slug: "outer", from: "each-mail", to: "each-mail-done" })).toContain(
+        "loops inside loops are not supported",
+      );
+      expect(refuse(def(), { slug: "x", over: "{{steps.a.result}}", from: "a", to: "route" })).toContain(
+        'The last body step "route" is a case',
+      );
+    });
   });
 });

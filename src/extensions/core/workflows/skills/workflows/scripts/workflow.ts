@@ -2,7 +2,7 @@
  * Registers the `workflow` shell command for managing workflow JSON5 definitions.
  *
  * Subcommands: list, step-types, read, outline, write (`--draft`, `--file`), set-step, remove-step,
- * add-edge, remove-edge, set-meta, validate, delete, trigger, runs, logs, cancel
+ * add-edge, remove-edge, set-meta, add-loop, validate, delete, trigger, runs, logs, cancel
  */
 
 import {
@@ -23,6 +23,7 @@ import { getOutcomeCoverageWarnings } from "../../../outcomeCoverage";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePrompt } from "../../../schemas";
 import {
   addEdge,
+  addLoop,
   describeEdge,
   type EditResult,
   META_FIELDS,
@@ -186,6 +187,22 @@ export function buildWorkflowCommand(scriptCtx: SkillScriptContext) {
           { name: "content", description: "JSON5 object with the fields to set" },
         ],
         handler: buildSetMetaHandler(scriptCtx),
+      },
+      {
+        name: "add-loop",
+        description:
+          "Wrap the steps from --from to --to in an iterator over --over and its aggregator <slug>-done (validates, writes, prints the outline)",
+        args: [
+          { name: "name", description: "Workflow name" },
+          { name: "slug", description: "Slug of the new iterator" },
+        ],
+        options: [
+          { name: "over", description: "The list to iterate over, e.g. {{steps.fetch.result.items}}" },
+          { name: "as", description: 'Name of the loop variable (default "item")' },
+          { name: "from", description: "First step of the loop body" },
+          { name: "to", description: "Last step of the loop body (the same as --from for one step)" },
+        ],
+        handler: buildAddLoopHandler(scriptCtx),
       },
       {
         name: "validate",
@@ -648,19 +665,20 @@ function rootsOf(definition: RawDefinition): Set<string> {
  * Applies one edit to a workflow file: load, edit, validate with
  * {@link checkDefinition}, write only when there is no hard error, then print
  * the outline with the warnings. Every field the edit does not touch
- * (including `draft`) is carried over.
+ * (including `draft`) is carried over. Notes are printed before the outline,
+ * `after` lines below it.
  *
  * @param scriptCtx - Skill script context
  * @param ctx - Command context
  * @param name - Workflow name
- * @param edit - The edit; may return notes to print
+ * @param edit - The edit; may return notes to print before and lines to print after the outline
  * @returns The command result
  */
 async function runEdit(
   scriptCtx: SkillScriptContext,
   ctx: CommandContext,
   name: string,
-  edit: (definition: RawDefinition) => EditResult & { notes?: string[] },
+  edit: (definition: RawDefinition) => EditResult & { notes?: string[]; after?: string[] },
 ): Promise<ExecResult> {
   const loaded = await loadDefinition(ctx, name);
   if (!loaded.ok) return { exitCode: 1, stdout: "", stderr: loaded.stderr };
@@ -695,7 +713,9 @@ async function runEdit(
   const noteText = notes.map((n) => `\n${n}`).join("");
   return {
     exitCode: 0,
-    stdout: `Workflow "${name}" updated.${noteText}\n\n${renderOutline(checked.definition, warnings)}`,
+    stdout: `Workflow "${name}" updated.${noteText}\n\n${renderOutline(checked.definition, warnings)}${
+      edited.after?.length ? `\n\n${edited.after.join("\n")}` : ""
+    }`,
     stderr: "",
   };
 }
@@ -764,6 +784,94 @@ function buildEdgeHandler(scriptCtx: SkillScriptContext, mode: "add" | "remove")
       const result = mode === "add" ? addEdge(definition, from, to, branch) : removeEdge(definition, from, to, branch);
       const verb = mode === "add" ? "added" : "removed";
       return result.ok ? { ...result, notes: [`Edge ${describeEdge(from, to, branch)} ${verb}.`] } : result;
+    });
+  };
+}
+
+/**
+ * Collects every string inside a JSON-like value.
+ *
+ * @param value - A step definition or part of one
+ * @param into - Receives the strings
+ */
+function collectStrings(value: unknown, into: string[]): void {
+  if (typeof value === "string") into.push(value);
+  else if (Array.isArray(value)) for (const item of value) collectStrings(item, into);
+  else if (value && typeof value === "object") for (const v of Object.values(value)) collectStrings(v, into);
+}
+
+/** Escapes a string for use inside a regular expression. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Matches a reference to a step's result: `steps.<slug>.result` or
+ * `steps["<slug>"].result`, where the slug is not the start of a longer one.
+ *
+ * @param slug - The step slug
+ * @returns The pattern
+ */
+function resultRefPattern(slug: string): RegExp {
+  const name = escapeRegExp(slug);
+  return new RegExp(`steps(?:\\.${name}|\\[\\s*["']${name}["']\\s*\\])\\.result\\b`);
+}
+
+function buildAddLoopHandler(scriptCtx: SkillScriptContext) {
+  return async (ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
+    const slug = args.get("slug");
+    const over = args.option("over");
+    const from = args.option("from");
+    const to = args.option("to");
+    const as = args.option("as") || undefined;
+    const missing = [!over && "--over", !from && "--from", !to && "--to"].filter(Boolean);
+    if (missing.length > 0) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `Error: add-loop needs ${missing.join(", ")}. Example: workflow add-loop "<name>" "each-item" --over "{{steps.<slug>.result.<list>}}" --as item --from "<first-body-step>" --to "<last-body-step>"`,
+      };
+    }
+    return runEdit(scriptCtx, ctx, args.get("name"), (definition) => {
+      const result = addLoop(definition, { slug, over, as, from, to });
+      if (!result.ok) return result;
+      const alias = as ?? "item";
+      const steps = result.definition.steps as Record<string, unknown>;
+      const stringsOf = (slug: string): string[] => {
+        const strings: string[] = [];
+        collectStrings(steps[slug], strings);
+        return strings;
+      };
+      const results = `{{steps.${result.aggregator}.result.results}}`;
+      // The list path, not followed by more of a name (`messagesCount`) or a member (`.length`).
+      const overRef = new RegExp(`${escapeRegExp(result.over.slice(2, -2))}(?![\\w$.-])`);
+      const stale = result.body.filter((s) => stringsOf(s).some((text) => overRef.test(text)));
+      // Steps after the loop that read a body step get only the last pass's result.
+      const loopSteps = new Set([...result.body, slug, result.aggregator]);
+      const outsideReaders = Object.keys(steps)
+        .filter((s) => !loopSteps.has(s))
+        .flatMap((reader) => {
+          const texts = stringsOf(reader);
+          const read = result.body.filter((b) => texts.some((text) => resultRefPattern(b).test(text)));
+          return read.length > 0 ? [{ reader, read }] : [];
+        });
+      const after = [
+        stale.length + outsideReaders.length > 0 ? "Loop added. Now change these steps:" : "Loop added.",
+        ...stale.map((s) => `- Replace ${result.over} in "${s}" with {{${alias}}} or {{${alias}.<field>}}.`),
+        ...outsideReaders.map(
+          ({ reader, read }) =>
+            `- "${reader}" is after the loop but reads ${read.map((b) => `"${b}"`).join(", ")}. Move it into the loop, or read ${results}.`,
+        ),
+        `- Results of all passes: ${results}.`,
+      ];
+      return {
+        ok: true,
+        definition: result.definition,
+        notes: [
+          `Iterator "${slug}" and aggregator "${result.aggregator}" added around ${result.body.map((s) => `"${s}"`).join(", ")}.`,
+        ],
+        after,
+      };
     });
   };
 }

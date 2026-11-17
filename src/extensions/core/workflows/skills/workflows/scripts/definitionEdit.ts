@@ -1,6 +1,7 @@
 /**
  * Pure edits of a parsed workflow definition, used by the `workflow` editing
- * commands (`set-step`, `remove-step`, `add-edge`, `remove-edge`, `set-meta`).
+ * commands (`set-step`, `remove-step`, `add-edge`, `remove-edge`, `set-meta`,
+ * `add-loop`).
  *
  * Each helper returns a new definition object (the input is never mutated) or
  * an error message. They check only what the edit itself needs (an unknown
@@ -8,6 +9,8 @@
  *
  * @module
  */
+
+import { analyzeWorkflowGraph } from "@shared/workflowTopology";
 
 /** A parsed (not yet validated) workflow definition. */
 export type RawDefinition = Record<string, unknown>;
@@ -160,4 +163,131 @@ export function setMeta(definition: RawDefinition, patch: unknown): EditResult {
     else next[key] = value;
   }
   return { ok: true, definition: next };
+}
+
+/** Options of {@link addLoop}. */
+export interface AddLoopOptions {
+  /** Slug of the new iterator; the aggregator is `<slug>-done`. */
+  slug: string;
+  /** The list to iterate over, a template expression (braces optional). */
+  over: string;
+  /** Name of the loop variable (the iterator's `as`); the engine default is `item`. */
+  as?: string;
+  /** First step of the loop body. */
+  from: string;
+  /** Last step of the loop body (the same as `from` for a one-step body). */
+  to: string;
+}
+
+/** Result of {@link addLoop}: the edit plus what the caller tells the author. */
+export type AddLoopResult =
+  | { ok: true; definition: RawDefinition; aggregator: string; body: string[]; over: string }
+  | { ok: false; error: string };
+
+/** Step types that may not be part of a loop body made by {@link addLoop}. */
+const LOOP_TYPES = new Set(["iterator", "aggregator"]);
+
+/** Step types whose outgoing edges carry a branch, so they cannot be the last body step. */
+const BRANCHING_TYPES = new Set(["if", "case", "iterator"]);
+
+/**
+ * Wraps a linear segment of steps in a loop: adds the iterator `<slug>` and
+ * the aggregator `<slug>-done`, moves the edges that entered `from` onto the
+ * iterator and the edges that left `to` onto the aggregator, and adds the
+ * edges iterator -> `from` (branch `each`) and `to` -> aggregator.
+ *
+ * The body is `from`, `to` and every step on a path between them. Prompts and
+ * other templates are not rewritten: the caller lists what still reads the
+ * whole list.
+ *
+ * Refused when the slugs are taken, `from` or `to` is unknown, `to` is not
+ * reachable from `from`, a body step has an edge to or from a step outside
+ * the body (other than into `from` or out of `to`), the body touches another
+ * loop (nested loops are not supported by the graph rules), or `to` branches.
+ *
+ * @param definition - The definition to edit
+ * @param options - Slug, list expression, loop variable, first and last body step
+ * @returns The edited definition with the aggregator slug, the body steps and the normalized list expression, or an error
+ */
+export function addLoop(definition: RawDefinition, options: AddLoopOptions): AddLoopResult {
+  const { slug, from, to } = options;
+  const aggregator = `${slug}-done`;
+  const steps = stepsOf(definition);
+  const edges = edgesOf(definition);
+
+  for (const taken of [slug, aggregator]) {
+    if (Object.hasOwn(steps, taken))
+      return { ok: false, error: `A step "${taken}" already exists; choose another loop slug` };
+  }
+  if (!Object.hasOwn(steps, from)) return unknownStep(from, definition) as AddLoopResult;
+  if (!Object.hasOwn(steps, to)) return unknownStep(to, definition) as AddLoopResult;
+
+  const inner = options.over
+    .trim()
+    .replace(/^\{\{\s*/, "")
+    .replace(/\s*\}\}$/, "");
+  if (!inner) return { ok: false, error: "--over needs the list to iterate over, e.g. {{steps.<slug>.result.<list>}}" };
+  const over = `{{${inner}}}`;
+
+  const wellFormed = edges.filter((e) => typeof e?.from === "string" && typeof e?.to === "string");
+  const topology = analyzeWorkflowGraph(steps as Record<string, { type?: unknown }>, wellFormed);
+  if (from !== to && !topology.ancestors(to).has(from)) {
+    return {
+      ok: false,
+      error: `"${to}" cannot be reached from "${from}", so they cannot be the first and last step of one loop`,
+    };
+  }
+
+  const body = topology.slugs.filter(
+    (s) => s === from || s === to || (topology.ancestors(to).has(s) && topology.ancestors(s).has(from)),
+  );
+  const inBody = new Set(body);
+
+  for (const s of body) {
+    const type = topology.typeOf(s);
+    if (type && LOOP_TYPES.has(type)) {
+      return { ok: false, error: `The body would contain the ${type} "${s}"; loops inside loops are not supported` };
+    }
+    if (topology.enclosingIterator(s) !== undefined) {
+      return {
+        ok: false,
+        error: `"${s}" is already inside the loop "${topology.enclosingIterator(s)}"; loops inside loops are not supported`,
+      };
+    }
+  }
+  const lastType = topology.typeOf(to);
+  if (lastType && BRANCHING_TYPES.has(lastType)) {
+    return {
+      ok: false,
+      error: `The last body step "${to}" is a ${lastType}; end the body with the step after its branches join`,
+    };
+  }
+  for (const e of wellFormed) {
+    if (inBody.has(e.to) && !inBody.has(e.from) && e.to !== from) {
+      return { ok: false, error: `Body step "${e.to}" also has an edge from "${e.from}", which is outside the loop` };
+    }
+    if (inBody.has(e.from) && !inBody.has(e.to) && e.from !== to) {
+      return { ok: false, error: `Body step "${e.from}" also has an edge to "${e.to}", which is outside the loop` };
+    }
+  }
+
+  const rewired = edges.map((e) => {
+    if (e.to === from && !inBody.has(e.from)) return { ...e, to: slug };
+    if (e.from === to && !inBody.has(e.to)) return { ...e, from: aggregator };
+    return e;
+  });
+  const iterator: Record<string, unknown> = { type: "iterator", items: over };
+  if (options.as) iterator.as = options.as;
+
+  return {
+    ok: true,
+    aggregator,
+    body,
+    over,
+    definition: {
+      ...definition,
+      steps: { ...steps, [slug]: iterator, [aggregator]: { type: "aggregator", iterator: slug } },
+      edges: [...rewired, { from: slug, to: from, branch: "each" }, { from: to, to: aggregator }],
+    },
+  };
 }
