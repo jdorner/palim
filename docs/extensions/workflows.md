@@ -66,6 +66,8 @@ Run an AI agent with a prompt, optional tools, and optional skills:
 }
 ```
 
+The result is the agent's text answer. With an `outputSchema` (for example `{ category: "string", total: "number" }`), the prompt also asks for one JSON object of that shape, and the parsed object becomes the result, so later steps can read `{{steps.<slug>.result.category}}`. Every declared field must be present with its type, and `null` is accepted only for a field with the hint `"any"`; extra fields are kept. A bare `{{steps.<slug>.result}}` then gives that object as JSON text, not the model's prose. An answer that does not match gets one follow-up asking for a corrected answer. If that one does not match either, the step fails and the error lists the mismatches.
+
 ### HTTP Request Steps
 
 Make an outbound HTTP request (provided by the `core-wf-steps` extension):

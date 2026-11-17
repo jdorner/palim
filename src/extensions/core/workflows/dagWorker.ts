@@ -17,12 +17,14 @@ import type {
   StepTypeHandler,
 } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
+import type { OutputSchemaShorthand } from "@shared/workflows";
 import { mintIdentityToken, resolveInitiatorToken } from "@src/auth";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import { WORK_DIR_MAX_FILE_READ_BYTES } from "@src/tools/sandbox";
 import { runWithIdentity } from "@src/utils/fetch";
 import type { TemplateVariableResolver } from "@src/variables";
 import { type IFileSystem, ReadWriteFs } from "just-bash";
+import { outputInstruction, parseAgentOutput, repairInstruction } from "./agentOutput";
 import type { DagStepJobData } from "./dagEngine";
 import * as dagRunStore from "./dagRunStore";
 import { normalizePrompt } from "./schemas";
@@ -200,7 +202,13 @@ export function createDagStepProcessor(deps: DagStepWorkerDeps) {
 
     try {
       if (stepDef.type === "agent") {
-        const agentDef = stepDef as { type: "agent"; prompt: string | string[]; tools?: string[]; skills?: string[] };
+        const agentDef = stepDef as {
+          type: "agent";
+          prompt: string | string[];
+          tools?: string[];
+          skills?: string[];
+          outputSchema?: OutputSchemaShorthand;
+        };
         value = await executeDagAgentStep(job, normalizePrompt(agentDef.prompt), agentDef, tmplCtx, deps);
       } else {
         // Custom step type handler
@@ -267,14 +275,21 @@ export function createDagStepProcessor(deps: DagStepWorkerDeps) {
 
 /**
  * Executes a DAG agent step.
+ *
+ * With an `outputSchema`, the prompt asks for a JSON object of that shape and
+ * the parsed object becomes the result. An answer that does not match gets one
+ * repair turn in the same session; a second mismatch fails the step.
+ *
+ * @returns The agent's text answer, or the parsed object when an `outputSchema` is declared
+ * @throws When a template does not resolve, a tool or skill is unavailable, or the answer does not match the `outputSchema`
  */
 async function executeDagAgentStep(
   job: QueueJob<DagStepJobData>,
   prompt: string,
-  agentDef: { tools?: string[]; skills?: string[] },
+  agentDef: { tools?: string[]; skills?: string[]; outputSchema?: OutputSchemaShorthand },
   tmplCtx: TemplateContext,
   deps: DagStepWorkerDeps,
-): Promise<string> {
+): Promise<unknown> {
   const { resolved, warnings } = await resolveTemplates(prompt, tmplCtx);
   for (const w of warnings) await job.log(`Template warning: ${w}`);
   if (warnings.length > 0) {
@@ -306,21 +321,26 @@ async function executeDagAgentStep(
     }
   }
 
-  // Append prompt to session
-  deps.ctx.sessions.append(job.data.sessionId, {
-    role: "user",
-    content: resolved,
-    timestamp: Date.now(),
-  });
+  const ask = async (content: string): Promise<string> => {
+    deps.ctx.sessions.append(job.data.sessionId, { role: "user", content, timestamp: Date.now() });
+    const result = await deps.ctx.agent.run(job, {
+      systemPrompt,
+      tools,
+      skills,
+      thinkingLevel: "low",
+      sessionId: job.data.sessionId,
+      onAgentEvent: (event) => deps.emitEvent(event, job.id, job.data),
+    });
+    return result.answer;
+  };
 
-  const result = await deps.ctx.agent.run(job, {
-    systemPrompt,
-    tools,
-    skills,
-    thinkingLevel: "low",
-    sessionId: job.data.sessionId,
-    onAgentEvent: (event) => deps.emitEvent(event, job.id, job.data),
-  });
+  const { outputSchema } = agentDef;
+  if (!outputSchema) return ask(resolved);
 
-  return result.answer;
+  const first = parseAgentOutput(await ask(`${resolved}\n\n${outputInstruction(outputSchema)}`), outputSchema);
+  if (first.ok) return first.value;
+  await job.log(`Answer does not match outputSchema (${first.errors.join("; ")}), asking once more`);
+  const second = parseAgentOutput(await ask(repairInstruction(first.errors)), outputSchema);
+  if (second.ok) return second.value;
+  throw new Error(`The answer does not match the step's outputSchema: ${second.errors.join("; ")}`);
 }

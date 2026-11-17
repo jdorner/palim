@@ -307,3 +307,60 @@ describe("createDagStepProcessor - initiator identity", () => {
     expect(seenUserId).toBe("alice");
   });
 });
+
+describe("createDagStepProcessor - agent outputSchema", () => {
+  /** Context whose agent answers from a queue and records the user messages it got. */
+  function agentCtx(answers: string[]) {
+    const prompts: string[] = [];
+    const ctx = {
+      ...fakeCtx(),
+      tools: { names: () => [] },
+      sessions: {
+        append: (_id: string, msg: { content: string }) => {
+          prompts.push(msg.content);
+        },
+      },
+      agent: { run: async () => ({ answer: answers.shift() ?? "" }) },
+    } as unknown as DagStepWorkerDeps["ctx"];
+    return { ctx, prompts };
+  }
+
+  const agentStep = { type: "agent", prompt: "Classify it.", outputSchema: { category: "string" } };
+
+  test("asks for JSON and stores the parsed object", async () => {
+    seedRunWithProbeResult("run-agent-json", "x");
+    const { ctx, prompts } = agentCtx(['```json\n{"category":"ad"}\n```']);
+    const processor = createDagStepProcessor({ ctx, emitEvent: () => {}, log: fakeLog });
+    expect(await processor(fakeJob(agentStep, "run-agent-json"))).toEqual({ category: "ad" });
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0]).toStartWith("Classify it.\n\n");
+    expect(prompts[0]).toContain('{"category":"string"}');
+  });
+
+  test("repairs once, then succeeds", async () => {
+    seedRunWithProbeResult("run-agent-repair", "x");
+    const { ctx, prompts } = agentCtx(["It is an ad.", '{"category":"ad"}']);
+    const processor = createDagStepProcessor({ ctx, emitEvent: () => {}, log: fakeLog });
+    expect(await processor(fakeJob(agentStep, "run-agent-repair"))).toEqual({ category: "ad" });
+    expect(prompts[1]).toContain("the answer contains no JSON object");
+  });
+
+  test("fails the step after a second mismatch", async () => {
+    seedRunWithProbeResult("run-agent-fail", "x");
+    const { ctx } = agentCtx(["nope", '{"category":1}']);
+    const processor = createDagStepProcessor({ ctx, emitEvent: () => {}, log: fakeLog });
+    await expect(processor(fakeJob(agentStep, "run-agent-fail"))).rejects.toThrow(
+      'outputSchema: "category" must be a string, got number',
+    );
+  });
+
+  test("without outputSchema the answer stays text and the prompt is unchanged", async () => {
+    seedRunWithProbeResult("run-agent-text", "x");
+    const { ctx, prompts } = agentCtx(['{"category":"ad"}']);
+    const processor = createDagStepProcessor({ ctx, emitEvent: () => {}, log: fakeLog });
+    expect(await processor(fakeJob({ type: "agent", prompt: "Classify it." }, "run-agent-text"))).toBe(
+      '{"category":"ad"}',
+    );
+    expect(prompts).toEqual(["Classify it."]);
+  });
+});
