@@ -273,6 +273,27 @@ describe("getDesignWarnings", () => {
         ]);
       });
 
+      test("warns for an agent step that is not the last in the body", () => {
+        const midBody = {
+          ...withStep(loopWithoutSchema, "store", { type: "noop" }),
+          edges: loopWithoutSchema.edges.flatMap((e) =>
+            e.from === "classify"
+              ? [
+                  { from: "classify", to: "store" },
+                  { ...e, from: "store" },
+                ]
+              : [e],
+          ),
+        };
+        const def = withStep(midBody, "notify", {
+          type: "notify-ntfy",
+          message: "{{steps.each-mail-done.result.results.0.classify.label}}",
+        });
+        expect(getDesignWarnings(def, schemas).map((w) => `${w.stepSlug}.${w.field}`)).toContain(
+          "classify.outputSchema",
+        );
+      });
+
       test("is silent for the counts, the whole results, and the collected text itself", () => {
         expect(read("{{steps.each-mail-done.result.succeeded}}")).toEqual([]);
         expect(read("{{steps.each-mail-done.result.results}}")).toEqual([]);

@@ -87,6 +87,7 @@ The `http-request` step type supports additional options: custom `headers`, `tim
 
 - `if` - conditional branching; branches are expressed as edges with `branch: "then"` / `branch: "else"`
 - `case` - multi-way branching; `paths` is an array of branch key strings, branches connected via `branch` edges. When nothing matches, the run takes the branch named by `default` (a path key or a key of its own), or else an edge with `branch: "default"`; without either, the run fails
+- `iterator` / `aggregator` - run the body steps between them once per item of a list, one item after the other. The aggregator's result is `{ results, totalItems, succeeded, failed }`. `results` has one object per pass, keyed by the slug of every body step that ran in that pass; a step on a branch not taken in that pass is absent. A failed body step fails the run, so `succeeded` always equals `totalItems` and `failed` is 0; neither counts categories. Count those from `results` instead.
 - `waitFor` - pauses its own branch until an external signal arrives (blocks only its successors, not the whole run)
 - `humanTask` - asks a person in the portal and pauses its own branch until they answer (see [Human Tasks](#human-tasks)) - experimental, requires `HITL_ENABLED=true`
 - `emit` - broadcasts a signal to workflows waiting on that event (fire-and-forget)

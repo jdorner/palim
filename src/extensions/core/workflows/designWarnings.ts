@@ -125,7 +125,7 @@ function getFreeTextAsDataWarnings(definition: DagWorkflowDefinition): TemplateW
     schemaless.add(slug);
     const iterator = topology.enclosingIterator(slug);
     const body = iterator ? topology.iteratorBody(iterator) : null;
-    if (body?.terminals.includes(slug)) {
+    if (body?.steps.has(slug)) {
       collectedBy.set(body.aggregator, (collectedBy.get(body.aggregator) ?? new Set()).add(slug));
     }
   }

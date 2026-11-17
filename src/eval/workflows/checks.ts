@@ -137,11 +137,11 @@ export function agentStepsMissingSchema(definition: unknown): string[] {
       return strings.some((s) => referencesResult(s, slug));
     });
 
-  /** The aggregator that collects `slug`, when `slug` ends an iterator body. */
+  /** The aggregator that collects `slug`, when `slug` is in an iterator body. */
   const collectingAggregator = (slug: string): string | undefined => {
     const iterator = topology.enclosingIterator(slug);
     const body = iterator ? topology.iteratorBody(iterator) : null;
-    return body?.terminals.includes(slug) ? body.aggregator : undefined;
+    return body?.steps.has(slug) ? body.aggregator : undefined;
   };
 
   const missing: string[] = [];

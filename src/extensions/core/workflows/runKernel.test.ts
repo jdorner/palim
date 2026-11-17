@@ -226,7 +226,7 @@ describe("iterator and aggregator", () => {
     ],
   );
 
-  test("runs the body once per item, collecting the body's terminal results", () => {
+  test("runs the body once per item, collecting each body step's result", () => {
     const { state, effects } = replay(def, runOf(def, { steps: { loop: "running" } }), [
       { type: "iteratorEvaluated", slug: "loop", items: ["u1", "u2"] },
       { type: "stepCompleted", slug: "fetch", result: "f1" },
@@ -243,7 +243,10 @@ describe("iterator and aggregator", () => {
     ]);
     expect((state.stepResults.loop as IterationState).cursor).toBe(2);
     expect(state.stepResults.collect).toEqual({
-      results: [{ parse: "p1" }, { parse: "p2" }],
+      results: [
+        { fetch: "f1", parse: "p1" },
+        { fetch: "f2", parse: "p2" },
+      ],
       totalItems: 2,
       succeeded: 2,
       failed: 0,
@@ -276,6 +279,55 @@ describe("iterator and aggregator", () => {
     expect(patch.stepStatuses).toEqual({ loop: "completed", collect: "completed", after: "running" });
     expect(patch.stepResults.collect).toEqual({ results: [], totalItems: 0, succeeded: 0, failed: 0 });
     expect(work(effects)).toEqual([{ type: "dispatch", slug: "after" }]);
+  });
+
+  test("each pass records every body step that ran, and only those", () => {
+    // loop -each-> classify -> route -case-> a | b | c -> collect
+    const branched = wf(
+      {
+        loop: { type: "iterator", items: "{{trigger.payload}}", as: "mail" } as Steps[string],
+        classify: agent,
+        route: { type: "case", match: "{{x}}", paths: ["a", "b"], default: "c" } as Steps[string],
+        a: agent,
+        b: agent,
+        c: agent,
+        collect: { type: "aggregator", iterator: "loop" } as Steps[string],
+      },
+      [
+        { from: "loop", to: "classify", branch: "each" },
+        { from: "classify", to: "route" },
+        { from: "route", to: "a", branch: "a" },
+        { from: "route", to: "b", branch: "b" },
+        { from: "route", to: "c", branch: "c" },
+        { from: "a", to: "collect" },
+        { from: "b", to: "collect" },
+        { from: "c", to: "collect" },
+      ],
+    );
+    const pass = (n: number, value: string): RunEvent[] => [
+      { type: "stepCompleted", slug: "classify", result: { category: value, n } },
+      { type: "caseEvaluated", slug: "route", value },
+      { type: "stepCompleted", slug: value === "a" || value === "b" ? value : "c", result: `${value}${n}` },
+    ];
+    const { state } = replay(branched, runOf(branched, { steps: { loop: "running" } }), [
+      { type: "iteratorEvaluated", slug: "loop", items: [1, 2, 3] },
+      ...pass(1, "a"),
+      ...pass(2, "b"),
+      ...pass(3, "zzz"),
+    ]);
+    const results = (state.stepResults.collect as { results: Record<string, unknown>[] }).results;
+    expect(results.map((r) => Object.keys(r).sort())).toEqual([
+      ["a", "classify", "route"],
+      ["b", "classify", "route"],
+      ["c", "classify", "route"],
+    ]);
+    expect(results.map((r) => r.classify)).toEqual([
+      { category: "a", n: 1 },
+      { category: "b", n: 2 },
+      { category: "zzz", n: 3 },
+    ]);
+    expect(results.map((r) => r.a ?? r.b ?? r.c)).toEqual(["a1", "b2", "zzz3"]);
+    expect(state.stepStatuses.collect).toBe("completed");
   });
 
   test("a missing iteration state fails the run and drops work started in the same transition", () => {

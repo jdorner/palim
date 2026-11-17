@@ -37,7 +37,7 @@ The body steps between them are regular top-level nodes — they show up in the 
 - `{{<as>.<field>}}` (e.g. `{{image.dataUrl}}`) — dot-path into the current element
 - `{{itemIndex}}` — zero-based iteration index
 
-**Aggregator result:** After all iterations complete, the aggregator's result is available downstream as `{{steps.<aggregator-slug>.result}}` containing `{ results: [...], totalItems, succeeded, failed }`.
+**Aggregator result:** After all iterations complete, the aggregator's result is available downstream as `{{steps.<aggregator-slug>.result}}` containing `{ results: [...], totalItems, succeeded, failed }`. Each entry of `results` holds the result of every body step that ran in that pass, keyed by slug (a step on a branch not taken is absent). `succeeded` always equals `totalItems`: a failed pass fails the run.
 
 **Full example:**
 

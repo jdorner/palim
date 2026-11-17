@@ -61,8 +61,9 @@ function serializeHandlerSchema(schema: TSchema): OutputSchema {
 /**
  * The built-in output schema of an `aggregator` step, mirroring the result
  * written by the coordinator: `totalItems`/`succeeded`/`failed` counts and
- * `results`, one object per iteration keyed by the body's terminal steps
- * (each typed with that step's own schema when it has one).
+ * `results`, one object per iteration keyed by the body steps that ran in it
+ * (each typed with that step's own schema when it has one; none is required,
+ * because a step on a branch not taken is absent from that pass).
  *
  * @param definition - The workflow definition
  * @param step - The aggregator step definition
@@ -76,8 +77,8 @@ function aggregatorOutputSchema(
 ): OutputSchema {
   const iterationProperties: Record<string, unknown> = {};
   if (definition.steps[step.iterator]?.type === "iterator") {
-    for (const terminal of definitionTopology(definition).iteratorBody(step.iterator)?.terminals ?? []) {
-      iterationProperties[terminal] = resolveStepSchema(terminal) ?? {};
+    for (const slug of definitionTopology(definition).iteratorBody(step.iterator)?.steps ?? []) {
+      iterationProperties[slug] = resolveStepSchema(slug) ?? {};
     }
   }
   return {

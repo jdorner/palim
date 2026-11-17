@@ -133,7 +133,7 @@ describe("agentStepsMissingSchema through an aggregator", () => {
     steps: { ...LOOP.steps, classify: { type: "agent", prompt: "Classify {{mail.subject}}" } },
   };
 
-  test("reports an agent step that ends a loop body whose aggregator is referenced", () => {
+  test("reports an agent step in a loop body whose aggregator is referenced", () => {
     expect(agentStepsMissingSchema(withoutSchema)).toEqual(["classify"]);
   });
 
@@ -145,7 +145,7 @@ describe("agentStepsMissingSchema through an aggregator", () => {
     expect(agentStepsMissingSchema(unread)).toEqual([]);
   });
 
-  test("ignores an agent step in the body that the aggregator does not collect", () => {
+  test("reports an agent step in the middle of the body too: every pass records it", () => {
     const midBody = {
       steps: { ...withoutSchema.steps, store: { type: "noop" } },
       edges: [
@@ -156,7 +156,7 @@ describe("agentStepsMissingSchema through an aggregator", () => {
         { from: "each-mail-done", to: "notify" },
       ],
     };
-    expect(agentStepsMissingSchema(midBody)).toEqual([]);
+    expect(agentStepsMissingSchema(midBody)).toEqual(["classify"]);
   });
 });
 

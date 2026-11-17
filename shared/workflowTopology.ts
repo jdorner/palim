@@ -44,7 +44,7 @@ export interface IteratorBody {
   steps: ReadonlySet<string>;
   /** Body edges: `each` edges into the body, edges inside it, and edges from it to the aggregator. */
   edges: readonly TopologyEdge[];
-  /** Body steps with no edge to another body step; the aggregator collects their results. */
+  /** Body steps with no edge to another body step. */
   terminals: readonly string[];
 }
 
