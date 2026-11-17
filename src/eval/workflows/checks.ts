@@ -9,6 +9,7 @@
  */
 
 import { analyzeWorkflowGraph, type TopologyEdge } from "@shared/workflowTopology";
+import { findUndeclaredConfigKeys } from "@src/extensions/core/workflows/configKeys";
 import type { ScenarioExpectations } from "./scenarios";
 
 /** The checks, in report order, with the column header and what a pass means. */
@@ -26,7 +27,7 @@ export const CHECKS = [
   {
     id: "config",
     label: "config",
-    description: "no step sets a config field its step type does not declare (the server does not always reject these)",
+    description: "no step sets a config field its step type does not declare",
   },
   { id: "warnings", label: "no-warn", description: "the analyzer reports zero warnings" },
   { id: "types", label: "types", description: "every step type used is registered" },
@@ -152,47 +153,12 @@ export function agentStepsMissingSchema(definition: unknown): string[] {
   return missing;
 }
 
-/** Step keys that are not part of a step type's config. */
-const NON_CONFIG_KEYS = new Set(["type", "slug", "outputSchema"]);
-
-/**
- * Collects the fields of a value that its JSON Schema does not declare.
- * Only closed shapes are judged: an object schema with declared `properties`
- * and no `additionalProperties`/`patternProperties` schema. Unions and
- * schema-less values are left alone.
- *
- * @param value - The config value
- * @param schema - Its JSON Schema
- * @param path - Dotted path of `value`, for the report
- * @param into - Receives the dotted paths of undeclared fields
- */
-function collectUndeclared(value: unknown, schema: unknown, path: string, into: string[]): void {
-  if (schema === null || typeof schema !== "object") return;
-  const node = schema as {
-    properties?: Record<string, unknown>;
-    additionalProperties?: unknown;
-    patternProperties?: unknown;
-    items?: unknown;
-  };
-  if (Array.isArray(value)) {
-    for (const [i, item] of value.entries()) collectUndeclared(item, node.items, `${path}[${i}]`, into);
-    return;
-  }
-  if (value === null || typeof value !== "object") return;
-  const properties = node.properties;
-  if (!properties || Object.keys(properties).length === 0) return;
-  const open = typeof node.additionalProperties === "object" || node.patternProperties !== undefined;
-  for (const [key, child] of Object.entries(value)) {
-    const childPath = path ? `${path}.${key}` : key;
-    if (Object.hasOwn(properties, key)) collectUndeclared(child, properties[key], childPath, into);
-    else if (!open) into.push(childPath);
-  }
-}
-
 /**
  * Finds config fields that a step sets although its step type's config schema
  * does not declare them (for example `search.unseen` on `imap-fetch`, whose
- * field is `seen`). Step types without a config schema are skipped.
+ * field is `seen`). Step types without a config schema are skipped. The rule
+ * is the server's own (`findUndeclaredConfigKeys`); this check also counts
+ * the keys a closed schema rejects.
  *
  * @param definition - The parsed workflow file
  * @param stepTypes - Config JSON Schema per step type
@@ -203,10 +169,7 @@ export function undeclaredConfigFields(definition: unknown, stepTypes: ReadonlyM
   for (const [slug, step] of Object.entries(stepsOf(definition))) {
     const schema = typeof step.type === "string" ? stepTypes.get(step.type) : undefined;
     if (!schema) continue;
-    const config = Object.fromEntries(Object.entries(step).filter(([key]) => !NON_CONFIG_KEYS.has(key)));
-    const paths: string[] = [];
-    collectUndeclared(config, schema, "", paths);
-    for (const path of paths) found.push(`${slug}.${path}`);
+    for (const key of findUndeclaredConfigKeys(step, schema)) found.push(`${slug}.${key.path}`);
   }
   return found;
 }

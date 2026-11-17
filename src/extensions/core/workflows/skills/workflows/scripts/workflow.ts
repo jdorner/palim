@@ -18,6 +18,7 @@ import { Value } from "@sinclair/typebox/value";
 import type { CommandContext, ExecResult, IFileSystem } from "just-bash";
 import { validateDagWorkflowTemplates } from "../../../dagTemplateValidation";
 import { validateCfEdges, validateDag } from "../../../dagValidation";
+import { getDesignWarnings } from "../../../designWarnings";
 import { getOutcomeCoverageWarnings } from "../../../outcomeCoverage";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePrompt } from "../../../schemas";
 import {
@@ -277,12 +278,15 @@ async function fetchServerWarnings(
 
 /**
  * The warnings the sandbox can compute without the server: template
- * expressions and outcome coverage.
+ * expressions, outcome coverage, and agent results read as data.
  */
 async function localWarnings(definition: DagWorkflowDefinition): Promise<ApiTemplateWarning[]> {
   return [
     ...(await validateDagWorkflowTemplates(definition, { workflowName: definition.name })),
     ...getOutcomeCoverageWarnings(definition),
+    // Without the server no step type schema is known, so only the design
+    // warnings that need none are reported here.
+    ...getDesignWarnings(definition, () => null),
   ];
 }
 

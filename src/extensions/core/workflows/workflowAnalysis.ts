@@ -15,9 +15,11 @@ import { resolveHandlerOutputSchema } from "@src/extensions/engine/stepTypeSeria
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { TemplateVariableResolver } from "@src/variables";
 import { getDraftTargetWarnings } from "./autoStart";
+import { getUndeclaredConfigKeyWarnings } from "./configKeys";
 import { type TemplateWarning, validateDagWorkflowTemplates } from "./dagTemplateValidation";
 import { validateIteratorPairing } from "./dagValidation";
 import { definitionTopology } from "./definitionTopology";
+import { getDesignWarnings } from "./designWarnings";
 import { humanTaskOutputSchema } from "./humanTask";
 import { getOutcomeCoverageWarnings } from "./outcomeCoverage";
 import { compileOutputSchema, resolveTriggerOutputSchemaJson } from "./outputSchemaCompiler";
@@ -341,7 +343,8 @@ export interface WorkflowAnalysis {
  * Creates the analyzer shared by the list, detail, and draft-analysis routes,
  * so the three cannot diverge. It resolves a workflow's output schemas and
  * collects every advisory warning (trigger refs, templates, step dependencies,
- * iterator pairing, human task outcome coverage, schema compiler).
+ * undeclared config keys, iterator pairing, human task outcome coverage,
+ * design, schema compiler).
  *
  * @param ctx - Extension context (step types, secrets, variables)
  * @param lookupWorkflow - Returns the loaded workflow of a name; enables the draft-target warnings
@@ -409,9 +412,11 @@ export function createWorkflowAnalyzer(
         ...getTriggerRefWarnings(def, triggerRefs, describeRunAs),
         ...templateWarnings,
         ...getDependencyWarnings(def, ctx),
+        ...getUndeclaredConfigKeyWarnings(def, (type) => ctx.stepTypes.get(type)?.schema),
         ...(lookupWorkflow ? getDraftTargetWarnings(def, lookupWorkflow) : []),
         ...pairingWarnings,
         ...getOutcomeCoverageWarnings(def),
+        ...getDesignWarnings(def, (slug) => outputSchemas.steps[slug] ?? null),
         ...schemaWarnings,
       ],
     };
