@@ -834,6 +834,8 @@ src/extensions/my-extension/
             └── my-command.ts  # Shell command registration
 ```
 
+Every `.ts` file directly in `scripts/` (except `*.test.ts`) is loaded as an entry point and must export `registerSkill`; the loader warns about any that does not. Put shared helpers outside `scripts/`, for example at the extension root.
+
 Skill scripts import utilities from the SDK module:
 
 ```typescript

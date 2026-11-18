@@ -10,8 +10,8 @@
  */
 
 import { analyzeWorkflowGraph, type TopologyEdge } from "@shared/workflowTopology";
-import { humanTaskOutcomeIds } from "../../../humanTask";
-import type { DagWorkflowDefinition } from "../../../schemas";
+import { humanTaskOutcomeIds } from "./humanTask";
+import type { DagWorkflowDefinition } from "./schemas";
 
 /** An advisory warning as returned by the workflow API. */
 export interface OutlineWarning {
