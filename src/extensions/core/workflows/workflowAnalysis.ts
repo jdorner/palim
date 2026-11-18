@@ -6,7 +6,7 @@
  * @module
  */
 
-import type { ExtensionContext, OutputSchemaContext } from "@ext/types";
+import type { ExtensionContext, OutputSchemaContext, StepConfigIssue } from "@ext/types";
 import { resolvedSelfFields } from "@shared/extensions";
 import { type OutputSchema, type OutputSchemas, walkSchemaPath } from "@shared/workflows";
 import type { TSchema } from "@sinclair/typebox";
@@ -300,6 +300,23 @@ export function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: Ex
             message: `Invalid "${stepDef.type}" step config: ${err.message}${err.path ? ` (at ${err.path})` : ""}`,
           });
         }
+        continue;
+      }
+      // Rules the schema cannot express (e.g. conflicting fields), checked by
+      // the handler itself. A throwing check is a handler bug, not a config
+      // problem, so it is ignored rather than blocking the workflow.
+      let issues: StepConfigIssue[] = [];
+      try {
+        issues = handler.validateConfig?.(configFields) ?? [];
+      } catch {
+        issues = [];
+      }
+      for (const issue of issues) {
+        warnings.push({
+          stepSlug: slug,
+          field: issue.field || "config",
+          message: `Invalid "${stepDef.type}" step config: ${issue.message}`,
+        });
       }
       continue;
     }

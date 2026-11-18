@@ -406,6 +406,14 @@ export interface StepInputValidation {
   diagnostics?: string[];
 }
 
+/** A problem in a step's config found by {@link StepTypeHandler.validateConfig}. */
+export interface StepConfigIssue {
+  /** Dotted path of the config field the problem is about (e.g. `password`). */
+  field: string;
+  /** What is wrong and how to fix it, written for the workflow author. */
+  message: string;
+}
+
 /**
  * Handler for a custom workflow step type registered by an extension.
  *
@@ -542,6 +550,23 @@ export interface StepTypeHandler {
    * @returns Validation result with diagnostics on failure
    */
   validateInput?(output: unknown, stepDef: Record<string, unknown>): StepInputValidation | Promise<StepInputValidation>;
+
+  /**
+   * Check rules about the step's own config that the {@link schema} cannot
+   * express, such as fields that conflict with each other (e.g. a password
+   * given together with a connected-account auth mode).
+   *
+   * Called at authoring time (`workflow validate`/`write`, editor warnings)
+   * only after the config passes {@link schema}, with the config fields
+   * (`slug`, `type`, and `outputSchema` removed). Template expressions are
+   * still unresolved. Must be pure and must not throw; a thrown error is
+   * ignored. The handler should still enforce the same rules in
+   * {@link execute}, since a run does not repeat this check.
+   *
+   * @param config - The step's config fields, already valid against {@link schema}
+   * @returns One entry per problem; an empty array when the config is consistent
+   */
+  validateConfig?(config: Record<string, unknown>): StepConfigIssue[];
 
   /**
    * Execute the custom step logic.

@@ -226,6 +226,14 @@ describe("workflow command", () => {
               configSchema: {
                 type: "object",
                 properties: {
+                  account: {
+                    type: "string",
+                    description: "Connected account",
+                    dynamicItems: "mail-accounts",
+                    availableItems: ["work", "home"],
+                  },
+                  label: { type: "string", dynamicItems: "mail-labels", availableItems: [] },
+                  flag: { type: "string", availableItems: ["\\Seen", "\\Flagged"] },
                   search: {
                     type: "object",
                     description: "Search criteria",
@@ -507,6 +515,15 @@ describe("workflow command", () => {
         ["  - search (object): Search criteria", "      - seen (boolean): Read state"].join("\n"),
       );
       expect(stdout).toContain("  - folders (array of string): Folders to read\n\nResult fields");
+    });
+
+    test("lists the live values of a dynamicItems field, but not a static suggestion list", async () => {
+      const { stdout } = await command(["step-types", "mail-fetch"], makeCtx());
+      expect(stdout).toContain(
+        ["  - account (string): Connected account", '      available now: "work", "home"'].join("\n"),
+      );
+      expect(stdout).toContain(["  - label (string)", "      available now: none (nothing set up yet)"].join("\n"));
+      expect(stdout).toContain("  - flag (string)\n  - search");
     });
 
     test("shows the item fields of an array of objects, with required flags", async () => {
