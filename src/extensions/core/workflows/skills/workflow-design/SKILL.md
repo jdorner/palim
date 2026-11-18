@@ -23,7 +23,7 @@ Follow these steps in order.
    5. **Branches:** what happens after each choice, one choice at a time.
    6. **End:** who is told, what is stored, and what should happen when a step fails.
 
-   If no step type can do something the user asked for, say so and ask how to proceed (`workflow-writing` checklist, step 3).
+   If no step type can do something the user asked for (an action, or a filter no config field supports), say so and ask how to proceed (`workflow-writing` checklist, step 3).
 
 3. **Write early.** As soon as the main path is known, write it as a draft with the trigger the user wants: `workflow write --draft "<name>" '<json5>'`. Always use `--draft` for a new workflow. If the trigger needs a webhook, schedule, or watcher, create that first (a schedule: `schedule create "<id>" "<name>" -p "0 9 * * *" --tz "Europe/Berlin"`). A draft ignores its trigger, so nothing fires yet. This is the only full write.
 
