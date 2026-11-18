@@ -16,7 +16,7 @@ Follow these steps in order when you create or change a workflow.
 
 1. **Discover step types.** Run `workflow step-types` (or `workflow step-types --search "<terms>"`), then `workflow step-types <type>` for every type you use. Do not assume a type exists.
 2. **Prefer deterministic steps.** Pick the most deterministic type for each step (see below). Use `agent` only for work that needs an LLM.
-3. **Missing capability.** If no step type can do an action the user asked for, say so and ask how to proceed. Never write an `agent` step that is told to use a tool, API or CLI you have not seen in `workflow step-types` or in a skill.
+3. **Missing capability.** If no step type can do an action the user asked for, say so and ask how to proceed. The same holds for a filter: if no step's config field can select what the user asked for (for example only mails with a certain label), say so instead of dropping the filter or leaving it to an `agent` prompt. Never write an `agent` step that is told to use a tool, API or CLI you have not seen in `workflow step-types` or in a skill.
 4. **One item at a time.** If a step returns a list and each item needs its own work, write the steps for one item, then wrap them in a loop with `workflow add-loop` (see "Loops" below). Do not put the whole list into one `agent` prompt, unless the step must see all items at once (for example one summary of all).
 5. **Structured hand-offs.** Every `agent` step whose result another step uses gets an `outputSchema`.
 6. **Trigger ref first.** A `webhook`, `schedule` or `filewatcher` trigger needs its webhook, schedule or watcher to exist before the workflow: `webhook create ...`, `schedule create "<id>" "<name>" -p "0 9 * * *" --tz "Europe/Berlin"`, or the `filewatcher` skill.
