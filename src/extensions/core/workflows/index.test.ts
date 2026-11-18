@@ -174,6 +174,59 @@ describe("getDependencyWarnings (custom step-type config)", () => {
     expect(warnings[0]!.field).toBe("type");
     expect(warnings[0]!.message).toContain("disabled");
   });
+
+  describe("validateConfig", () => {
+    /** A handler that rejects `token` combined with `mode: "anonymous"`. */
+    const seen: Record<string, unknown>[] = [];
+    const modeHandler: StepTypeHandler = {
+      schema: Type.Object({ mode: Type.Optional(Type.String()), token: Type.Optional(Type.String()) }),
+      label: "Mode",
+      validateConfig: (config) => {
+        seen.push(config);
+        return config.mode === "anonymous" && config.token
+          ? [{ field: "token", message: "token is ignored in anonymous mode" }]
+          : [];
+      },
+      execute: async () => ({}),
+    };
+
+    /** Builds a one-step workflow of the `mode` type. */
+    function wf(step: Record<string, unknown>): DagWorkflowDefinition {
+      return { name: "wf", trigger: { type: "manual" }, steps: { s: { type: "mode", ...step } as never }, edges: [] };
+    }
+
+    test("reports the handler's issues with the step and field", () => {
+      const warnings = getDependencyWarnings(wf({ mode: "anonymous", token: "x" }), mockCtx({ mode: modeHandler }));
+      expect(warnings.map((w) => [w.stepSlug, w.field, w.message])).toEqual([
+        ["s", "token", 'Invalid "mode" step config: token is ignored in anonymous mode'],
+      ]);
+    });
+
+    test("passes only the config fields and accepts a consistent config", () => {
+      seen.length = 0;
+      expect(
+        getDependencyWarnings(wf({ mode: "anonymous", outputSchema: {} }), mockCtx({ mode: modeHandler })),
+      ).toEqual([]);
+      expect(seen).toEqual([{ mode: "anonymous" }]);
+    });
+
+    test("is skipped when the config already fails the schema", () => {
+      seen.length = 0;
+      const warnings = getDependencyWarnings(wf({ mode: 1, token: "x" }), mockCtx({ mode: modeHandler }));
+      expect(warnings.map((w) => w.field)).toEqual(["mode"]);
+      expect(seen).toEqual([]);
+    });
+
+    test("ignores a check that throws", () => {
+      const throwing: StepTypeHandler = {
+        ...modeHandler,
+        validateConfig: () => {
+          throw new Error("bug");
+        },
+      };
+      expect(getDependencyWarnings(wf({ mode: "x" }), mockCtx({ mode: throwing }))).toEqual([]);
+    });
+  });
 });
 
 // ---------------------------------------------------------------------------

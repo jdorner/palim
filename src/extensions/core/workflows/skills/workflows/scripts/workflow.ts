@@ -940,6 +940,9 @@ interface SchemaProperty {
   items?: SchemaProperty;
   properties?: Record<string, SchemaProperty>;
   required?: string[];
+  /** Name of the provider whose live values the server put into `availableItems`. */
+  dynamicItems?: string;
+  availableItems?: unknown[];
 }
 
 /** An object JSON Schema (subset we render). */
@@ -983,6 +986,27 @@ function describeType(def: SchemaProperty | undefined): string {
 
 /** How many levels of fields `workflow step-types <type>` prints: the top-level fields and two levels below. */
 const MAX_FIELD_DEPTH = 3;
+
+/** How many live values of a `dynamicItems` field `workflow step-types <type>` lists. */
+const MAX_LIVE_VALUES = 30;
+
+/**
+ * Lists the values a field accepts right now, for a field whose values come
+ * from the running system (`dynamicItems`, e.g. connected accounts or table
+ * names). The server resolves them into `availableItems`. Static suggestion
+ * lists are not printed: they are long and the description covers them.
+ *
+ * @param def - The property schema
+ * @returns The line to print under the field, or `undefined` when the field has no live values
+ */
+function formatLiveValues(def: SchemaProperty | undefined): string | undefined {
+  if (typeof def?.dynamicItems !== "string" || !Array.isArray(def.availableItems)) return undefined;
+  const values = def.availableItems.map((v) => JSON.stringify(v));
+  if (values.length === 0) return "available now: none (nothing set up yet)";
+  const shown = values.slice(0, MAX_LIVE_VALUES).join(", ");
+  const more = values.length > MAX_LIVE_VALUES ? `, ... (${values.length - MAX_LIVE_VALUES} more)` : "";
+  return `available now: ${shown}${more}`;
+}
 
 /**
  * Finds the object schema whose fields belong under a field line: the field
@@ -1041,6 +1065,8 @@ function formatSchemaFields(schema: ObjectSchema | undefined, indent: string, de
     const desc = def?.description ?? def?.title;
     const descSuffix = desc ? `: ${desc}` : "";
     lines.push(`${indent}- ${key} (${describeType(def)}${req})${descSuffix}`);
+    const live = formatLiveValues(def);
+    if (live) lines.push(`${nestedIndent}${live}`);
 
     const items = arrayItemFieldsOf(def);
     const nested = items ?? objectFieldsOf(def);
