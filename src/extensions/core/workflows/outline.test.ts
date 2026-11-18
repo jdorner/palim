@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import type { DagWorkflowDefinition } from "../../../schemas";
 import { renderOutline } from "./outline";
+import type { DagWorkflowDefinition } from "./schemas";
 
 function wf(overrides: Partial<DagWorkflowDefinition>): DagWorkflowDefinition {
   return { name: "wf", trigger: { type: "manual" }, steps: {}, edges: [], ...overrides } as DagWorkflowDefinition;

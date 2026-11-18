@@ -18,9 +18,6 @@ import { Value } from "@sinclair/typebox/value";
 import type { CommandContext, ExecResult, IFileSystem } from "just-bash";
 import { validateDagWorkflowTemplates } from "../../../dagTemplateValidation";
 import { validateCfEdges, validateDag } from "../../../dagValidation";
-import { getDesignWarnings } from "../../../designWarnings";
-import { getOutcomeCoverageWarnings } from "../../../outcomeCoverage";
-import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePrompt } from "../../../schemas";
 import {
   addEdge,
   addLoop,
@@ -32,8 +29,11 @@ import {
   removeStep,
   setMeta,
   setStep,
-} from "./definitionEdit";
-import { renderOutline } from "./outline";
+} from "../../../definitionEdit";
+import { getDesignWarnings } from "../../../designWarnings";
+import { getOutcomeCoverageWarnings } from "../../../outcomeCoverage";
+import { renderOutline } from "../../../outline";
+import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePrompt } from "../../../schemas";
 
 /** Relative path to the workflows directory within the agent's working directory. */
 const WORKFLOWS_DIR = "workflows";
