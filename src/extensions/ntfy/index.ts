@@ -33,7 +33,7 @@ const NTFY_DEFAULT_TOPIC = "NTFY_DEFAULT_TOPIC" as const;
 
 const manifest = {
   name: "ntfy",
-  version: "1.2.0",
+  version: "1.2.1",
   description: "Send push notifications via ntfy.sh, exposed as a workflow step type",
   dependencies: ["workflows"],
   settingsSchema: Type.Object({
@@ -115,30 +115,25 @@ export function createExtension(): Extension {
           throw new Error("No topic provided and no default topic configured.");
         }
 
-        // Publish via a direct POST rather than the `ntfy` package's client.
-        // The package (v1.15.4) does not emit an X-Click header for its
-        // `clickURL` field, so click actions were silently dropped. Building
-        // the request here lets us set X-Click (and the other headers) and
-        // keeps behavior explicit.
-        //
-        // ntfy maps: title -> X-Title, priority -> X-Priority, tags -> X-Tags
-        // (comma-separated), click URL -> X-Click, markdown -> X-Markdown. The
-        // message is the request body (UTF-8). Header values must be
-        // ASCII/latin-1, so only the body carries arbitrary Unicode.
-        const headers: Record<string, string> = {};
-        if (config.title) headers["X-Title"] = config.title;
-        if (config.click) headers["X-Click"] = config.click;
-        if (config.markdown) headers["X-Markdown"] = "true";
-        if (config.priority) headers["X-Priority"] = String(config.priority);
-        if (config.tags && config.tags.length > 0) headers["X-Tags"] = config.tags.join(",");
+        // Publish as JSON to the server root (https://docs.ntfy.sh/publish/#publish-as-json)
+        // rather than via X-* headers. Header values must be ASCII/latin-1, so a
+        // title, tag, or click URL with an emoji or other non-ASCII character
+        // made fetch reject the request. A JSON body carries every field as
+        // UTF-8.
+        const body: Record<string, unknown> = { topic: targetTopic, message: config.message };
+        if (config.title) body.title = config.title;
+        if (config.click) body.click = config.click;
+        if (config.markdown) body.markdown = true;
+        if (config.priority) body.priority = config.priority;
+        if (config.tags && config.tags.length > 0) body.tags = config.tags;
+
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
         if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
 
-        const url = new URL(encodeURIComponent(targetTopic), server.endsWith("/") ? server : `${server}/`);
-
-        const response = await fetch(url.href, {
+        const response = await fetch(server.endsWith("/") ? server : `${server}/`, {
           method: "POST",
           headers,
-          body: config.message,
+          body: JSON.stringify(body),
         });
 
         if (!response.ok) {
