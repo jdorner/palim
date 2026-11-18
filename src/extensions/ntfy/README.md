@@ -2,7 +2,7 @@
 
 Send push notifications via [ntfy.sh](https://ntfy.sh) (or a self-hosted ntfy server) from your workflows. The extension registers a deterministic `notify-ntfy` workflow step type that publishes a notification to a topic. It does **not** register an agent tool - notifications are sent through the workflow step only.
 
-Publishes by POSTing to the [ntfy HTTP API](https://docs.ntfy.sh/publish/).
+Publishes by POSTing JSON to the [ntfy HTTP API](https://docs.ntfy.sh/publish/#publish-as-json), so titles, tags, and click URLs may contain emoji and other non-ASCII characters.
 
 ## Enabling
 
@@ -113,7 +113,7 @@ With a default topic configured, `topic` can be omitted and the notification goe
 
 1. The step definition is validated against the config schema.
 2. `message`, `title`, `topic`, and `click` templates are resolved; warnings are logged.
-3. The extension POSTs to the resolved topic (or the default) on the configured server, mapping fields to ntfy headers (`X-Title`, `X-Click`, `X-Markdown`, `X-Priority`, `X-Tags`) with the message as the request body and the access token as a Bearer `Authorization` header.
+3. The extension POSTs a JSON body (`topic`, `message`, `title`, `click`, `markdown`, `priority`, `tags`) to the root of the configured server, addressed to the resolved topic (or the default), with the access token as a Bearer `Authorization` header.
 4. The step logs `Notification sent to topic <topic>` and returns `{ sent: true, topic }`.
 
 Any publish failure fails the step (and, following workflow fail-fast semantics, the run).
