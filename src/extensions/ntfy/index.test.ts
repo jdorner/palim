@@ -22,7 +22,11 @@ function captureFetch(): CapturedRequest[] {
     // Building a real Request applies the same header validation fetch does,
     // so a non-ByteString header value would throw here as it does in production.
     const request = new Request(input, init);
-    requests.push({ url: request.url, headers: request.headers, body: (await request.json()) as Record<string, unknown> });
+    requests.push({
+      url: request.url,
+      headers: request.headers,
+      body: (await request.json()) as Record<string, unknown>,
+    });
     return new Response("{}", { status: 200 });
   }) as typeof fetch;
   return requests;
