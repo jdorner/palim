@@ -118,9 +118,7 @@ function getEnvAllowlist(): Set<string> {
 export function getTemplateFields(step: DagStepDef): [string, string][] {
   const fields: [string, string][] = [];
   if (step.type === "agent") {
-    const agentStep = step as { prompt: string | string[] };
-    const prompt = Array.isArray(agentStep.prompt) ? agentStep.prompt.join("\n") : agentStep.prompt;
-    fields.push(["prompt", prompt]);
+    fields.push(["prompt", (step as { prompt: string }).prompt]);
   } else if (step.type === "if") {
     const ifStep = step as { condition: { ref: string } };
     if (ifStep.condition?.ref) fields.push(["condition.ref", ifStep.condition.ref]);

@@ -192,9 +192,9 @@ describe("agentPromptsWithFormat", () => {
     steps: { classify: { type: "agent", prompt, outputSchema } },
   });
 
-  test("reports a prompt that asks for JSON or a format, also as a list of lines", () => {
+  test("reports a prompt that asks for JSON or a format", () => {
     expect(agentPromptsWithFormat(agent("Classify it. Return only the JSON."))).toEqual(["classify"]);
-    expect(agentPromptsWithFormat(agent(["Classify it.", "Respond with the label."]))).toEqual(["classify"]);
+    expect(agentPromptsWithFormat(agent("Classify it.\nRespond with the label."))).toEqual(["classify"]);
     expect(agentPromptsWithFormat(agent("Answer in the following format: label, reason"))).toEqual(["classify"]);
   });
 
@@ -235,7 +235,7 @@ describe("agentStepsReadingAggregates", () => {
     ...LOOP,
     steps: {
       ...LOOP.steps,
-      summarize: { type: "agent", prompt: ["Count the labels:", "{{steps.each-mail-done.result.results}}"] },
+      summarize: { type: "agent", prompt: "Count the labels:\n{{steps.each-mail-done.result.results}}" },
     },
   };
 

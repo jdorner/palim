@@ -27,7 +27,6 @@ import { type IFileSystem, ReadWriteFs } from "just-bash";
 import { outputInstruction, parseAgentOutput, repairInstruction } from "./agentOutput";
 import type { DagStepJobData } from "./dagEngine";
 import * as dagRunStore from "./dagRunStore";
-import { normalizePrompt } from "./schemas";
 import type { TemplateContext, TemplateSecretResolver } from "./template";
 import { resolveTemplates } from "./template";
 
@@ -204,12 +203,12 @@ export function createDagStepProcessor(deps: DagStepWorkerDeps) {
       if (stepDef.type === "agent") {
         const agentDef = stepDef as {
           type: "agent";
-          prompt: string | string[];
+          prompt: string;
           tools?: string[];
           skills?: string[];
           outputSchema?: OutputSchemaShorthand;
         };
-        value = await executeDagAgentStep(job, normalizePrompt(agentDef.prompt), agentDef, tmplCtx, deps);
+        value = await executeDagAgentStep(job, agentDef.prompt, agentDef, tmplCtx, deps);
       } else {
         // Custom step type handler
         const handler = deps.getStepHandler?.(stepDef.type);

@@ -5,14 +5,7 @@
  * add-edge, remove-edge, set-meta, add-loop, validate, delete, trigger, runs, logs, wait, cancel
  */
 
-import {
-  createCommand,
-  formatFetchError,
-  formatValidationErrors,
-  type ParsedArgs,
-  registerProgram,
-  type SkillScriptContext,
-} from "@ext/sdk";
+import { createCommand, formatFetchError, type ParsedArgs, registerProgram, type SkillScriptContext } from "@ext/sdk";
 import type { WorkflowLoadError } from "@shared/workflows";
 import { analyzeWorkflowGraph } from "@shared/workflowTopology";
 import { Value } from "@sinclair/typebox/value";
@@ -34,7 +27,11 @@ import {
 import { getDesignWarnings } from "../../../designWarnings";
 import { getOutcomeCoverageWarnings } from "../../../outcomeCoverage";
 import { renderOutline } from "../../../outline";
-import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePrompt } from "../../../schemas";
+import {
+  type DagWorkflowDefinition,
+  DagWorkflowDefinitionSchema,
+  formatWorkflowDefinitionErrors,
+} from "../../../schemas";
 
 /** Relative path to the workflows directory within the agent's working directory. */
 const WORKFLOWS_DIR = "workflows";
@@ -369,7 +366,7 @@ type CheckResult = { ok: true; definition: DagWorkflowDefinition } | { ok: false
  * unavailable). Advisory warnings are not part of it.
  *
  * @param scriptCtx - Skill script context (server validation)
- * @param parsed - The parsed definition; prompt arrays are normalized in place
+ * @param parsed - The parsed definition
  * @param schemaErrorTitle - Heading of schema errors (`validate` says "Schema validation failed")
  * @returns The validated definition, or the error text plus the structural error codes
  */
@@ -378,18 +375,10 @@ async function checkDefinition(
   parsed: Record<string, unknown>,
   schemaErrorTitle = "Validation failed",
 ): Promise<CheckResult> {
-  if (parsed.steps && typeof parsed.steps === "object" && !Array.isArray(parsed.steps)) {
-    for (const step of Object.values(parsed.steps as Record<string, Record<string, unknown>>)) {
-      if (step?.type === "agent" && Array.isArray(step.prompt)) {
-        step.prompt = normalizePrompt(step.prompt as string[]);
-      }
-    }
-  }
-
   if (!Value.Check(DagWorkflowDefinitionSchema, parsed)) {
     return {
       ok: false,
-      stderr: `${schemaErrorTitle}:\n${formatValidationErrors(DagWorkflowDefinitionSchema, parsed, "\n")}`,
+      stderr: `${schemaErrorTitle}:\n${formatWorkflowDefinitionErrors(parsed, "\n")}`,
       codes: [],
     };
   }

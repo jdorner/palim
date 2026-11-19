@@ -6,12 +6,11 @@
  * @module
  */
 
-import { formatValidationErrors } from "@ext/sdk";
 import type { Logger } from "@ext/types";
 import type { WorkflowLoadError } from "@shared/workflows";
 import { Value } from "@sinclair/typebox/value";
 import { validateCfEdges, validateDag, validateIteratorPairing } from "./dagValidation";
-import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePrompt } from "./schemas";
+import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, formatWorkflowDefinitionErrors } from "./schemas";
 import type { LoadedWorkflowFile } from "./workflowFileIndex";
 
 /** Receives the reason a file was skipped as invalid (not called for disabled files). */
@@ -58,7 +57,7 @@ export async function loadSingleWorkflow(
     parsed = Bun.JSON5.parse(content);
 
     if (!Value.Check(DagWorkflowDefinitionSchema, parsed)) {
-      return invalid(formatValidationErrors(DagWorkflowDefinitionSchema, parsed));
+      return invalid(formatWorkflowDefinitionErrors(parsed));
     }
 
     const definition = parsed as DagWorkflowDefinition;
@@ -75,14 +74,6 @@ export async function loadSingleWorkflow(
     const pairingErrors = validateIteratorPairing(definition);
     if (pairingErrors.length > 0) {
       log.warn(`Workflow ${filename} has pairing issues: ${pairingErrors.map((e) => e.message).join("; ")}`);
-    }
-
-    // Normalize agent prompt arrays to strings
-    for (const stepDef of Object.values(definition.steps)) {
-      if (stepDef.type === "agent") {
-        const agentStep = stepDef as { type: "agent"; prompt: string | string[] };
-        agentStep.prompt = normalizePrompt(agentStep.prompt);
-      }
     }
 
     // Skip disabled workflows

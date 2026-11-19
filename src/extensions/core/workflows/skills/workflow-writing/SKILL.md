@@ -58,11 +58,8 @@ Counting and adding up are not open-ended work either. A report like "3 invoices
       "tools": ["exec"],
       // optional, skill names for agent steps
       "skills": ["task-list"],
-      // required for agent steps — string or array of strings
-      "prompt": [
-        "Line one of the prompt.",
-        "Line two of the prompt.",
-      ],
+      // required for agent steps — one string, lines separated by \n
+      "prompt": "Line one of the prompt.\nLine two of the prompt.",
     },
     "call-api": {
       "type": "http-request", // outbound HTTP request (registered by core-wf-steps extension)
@@ -130,23 +127,12 @@ workflow add-loop "<name>" "<slug>" --over "<list>" [--as "<alias>"] --from "<fi
 
 ## Prompt format
 
-The `prompt` field accepts either a single string or an array of strings. Arrays are joined with newlines at load time. Use arrays for readability:
+The `prompt` field is one string. Separate lines with `\n`. Every text field of every step type (`prompt`, `message`, `body`, ...) is a plain string: an array of lines is refused.
 
 ```json5
-// Single string (simple prompts)
 "prompt": "Create a short MOTD for a community of builders."
 
-// Array of strings (multi-line prompts, preferred for complex instructions)
-"prompt": [
-  "First, read the web-access skill to learn how to use the web fetch command:",
-  "",
-  "skill read web-access",
-  "",
-  "Then fetch the latest commits from the API:",
-  "web fetch -H \"Authorization: Bearer {{secret.GITEA_API_TOKEN}}\" \"https://git.example.com/api/v1/repos/user/repo/commits?limit=10\"",
-  "",
-  "Summarize what changed in one short paragraph.",
-]
+"prompt": "First, read the web-access skill to learn how to use the web fetch command:\n\nskill read web-access\n\nThen fetch the latest commits from the API:\nweb fetch -H \"Authorization: Bearer {{secret.GITEA_API_TOKEN}}\" \"https://git.example.com/api/v1/repos/user/repo/commits?limit=10\"\n\nSummarize what changed in one short paragraph."
 ```
 
 With an `outputSchema`, the prompt says what to decide or extract, never how to format the answer (see checklist step 5).
@@ -285,11 +271,7 @@ workflow write --draft "deploy-pipeline" '{
     "process-deploy": {
       "type": "agent",
       "tools": [],
-      "prompt": [
-        "A deployment event was received:",
-        "{{trigger.payload}}",
-        "Summarize what was deployed.",
-      ],
+      "prompt": "A deployment event was received:\n{{trigger.payload}}\nSummarize what was deployed.",
     },
   },
   "edges": [],
@@ -328,10 +310,7 @@ workflow write --draft "daily-motd" '{
     "send-to-telegram": {
       "type": "agent",
       "tools": ["send_telegram_message"],
-      "prompt": [
-        "Send this MOTD to the default Telegram channel:",
-        "{{steps.create-motd.result}}",
-      ],
+      "prompt": "Send this MOTD to the default Telegram channel:\n{{steps.create-motd.result}}",
     },
   },
   "edges": [
@@ -399,11 +378,7 @@ The payload: `{{trigger.payload.file.path}}` (uploaded file, relative to WORK_DI
     "combine": {
       "type": "agent",
       "tools": ["write_file"],
-      "prompt": [
-        "Validation: {{steps.validate.result}}",
-        "Enrichment: {{steps.enrich.result}}",
-        "Merge and save the final record.",
-      ],
+      "prompt": "Validation: {{steps.validate.result}}\nEnrichment: {{steps.enrich.result}}\nMerge and save the final record.",
     },
   },
   "edges": [
@@ -436,7 +411,7 @@ One pass per ticket: classify it, label it, then report the count per category.
     "classify": {
       "type": "agent",
       "tools": [],
-      "prompt": ["Classify this ticket as bug, question or feature.", "Title: {{ticket.title}}", "{{ticket.text}}"],
+      "prompt": "Classify this ticket as bug, question or feature.\nTitle: {{ticket.title}}\n{{ticket.text}}",
       "outputSchema": { "category": "string", "reason": "string" },
     },
     "set-label": {
@@ -472,11 +447,7 @@ One pass per ticket: classify it, label it, then report the count per category.
     "classify": {
       "type": "agent",
       "tools": [],
-      "prompt": [
-        "Classify this alert severity as 'critical', 'warning', or 'info':",
-        "{{trigger.payload}}",
-        "Respond with just the severity level.",
-      ],
+      "prompt": "Classify this alert severity as 'critical', 'warning', or 'info':\n{{trigger.payload}}\nRespond with just the severity level.",
     },
     "route-severity": {
       "type": "case",
@@ -548,10 +519,7 @@ One pass per ticket: classify it, label it, then report the count per category.
     "generate-report": {
       "type": "agent",
       "tools": ["read_file", "write_file"],
-      "prompt": [
-        "ETL result: {{steps.wait-for-data.result}}",
-        "Generate the daily report based on the processed data.",
-      ],
+      "prompt": "ETL result: {{steps.wait-for-data.result}}\nGenerate the daily report based on the processed data.",
     },
   },
   "edges": [

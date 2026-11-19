@@ -84,7 +84,7 @@ describe("getDesignWarnings", () => {
   });
 
   describe("whole list in a prompt", () => {
-    const promptWarnings = (prompt: string | string[], resolve = schemas) =>
+    const promptWarnings = (prompt: string, resolve = schemas) =>
       getDesignWarnings(
         withStep(TAGGING, "classify", { type: "agent", prompt, outputSchema: { a: "string" } }),
         resolve,
@@ -92,11 +92,11 @@ describe("getDesignWarnings", () => {
         .filter((w) => w.field === "prompt")
         .map((w) => w.message);
 
-    test("warns once per list, also when the placeholder repeats or the prompt is an array", () => {
+    test("warns once per list, also when the placeholder repeats or spans lines", () => {
       expect(
         promptWarnings("{{ steps.fetch-mails.result.messages }} and again {{steps.fetch-mails.result.messages}}"),
       ).toHaveLength(1);
-      expect(promptWarnings(["Mails:", "{{steps.fetch-mails.result.messages}}"])).toHaveLength(1);
+      expect(promptWarnings("Mails:\n{{steps.fetch-mails.result.messages}}")).toHaveLength(1);
     });
 
     test("is silent for a function around the path, a scalar list, a scalar, one item, and the length", () => {

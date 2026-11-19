@@ -305,19 +305,6 @@ describe("getDependencyWarnings (humanTask)", () => {
     expect(warnings).toEqual([]);
   });
 
-  test("flags an invalid humanTask step instead of letting the generic schema accept it", () => {
-    const warnings = getDependencyWarnings(
-      wf({ type: "humanTask", title: "Approve", assignees: {}, onTimeout: "later" }),
-      mockCtx(true),
-    );
-    expect(warnings.some((w) => w.stepSlug === "review" && w.message.includes("humanTask"))).toBe(true);
-  });
-
-  test("reports a missing field once", () => {
-    const warnings = getDependencyWarnings(wf({ type: "humanTask", assignees: { users: ["a"] } }), mockCtx(true));
-    expect(warnings.filter((w) => w.field === "title")).toHaveLength(1);
-  });
-
   test("warns when human tasks are disabled", () => {
     const warnings = getDependencyWarnings(
       wf({ type: "humanTask", title: "Approve", assignees: { users: ["a"] } }),

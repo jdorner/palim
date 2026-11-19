@@ -173,10 +173,7 @@ Workflow step prompts use the `{{secret.KEY}}` template syntax:
 ```json5
 {
   "slug": "fetch-commits",
-  "prompt": [
-    "Fetch commits from the API:",
-    "web fetch -H \"Authorization: Bearer {{secret.GITEA_API_TOKEN}}\" \"https://git.example.com/api/v1/repos/user/repo/commits\""
-  ]
+  "prompt": "Fetch commits from the API:\nweb fetch -H \"Authorization: Bearer {{secret.GITEA_API_TOKEN}}\" \"https://git.example.com/api/v1/repos/user/repo/commits\""
 }
 ```
 
