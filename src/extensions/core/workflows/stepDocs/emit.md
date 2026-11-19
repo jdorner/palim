@@ -3,7 +3,7 @@ Sends a named signal to workflows currently waiting for that event. The emitting
 ```json5
 "notify-ready": {
   "type": "emit",
-  // Signal event name to broadcast
+  // Signal event name to broadcast; may contain {{template}} expressions
   "event": "data.processed",
   // Optional payload template (resolved before emission)
   "payload": "{{steps.transform.result}}",
@@ -13,6 +13,8 @@ Sends a named signal to workflows currently waiting for that event. The emitting
   "targetRun": "{{steps.start-child.result.workflowRunId}}",
 }
 ```
+
+The `event` may be built from templates, e.g. `"{{steps.vars.result.event_name}}"` (one name set in a variables step for several nodes) or `"order.{{trigger.payload.kind}}"`. The resolved name must be lowercase letters, digits, dots, dashes and underscores, starting with a letter; otherwise the step fails. The `event` of a `waitFor` is always a fixed name.
 
 Which waits an emit resumes:
 

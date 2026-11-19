@@ -18,8 +18,7 @@
  * @module
  */
 
-/** Event name pattern shared by `waitFor` and `emit` nodes (mirrors backend). */
-const EVENT_NAME_PATTERN = "^[a-z][a-z0-9._-]*$";
+import { EMIT_EVENT_PATTERN, EVENT_NAME_PATTERN } from "$shared/workflows";
 
 /**
  * Config schema for the `waitFor` step: pauses execution until a named signal
@@ -78,10 +77,10 @@ const EmitConfigSchema: Record<string, unknown> = {
     event: {
       type: "string",
       title: "Event",
-      description: "Signal event name to emit. Lowercase letters, digits, dots, dashes, underscores.",
+      description:
+        "Signal event name to emit. Supports {{template}} expressions; the resolved name must be lowercase letters, digits, dots, dashes, underscores.",
       minLength: 1,
-      maxLength: 128,
-      pattern: EVENT_NAME_PATTERN,
+      pattern: EMIT_EVENT_PATTERN,
     },
     payload: {
       type: "string",

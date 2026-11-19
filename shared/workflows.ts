@@ -416,3 +416,14 @@ export interface WorkflowLoadError {
    */
   unloaded?: string;
 }
+
+/** Pattern of a signal event name (`waitFor.event`, and an `emit` event once resolved). */
+export const EVENT_NAME_PATTERN = "^[a-z][a-z0-9._-]*$";
+
+/**
+ * Pattern of an `emit` step's `event` field: an event name in which any part
+ * may be a `{{template}}` expression, e.g. `order.{{trigger.payload.kind}}` or
+ * `{{steps.vars.result.event_name}}`. The resolved name must match
+ * {@link EVENT_NAME_PATTERN}; the emit step checks that when it runs.
+ */
+export const EMIT_EVENT_PATTERN = "^(?:[a-z]|\\{\\{[^}]*\\}\\})(?:[a-z0-9._-]|\\{\\{[^}]*\\}\\})*$";

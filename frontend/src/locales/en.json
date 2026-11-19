@@ -26,7 +26,7 @@
     },
     "emit": {
       "event": {
-        "description": "Signal event name to emit. Lowercase letters, digits, dots, dashes, underscores.",
+        "description": "Signal event name to emit. Supports {{template}} expressions; the resolved name must be lowercase letters, digits, dots, dashes, underscores.",
         "title": "Event"
       },
       "payload": {

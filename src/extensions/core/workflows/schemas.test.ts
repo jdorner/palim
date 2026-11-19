@@ -197,6 +197,18 @@ describe("schemas", () => {
       expect(Value.Check(DagEmitStepSchema, step)).toBe(false);
     });
 
+    test("accepts template expressions in the event name, around valid fixed parts", () => {
+      for (const event of ["{{steps.vars.result.event_name}}", "order.{{trigger.payload.kind}}", "{{a}}.{{b}}"]) {
+        expect(Value.Check(DagEmitStepSchema, { type: "emit", event })).toBe(true);
+      }
+    });
+
+    test("rejects invalid fixed parts next to a template", () => {
+      for (const event of ["Order.{{x}}", "{{x}} now", "1-{{x}}", "{{unclosed"]) {
+        expect(Value.Check(DagEmitStepSchema, { type: "emit", event })).toBe(false);
+      }
+    });
+
     test("rejects emit with empty event", () => {
       const step = { type: "emit", event: "" };
       expect(Value.Check(DagEmitStepSchema, step)).toBe(false);

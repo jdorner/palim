@@ -6,7 +6,7 @@
  */
 
 import { PORTAL_UPLOAD_MAX_MB } from "@shared/portal";
-import type { OutputSchemaShorthand } from "@shared/workflows";
+import { EMIT_EVENT_PATTERN, EVENT_NAME_PATTERN, type OutputSchemaShorthand } from "@shared/workflows";
 import { type Static, type TSchema, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
@@ -132,9 +132,6 @@ export const ConditionSchema = Type.Object({
 /** TypeScript type for a condition object. */
 export type ConditionDef = Static<typeof ConditionSchema>;
 
-/** Event name pattern shared by `waitFor` and `emit` nodes. */
-const EventNamePattern = "^[a-z][a-z0-9._-]*$";
-
 /**
  * Delivery scope of a `waitFor` signal: `instance` (default) can only be resumed
  * by direct delivery (signal ID or run + step), `broadcast` additionally by
@@ -227,7 +224,7 @@ export const DagCaseStepSchema = Type.Object(
 export const DagWaitForStepSchema = Type.Object(
   {
     type: Type.Literal("waitFor"),
-    event: Type.String({ minLength: 1, maxLength: 128, pattern: EventNamePattern }),
+    event: Type.String({ minLength: 1, maxLength: 128, pattern: EVENT_NAME_PATTERN }),
     timeout: Type.Optional(Type.Integer({ minimum: 1000, maximum: 604800000 })),
     inputSchema: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
     scope: Type.Optional(SignalScopeSchema),
@@ -285,7 +282,8 @@ export const DagHumanTaskStepSchema = Type.Object(
 export const DagEmitStepSchema = Type.Object(
   {
     type: Type.Literal("emit"),
-    event: Type.String({ minLength: 1, maxLength: 128, pattern: EventNamePattern }),
+    // Templates allowed (e.g. a name set once in a variables step); the handler checks the resolved name.
+    event: Type.String({ minLength: 1, pattern: EMIT_EVENT_PATTERN }),
     payload: Type.Optional(Type.String()),
     correlate: Type.Optional(CorrelateSchema),
     targetRun: Type.Optional(Type.String({ minLength: 1 })),
