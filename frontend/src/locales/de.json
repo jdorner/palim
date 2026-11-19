@@ -839,7 +839,8 @@
     "urlDecode": "Dekodiert einen URL-kodierten Text.",
     "urlEncode": "Kodiert einen Text für die Verwendung in einer URL.",
     "values": "Die Feldwerte eines Objekts.",
-    "weekday": "Wochentag: 1 (Montag) bis 7 (Sonntag)."
+    "weekday": "Wochentag: 1 (Montag) bis 7 (Sonntag).",
+    "where": "Die Elemente, deren Feld dem Wert entspricht, z. B. count(where(rows, \"status\", \"paid\"))."
   },
   "templateFunctionCategories": {
     "math": "Mathe",

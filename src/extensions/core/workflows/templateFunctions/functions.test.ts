@@ -129,6 +129,26 @@ describe("list", () => {
     expect(ev("slice([1, 2, 3, 4], 1, -1)")).toEqual([2, 3]);
   });
 
+  test("where keeps the elements whose field equals the value", () => {
+    const tickets = [
+      { id: 1, category: "bug", urgent: true },
+      { id: 2, category: "question" },
+      { id: 3, category: "bug", urgent: false },
+      { id: 4, category: null },
+      "not an object",
+    ];
+    expect(ev('pluck(where(tickets, "category", "bug"), "id")', { tickets })).toEqual([1, 3]);
+    expect(ev('count(where(tickets, "category", "bug"))', { tickets })).toBe(2);
+    expect(ev('count(where(tickets, "category", "feature"))', { tickets })).toBe(0);
+    expect(ev('pluck(where(tickets, "urgent", true), "id")', { tickets })).toEqual([1]);
+    // A missing field matches only null.
+    expect(ev('pluck(where(tickets, "urgent", null), "id")', { tickets })).toEqual([2, 4, null]);
+    // Strict comparison: a string does not match a number.
+    expect(ev('count(where(tickets, "id", "1"))', { tickets })).toBe(0);
+    expect(ev('sum(where(rows, "name", "a"), "price")', { rows })).toBe(10);
+    expect(ev('where("x", "a", 1)')).toEqual([]);
+  });
+
   test("keys, values, range", () => {
     expect(ev("keys(o)", { o: { a: 1, b: 2 } })).toEqual(["a", "b"]);
     expect(ev("values(o)", { o: { a: 1, b: 2 } })).toEqual([1, 2]);
@@ -143,6 +163,8 @@ describe("list", () => {
     expect(ev("first(pluck(rows, key))", { rows, key })).toBeNull();
     expect(ev("sort(rows, key)", { rows, key })).toEqual(rows);
     expect(ev('pluck([[1, 2]], "length")')).toEqual([2]);
+    // An inherited field counts as missing, so every row matches null.
+    expect(ev("count(where(rows, key, null))", { rows, key })).toBe(3);
   });
 });
 

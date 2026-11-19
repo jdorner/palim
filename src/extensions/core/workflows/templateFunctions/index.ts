@@ -49,7 +49,23 @@ import {
   urlDecode,
   urlEncode,
 } from "./encoding";
-import { at, avg, count, first, keys, last, pluck, range, reverse, slice, sort, sum, unique, values } from "./list";
+import {
+  at,
+  avg,
+  count,
+  first,
+  keys,
+  last,
+  pluck,
+  range,
+  reverse,
+  slice,
+  sort,
+  sum,
+  unique,
+  values,
+  where,
+} from "./list";
 import { between, choose, ifFn, isEmpty, isNumber } from "./logic";
 import { abs, ceil, clamp, floor, formatNumber, int, max, min, num, round } from "./math";
 import {
@@ -131,6 +147,7 @@ export const TEMPLATE_FUNCTIONS: Record<string, (...args: unknown[]) => unknown>
   sum,
   avg,
   pluck,
+  where,
   unique,
   sort,
   reverse,
