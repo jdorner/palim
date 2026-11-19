@@ -97,6 +97,24 @@ export function pluck(list: unknown, key: unknown): unknown[] {
 }
 
 /**
+ * The elements whose field equals a value (`where(rows, "status", "paid")`).
+ * Combine it with `count` or `sum` to count or total per category without an
+ * agent: `count(where(rows, "category", "bug"))`.
+ *
+ * Values are compared strictly, so `"1"` does not match `1`. An element
+ * without the field matches only `null`.
+ *
+ * @param list - A list of objects
+ * @param key - The field to compare
+ * @param value - The value the field must equal
+ * @returns The matching elements in their original order
+ */
+export function where(list: unknown, key: unknown, value: unknown): unknown[] {
+  const wanted = value ?? null;
+  return toList(list).filter((item) => (ownProp(item, key) ?? null) === wanted);
+}
+
+/**
  * The list without duplicates (compared by value, first occurrence kept).
  *
  * @param list - The list

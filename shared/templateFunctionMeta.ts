@@ -300,6 +300,13 @@ export const TEMPLATE_FUNCTION_META: readonly TemplateFunctionMeta[] = [
     returnType: "list",
   },
   {
+    name: "where",
+    category: "list",
+    signature: "where(list, key, value)",
+    description: 'The elements whose field equals the value, e.g. count(where(rows, "status", "paid")).',
+    returnType: "list",
+  },
+  {
     name: "unique",
     category: "list",
     signature: "unique(list)",

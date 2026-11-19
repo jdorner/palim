@@ -29,6 +29,13 @@ export interface ScenarioExpectations {
    * hint that accepts `null`. Omit when no field may be empty.
    */
   nullableFields?: string[];
+  /**
+   * Whether the workflow reports counts or totals over a loop's items. They
+   * must come from template functions (`count`, `sum`, `where`) after the
+   * loop, so the `count` check fails when an agent step reads the aggregated
+   * results.
+   */
+  countWithFunctions?: boolean;
 }
 
 /** One eval scenario. */
@@ -70,10 +77,15 @@ export const SCENARIOS: readonly Scenario[] = [
       'It fetches the unread mails from the INBOX with the imap-fetch step (authType "account", account "gmail"), including the mail body, at most 50 mails.',
       'It decides for each mail whether it is an "invoice", an "ad" or "other".',
       "It does not change the mailbox.",
-      'At the end it sends one notification with the notify-ntfy step to the topic "mail-report" that says how many mails were classified.',
+      'At the end it sends one notification with the notify-ntfy step to the topic "mail-report" that says how many mails were classified as invoice, as ad and as other.',
       NO_QUESTIONS,
     ].join(" "),
-    checks: { loop: "required", stepTypes: ["imap-fetch", "notify-ntfy"], structuredHandoff: true },
+    checks: {
+      loop: "required",
+      stepTypes: ["imap-fetch", "notify-ntfy"],
+      structuredHandoff: true,
+      countWithFunctions: true,
+    },
   },
   {
     name: "folder-files",
@@ -88,6 +100,7 @@ export const SCENARIOS: readonly Scenario[] = [
       loop: "required",
       stepTypes: ["imap-attachments", "convert", "datatable-insert"],
       structuredHandoff: true,
+      countWithFunctions: true,
     },
   },
   {

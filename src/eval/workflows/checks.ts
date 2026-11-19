@@ -40,6 +40,11 @@ export const CHECKS = [
     label: "nullable",
     description: 'every result field the scenario says may be empty has the hint "any" in an agent outputSchema',
   },
+  {
+    id: "count",
+    label: "count",
+    description: "no agent step reads a loop's aggregated results (counts and totals use template functions)",
+  },
   { id: "warnings", label: "no-warn", description: "the analyzer reports zero warnings" },
   { id: "types", label: "types", description: "every step type used is registered" },
 ] as const;
@@ -165,6 +170,28 @@ export function agentStepsMissingSchema(definition: unknown): string[] {
 }
 
 /**
+ * Finds the agent steps that read an aggregator's result, i.e. that are handed
+ * all items of a loop at once. For a report of counts or totals that is the
+ * LLM doing arithmetic; template functions (`count`, `sum`, `where`) do it
+ * exactly.
+ *
+ * @param definition - The parsed workflow file
+ * @returns The slugs of those agent steps
+ */
+export function agentStepsReadingAggregates(definition: unknown): string[] {
+  const steps = stepsOf(definition);
+  const aggregators = Object.keys(steps).filter((slug) => steps[slug]!.type === "aggregator");
+  const found: string[] = [];
+  for (const [slug, step] of Object.entries(steps)) {
+    if (step.type !== "agent") continue;
+    const strings: string[] = [];
+    collectStrings(step, strings);
+    if (aggregators.some((agg) => strings.some((s) => referencesResult(s, agg)))) found.push(slug);
+  }
+  return found;
+}
+
+/**
  * Finds config fields that a step sets although its step type's config schema
  * does not declare them (for example `search.unseen` on `imap-fetch`, whose
  * field is `seen`). Step types without a config schema are skipped. The rule
@@ -283,6 +310,7 @@ export function evaluateChecks(facts: RunFacts, expected: ScenarioExpectations):
   const applies = (applicable: boolean, passed: boolean): boolean | null => (applicable ? passed : null);
   const wantsSteps = (expected.stepTypes?.length ?? 0) > 0;
   const wantsNullable = (expected.nullableFields?.length ?? 0) > 0;
+  const wantsCount = expected.countWithFunctions === true;
 
   if (facts.definition === null || facts.definition === undefined) {
     return {
@@ -295,6 +323,7 @@ export function evaluateChecks(facts: RunFacts, expected: ScenarioExpectations):
       config: false,
       prompt: false,
       nullable: applies(wantsNullable, false),
+      count: applies(wantsCount, false),
       warnings: false,
       types: false,
     };
@@ -320,6 +349,7 @@ export function evaluateChecks(facts: RunFacts, expected: ScenarioExpectations):
       wantsNullable,
       nullableFieldsNotAny(facts.definition, expected.nullableFields ?? []).length === 0,
     ),
+    count: applies(wantsCount, agentStepsReadingAggregates(facts.definition).length === 0),
     warnings: valid && facts.warningCount === 0,
     types: usedTypes.size > 0 && [...usedTypes].every((type) => facts.stepTypes.has(type)),
   };

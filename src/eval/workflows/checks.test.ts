@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   agentPromptsWithFormat,
   agentStepsMissingSchema,
+  agentStepsReadingAggregates,
   evaluateChecks,
   hasAgentInLoop,
   nullableFieldsNotAny,
@@ -228,6 +229,43 @@ describe("nullableFieldsNotAny", () => {
   });
 });
 
+describe("agentStepsReadingAggregates", () => {
+  /** LOOP with an agent after the loop that is handed all results, e.g. to count them. */
+  const agentCounts = {
+    ...LOOP,
+    steps: {
+      ...LOOP.steps,
+      summarize: { type: "agent", prompt: ["Count the labels:", "{{steps.each-mail-done.result.results}}"] },
+    },
+  };
+
+  test("finds an agent step that reads an aggregator's result", () => {
+    expect(agentStepsReadingAggregates(agentCounts)).toEqual(["summarize"]);
+  });
+
+  test("passes counts computed with template functions", () => {
+    const withFunctions = {
+      ...LOOP,
+      steps: {
+        ...LOOP.steps,
+        notify: {
+          type: "notify-ntfy",
+          message:
+            'Invoices: {{ count(where(pluck(steps.each-mail-done.result.results, "classify"), "label", "invoice")) }}',
+        },
+      },
+    };
+    expect(agentStepsReadingAggregates(withFunctions)).toEqual([]);
+    expect(agentStepsReadingAggregates(LOOP)).toEqual([]);
+  });
+
+  test("applies only when the scenario reports counts", () => {
+    expect(evaluateChecks(facts(agentCounts), { ...LOOP_EXPECTED, countWithFunctions: true }).count).toBe(false);
+    expect(evaluateChecks(facts(LOOP), { ...LOOP_EXPECTED, countWithFunctions: true }).count).toBe(true);
+    expect(evaluateChecks(facts(agentCounts), LOOP_EXPECTED).count).toBeNull();
+  });
+});
+
 describe("evaluateChecks", () => {
   test("fails prompt for a format instruction, and skips it without an agent schema", () => {
     const withFormat = {
@@ -274,6 +312,7 @@ describe("evaluateChecks", () => {
       config: true,
       prompt: true,
       nullable: null,
+      count: null,
       warnings: true,
       types: true,
     });
@@ -325,6 +364,7 @@ describe("evaluateChecks", () => {
       config: false,
       prompt: false,
       nullable: null,
+      count: null,
       warnings: false,
       types: false,
     });

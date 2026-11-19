@@ -29,6 +29,8 @@ Follow these steps in order when you create or change a workflow.
 
 Use an `agent` step only for open-ended work: summarizing, classifying, free-form extraction, drafting text. Everything else ("convert / fetch / move / transform", "call this API", "branch on a value", "loop over a list") gets a non-agent step type: built-in `http-request`, `set-variables`, `if`, `case`, `iterator`/`aggregator`, `fail`, `emit`, `waitFor`, plus what extensions add (e.g. `convert`, `datatable-*`). A deployment may also have step types that run shell commands or skill programs directly; check `workflow step-types` before defaulting to `agent`.
 
+Counting and adding up are not open-ended work either. A report like "3 invoices, 5 ads" or a total amount comes from template functions on the loop results (see "Counting and totals"), never from an agent that is handed all results: an LLM miscounts.
+
 ## JSON5 schema
 
 ```json5
@@ -213,6 +215,27 @@ Notes:
 - **Security:** `constructor`, `prototype`, `__proto__`, and any `__dunder__` key are refused. Only `trigger`, `steps`, `var`, the iterator alias, and `itemIndex` are reachable; `secret`/`env` are resolved separately and unreachable from function expressions.
 - An unknown function or failed evaluation is left literal (`{{...}}`) with a warning — it never throws.
 
+### Counting and totals
+
+After a loop, `{{steps.<aggregator>.result.results}}` holds one entry per item, keyed by body step slug. Count and add up with functions on it:
+
+- `pluck(list, "key")`: one field of every entry, e.g. the result of the body step `classify`.
+- `where(list, "key", value)`: only the entries whose field equals the value.
+- `count(list)`, `sum(list, "key")`: the number of entries, or the total of a numeric field.
+
+```json5
+// The loop body step "classify" returns { "category": "invoice" | "ad" | "other" }:
+"message": "Invoices: {{ count(where(pluck(steps.each-mail-done.result.results, 'classify'), 'category', 'invoice')) }}, ads: {{ count(where(pluck(steps.each-mail-done.result.results, 'classify'), 'category', 'ad')) }}"
+// The body step "set-label" returns { "changed": <number> }; the total over all items:
+"message": "{{ sum(pluck(steps.each-mail-done.result.results, 'set-label'), 'changed') }} labels changed"
+```
+
+Inside a `"..."` value, write the function arguments in single quotes, as above; they need no escaping.
+
+- `where` compares exactly (`"Invoice"` does not match `"invoice"`, `"1"` does not match `1`). The categories are part of the task, so the prompt names them as written in `where`: "Decide whether this mail is an invoice, an ad, or other." It still says nothing about the answer format (checklist step 5).
+- `{{steps.<aggregator>.result.totalItems}}` is the number of items; no function is needed for it.
+- An entry lacks the key of a body step that did not run for that item (a branch that was not taken). `pluck` gives `null` there, which `where` and `sum` skip.
+
 ### Accessing secrets
 
 Use `{{secret.<KEY>}}` to inject credentials without hardcoding them (see the prompt example above). The secret is decrypted only at run time, checked against its ACL, and every access is logged. The workflow's identity (`workflow:<name>`) must be listed in the secret's ACL consumers (set in the web UI). If access is denied, the template resolves to an empty string and a warning is logged.
@@ -394,7 +417,7 @@ The payload: `{{trigger.payload.file.path}}` (uploaded file, relative to WORK_DI
 
 ### Loop over a list
 
-One pass per ticket: classify it, label it, then report the count.
+One pass per ticket: classify it, label it, then report the count per category.
 
 ```json5
 {
@@ -425,7 +448,7 @@ One pass per ticket: classify it, label it, then report the count.
     "report": {
       "type": "http-request",
       "url": "https://chat.example.com/hooks/team",
-      "body": "{\"text\": \"Labelled {{steps.each-ticket-done.result.totalItems}} tickets.\"}",
+      "body": "{\"text\": \"Labelled {{steps.each-ticket-done.result.totalItems}} tickets: {{ count(where(pluck(steps.each-ticket-done.result.results, 'classify'), 'category', 'bug')) }} bugs, {{ count(where(pluck(steps.each-ticket-done.result.results, 'classify'), 'category', 'question')) }} questions.\"}",
     },
   },
   "edges": [
