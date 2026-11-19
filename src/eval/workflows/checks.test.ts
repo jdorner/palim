@@ -1,8 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  agentPromptsWithFormat,
   agentStepsMissingSchema,
   evaluateChecks,
   hasAgentInLoop,
+  nullableFieldsNotAny,
   type RunFacts,
   undeclaredConfigFields,
 } from "./checks";
@@ -183,7 +185,72 @@ describe("undeclaredConfigFields", () => {
   });
 });
 
+describe("agentPromptsWithFormat", () => {
+  /** A one-step workflow with an agent step of the given prompt and schema. */
+  const agent = (prompt: unknown, outputSchema: unknown = { label: "string", reason: "string" }) => ({
+    steps: { classify: { type: "agent", prompt, outputSchema } },
+  });
+
+  test("reports a prompt that asks for JSON or a format, also as a list of lines", () => {
+    expect(agentPromptsWithFormat(agent("Classify it. Return only the JSON."))).toEqual(["classify"]);
+    expect(agentPromptsWithFormat(agent(["Classify it.", "Respond with the label."]))).toEqual(["classify"]);
+    expect(agentPromptsWithFormat(agent("Answer in the following format: label, reason"))).toEqual(["classify"]);
+  });
+
+  test("reports a prompt that spells out a schema field as a key", () => {
+    expect(agentPromptsWithFormat(agent('Classify it.\n{ "label": "invoice" | "ad" }'))).toEqual(["classify"]);
+  });
+
+  test("accepts a prompt that only states the task, and agent steps without a schema", () => {
+    expect(agentPromptsWithFormat(agent("Decide whether {{mail.subject}} is an invoice or an ad, and why."))).toEqual(
+      [],
+    );
+    expect(agentPromptsWithFormat(agent("Return only the JSON.", null))).toEqual([]);
+    expect(agentPromptsWithFormat({ steps: { n: { type: "notify-ntfy", message: "JSON" } } })).toEqual([]);
+  });
+});
+
+describe("nullableFieldsNotAny", () => {
+  const def = {
+    steps: {
+      a: { type: "agent", prompt: "x", outputSchema: { category: "any", invoiceNumber: "string" } },
+      b: { type: "noop", outputSchema: { invoiceNumber: "any" } },
+    },
+  };
+
+  test('reports fields that are missing or not "any", only reading agent steps', () => {
+    expect(nullableFieldsNotAny(def, ["category", "invoiceNumber", "total"])).toEqual(["invoiceNumber", "total"]);
+  });
+
+  test("accepts a field that one of several agent steps declares as any", () => {
+    const two = { steps: { ...def.steps, c: { type: "agent", prompt: "y", outputSchema: { invoiceNumber: "any" } } } };
+    expect(nullableFieldsNotAny(two, ["category", "invoiceNumber"])).toEqual([]);
+  });
+});
+
 describe("evaluateChecks", () => {
+  test("fails prompt for a format instruction, and skips it without an agent schema", () => {
+    const withFormat = {
+      ...LOOP,
+      steps: {
+        ...LOOP.steps,
+        classify: { type: "agent", prompt: "Classify. Respond with JSON.", outputSchema: { label: "string" } },
+      },
+    };
+    expect(evaluateChecks(facts(withFormat), LOOP_EXPECTED).prompt).toBe(false);
+    expect(evaluateChecks(facts(FLAT), NO_LOOP).prompt).toBeNull();
+  });
+
+  test("checks nullable fields only when the scenario names some", () => {
+    const expected = { ...LOOP_EXPECTED, nullableFields: ["label"] };
+    expect(evaluateChecks(facts(LOOP), expected).nullable).toBe(false);
+    const anyLabel = {
+      ...LOOP,
+      steps: { ...LOOP.steps, classify: { type: "agent", prompt: "Classify", outputSchema: { label: "any" } } },
+    };
+    expect(evaluateChecks(facts(anyLabel), expected).nullable).toBe(true);
+  });
+
   test("fails draft when the workflow is not a draft", () => {
     expect(evaluateChecks(facts({ ...LOOP, draft: false }), LOOP_EXPECTED).draft).toBe(false);
     expect(evaluateChecks(facts({ ...LOOP, draft: undefined }), LOOP_EXPECTED).draft).toBe(false);
@@ -205,6 +272,8 @@ describe("evaluateChecks", () => {
       steps: true,
       schema: true,
       config: true,
+      prompt: true,
+      nullable: null,
       warnings: true,
       types: true,
     });
@@ -254,6 +323,8 @@ describe("evaluateChecks", () => {
       steps: false,
       schema: false,
       config: false,
+      prompt: false,
+      nullable: null,
       warnings: false,
       types: false,
     });

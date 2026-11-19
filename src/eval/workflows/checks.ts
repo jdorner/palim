@@ -29,6 +29,17 @@ export const CHECKS = [
     label: "config",
     description: "no step sets a config field its step type does not declare",
   },
+  {
+    id: "prompt",
+    label: "prompt",
+    description:
+      "no agent step with an outputSchema describes the answer shape in its prompt (the engine adds it from the schema)",
+  },
+  {
+    id: "nullable",
+    label: "nullable",
+    description: 'every result field the scenario says may be empty has the hint "any" in an agent outputSchema',
+  },
   { id: "warnings", label: "no-warn", description: "the analyzer reports zero warnings" },
   { id: "types", label: "types", description: "every step type used is registered" },
 ] as const;
@@ -174,6 +185,76 @@ export function undeclaredConfigFields(definition: unknown, stepTypes: ReadonlyM
   return found;
 }
 
+/** Phrases that ask for an answer format, which the engine already adds from `outputSchema`. */
+const FORMAT_INSTRUCTION =
+  /\bjson\b|\b(respond|reply|answer)\s+(only\s+)?with\b|\b(in|use)\s+(this|the following)\s+(format|structure)\b/i;
+
+/**
+ * Reads a step's prompt as one text (a prompt may be a list of lines).
+ *
+ * @param step - The step
+ * @returns The prompt text, or "" when there is none
+ */
+function promptText(step: LooseStep): string {
+  if (typeof step.prompt === "string") return step.prompt;
+  return Array.isArray(step.prompt) ? step.prompt.filter((l) => typeof l === "string").join("\n") : "";
+}
+
+/**
+ * Finds the agent steps with an `outputSchema` whose prompt still describes
+ * the answer shape: asks for JSON, says "respond with" or "in this format",
+ * or spells out a schema field as a JSON key (`"label":`). The engine adds the
+ * shape from the schema, and a second description in the prompt can
+ * contradict it (e.g. allow `null` where the schema says `"string"`).
+ *
+ * @param definition - The parsed workflow file
+ * @returns The slugs of those agent steps
+ */
+export function agentPromptsWithFormat(definition: unknown): string[] {
+  const found: string[] = [];
+  for (const [slug, step] of Object.entries(stepsOf(definition))) {
+    const schema = step.outputSchema;
+    if (step.type !== "agent" || schema === null || typeof schema !== "object") continue;
+    const prompt = promptText(step);
+    const spellsOutField = Object.keys(schema).some(
+      (key) => prompt.includes(`"${key}":`) || prompt.includes(`'${key}':`),
+    );
+    if (FORMAT_INSTRUCTION.test(prompt) || spellsOutField) found.push(slug);
+  }
+  return found;
+}
+
+/**
+ * Tells whether any agent step has an `outputSchema` object.
+ *
+ * @param definition - The parsed workflow file
+ * @returns True when at least one agent step declares a result shape
+ */
+function hasAgentSchema(definition: unknown): boolean {
+  return Object.values(stepsOf(definition)).some(
+    (step) => step.type === "agent" && step.outputSchema !== null && typeof step.outputSchema === "object",
+  );
+}
+
+/**
+ * Finds the result fields that may be empty but are not declared with the
+ * hint `"any"` (the only hint that accepts `null`). A field counts as declared
+ * when a top-level key of some agent step's `outputSchema` has its name.
+ *
+ * @param definition - The parsed workflow file
+ * @param fields - Field names the scenario says may be empty
+ * @returns The fields that are missing or have another hint
+ */
+export function nullableFieldsNotAny(definition: unknown, fields: readonly string[]): string[] {
+  const hints = new Map<string, unknown>();
+  for (const step of Object.values(stepsOf(definition))) {
+    const schema = step.outputSchema;
+    if (step.type !== "agent" || schema === null || typeof schema !== "object") continue;
+    for (const [key, hint] of Object.entries(schema)) if (!hints.has(key) || hint === "any") hints.set(key, hint);
+  }
+  return fields.filter((field) => hints.get(field) !== "any");
+}
+
 /**
  * Tells whether at least one `agent` step lies inside an iterator body.
  *
@@ -201,6 +282,7 @@ export function hasAgentInLoop(definition: unknown): boolean {
 export function evaluateChecks(facts: RunFacts, expected: ScenarioExpectations): CheckResults {
   const applies = (applicable: boolean, passed: boolean): boolean | null => (applicable ? passed : null);
   const wantsSteps = (expected.stepTypes?.length ?? 0) > 0;
+  const wantsNullable = (expected.nullableFields?.length ?? 0) > 0;
 
   if (facts.definition === null || facts.definition === undefined) {
     return {
@@ -211,6 +293,8 @@ export function evaluateChecks(facts: RunFacts, expected: ScenarioExpectations):
       steps: applies(wantsSteps, false),
       schema: applies(expected.structuredHandoff, false),
       config: false,
+      prompt: false,
+      nullable: applies(wantsNullable, false),
       warnings: false,
       types: false,
     };
@@ -231,6 +315,11 @@ export function evaluateChecks(facts: RunFacts, expected: ScenarioExpectations):
     ),
     schema: applies(expected.structuredHandoff, agentStepsMissingSchema(facts.definition).length === 0),
     config: undeclaredConfigFields(facts.definition, facts.stepTypes).length === 0,
+    prompt: applies(hasAgentSchema(facts.definition), agentPromptsWithFormat(facts.definition).length === 0),
+    nullable: applies(
+      wantsNullable,
+      nullableFieldsNotAny(facts.definition, expected.nullableFields ?? []).length === 0,
+    ),
     warnings: valid && facts.warningCount === 0,
     types: usedTypes.size > 0 && [...usedTypes].every((type) => facts.stepTypes.has(type)),
   };

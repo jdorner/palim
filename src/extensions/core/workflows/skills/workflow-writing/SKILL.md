@@ -18,7 +18,7 @@ Follow these steps in order when you create or change a workflow.
 2. **Prefer deterministic steps.** Pick the most deterministic type for each step (see below). Use `agent` only for work that needs an LLM.
 3. **Missing capability.** If no step type can do an action the user asked for, say so and ask how to proceed. The same holds for a filter: if no step's config field can select what the user asked for (for example only mails with a certain label), say so instead of dropping the filter or leaving it to an `agent` prompt. Never write an `agent` step that is told to use a tool, API or CLI you have not seen in `workflow step-types` or in a skill.
 4. **One item at a time.** If a step returns a list and each item needs its own work, write the steps for one item, then wrap them in a loop with `workflow add-loop` (see "Loops" below). Do not put the whole list into one `agent` prompt, unless the step must see all items at once (for example one summary of all).
-5. **Structured hand-offs.** Every `agent` step whose result another step uses gets an `outputSchema`.
+5. **Structured hand-offs.** Every `agent` step whose result another step uses gets an `outputSchema`. The engine tells the agent the answer shape from it, so the prompt states only the task (what to decide or extract). Never ask for JSON, list the result keys, or show an example answer in the prompt: a second description can contradict the schema. A field that may be empty (no category, no invoice number) gets the hint `"any"`, and the prompt does not say how to write "empty".
 6. **Trigger ref first.** A `webhook`, `schedule` or `filewatcher` trigger needs its webhook, schedule or watcher to exist before the workflow: `webhook create ...`, `schedule create "<id>" "<name>" -p "0 9 * * *" --tz "Europe/Berlin"`, or the `filewatcher` skill.
 7. **Approval.** Ask for permission before you change the system. Show the plan first.
 8. **Write as a draft.** A new workflow is always written with `--draft`: `workflow write --draft "<name>" '<json5>'`. If validation fails, fix the reported problem and write again.
@@ -143,11 +143,11 @@ The `prompt` field accepts either a single string or an array of strings. Arrays
   "Then fetch the latest commits from the API:",
   "web fetch -H \"Authorization: Bearer {{secret.GITEA_API_TOKEN}}\" \"https://git.example.com/api/v1/repos/user/repo/commits?limit=10\"",
   "",
-  "Return your results in this format:",
-  "- sha: <short sha>",
-  "  message: <commit message>",
+  "Summarize what changed in one short paragraph.",
 ]
 ```
+
+With an `outputSchema`, the prompt says what to decide or extract, never how to format the answer (see checklist step 5).
 
 ## Tools and skills per step
 
@@ -245,7 +245,7 @@ The payload is available as `{{trigger.payload}}`. A JSON body is parsed, so fie
 }
 ```
 
-The same `outputSchema` field on a step describes its result. On an `http-request` (or other custom) step it replaces the handler's schema, so include `status` and `body`. On an `agent` step it makes the agent answer with a JSON object of that shape, so later steps can read `{{steps.<slug>.result.<field>}}`. Do not ask for JSON in the prompt. A field that may be empty needs the hint `"any"`.
+The same `outputSchema` field on a step describes its result. On an `http-request` (or other custom) step it replaces the handler's schema, so include `status` and `body`. On an `agent` step it makes the agent answer with a JSON object of that shape, so later steps can read `{{steps.<slug>.result.<field>}}` (prompt and empty fields: see checklist step 5).
 
 Create the ref first: the workflow does not start while `trigger.ref` matches nothing.
 
