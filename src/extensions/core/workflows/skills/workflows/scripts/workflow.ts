@@ -2,7 +2,7 @@
  * Registers the `workflow` shell command for managing workflow JSON5 definitions.
  *
  * Subcommands: list, step-types, read, outline, write (`--draft`, `--file`), set-step, remove-step,
- * add-edge, remove-edge, set-meta, add-loop, validate, delete, trigger, runs, logs, cancel
+ * add-edge, remove-edge, set-meta, add-loop, validate, delete, trigger, runs, logs, wait, cancel
  */
 
 import {
@@ -79,9 +79,10 @@ const BRANCH_OPTION = {
  * booting the full extension system.
  *
  * @param scriptCtx - Skill script context providing the extension base URL and authenticated fetch
+ * @param waitOptions - Timing of `workflow wait`
  * @returns A command handler suitable for `registerProgram()`
  */
-export function buildWorkflowCommand(scriptCtx: SkillScriptContext) {
+export function buildWorkflowCommand(scriptCtx: SkillScriptContext, waitOptions: WaitOptions = DEFAULT_WAIT_OPTIONS) {
   return createCommand({
     name: "workflow",
     description: "Manage workflow pipeline JSON5 definitions.",
@@ -237,6 +238,19 @@ export function buildWorkflowCommand(scriptCtx: SkillScriptContext) {
         description: "Show per-step execution details and logs for a workflow run",
         args: [{ name: "run-id", description: "Workflow run ID" }],
         handler: buildLogsHandler(scriptCtx),
+      },
+      {
+        name: "wait",
+        description:
+          "Wait until a run completes, fails, or waits for input, then show its per-step logs (instead of polling runs/logs)",
+        args: [{ name: "run-id", description: "Workflow run ID" }],
+        options: [
+          {
+            name: "timeout",
+            description: `Give up after this many seconds (default ${DEFAULT_WAIT_SECONDS}, at most ${MAX_WAIT_SECONDS})`,
+          },
+        ],
+        handler: buildWaitHandler(scriptCtx, waitOptions),
       },
       {
         name: "cancel",
@@ -1347,31 +1361,154 @@ function buildRunsHandler(scriptCtx: SkillScriptContext) {
   };
 }
 
+/**
+ * Fetches a run's per-step logs and renders them as `workflow logs` prints them.
+ *
+ * @param scriptCtx - Skill script context
+ * @param runId - The run ID
+ * @returns The rendered logs, or `null` when the run does not exist
+ * @throws When the server cannot be reached
+ */
+async function fetchRunLogsText(scriptCtx: SkillScriptContext, runId: string): Promise<string | null> {
+  const resp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/runs/${encodeURIComponent(runId)}/logs`);
+  if (!resp.ok) return null;
+  const result = (await resp.json()) as WorkflowRunLogsResponse;
+  const lines: string[] = [`Run: ${result.runId}`];
+  for (const step of result.steps) {
+    lines.push(`\n── ${step.slug} (${step.type}) [${step.status}]`);
+    if (step.logs.length > 0) {
+      for (const log of step.logs) {
+        const text = typeof log === "string" ? log : JSON.stringify(log);
+        lines.push(`   ${text.replace("[info] ", "")}`);
+      }
+    } else {
+      lines.push("   (no logs)");
+    }
+  }
+  return lines.join("\n");
+}
+
 function buildLogsHandler(scriptCtx: SkillScriptContext) {
   return async (_ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
     const runId = args.get("run-id");
+    try {
+      const text = await fetchRunLogsText(scriptCtx, runId);
+      if (text === null) return { exitCode: 1, stdout: "", stderr: `Error: Run "${runId}" not found` };
+      return { exitCode: 0, stdout: text, stderr: "" };
+    } catch (err) {
+      return { exitCode: 1, stdout: "", stderr: formatFetchError(err as Error) };
+    }
+  };
+}
+
+/** How long `workflow wait` waits when `--timeout` is not given, in seconds. */
+const DEFAULT_WAIT_SECONDS = 300;
+
+/** The longest `--timeout` `workflow wait` accepts, in seconds. */
+const MAX_WAIT_SECONDS = 1800;
+
+/** Timing of `workflow wait`; tests shorten the poll interval. */
+export interface WaitOptions {
+  /** Pause between two status checks, in milliseconds. */
+  pollIntervalMs: number;
+}
+
+const DEFAULT_WAIT_OPTIONS: WaitOptions = { pollIntervalMs: 2000 };
+
+/**
+ * Sleeps for a while, ending early when the signal aborts.
+ *
+ * @param ms - How long to sleep
+ * @param signal - Aborts the sleep (the command was cancelled)
+ */
+function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) return resolve();
+    const timer = setTimeout(done, ms);
+    function done() {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", done);
+      resolve();
+    }
+    signal?.addEventListener("abort", done, { once: true });
+  });
+}
+
+/**
+ * Describes what each step that waits for input waits for.
+ *
+ * @param run - The run, as `GET /runs/:runId` describes it
+ * @returns One line per waiting step
+ */
+function describeWaitingSteps(run: WorkflowRunResponse): string[] {
+  return run.steps
+    .filter((s) => s.status === "waiting-signal")
+    .map((s) => {
+      if (s.humanTask) {
+        const who = [...s.humanTask.assignees.users, ...s.humanTask.assignees.roles.map((r) => `role ${r}`)];
+        const assignees = who.length > 0 ? ` assigned to ${who.join(", ")}` : "";
+        return `  ${s.slug}: human task "${s.humanTask.title}"${assignees} (answered in the portal)`;
+      }
+      return `  ${s.slug}: signal "${s.waitEvent ?? "?"}"`;
+    });
+}
+
+function buildWaitHandler(scriptCtx: SkillScriptContext, options: WaitOptions) {
+  return async (ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
+    const runId = args.get("run-id");
+    const timeoutRaw = args.option("timeout");
+    const timeoutSeconds = timeoutRaw ? Number(timeoutRaw) : DEFAULT_WAIT_SECONDS;
+    if (!Number.isFinite(timeoutSeconds) || timeoutSeconds <= 0 || timeoutSeconds > MAX_WAIT_SECONDS) {
+      return {
+        exitCode: 1,
+        stdout: "",
+        stderr: `Error: --timeout must be a number of seconds above 0 and at most ${MAX_WAIT_SECONDS}`,
+      };
+    }
+    const deadline = Date.now() + timeoutSeconds * 1000;
+    const signal = (ctx as { signal?: AbortSignal }).signal;
 
     try {
-      const resp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/runs/${runId}/logs`);
-      const result = (await resp.json()) as WorkflowRunLogsResponse;
+      for (;;) {
+        const resp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/runs/${encodeURIComponent(runId)}`);
+        if (resp.status === 404) return { exitCode: 1, stdout: "", stderr: `Error: Run "${runId}" not found` };
+        if (!resp.ok) return { exitCode: 1, stdout: "", stderr: `Error: HTTP ${resp.status} reading run "${runId}"` };
+        const run = (await resp.json()) as WorkflowRunResponse;
 
-      if (!resp.ok) {
-        return { exitCode: 1, stdout: "", stderr: `Error: Run "${runId}" not found` };
-      }
-
-      const lines: string[] = [`Run: ${result.runId}`];
-      for (const step of result.steps) {
-        lines.push(`\n── ${step.slug} (${step.type}) [${step.status}]`);
-        if (step.logs.length > 0) {
-          for (const log of step.logs) {
-            const text = typeof log === "string" ? log : JSON.stringify(log);
-            lines.push(`   ${text.replace("[info] ", "")}`);
-          }
-        } else {
-          lines.push("   (no logs)");
+        if (run.status === "completed" || run.status === "failed") {
+          const logs = (await fetchRunLogsText(scriptCtx, runId)) ?? "";
+          const reason = run.failureReason ? `\nReason: ${run.failureReason}` : "";
+          return {
+            exitCode: run.status === "completed" ? 0 : 1,
+            stdout: `Run ${runId} of "${run.workflowName}" ${run.status}.${reason}\n\n${logs}`,
+            stderr: "",
+          };
         }
+
+        if (run.status === "waiting-signal") {
+          const waiting = describeWaitingSteps(run);
+          return {
+            exitCode: 0,
+            stdout: [
+              `Run ${runId} of "${run.workflowName}" is waiting for input; it continues when that arrives:`,
+              ...waiting,
+              "",
+              `Run \`workflow wait "${runId}"\` again once it has arrived, or \`workflow logs "${runId}"\` for the steps so far.`,
+            ].join("\n"),
+            stderr: "",
+          };
+        }
+
+        if (signal?.aborted || Date.now() + options.pollIntervalMs > deadline) {
+          const steps = run.steps.map((s) => `  ${s.slug} [${s.status}]`).join("\n");
+          return {
+            exitCode: 1,
+            stdout: `Run ${runId} of "${run.workflowName}" is still ${run.status} after ${timeoutSeconds}s:\n${steps}\n\nRun \`workflow wait "${runId}"\` again to keep waiting, or \`workflow cancel "${runId}"\` to stop it.`,
+            stderr: "",
+          };
+        }
+        await sleep(options.pollIntervalMs, signal);
       }
-      return { exitCode: 0, stdout: lines.join("\n"), stderr: "" };
     } catch (err) {
       return { exitCode: 1, stdout: "", stderr: formatFetchError(err as Error) };
     }
@@ -1383,7 +1520,15 @@ interface WorkflowRunResponse {
   runId: string;
   workflowName: string;
   status: string;
-  steps: Array<{ slug: string; type: string; status: string; jobId: string }>;
+  failureReason?: string;
+  steps: Array<{
+    slug: string;
+    type: string;
+    status: string;
+    jobId: string;
+    waitEvent?: string;
+    humanTask?: { title: string; assignees: { users: string[]; roles: string[] } };
+  }>;
   error?: string;
 }
 

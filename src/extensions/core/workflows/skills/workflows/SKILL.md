@@ -70,6 +70,7 @@ workflow delete "<name>"               # delete a workflow file
 workflow trigger "<name>" "<payload>"  # trigger a run (payload optional, use "" if empty)
 workflow runs "<name>"                 # list recent runs with status
 workflow logs "<run-id>"               # show per-step execution logs
+workflow wait "<run-id>" [--timeout "<seconds>"]  # wait until the run ends or waits for input, then show its logs
 workflow cancel "<run-id>"             # cancel all steps of a running workflow
 ```
 
@@ -120,3 +121,4 @@ workflow set-step "my-pipeline" "step-three" '{ "type": "agent", "prompt": "Coun
 
 - Drafts (`draft: true`, set by `workflow write --draft`) are loaded and can be run with `workflow trigger`, but their trigger, other workflows, and the portal do not start them. Rewriting a draft with `workflow write` keeps it a draft, with or without `--draft`. The user activates a draft in the workflow editor; never remove `draft` yourself.
 - Always ask for approval before triggering a workflow run!
+- After `workflow trigger`, run `workflow wait "<run-id>"` once instead of calling `workflow runs` or `workflow logs` repeatedly. It returns when the run completes or fails (with the logs), or when it waits for a signal or a human task (with what it waits for). After the timeout (default 300 seconds) it prints the step statuses; run it again to keep waiting.
