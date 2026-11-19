@@ -60,7 +60,7 @@ Follow these steps in order.
 
 7. **Test each branch.** One run covers one branch.
    - Propose `workflow trigger "<name>" '<json>'` and run it only after the user agrees. Warn about side effects (messages sent, files written).
-   - For a human task: tell the user where the task appears (the portal) and which answer to give. Wait until they say it is done, then read `workflow logs "<run-id>"`.
+   - Wait for the run with `workflow wait "<run-id>"`. When it stops at a human task, tell the user where the task appears (the portal) and which answer to give. Once they say it is done, run `workflow wait "<run-id>"` again.
    - Repeat for each outcome, or name the branches left untested and get the user's agreement.
 
 8. **Let the user activate it.** Tell the user the workflow is a draft: it runs only by hand until they open it in the workflow editor and click **Activate**. Never remove `draft` yourself.

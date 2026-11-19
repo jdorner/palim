@@ -133,10 +133,13 @@ describe("workflow command", () => {
   let received: Array<{ method: string; path: string; body?: unknown }>;
   /** What the mocked `GET /meta/load-errors` returns. */
   let loadErrors: unknown[];
+  /** How often `GET /runs/:runId` was asked, by run ID. */
+  let runPolls: Map<string, number>;
 
   beforeEach(() => {
     received = [];
     loadErrors = [];
+    runPolls = new Map();
 
     server = Bun.serve({
       port: 0,
@@ -334,7 +337,45 @@ describe("workflow command", () => {
 
         // GET /runs/:runId - run details (for cancel subcommand)
         if (reqPath.match(/^\/runs\/[^/]+$/) && req.method === "GET") {
-          const runId = reqPath.split("/")[2];
+          const runId = reqPath.split("/")[2] ?? "";
+          const polls = (runPolls.get(runId) ?? 0) + 1;
+          runPolls.set(runId, polls);
+          const build = { slug: "build", type: "agent", status: "completed", jobId: "job-001" };
+          if (runId === "run-slow") {
+            const status = polls < 3 ? "running" : "completed";
+            return Response.json({ runId, workflowName: "deploy-app", status, steps: [build] });
+          }
+          if (runId === "run-stuck") {
+            const running = { slug: "deploy", type: "agent", status: "running", jobId: "job-002" };
+            return Response.json({ runId, workflowName: "deploy-app", status: "running", steps: [build, running] });
+          }
+          if (runId === "run-fail") {
+            return Response.json({
+              runId,
+              workflowName: "deploy-app",
+              status: "failed",
+              failureReason: "deploy: HTTP 500",
+              steps: [build],
+            });
+          }
+          if (runId === "run-waiting") {
+            return Response.json({
+              runId,
+              workflowName: "offline-review",
+              status: "waiting-signal",
+              steps: [
+                build,
+                {
+                  slug: "review",
+                  type: "humanTask",
+                  status: "waiting-signal",
+                  jobId: "",
+                  humanTask: { title: "Review", assignees: { users: ["anna"], roles: ["portal-user"] } },
+                },
+                { slug: "gate", type: "waitFor", status: "waiting-signal", jobId: "", waitEvent: "invoice.paid" },
+              ],
+            });
+          }
           if (runId === "not-found") {
             return Response.json({ error: "Not found" }, { status: 404 });
           }
@@ -1308,6 +1349,76 @@ describe("workflow command", () => {
 
     test("reports error when run not found", async () => {
       const result = await command(["logs", "not-found"], makeCtx());
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Run "not-found" not found');
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // wait
+  // ---------------------------------------------------------------------------
+
+  describe("wait", () => {
+    /** The command with a short poll interval, so the tests do not sleep long. */
+    const fastCommand = () => buildWorkflowCommand(makeScriptCtx(baseUrl), { pollIntervalMs: 10 });
+
+    test("polls until the run completes, then shows its logs", async () => {
+      const result = await fastCommand()(["wait", "run-slow"], makeCtx());
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain('Run run-slow of "deploy-app" completed.');
+      expect(result.stdout).toContain("Build done");
+      expect(runPolls.get("run-slow")).toBe(3);
+    });
+
+    test("a failed run exits 1 with the reason and the logs", async () => {
+      const result = await fastCommand()(["wait", "run-fail"], makeCtx());
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain("failed.");
+      expect(result.stdout).toContain("Reason: deploy: HTTP 500");
+      expect(result.stdout).toContain("Run: run-fail");
+    });
+
+    test("returns at once when the run waits for a human task or a signal", async () => {
+      const result = await fastCommand()(["wait", "run-waiting"], makeCtx());
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("is waiting for input");
+      expect(result.stdout).toContain('review: human task "Review" assigned to anna, role portal-user');
+      expect(result.stdout).toContain('gate: signal "invoice.paid"');
+      expect(result.stdout).not.toContain("build:");
+      expect(runPolls.get("run-waiting")).toBe(1);
+    });
+
+    test("gives up after the timeout and prints the step statuses", async () => {
+      const result = await fastCommand()(["wait", "run-stuck", "--timeout", "0.1"], makeCtx());
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain("is still running after 0.1s");
+      expect(result.stdout).toContain("deploy [running]");
+      expect(result.stdout).toContain('workflow wait "run-stuck"');
+      expect(runPolls.get("run-stuck")).toBeGreaterThan(1);
+    });
+
+    test("stops waiting when the command is cancelled", async () => {
+      const controller = new AbortController();
+      const ctx = { ...makeCtx(), signal: controller.signal } as CommandContext;
+      const slow = buildWorkflowCommand(makeScriptCtx(baseUrl), { pollIntervalMs: 60_000 });
+      const pending = slow(["wait", "run-stuck"], ctx);
+      setTimeout(() => controller.abort(), 20);
+      const result = await pending;
+      expect(result.exitCode).toBe(1);
+      expect(result.stdout).toContain("is still running");
+    });
+
+    test("rejects a bad --timeout", async () => {
+      for (const timeout of ["abc", "0", "-5", "5000"]) {
+        const result = await fastCommand()(["wait", "run-slow", "--timeout", timeout], makeCtx());
+        expect(result.exitCode).toBe(1);
+        expect(result.stderr).toContain("--timeout must be");
+      }
+      expect(runPolls.has("run-slow")).toBe(false);
+    });
+
+    test("reports error when run not found", async () => {
+      const result = await fastCommand()(["wait", "not-found"], makeCtx());
       expect(result.exitCode).toBe(1);
       expect(result.stderr).toContain('Run "not-found" not found');
     });
