@@ -37,6 +37,7 @@ import {
   writeCollapsedGroups,
 } from "$lib/workflowGroups";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
+import type { WorkflowLoadError } from "../../../shared/workflows";
 import { navigate } from "../router";
 
 interface WorkflowSummary {
@@ -56,6 +57,8 @@ interface WorkflowSummary {
 }
 
 let workflows = $state<WorkflowSummary[]>([]);
+/** Workflow files the server skipped as invalid, so they are not in `workflows`. */
+let loadErrors = $state<WorkflowLoadError[]>([]);
 let loading = $state(true);
 let error = $state<string | null>(null);
 let errorDetail = $state<string | null>(null);
@@ -223,9 +226,14 @@ async function fetchWorkflows(showLoading = true) {
   error = null;
   errorDetail = null;
   try {
-    const res = await authFetch("/ext/workflows");
+    const [res, errorsRes] = await Promise.all([
+      authFetch("/ext/workflows"),
+      authFetch("/ext/workflows/meta/load-errors"),
+    ]);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     workflows = (await res.json()).sort((a: WorkflowSummary, b: WorkflowSummary) => a.name.localeCompare(b.name));
+    // The list stays usable when only the load errors cannot be fetched.
+    loadErrors = errorsRes.ok ? await errorsRes.json() : [];
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";
     errorDetail = msg || t("common.unknownError");
@@ -274,6 +282,12 @@ function triggerRoute(type: string): string {
     default:
       return "";
   }
+}
+
+/** The text after a broken file's name: which workflow it unloaded, if any, and why it is invalid. */
+function loadErrorReason(loadError: WorkflowLoadError): string {
+  const unloaded = loadError.unloaded ? ` (${t("workflows.loadErrorUnloaded", { name: loadError.unloaded })})` : "";
+  return `${unloaded}: ${loadError.error}`;
 }
 
 /** Handle real-time workflow events to update run counts. */
@@ -358,6 +372,22 @@ $effect(() => {
 {/snippet}
 
 <div class="space-y-4">
+  {#if !loading && !error && loadErrors.length > 0}
+    <div class="error-card" role="alert">
+      <p class="error-card-message flex items-center gap-1.5 font-medium">
+        <WarningIcon size={16} aria-hidden="true" />
+        {t("workflows.loadErrorsTitle", { count: loadErrors.length })}
+      </p>
+      <ul class="mt-1 space-y-1">
+        {#each loadErrors as loadError (loadError.file)}
+          <li class="error-card-detail break-words">
+            <span class="font-semibold">{loadError.file}</span>{loadErrorReason(loadError)}
+          </li>
+        {/each}
+      </ul>
+      <p class="error-card-message mt-2 text-xs">{t("workflows.loadErrorsHint")}</p>
+    </div>
+  {/if}
   {#if loading}
     <LoadingIndicator />
   {:else if error}

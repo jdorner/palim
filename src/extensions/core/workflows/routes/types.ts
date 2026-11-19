@@ -8,6 +8,7 @@ import type { ExtensionContext, Logger } from "@ext/types";
 import type { DagWorkflowDefinition } from "../schemas";
 import type { TriggerRefLookup } from "../triggerRefs";
 import type { WorkflowAnalysis } from "../workflowAnalysis";
+import type { WorkflowFileIndex } from "../workflowFileIndex";
 import type { WorkflowRuns } from "../workflowRuns";
 
 /** State and services of a workflows extension instance that its routes use. */
@@ -16,6 +17,8 @@ export interface WorkflowRouteDeps {
   logger: Logger;
   /** Loaded workflow definitions, keyed by name. */
   store: Map<string, DagWorkflowDefinition>;
+  /** Why workflow files are not loaded, to explain a missing workflow. */
+  loadErrors: Pick<WorkflowFileIndex, "loadErrors" | "loadErrorFor">;
   /** Directory holding the workflow JSON5 files. */
   workflowsDir: string;
   /** The run lifecycle (start, describe, remove, signal delivery deps). */

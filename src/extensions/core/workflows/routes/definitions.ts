@@ -15,6 +15,7 @@ import { validateCfEdges, validateDag } from "../dagValidation";
 import { clearPortalRunAs, getPortalRunAs, setPortalRunAs } from "../portalRunAs";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, WorkflowGroupSchema } from "../schemas";
 import { fetchTriggerRefs, isRefTriggerType } from "../triggerRefs";
+import { missingWorkflowMessage } from "../workflowFileIndex";
 import type { WorkflowRouteDeps } from "./types";
 
 /** Body of `PATCH /:name/group`: the new group, or `null` to ungroup. */
@@ -90,7 +91,17 @@ async function findWorkflowFile(workflowsDir: string, name: string): Promise<str
  * @param deps - Shared extension state and services
  */
 export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
-  const { ctx, logger, store, workflowsDir, runs, scheduleReload, analyzeWorkflow } = deps;
+  const { ctx, logger, store, loadErrors, workflowsDir, runs, scheduleReload, analyzeWorkflow } = deps;
+
+  /**
+   * The 404 for a workflow name that is not loaded. When a broken file explains
+   * it, the error names the file and the reason, and `loadError` carries both.
+   */
+  function notFound(name: string | undefined): Response {
+    const loadError = name ? loadErrors.loadErrorFor(name) : undefined;
+    if (!loadError) return Response.json({ error: "Workflow not found" }, { status: 404 });
+    return Response.json({ error: missingWorkflowMessage(name!, loadError), loadError }, { status: 404 });
+  }
 
   ctx.routes.register("GET", "/", async (reqCtx) => {
     const triggerRefs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin);
@@ -144,7 +155,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
   ctx.routes.register("GET", "/:name", async (reqCtx) => {
     const name = (reqCtx.params as Record<string, string>).name;
     const wf = store.get(name ?? "");
-    if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
+    if (!wf) return notFound(name);
 
     // Build run summaries from the DAG Run Store (authoritative for DAG runs).
     // Run and step statuses are persisted directly, including "waiting-signal"
@@ -185,7 +196,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
   ctx.routes.register("POST", "/run/:name", async (reqCtx) => {
     const name = (reqCtx.params as Record<string, string>).name;
     const wf = store.get(name ?? "");
-    if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
+    if (!wf) return notFound(name);
 
     const payload = reqCtx.body ?? null;
     // Record the requester as the run's initiator so the run is owned by
@@ -253,9 +264,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
       return Response.json({ error: "Name in body does not match URL parameter" }, { status: 400 });
     }
 
-    if (!store.has(name!)) {
-      return Response.json({ error: "Workflow not found" }, { status: 404 });
-    }
+    if (!store.has(name!)) return notFound(name);
 
     const targetFile = await findWorkflowFile(workflowsDir, name!);
     if (!targetFile) return Response.json({ error: "Workflow not found" }, { status: 404 });
@@ -298,7 +307,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
     const group = body.group ?? undefined;
 
     const wf = store.get(name);
-    if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
+    if (!wf) return notFound(name);
     const targetFile = await findWorkflowFile(workflowsDir, name);
     if (!targetFile) return Response.json({ error: "Workflow file not found on disk" }, { status: 404 });
 
@@ -336,7 +345,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
     }
 
     const wf = store.get(name);
-    if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
+    if (!wf) return notFound(name);
     const targetFile = await findWorkflowFile(workflowsDir, name);
     if (!targetFile) return Response.json({ error: "Workflow file not found on disk" }, { status: 404 });
 
@@ -356,7 +365,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
   ctx.routes.register("DELETE", "/:name", async (reqCtx) => {
     const name = (reqCtx.params as Record<string, string>).name;
     const wf = store.get(name ?? "");
-    if (!wf) return Response.json({ error: "Workflow not found" }, { status: 404 });
+    if (!wf) return notFound(name);
 
     const targetFile = await findWorkflowFile(workflowsDir, name!);
 

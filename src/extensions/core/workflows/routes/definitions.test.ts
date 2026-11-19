@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ExtensionContext, Logger, RouteHandler } from "@ext/types";
+import type { WorkflowLoadError } from "@shared/workflows";
 import type { Context } from "elysia";
 import type { DagWorkflowDefinition } from "../schemas";
 import { registerDefinitionsRoutes } from "./definitions";
@@ -20,6 +21,7 @@ const FILE = `// Nightly report
 let dir: string;
 let store: Map<string, DagWorkflowDefinition>;
 let reloads: string[];
+let loadErrors: WorkflowLoadError[];
 let handler: RouteHandler;
 let draftHandler: RouteHandler;
 
@@ -28,6 +30,7 @@ beforeEach(async () => {
   await Bun.write(path.join(dir, "nightly.json5"), FILE);
   store = new Map([["report", Bun.JSON5.parse(FILE) as DagWorkflowDefinition]]);
   reloads = [];
+  loadErrors = [];
   const handlers = new Map<string, RouteHandler>();
   const ctx = {
     routes: { register: (method: string, p: string, h: RouteHandler) => handlers.set(`${method} ${p}`, h) },
@@ -36,6 +39,10 @@ beforeEach(async () => {
     ctx,
     logger: { info() {}, warn() {}, error() {}, debug() {} } as unknown as Logger,
     store,
+    loadErrors: {
+      loadErrors: () => loadErrors,
+      loadErrorFor: (name: string) => loadErrors.find((e) => e.name === name),
+    },
     workflowsDir: dir,
     scheduleReload: (filename: string) => {
       reloads.push(filename);
@@ -137,5 +144,24 @@ describe("PATCH /:name/draft", () => {
     }
     expect((await patchDraft("missing", { draft: false })).status).toBe(404);
     expect(await fileText()).toBe(FILE);
+  });
+});
+
+describe("missing workflows", () => {
+  test("a name without any file is a plain 404", async () => {
+    const res = await patch("missing", { group: "G" });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({ error: "Workflow not found" });
+  });
+
+  test("a name whose file is invalid names the file and the reason", async () => {
+    const loadError = { file: "broken.json5", name: "broken", error: "/edges: Expected array" };
+    loadErrors = [loadError];
+    const res = await patch("broken", { group: "G" });
+    expect(res.status).toBe(404);
+    expect(await res.json()).toEqual({
+      error: 'Workflow "broken" is not loaded because broken.json5 is invalid: /edges: Expected array',
+      loadError,
+    });
   });
 });

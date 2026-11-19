@@ -13,6 +13,7 @@ import {
   registerProgram,
   type SkillScriptContext,
 } from "@ext/sdk";
+import type { WorkflowLoadError } from "@shared/workflows";
 import { analyzeWorkflowGraph } from "@shared/workflowTopology";
 import { Value } from "@sinclair/typebox/value";
 import type { CommandContext, ExecResult, IFileSystem } from "just-bash";
@@ -88,7 +89,7 @@ export function buildWorkflowCommand(scriptCtx: SkillScriptContext) {
       {
         name: "list",
         description: "List all workflow definitions",
-        handler: buildListHandler(),
+        handler: buildListHandler(scriptCtx),
       },
       {
         name: "step-types",
@@ -410,7 +411,24 @@ function formatWarnings(warnings: ApiTemplateWarning[]): string {
   return `\nWarnings:\n${lines.join("\n")}`;
 }
 
-function buildListHandler() {
+/**
+ * Fetches why workflow files are not loaded by the server.
+ *
+ * @param scriptCtx - Skill script context
+ * @returns The load errors by file name; empty when the server cannot be asked
+ */
+async function fetchLoadErrors(scriptCtx: SkillScriptContext): Promise<Map<string, WorkflowLoadError>> {
+  try {
+    const resp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/meta/load-errors`);
+    if (!resp.ok) return new Map();
+    const errors = (await resp.json()) as WorkflowLoadError[];
+    return new Map(errors.map((e) => [e.file, e]));
+  } catch {
+    return new Map();
+  }
+}
+
+function buildListHandler(scriptCtx: SkillScriptContext) {
   return async (ctx: CommandContext): Promise<ExecResult> => {
     const { fs, cwd } = ctx;
     await ensureDir(fs, cwd);
@@ -422,8 +440,14 @@ function buildListHandler() {
       return { exitCode: 0, stdout: `No workflows found in ${dir}`, stderr: "" };
     }
 
+    const loadErrors = await fetchLoadErrors(scriptCtx);
     const lines: string[] = ["Workflows:"];
     for (const entry of entries) {
+      const loadError = loadErrors.get(entry);
+      if (loadError) {
+        lines.push(`  ${loadError.name ?? "(unnamed)"} (${entry}) - NOT LOADED: ${loadError.error}`);
+        continue;
+      }
       try {
         const content = await fs.readFile(fs.resolvePath(dir, entry));
         const parsed = Bun.JSON5.parse(content) as Record<string, unknown>;
@@ -441,6 +465,11 @@ function buildListHandler() {
       }
     }
     lines.push("", "Use `workflow read <name>` to read a workflow definition.");
+    if (loadErrors.size > 0) {
+      lines.push(
+        "Files marked NOT LOADED cannot run and their triggers do not fire until fixed; `workflow validate <name>` checks a fix.",
+      );
+    }
 
     return { exitCode: 0, stdout: lines.join("\n"), stderr: "" };
   };
@@ -1295,7 +1324,10 @@ function buildRunsHandler(scriptCtx: SkillScriptContext) {
       const result = (await resp.json()) as WorkflowDetailResponse;
 
       if (!resp.ok) {
-        return { exitCode: 1, stdout: "", stderr: `Error: Workflow "${name}" not found` };
+        // A broken file comes back with the reason (`loadError`); say that instead of "not found".
+        const { error, loadError } = result as { error?: string; loadError?: WorkflowLoadError };
+        const message = loadError && error ? error : `Workflow "${name}" not found`;
+        return { exitCode: 1, stdout: "", stderr: `Error: ${message}` };
       }
 
       const runs = result.runs ?? [];
