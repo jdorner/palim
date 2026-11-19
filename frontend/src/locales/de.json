@@ -26,7 +26,7 @@
     },
     "emit": {
       "event": {
-        "description": "Name des zu sendenden Signal-Ereignisses. Kleinbuchstaben, Ziffern, Punkte, Bindestriche, Unterstriche.",
+        "description": "Name des zu sendenden Signal-Ereignisses. Unterstützt {{template}}-Ausdrücke; der aufgelöste Name darf nur Kleinbuchstaben, Ziffern, Punkte, Bindestriche und Unterstriche enthalten.",
         "title": "Ereignis"
       },
       "payload": {

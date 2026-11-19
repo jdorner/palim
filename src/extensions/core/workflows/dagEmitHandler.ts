@@ -13,10 +13,13 @@
  */
 
 import type { StepExecutionContext, StepTypeHandler } from "@ext/types";
+import { EVENT_NAME_PATTERN } from "@shared/workflows";
 import { Type } from "@sinclair/typebox";
 import type { DagCoordinatorDeps } from "./dagCoordinator";
 import { deliverSignal } from "./signalDelivery";
 import * as signalStore from "./signalStore";
+
+const EVENT_NAME_RE = new RegExp(EVENT_NAME_PATTERN);
 
 /** Dependencies injected into the DAG emit handler factory. */
 export interface DagEmitHandlerDeps {
@@ -28,9 +31,9 @@ export interface DagEmitHandlerDeps {
 const EmitStepConfigSchema = Type.Object({
   event: Type.String({
     title: "Event",
-    description: "Signal event name to emit. Supports {{template}} expressions.",
+    description:
+      "Signal event name to emit. Supports {{template}} expressions; the resolved name must be lowercase letters, digits, dots, dashes, underscores.",
     minLength: 1,
-    maxLength: 128,
   }),
   payload: Type.Optional(
     Type.String({
@@ -100,6 +103,11 @@ export function createDagEmitHandler(deps: DagEmitHandlerDeps): StepTypeHandler 
       }
 
       const resolvedEvent = await resolveRequired(eventTemplate, "event");
+      if (resolvedEvent.length > 128 || !EVENT_NAME_RE.test(resolvedEvent)) {
+        throw new Error(
+          `emit event "${resolvedEvent}" (from "${eventTemplate}") is not a valid event name: it must start with a lowercase letter and contain only lowercase letters, digits, dots, dashes and underscores (at most 128 characters)`,
+        );
+      }
 
       // Resolve the optional payload template expression
       let resolvedPayload: unknown = null;

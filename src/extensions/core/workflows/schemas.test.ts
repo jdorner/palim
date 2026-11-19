@@ -9,9 +9,11 @@ import {
   DagIfStepSchema,
   DagWaitForStepSchema,
   DagWorkflowDefinitionSchema,
+  formatWorkflowDefinitionErrors,
   isAutoStartable,
   OutputSchemaSchema,
   type Trigger,
+  workflowDefinitionErrors,
 } from "./schemas";
 
 describe("PortalTriggerConfig", () => {
@@ -195,6 +197,18 @@ describe("schemas", () => {
       expect(Value.Check(DagEmitStepSchema, step)).toBe(false);
     });
 
+    test("accepts template expressions in the event name, around valid fixed parts", () => {
+      for (const event of ["{{steps.vars.result.event_name}}", "order.{{trigger.payload.kind}}", "{{a}}.{{b}}"]) {
+        expect(Value.Check(DagEmitStepSchema, { type: "emit", event })).toBe(true);
+      }
+    });
+
+    test("rejects invalid fixed parts next to a template", () => {
+      for (const event of ["Order.{{x}}", "{{x}} now", "1-{{x}}", "{{unclosed"]) {
+        expect(Value.Check(DagEmitStepSchema, { type: "emit", event })).toBe(false);
+      }
+    });
+
     test("rejects emit with empty event", () => {
       const step = { type: "emit", event: "" };
       expect(Value.Check(DagEmitStepSchema, step)).toBe(false);
@@ -331,5 +345,42 @@ describe("draft flag", () => {
     expect(isAutoStartable({ draft: true })).toBe(false);
     expect(isAutoStartable({ enabled: false })).toBe(false);
     expect(isAutoStartable({ enabled: false, draft: true })).toBe(false);
+  });
+});
+
+describe("built-in steps are checked against their own schema", () => {
+  const wf = (step: Record<string, unknown>) => ({
+    name: "w",
+    trigger: { type: "manual" },
+    steps: { a: step },
+    edges: [],
+  });
+
+  test("an agent prompt given as an array of lines is refused with the field and the expected type", () => {
+    const def = wf({ type: "agent", prompt: ["line 1", "line 2"] });
+    expect(Value.Check(DagWorkflowDefinitionSchema, def)).toBe(false);
+    expect(workflowDefinitionErrors(def)).toEqual([{ path: "/steps/a/prompt", message: "Expected string" }]);
+  });
+
+  test("a built-in step with a missing or unknown field is refused, not taken as a custom step", () => {
+    expect(Value.Check(DagWorkflowDefinitionSchema, wf({ type: "agent" }))).toBe(false);
+    expect(formatWorkflowDefinitionErrors(wf({ type: "agent" }))).toContain("/steps/a/prompt");
+    const humanTask = wf({ type: "humanTask", title: "Approve", assignees: { users: ["a"] }, onTimeout: "later" });
+    expect(Value.Check(DagWorkflowDefinitionSchema, humanTask)).toBe(false);
+    expect(formatWorkflowDefinitionErrors(humanTask)).toContain("/steps/a/onTimeout");
+  });
+
+  test("custom step types still accept any fields", () => {
+    const def = wf({ type: "notify-telegram", message: "hi", anything: [1, 2] });
+    expect(Value.Check(DagWorkflowDefinitionSchema, def)).toBe(true);
+    expect(workflowDefinitionErrors(def)).toEqual([]);
+  });
+
+  test("a type name that only starts like a built-in one is a custom step", () => {
+    expect(Value.Check(DagWorkflowDefinitionSchema, wf({ type: "agent-x", prompt: ["a"] }))).toBe(true);
+  });
+
+  test("a step without a type keeps the generic error", () => {
+    expect(workflowDefinitionErrors(wf({ prompt: "x" })).map((e) => e.path)).toEqual(["/steps/a"]);
   });
 });

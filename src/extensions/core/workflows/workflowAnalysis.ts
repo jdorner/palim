@@ -25,12 +25,9 @@ import { getOutcomeCoverageWarnings } from "./outcomeCoverage";
 import { compileOutputSchema, resolveTriggerOutputSchemaJson } from "./outputSchemaCompiler";
 import { getPortalRunAs } from "./portalRunAs";
 import type { DagAggregatorStep, DagHumanTaskStep, DagWorkflowDefinition, OutputSchemaShorthand } from "./schemas";
-import { DagHumanTaskStepSchema } from "./schemas";
+import { BUILTIN_STEP_TYPES } from "./schemas";
 import type { TemplateSecretResolver } from "./template";
 import { getTriggerRefWarnings, type TriggerRefLookup } from "./triggerRefs";
-
-/** Built-in step types handled directly by the workflow engine. */
-const BUILTIN_STEP_TYPES = new Set(["agent", "if", "case", "iterator", "aggregator", "waitFor", "humanTask", "emit"]);
 
 /**
  * The resolved `outputSchemas` payload together with any warnings accumulated
@@ -248,26 +245,13 @@ export function getDependencyWarnings(definition: DagWorkflowDefinition, ctx: Ex
   const warnings: TemplateWarning[] = [];
 
   for (const [slug, stepDef] of Object.entries(definition.steps)) {
-    // Built-in human task nodes: the generic step schema accepts any shape, so
-    // check the node's own schema, and that the HITL service is available.
+    // Human task nodes need the HITL service (their shape is checked by the definition schema).
     if (stepDef.type === "humanTask") {
       if (!ctx.internal?.hitl) {
         warnings.push({
           stepSlug: slug,
           field: "type",
           message: "Human tasks are disabled (set HITL_ENABLED=true)",
-        });
-      }
-      // One warning per field: a missing property also fails its type check.
-      const reported = new Set<string>();
-      for (const err of Value.Errors(DagHumanTaskStepSchema, stepDef)) {
-        const field = err.path ? err.path.replace(/^\//, "").replace(/\//g, ".") : "humanTask";
-        if (reported.has(field)) continue;
-        reported.add(field);
-        warnings.push({
-          stepSlug: slug,
-          field: field || "config",
-          message: `Invalid "humanTask" step: ${err.message}${err.path ? ` (at ${err.path})` : ""}`,
         });
       }
       continue;

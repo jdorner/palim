@@ -108,13 +108,13 @@ async function startAndPark(def: DagWorkflowDefinition, deps: DagCoordinatorDeps
   return run;
 }
 
-/** Runs the emit handler with the given step definition from a separate run. */
-async function runEmit(deps: DagCoordinatorDeps, stepDef: Record<string, unknown>) {
+/** Runs the emit handler with the given step definition from a separate run (with that run's trigger payload). */
+async function runEmit(deps: DagCoordinatorDeps, stepDef: Record<string, unknown>, triggerPayload?: unknown) {
   const handler = createDagEmitHandler({ coordinatorDeps: deps });
   const logs: string[] = [];
   const ctx = {
     workflowRunId: "emitter-run",
-    resolveTemplate: (t: string) => resolveTemplates(t, { stepResults: {} }),
+    resolveTemplate: (t: string) => resolveTemplates(t, { stepResults: {}, triggerPayload }),
     jobLog: async (line: string) => {
       logs.push(line);
     },
@@ -295,6 +295,26 @@ describe("emit scoping", () => {
 
     expect(result.delivered).toBe(0);
     expect(dagRunStore.get(run.id)!.stepStatuses.paid).toBe("waiting-signal");
+  });
+
+  test("an event name built from a template is resolved before delivery", async () => {
+    const deps = createTestDeps([twoWaitsDef]);
+    const run = await startAndPark(twoWaitsDef, deps);
+
+    const result = await runEmit(deps, { event: "{{trigger.payload.kind}}" }, { kind: "go" });
+
+    expect(result.delivered).toBe(2);
+    expect(dagRunStore.get(run.id)!.stepStatuses.left).toBe("completed");
+  });
+
+  test("a template that resolves to an invalid event name fails the step", async () => {
+    const deps = createTestDeps([twoWaitsDef]);
+    const run = await startAndPark(twoWaitsDef, deps);
+
+    await expect(runEmit(deps, { event: "{{trigger.payload.kind}}" }, { kind: "Go Now" })).rejects.toThrow(
+      'emit event "Go Now" (from "{{trigger.payload.kind}}") is not a valid event name',
+    );
+    expect(dagRunStore.get(run.id)!.status).toBe("waiting-signal");
   });
 
   test("targetRun narrows delivery to one run", async () => {

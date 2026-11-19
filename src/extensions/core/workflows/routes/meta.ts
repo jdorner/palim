@@ -13,7 +13,7 @@ import * as dagRunStore from "../dagRunStore";
 import { validateCfEdges, validateDag } from "../dagValidation";
 import { listEngineStepTypes } from "../engineStepTypes";
 import { inferSchemaFromRuns, type SchemaSampleSource } from "../schemaSample";
-import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema } from "../schemas";
+import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, workflowDefinitionErrors } from "../schemas";
 import { fetchTriggerRefs } from "../triggerRefs";
 import { buildOutputSchemas, getDependencyWarnings } from "../workflowAnalysis";
 import type { WorkflowRouteDeps } from "./types";
@@ -78,7 +78,7 @@ export function registerMetaRoutes(deps: WorkflowRouteDeps): void {
     const errors: string[] = [];
 
     if (!Value.Check(DagWorkflowDefinitionSchema, body)) {
-      for (const e of Value.Errors(DagWorkflowDefinitionSchema, body)) {
+      for (const e of workflowDefinitionErrors(body)) {
         errors.push(`${e.path || "(root)"}: ${e.message}`);
       }
       return Response.json({ valid: false, errors });
@@ -113,7 +113,7 @@ export function registerMetaRoutes(deps: WorkflowRouteDeps): void {
   ctx.routes.register("POST", "/meta/analyze", async (reqCtx) => {
     const body = reqCtx.body;
     if (!Value.Check(DagWorkflowDefinitionSchema, body)) {
-      const errors = [...Value.Errors(DagWorkflowDefinitionSchema, body)]
+      const errors = workflowDefinitionErrors(body)
         .slice(0, 20)
         .map((e) => `${e.path || "(root)"}: ${e.message}`);
       let outputSchemas: OutputSchemas = { trigger: null, steps: {} };

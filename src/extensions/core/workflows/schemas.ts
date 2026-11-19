@@ -6,8 +6,9 @@
  */
 
 import { PORTAL_UPLOAD_MAX_MB } from "@shared/portal";
-import type { OutputSchemaShorthand } from "@shared/workflows";
-import { type Static, Type } from "@sinclair/typebox";
+import { EMIT_EVENT_PATTERN, EVENT_NAME_PATTERN, type OutputSchemaShorthand } from "@shared/workflows";
+import { type Static, type TSchema, Type } from "@sinclair/typebox";
+import { Value } from "@sinclair/typebox/value";
 
 /**
  * Recursive schema for a single output-schema shorthand value: a type-hint
@@ -90,11 +91,8 @@ const TriggerSchema = Type.Object(
   { additionalProperties: false },
 );
 
-/**
- * Prompt field accepts a single string or an array of strings.
- * Arrays are joined with `\n` at load time via {@link normalizePrompt}.
- */
-const PromptSchema = Type.Union([Type.String({ minLength: 1 }), Type.Array(Type.String(), { minItems: 1 })]);
+/** Prompt of an agent step: one string, lines separated by `\n`. */
+const PromptSchema = Type.String({ minLength: 1 });
 
 // ---------------------------------------------------------------------------
 // Control Flow Schemas
@@ -134,9 +132,6 @@ export const ConditionSchema = Type.Object({
 /** TypeScript type for a condition object. */
 export type ConditionDef = Static<typeof ConditionSchema>;
 
-/** Event name pattern shared by `waitFor` and `emit` nodes. */
-const EventNamePattern = "^[a-z][a-z0-9._-]*$";
-
 /**
  * Delivery scope of a `waitFor` signal: `instance` (default) can only be resumed
  * by direct delivery (signal ID or run + step), `broadcast` additionally by
@@ -149,17 +144,6 @@ const CorrelateSchema = Type.String({ minLength: 1, maxLength: 512 });
 
 /** TypeScript type for a trigger configuration. */
 export type Trigger = Static<typeof TriggerSchema>;
-
-/**
- * Normalizes a prompt value (string or string[]) into a single string.
- * Arrays are joined with newline characters.
- *
- * @param prompt - The raw prompt value from the parsed definition
- * @returns A single string suitable for agent execution
- */
-export function normalizePrompt(prompt: string | string[]): string {
-  return Array.isArray(prompt) ? prompt.join("\n") : prompt;
-}
 
 // ---------------------------------------------------------------------------
 // DAG Workflow Schemas (steps map + edges array)
@@ -240,7 +224,7 @@ export const DagCaseStepSchema = Type.Object(
 export const DagWaitForStepSchema = Type.Object(
   {
     type: Type.Literal("waitFor"),
-    event: Type.String({ minLength: 1, maxLength: 128, pattern: EventNamePattern }),
+    event: Type.String({ minLength: 1, maxLength: 128, pattern: EVENT_NAME_PATTERN }),
     timeout: Type.Optional(Type.Integer({ minimum: 1000, maximum: 604800000 })),
     inputSchema: Type.Optional(Type.Record(Type.String(), Type.Unknown())),
     scope: Type.Optional(SignalScopeSchema),
@@ -298,7 +282,8 @@ export const DagHumanTaskStepSchema = Type.Object(
 export const DagEmitStepSchema = Type.Object(
   {
     type: Type.Literal("emit"),
-    event: Type.String({ minLength: 1, maxLength: 128, pattern: EventNamePattern }),
+    // Templates allowed (e.g. a name set once in a variables step); the handler checks the resolved name.
+    event: Type.String({ minLength: 1, pattern: EMIT_EVENT_PATTERN }),
     payload: Type.Optional(Type.String()),
     correlate: Type.Optional(CorrelateSchema),
     targetRun: Type.Optional(Type.String({ minLength: 1 })),
@@ -338,15 +323,31 @@ const DagAggregatorStepSchema = Type.Object(
   { additionalProperties: false },
 );
 
+/** The schema of each built-in step type, keyed by its `type`. */
+const BUILTIN_STEP_SCHEMAS: Record<string, TSchema> = {
+  agent: DagAgentStepSchema,
+  if: DagIfStepSchema,
+  case: DagCaseStepSchema,
+  waitFor: DagWaitForStepSchema,
+  humanTask: DagHumanTaskStepSchema,
+  emit: DagEmitStepSchema,
+  iterator: DagIteratorStepSchema,
+  aggregator: DagAggregatorStepSchema,
+};
+
+/** The built-in step types (handled by the engine, not by an extension). */
+export const BUILTIN_STEP_TYPES: ReadonlySet<string> = new Set(Object.keys(BUILTIN_STEP_SCHEMAS));
+
 /**
  * A generic step for custom (extension-registered) step types in DAG format.
  *
  * Requires `type`; allows any additional properties since the extension's
- * own schema handles detailed validation.
+ * own schema handles detailed validation. Built-in types are excluded, so a
+ * malformed built-in step fails instead of passing as a custom one.
  */
 const DagGenericStepSchema = Type.Intersect([
   Type.Object({
-    type: Type.String({ minLength: 1 }),
+    type: Type.String({ minLength: 1, pattern: `^(?!(?:${[...BUILTIN_STEP_TYPES].join("|")})$)` }),
   }),
   Type.Record(Type.String(), Type.Unknown()),
 ]);
@@ -438,7 +439,7 @@ export interface DagAggregatorStep {
 /** TypeScript type for a DAG agent step. */
 export interface DagAgentStep {
   type: "agent";
-  prompt: string | string[];
+  prompt: string;
   tools?: string[];
   skills?: string[];
   outputSchema?: OutputSchemaShorthand;
@@ -522,6 +523,54 @@ export const DagWorkflowDefinitionSchema = Type.Object(
 
 /** TypeScript type for a validated DAG workflow definition. */
 export type DagWorkflowDefinition = Static<typeof DagWorkflowDefinitionSchema>;
+
+/** One schema error of a workflow definition. */
+export interface DefinitionError {
+  /** JSON pointer of the offending value, e.g. `/steps/summarize/prompt`; `""` for the root. */
+  path: string;
+  message: string;
+}
+
+/**
+ * Lists the schema errors of a workflow definition. A step that matches no
+ * step schema is reported against the schema its `type` selects (e.g.
+ * `/steps/a/prompt: Expected string`), not as a bare "Expected union value".
+ *
+ * @param value - The parsed definition
+ * @returns The errors; empty when the definition is valid
+ */
+export function workflowDefinitionErrors(value: unknown): DefinitionError[] {
+  const steps = (value as { steps?: unknown } | null)?.steps;
+  const errors: DefinitionError[] = [];
+  for (const e of Value.Errors(DagWorkflowDefinitionSchema, value)) {
+    const slug = /^\/steps\/([^/]+)$/.exec(e.path)?.[1];
+    const step =
+      slug !== undefined && steps && typeof steps === "object" ? (steps as Record<string, unknown>)[slug] : undefined;
+    const type = (step as { type?: unknown } | undefined)?.type;
+    const schema = typeof type === "string" ? BUILTIN_STEP_SCHEMAS[type] : undefined;
+    if (!schema) {
+      errors.push({ path: e.path, message: e.message });
+      continue;
+    }
+    for (const inner of Value.Errors(schema, step)) {
+      errors.push({ path: `${e.path}${inner.path}`, message: inner.message });
+    }
+  }
+  return errors;
+}
+
+/**
+ * Formats {@link workflowDefinitionErrors} as `path: message` lines.
+ *
+ * @param value - The parsed definition
+ * @param separator - Joins the errors
+ * @returns The formatted errors; `""` when the definition is valid
+ */
+export function formatWorkflowDefinitionErrors(value: unknown, separator = ", "): string {
+  return workflowDefinitionErrors(value)
+    .map((e) => `${e.path || "(root)"}: ${e.message}`)
+    .join(separator);
+}
 
 /**
  * Decides whether a workflow may start without a person asking for it: from

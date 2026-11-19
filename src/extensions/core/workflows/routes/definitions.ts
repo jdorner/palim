@@ -13,7 +13,12 @@ import { setTopLevelJson5Property } from "@src/utils/json5Edit";
 import * as dagRunStore from "../dagRunStore";
 import { validateCfEdges, validateDag } from "../dagValidation";
 import { clearPortalRunAs, getPortalRunAs, setPortalRunAs } from "../portalRunAs";
-import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, WorkflowGroupSchema } from "../schemas";
+import {
+  type DagWorkflowDefinition,
+  DagWorkflowDefinitionSchema,
+  formatWorkflowDefinitionErrors,
+  WorkflowGroupSchema,
+} from "../schemas";
 import { fetchTriggerRefs, isRefTriggerType } from "../triggerRefs";
 import { missingWorkflowMessage } from "../workflowFileIndex";
 import type { WorkflowRouteDeps } from "./types";
@@ -214,9 +219,8 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
 
     // Validate body against DAG schema
     if (!Value.Check(DagWorkflowDefinitionSchema, body)) {
-      const errors = [...Value.Errors(DagWorkflowDefinitionSchema, body)];
       return Response.json(
-        { error: "Validation failed", details: errors.map((e) => `${e.path}: ${e.message}`).join(", ") },
+        { error: "Validation failed", details: formatWorkflowDefinitionErrors(body) },
         { status: 400 },
       );
     }

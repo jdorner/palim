@@ -1230,11 +1230,7 @@ Workflow JSON5 definitions use the registered type name directly:
   steps: {
     "extract": {
       type: "agent",
-      prompt: [
-        "Extract data from the document.",
-        "Output must match: {{steps.append-row.config.sheets.0.columns}}",
-        "Return ONLY a JSON array."
-      ],
+      prompt: "Extract data from the document.\nOutput must match: {{steps.append-row.config.sheets.0.columns}}\nReturn ONLY a JSON array.",
       tools: ["exec"],
       skills: ["converter"]
     },

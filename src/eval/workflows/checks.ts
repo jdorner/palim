@@ -217,14 +217,13 @@ const FORMAT_INSTRUCTION =
   /\bjson\b|\b(respond|reply|answer)\s+(only\s+)?with\b|\b(in|use)\s+(this|the following)\s+(format|structure)\b/i;
 
 /**
- * Reads a step's prompt as one text (a prompt may be a list of lines).
+ * Reads a step's prompt.
  *
  * @param step - The step
  * @returns The prompt text, or "" when there is none
  */
 function promptText(step: LooseStep): string {
-  if (typeof step.prompt === "string") return step.prompt;
-  return Array.isArray(step.prompt) ? step.prompt.filter((l) => typeof l === "string").join("\n") : "";
+  return typeof step.prompt === "string" ? step.prompt : "";
 }
 
 /**
