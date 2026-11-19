@@ -396,3 +396,23 @@ export type WorkflowWebSocketEvent =
   | { type: "workflow_failed"; workflowRunId: string; failedStep: string; error: string }
   | { type: "workflow_run_removed"; workflowRunId: string; workflowName?: string }
   | { type: "workflow_deleted"; workflowName: string };
+
+/**
+ * Why a workflow file is not loaded: invalid JSON5, a schema or graph error,
+ * or a `name` another file already uses. Returned by
+ * `GET /ext/workflows/meta/load-errors`.
+ */
+export interface WorkflowLoadError {
+  /** File name relative to the workflows directory. */
+  file: string;
+  /** The `name` field of the file, when it could be read. */
+  name?: string;
+  /** Human-readable reason, the same text the server log shows. */
+  error: string;
+  /**
+   * Name of the workflow this file defined before the failed reload. Set when
+   * an edit broke a loaded workflow, which is then no longer available (its
+   * triggers stop firing) until the file is fixed.
+   */
+  unloaded?: string;
+}

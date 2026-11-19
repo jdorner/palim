@@ -27,6 +27,7 @@ import { mkdir } from "node:fs/promises";
 import path from "node:path";
 import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
+import type { WorkflowLoadError } from "@shared/workflows";
 import { WORKFLOW_TIMEZONE } from "@src/config";
 import { setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
 import { resolveAmbientUserId } from "@src/utils/fetch";
@@ -108,13 +109,25 @@ export function createExtension(): Extension {
   /** Reloads one workflow file into the store, or removes its workflow when the file is gone, invalid, or disabled. */
   async function reloadFile(filename: string) {
     const filePath = path.join(state.workflowsDir, filename);
-    const definition = (await Bun.file(filePath).exists()) ? await loadSingleWorkflow(filePath, logger) : null;
-    fileIndex.applyFile(filename, definition);
+    let error: WorkflowLoadError | undefined;
+    const definition = (await Bun.file(filePath).exists())
+      ? await loadSingleWorkflow(filePath, logger, (e) => {
+          error = e;
+        })
+      : null;
+    fileIndex.applyFile(filename, definition, error);
+  }
+
+  /** Scans the workflows directory and replaces the store and the load errors with the result. */
+  async function scanAll() {
+    const errors: WorkflowLoadError[] = [];
+    const loaded = await loadDagWorkflowFiles(state.workflowsDir, logger, (e) => errors.push(e));
+    fileIndex.replaceAll(loaded, errors);
   }
 
   /** Reloads all workflow files from disk, replacing the store. */
   async function reloadAll() {
-    fileIndex.replaceAll(await loadDagWorkflowFiles(state.workflowsDir, logger));
+    await scanAll();
     logger.info(`Reloaded ${store.size} workflow definition(s)`);
   }
 
@@ -134,7 +147,7 @@ export function createExtension(): Extension {
       state.workflowsDir = path.join(ctx.paths.work, "workflows");
       await mkdir(state.workflowsDir, { recursive: true });
 
-      fileIndex.replaceAll(await loadDagWorkflowFiles(state.workflowsDir, logger));
+      await scanAll();
       logger.info(`Loaded ${store.size} workflow definition(s)`);
 
       // The steps queue is handed only to the run lifecycle, which owns its jobs.
@@ -189,7 +202,7 @@ export function createExtension(): Extension {
 
       // Register the dispatch function so all extension contexts can use ctx.workflows.dispatch()
       setWorkflowDispatchFn(async (name, payload) => {
-        const wf = resolveDispatchTarget(store.get(name), name);
+        const wf = resolveDispatchTarget(store.get(name), name, fileIndex.loadErrorFor(name));
         // Runs started from within a user's job (e.g. a `start-workflow` step or
         // an agent tool) inherit that user as initiator, so they stay scoped to
         // them instead of becoming unowned runs visible to everyone.
@@ -292,6 +305,7 @@ export function createExtension(): Extension {
         ctx,
         logger,
         store,
+        loadErrors: fileIndex,
         workflowsDir: state.workflowsDir,
         runs,
         hitlEnabled: hitl !== undefined,

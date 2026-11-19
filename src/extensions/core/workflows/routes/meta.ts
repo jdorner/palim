@@ -1,6 +1,7 @@
 /**
  * Editor metadata routes: tools, skills, step types, validation, draft
- * analysis, trigger refs, and output schema inference.
+ * analysis, trigger refs, output schema inference, and the files that failed
+ * to load.
  *
  * @module
  */
@@ -23,7 +24,10 @@ import type { WorkflowRouteDeps } from "./types";
  * @param deps - Shared extension state and services
  */
 export function registerMetaRoutes(deps: WorkflowRouteDeps): void {
-  const { ctx, store, analyzeWorkflow } = deps;
+  const { ctx, store, loadErrors, analyzeWorkflow } = deps;
+
+  /** Workflow files that are not loaded, with the reason (see `WorkflowLoadError`). */
+  ctx.routes.register("GET", "/meta/load-errors", async () => Response.json(loadErrors.loadErrors()));
 
   ctx.routes.register("GET", "/meta/tools", async () => {
     return Response.json(ctx.tools.names().sort());

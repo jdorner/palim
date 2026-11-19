@@ -7,8 +7,10 @@
  * @module
  */
 
+import type { WorkflowLoadError } from "@shared/workflows";
 import type { TemplateWarning } from "./dagTemplateValidation";
 import { type DagWorkflowDefinition, isAutoStartable } from "./schemas";
+import { missingWorkflowMessage } from "./workflowFileIndex";
 
 /** Step type (registered by `core-wf-steps`) that dispatches the workflow named in its `workflowName`. */
 const START_WORKFLOW_STEP = "start-workflow";
@@ -38,11 +40,16 @@ export function workflowsForTrigger(
  *
  * @param wf - The workflow looked up by name, or undefined when none is loaded
  * @param name - The requested name, for the error message
+ * @param loadError - Why a file meant to define it is not loaded, so the error names the broken file
  * @returns The workflow, when it may start automatically
- * @throws {Error} When the workflow does not exist, is a draft, or is disabled
+ * @throws {Error} When the workflow does not exist (or its file is invalid), is a draft, or is disabled
  */
-export function resolveDispatchTarget(wf: DagWorkflowDefinition | undefined, name: string): DagWorkflowDefinition {
-  if (!wf) throw new Error(`Workflow not found: ${name}`);
+export function resolveDispatchTarget(
+  wf: DagWorkflowDefinition | undefined,
+  name: string,
+  loadError?: WorkflowLoadError,
+): DagWorkflowDefinition {
+  if (!wf) throw new Error(missingWorkflowMessage(name, loadError));
   if (!isAutoStartable(wf)) {
     throw new Error(wf.draft === true ? `Workflow is a draft: ${name}` : `Workflow is disabled: ${name}`);
   }

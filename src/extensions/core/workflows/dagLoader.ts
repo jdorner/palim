@@ -8,10 +8,26 @@
 
 import { formatValidationErrors } from "@ext/sdk";
 import type { Logger } from "@ext/types";
+import type { WorkflowLoadError } from "@shared/workflows";
 import { Value } from "@sinclair/typebox/value";
 import { validateCfEdges, validateDag, validateIteratorPairing } from "./dagValidation";
 import { type DagWorkflowDefinition, DagWorkflowDefinitionSchema, normalizePrompt } from "./schemas";
 import type { LoadedWorkflowFile } from "./workflowFileIndex";
+
+/** Receives the reason a file was skipped as invalid (not called for disabled files). */
+export type WorkflowLoadErrorSink = (error: WorkflowLoadError) => void;
+
+/**
+ * Reads the `name` field of a parsed file without trusting its shape.
+ *
+ * @param parsed - Result of parsing the file
+ * @returns The name, or `undefined` when it is missing or not a non-empty string
+ */
+function nameOf(parsed: unknown): string | undefined {
+  if (typeof parsed !== "object" || parsed === null) return undefined;
+  const name = (parsed as Record<string, unknown>).name;
+  return typeof name === "string" && name.length > 0 ? name : undefined;
+}
 
 /**
  * Loads, parses, validates, and normalizes a single workflow JSON5 file.
@@ -21,18 +37,28 @@ import type { LoadedWorkflowFile } from "./workflowFileIndex";
  *
  * @param filePath - Absolute path to the JSON5 file
  * @param log - Logger instance for reporting errors
+ * @param onError - Optional sink for the reason an invalid file was skipped
  * @returns The validated DAG definition, or `null` if skipped
  */
-export async function loadSingleWorkflow(filePath: string, log: Logger): Promise<DagWorkflowDefinition | null> {
+export async function loadSingleWorkflow(
+  filePath: string,
+  log: Logger,
+  onError?: WorkflowLoadErrorSink,
+): Promise<DagWorkflowDefinition | null> {
   const filename = filePath.split("/").pop()!;
+  let parsed: unknown;
+  const invalid = (error: string): null => {
+    log.error(`Invalid workflow ${filename}: ${error}`);
+    onError?.({ file: filename, name: nameOf(parsed), error });
+    return null;
+  };
 
   try {
     const content = await Bun.file(filePath).text();
-    const parsed = Bun.JSON5.parse(content);
+    parsed = Bun.JSON5.parse(content);
 
     if (!Value.Check(DagWorkflowDefinitionSchema, parsed)) {
-      log.error(`Invalid workflow ${filename}: ${formatValidationErrors(DagWorkflowDefinitionSchema, parsed)}`);
-      return null;
+      return invalid(formatValidationErrors(DagWorkflowDefinitionSchema, parsed));
     }
 
     const definition = parsed as DagWorkflowDefinition;
@@ -42,8 +68,7 @@ export async function loadSingleWorkflow(filePath: string, log: Logger): Promise
     const cfErrors = validateCfEdges(definition);
     const allErrors = [...dagErrors, ...cfErrors];
     if (allErrors.length > 0) {
-      log.error(`Invalid workflow ${filename}: ${allErrors.map((e) => e.message).join("; ")}`);
-      return null;
+      return invalid(allErrors.map((e) => e.message).join("; "));
     }
 
     // Iterator/aggregator pairing validation (non-blocking warnings)
@@ -69,6 +94,7 @@ export async function loadSingleWorkflow(filePath: string, log: Logger): Promise
     return definition;
   } catch (err) {
     log.error(`Failed to load workflow ${filename}:`, err);
+    onError?.({ file: filename, name: nameOf(parsed), error: err instanceof Error ? err.message : String(err) });
     return null;
   }
 }
@@ -82,9 +108,14 @@ export async function loadSingleWorkflow(filePath: string, log: Logger): Promise
  *
  * @param workflowsDir - Absolute path to the workflows directory
  * @param log - Logger instance for reporting errors
+ * @param onError - Optional sink for the reason each invalid file was skipped
  * @returns The loaded workflows in scan order
  */
-export async function loadDagWorkflowFiles(workflowsDir: string, log: Logger): Promise<LoadedWorkflowFile[]> {
+export async function loadDagWorkflowFiles(
+  workflowsDir: string,
+  log: Logger,
+  onError?: WorkflowLoadErrorSink,
+): Promise<LoadedWorkflowFile[]> {
   const glob = new Bun.Glob("*.json5");
   let entries: string[];
 
@@ -97,7 +128,7 @@ export async function loadDagWorkflowFiles(workflowsDir: string, log: Logger): P
 
   const loaded: LoadedWorkflowFile[] = [];
   for (const entry of entries) {
-    const definition = await loadSingleWorkflow(`${workflowsDir}/${entry}`, log);
+    const definition = await loadSingleWorkflow(`${workflowsDir}/${entry}`, log, onError);
     if (definition) loaded.push({ file: entry, definition });
   }
   return loaded;

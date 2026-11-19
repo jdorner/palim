@@ -131,9 +131,12 @@ describe("workflow command", () => {
   let baseUrl: string;
   let command: (args: string[], ctx: CommandContext) => Promise<ExecResult>;
   let received: Array<{ method: string; path: string; body?: unknown }>;
+  /** What the mocked `GET /meta/load-errors` returns. */
+  let loadErrors: unknown[];
 
   beforeEach(() => {
     received = [];
+    loadErrors = [];
 
     server = Bun.serve({
       port: 0,
@@ -145,6 +148,10 @@ describe("workflow command", () => {
           body = await req.json().catch(() => undefined);
         }
         received.push({ method: req.method, path: reqPath, body });
+
+        if (reqPath === "/meta/load-errors" && req.method === "GET") {
+          return Response.json(loadErrors);
+        }
 
         // DELETE /runs/:runId - cancel a workflow run
         if (reqPath.match(/^\/runs\/[^/]+$/) && req.method === "DELETE") {
@@ -441,6 +448,28 @@ describe("workflow command", () => {
 
       const result = await command(["list"], ctx);
       expect(result.stdout).toContain("[disabled]");
+    });
+
+    test("marks files the server did not load, with the reason", async () => {
+      const ctx = await makeCtxWithFiles({
+        "deploy-app.json5": VALID_WORKFLOW,
+        "loose.json5": TWO_STEP_WORKFLOW,
+      });
+      loadErrors = [{ file: "loose.json5", name: "two-step", error: 'Step "a" is not connected to any other step' }];
+
+      const result = await command(["list"], ctx);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain(
+        'two-step (loose.json5) - NOT LOADED: Step "a" is not connected to any other step',
+      );
+      expect(result.stdout).toContain("deploy-app (deploy-app.json5) - 1 steps");
+      expect(result.stdout).toContain("`workflow validate <name>` checks a fix");
+    });
+
+    test("without load errors there is no NOT LOADED hint", async () => {
+      const ctx = await makeCtxWithFiles({ "deploy-app.json5": VALID_WORKFLOW });
+      const result = await command(["list"], ctx);
+      expect(result.stdout).not.toContain("NOT LOADED");
     });
 
     test("handles parse errors gracefully", async () => {

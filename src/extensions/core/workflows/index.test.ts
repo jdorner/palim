@@ -392,5 +392,12 @@ describe("automatic starts skip drafts and disabled workflows", () => {
   test("dispatch refuses a disabled workflow and a missing one", () => {
     expect(() => resolveDispatchTarget(disabled, "off")).toThrow("Workflow is disabled: off");
     expect(() => resolveDispatchTarget(undefined, "nope")).toThrow("Workflow not found: nope");
+    expect(() =>
+      resolveDispatchTarget(undefined, "broken", {
+        file: "broken.json5",
+        name: "broken",
+        error: "/edges: Expected array",
+      }),
+    ).toThrow('Workflow "broken" is not loaded because broken.json5 is invalid: /edges: Expected array');
   });
 });
