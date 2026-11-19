@@ -23,6 +23,12 @@ export interface ScenarioExpectations {
    * summary that a notification sends as is); the `schema` check is then skipped.
    */
   structuredHandoff: boolean;
+  /**
+   * Result fields of an agent step that the prompt says may be empty. Each
+   * must appear in an agent `outputSchema` with the hint `"any"`, the only
+   * hint that accepts `null`. Omit when no field may be empty.
+   */
+  nullableFields?: string[];
 }
 
 /** One eval scenario. */
@@ -116,5 +122,21 @@ export const SCENARIOS: readonly Scenario[] = [
       NO_QUESTIONS,
     ].join(" "),
     checks: { loop: "forbidden", stepTypes: ["humanTask", "case", "notify-ntfy"], structuredHandoff: true },
+  },
+  {
+    name: "optional-fields",
+    prompt: [
+      'Build me a workflow named "eval-mail-triage". It is started manually with the fields subject (string) and text (string).',
+      'An agent reads the mail and decides its category: "invoice", "ad", or no category at all when it is neither.',
+      "It also extracts the invoice number, which stays empty when the mail has none.",
+      'Then the datatable-insert step stores one row in the table "triage" with the columns subject, category and invoiceNumber.',
+      NO_QUESTIONS,
+    ].join(" "),
+    checks: {
+      loop: "forbidden",
+      stepTypes: ["datatable-insert"],
+      structuredHandoff: true,
+      nullableFields: ["category", "invoiceNumber"],
+    },
   },
 ];
