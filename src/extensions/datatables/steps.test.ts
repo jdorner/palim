@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, test } from "bun:test";
-import type { StepExecutionContext } from "@ext/types";
+import type { ExtensionContext, StepExecutionContext } from "@ext/types";
+import type { DagWorkflowDefinition } from "@src/extensions/core/workflows/schemas";
+import { getDependencyWarnings } from "@src/extensions/core/workflows/workflowAnalysis";
 import { createTestDb } from "@src/test/db";
 import { createStepHandlers, parseRows } from "./steps";
 import { DataTableStore } from "./store";
@@ -120,6 +122,57 @@ describe("data table steps", () => {
     ).toMatchObject({ valid: false });
     expect(await validate?.(null, { table: "orders", set: { paid: "1" } })).toEqual({ valid: true });
     expect(await validate?.(null, { table: "{{dynamic}}" })).toEqual({ valid: true });
+  });
+
+  test("validateConfig reports unknown tables and columns by field", () => {
+    const check = (type: string, config: Record<string, unknown>) => steps[type]?.validateConfig?.(config);
+    expect(check("datatable-query", { table: "orders_old" })).toEqual([
+      { field: "table", message: 'Data table "orders_old" does not exist. Available tables: orders.' },
+    ]);
+    expect(
+      check("datatable-query", {
+        table: "orders",
+        where: [
+          { column: "amount", op: "gt" },
+          { column: "bogus", op: "eq" },
+        ],
+        orderBy: "sorting",
+      })?.map((i) => i.field),
+    ).toEqual(["where.1.column", "orderBy"]);
+    expect(check("datatable-update", { table: "orders", set: { nope: "1", _id: "2" } })?.map((i) => i.field)).toEqual([
+      "set.nope",
+    ]);
+    expect(
+      check("datatable-upsert", { table: "orders", keyColumn: "key", values: { x: "1" } })?.map((i) => i.field),
+    ).toEqual(["values.x", "keyColumn"]);
+    expect(check("datatable-insert", { table: "orders", values: { order_no: "1", amount: "2" } })).toEqual([]);
+  });
+
+  test("validateConfig skips templated tables and columns", () => {
+    const check = steps["datatable-query"]?.validateConfig;
+    expect(check?.({ table: "{{trigger.payload.table}}", orderBy: "bogus" })).toEqual([]);
+    expect(check?.({ table: "orders", where: [{ column: "{{col}}", op: "eq" }], orderBy: "{{sort}}" })).toEqual([]);
+  });
+
+  test("workflow analysis warns about an unknown table in a draft", () => {
+    const ctx = {
+      tools: { names: () => [] },
+      skills: { names: () => [] },
+      stepTypes: { get: (type: string) => steps[type] },
+    } as unknown as ExtensionContext;
+    const wf: DagWorkflowDefinition = {
+      name: "wf",
+      trigger: { type: "manual" },
+      steps: { lookup: { type: "datatable-query", table: "orders2" } as never },
+      edges: [],
+    };
+    expect(getDependencyWarnings(wf, ctx).map((w) => [w.stepSlug, w.field, w.message])).toEqual([
+      [
+        "lookup",
+        "table",
+        'Invalid "datatable-query" step config: Data table "orders2" does not exist. Available tables: orders.',
+      ],
+    ]);
   });
 
   test("rejects invalid config", async () => {

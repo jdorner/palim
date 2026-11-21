@@ -10,7 +10,7 @@
  */
 
 import { extractJson, formatValidationErrors } from "@ext/sdk";
-import type { StepExecutionContext, StepInputValidation, StepTypeHandler } from "@ext/types";
+import type { StepConfigIssue, StepExecutionContext, StepInputValidation, StepTypeHandler } from "@ext/types";
 import { type TObject, type TSchema, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 import type { DataTableStore } from "./store";
@@ -170,37 +170,51 @@ async function resolveInputRows(
 const isTemplated = (v: unknown): boolean => typeof v === "string" && v.includes("{{");
 
 /**
- * Statically checks a step's table and column references (templated values
- * are skipped), so misconfigurations surface before the step runs.
+ * Statically checks a step's table and column references against the tables
+ * that exist now. Templated values are skipped, since they resolve only at
+ * run time.
+ *
+ * @param store - The data table store
+ * @param config - The step's config fields (unresolved templates)
+ * @returns One issue per unknown table or column; empty when all references exist
  */
-function validateReferences(store: DataTableStore, stepDef: Record<string, unknown>): StepInputValidation {
-  const table = stepDef.table;
-  if (typeof table !== "string" || !table.trim() || isTemplated(table)) return { valid: true };
+export function checkReferences(store: DataTableStore, config: Record<string, unknown>): StepConfigIssue[] {
+  const table = config.table;
+  if (typeof table !== "string" || !table.trim() || isTemplated(table)) return [];
   const def = store.getTable(table.trim());
   if (!def) {
     const known = store.tableNames();
-    return {
-      valid: false,
-      diagnostics: [`Data table "${table}" does not exist. Available tables: ${known.join(", ") || "(none)"}.`],
-    };
+    return [
+      {
+        field: "table",
+        message: `Data table "${table}" does not exist. Available tables: ${known.join(", ") || "(none)"}.`,
+      },
+    ];
   }
   const keys = new Set([...def.columns.map((c) => c.key), ...META_COLUMNS]);
-  const diagnostics: string[] = [];
-  const refs = [
-    ...(Array.isArray(stepDef.where) ? (stepDef.where as { column?: unknown }[]).map((w) => w.column) : []),
-    ...Object.keys((stepDef.values as Record<string, unknown> | undefined) ?? {}),
-    ...Object.keys((stepDef.set as Record<string, unknown> | undefined) ?? {}),
-    stepDef.orderBy,
-    stepDef.keyColumn,
+  const refs: [field: string, column: unknown][] = [
+    ...(Array.isArray(config.where)
+      ? (config.where as { column?: unknown }[]).map((w, i): [string, unknown] => [`where.${i}.column`, w?.column])
+      : []),
+    ...Object.keys(recordOf(config.values)).map((k): [string, unknown] => [`values.${k}`, k]),
+    ...Object.keys(recordOf(config.set)).map((k): [string, unknown] => [`set.${k}`, k]),
+    ["orderBy", config.orderBy],
+    ["keyColumn", config.keyColumn],
   ];
-  for (const ref of refs) {
-    if (typeof ref === "string" && ref.trim() && !keys.has(ref.trim())) {
-      diagnostics.push(
-        `Data table "${table}" has no column "${ref}". Columns: ${def.columns.map((c) => c.key).join(", ")}.`,
-      );
-    }
+  const issues: StepConfigIssue[] = [];
+  for (const [field, ref] of refs) {
+    if (typeof ref !== "string" || !ref.trim() || isTemplated(ref) || keys.has(ref.trim())) continue;
+    issues.push({
+      field,
+      message: `Data table "${table}" has no column "${ref}". Columns: ${def.columns.map((c) => c.key).join(", ")}.`,
+    });
   }
-  return diagnostics.length > 0 ? { valid: false, diagnostics } : { valid: true };
+  return issues;
+}
+
+/** A config value as a record, or an empty one. */
+function recordOf(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, unknown>) : {};
 }
 
 /** Maps a column to a TypeBox schema for output schemas. */
@@ -314,7 +328,11 @@ type WhereConfig = { column: string; op: FilterOp; value?: string }[];
  * @returns Handlers keyed by step type
  */
 export function createStepHandlers(store: DataTableStore): Record<string, StepTypeHandler> {
-  const validateInput = (_output: unknown, stepDef: Record<string, unknown>) => validateReferences(store, stepDef);
+  const validateConfig = (config: Record<string, unknown>) => checkReferences(store, config);
+  const validateInput = (_output: unknown, stepDef: Record<string, unknown>): StepInputValidation => {
+    const issues = checkReferences(store, stepDef);
+    return issues.length > 0 ? { valid: false, diagnostics: issues.map((i) => i.message) } : { valid: true };
+  };
 
   return {
     "datatable-insert": {
@@ -322,6 +340,7 @@ export function createStepHandlers(store: DataTableStore): Record<string, StepTy
       label: "Insert Rows",
       description: "Adds rows to a data table.",
       icon: "TableIcon",
+      validateConfig,
       validateInput,
       outputSchema: Type.Object({
         inserted: Type.Integer({ description: "Number of inserted rows" }),
@@ -350,6 +369,7 @@ export function createStepHandlers(store: DataTableStore): Record<string, StepTy
       label: "Update Rows",
       description: "Changes column values of the rows that match the conditions.",
       icon: "TableIcon",
+      validateConfig,
       validateInput,
       outputSchema: Type.Object({ updated: Type.Integer({ description: "Number of updated rows" }) }),
       async execute(stepDef, ctx) {
@@ -374,6 +394,7 @@ export function createStepHandlers(store: DataTableStore): Record<string, StepTy
       label: "Delete Rows",
       description: "Deletes the rows that match the conditions.",
       icon: "TableIcon",
+      validateConfig,
       validateInput,
       outputSchema: Type.Object({ deleted: Type.Integer({ description: "Number of deleted rows" }) }),
       async execute(stepDef, ctx) {
@@ -401,6 +422,7 @@ export function createStepHandlers(store: DataTableStore): Record<string, StepTy
       label: "Truncate Table",
       description: "Deletes all rows of a data table.",
       icon: "TableIcon",
+      validateConfig,
       validateInput,
       outputSchema: Type.Object({ deleted: Type.Integer({ description: "Number of deleted rows" }) }),
       async execute(stepDef, ctx) {
@@ -417,6 +439,7 @@ export function createStepHandlers(store: DataTableStore): Record<string, StepTy
       label: "Upsert Rows",
       description: "Updates rows matched by a key column and inserts the ones that do not exist yet.",
       icon: "TableIcon",
+      validateConfig,
       validateInput,
       outputSchema: Type.Object({
         inserted: Type.Integer({ description: "Number of inserted rows" }),
@@ -447,6 +470,7 @@ export function createStepHandlers(store: DataTableStore): Record<string, StepTy
       label: "Query Table",
       description: "Reads the rows that match the conditions, sorted and limited.",
       icon: "TableIcon",
+      validateConfig,
       validateInput,
       outputSchema: (stepDef) => {
         const row = rowSchemaFor(store, stepDef);

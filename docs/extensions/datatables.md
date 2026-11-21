@@ -130,7 +130,7 @@ Output: `{ rows, count, total, first }`.
 }
 ```
 
-When a step follows an agent step, the engine checks that the step's table and columns exist before the transition. If they don't, the agent is asked to repair its output.
+When `table` and the column names are fixed (not templates), `workflow validate`/`write` and the editor warn about a table or column that doesn't exist. It is a warning, not an error, because the table may be created before the workflow runs. When a step follows an agent step, the engine checks the same before the transition. If they don't exist, the agent is asked to repair its output.
 
 ## Agent command
 
