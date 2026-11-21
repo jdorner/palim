@@ -10,6 +10,8 @@
 
 import { analyzeWorkflowGraph, type TopologyEdge } from "@shared/workflowTopology";
 import { findUndeclaredConfigKeys } from "@src/extensions/core/workflows/configKeys";
+import { findFreeTextReadAsData } from "@src/extensions/core/workflows/designWarnings";
+import type { DagStepDef } from "@src/extensions/core/workflows/schemas";
 import type { ScenarioExpectations } from "./scenarios";
 
 /** The checks, in report order, with the column header and what a pass means. */
@@ -22,7 +24,8 @@ export const CHECKS = [
   {
     id: "schema",
     label: "schema",
-    description: "every agent step whose result is referenced (directly or through an aggregator) has an outputSchema",
+    description:
+      "every agent step whose result fields are read (directly or through an aggregator) has an outputSchema",
   },
   {
     id: "config",
@@ -134,8 +137,10 @@ function referencesResult(text: string, slug: string): boolean {
 
 /**
  * Finds the agent steps that have no `outputSchema` although another step
- * reads their result: directly, or through the aggregator that collects them
- * (an agent step that ends an iterator body, whose aggregator is referenced).
+ * reads a field of their result: directly, or through the aggregator that
+ * collects them. A bare `{{steps.<agent>.result}}` (free text handed on) does
+ * not count. The rule is the analyzer's own (`findFreeTextReadAsData`, the
+ * "free text read as data" warning), so check and warning agree.
  *
  * @param definition - The parsed workflow file
  * @returns The slugs of those agent steps
@@ -143,30 +148,7 @@ function referencesResult(text: string, slug: string): boolean {
 export function agentStepsMissingSchema(definition: unknown): string[] {
   const steps = stepsOf(definition);
   const topology = analyzeWorkflowGraph(steps, edgesOf(definition));
-
-  /** Whether any step other than `slug` references the result of `slug`. */
-  const isReferenced = (slug: string): boolean =>
-    Object.entries(steps).some(([other, otherStep]) => {
-      if (other === slug) return false;
-      const strings: string[] = [];
-      collectStrings(otherStep, strings);
-      return strings.some((s) => referencesResult(s, slug));
-    });
-
-  /** The aggregator that collects `slug`, when `slug` is in an iterator body. */
-  const collectingAggregator = (slug: string): string | undefined => {
-    const iterator = topology.enclosingIterator(slug);
-    const body = iterator ? topology.iteratorBody(iterator) : null;
-    return body?.steps.has(slug) ? body.aggregator : undefined;
-  };
-
-  const missing: string[] = [];
-  for (const [slug, step] of Object.entries(steps)) {
-    if (step.type !== "agent" || step.outputSchema !== undefined) continue;
-    const aggregator = collectingAggregator(slug);
-    if (isReferenced(slug) || (aggregator !== undefined && isReferenced(aggregator))) missing.push(slug);
-  }
-  return missing;
+  return [...findFreeTextReadAsData(steps as Record<string, DagStepDef>, topology).keys()];
 }
 
 /**

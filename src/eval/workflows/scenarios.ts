@@ -19,7 +19,7 @@ export interface ScenarioExpectations {
   stepTypes?: string[];
   /**
    * Whether an agent step's result must have fixed fields when another step
-   * references it. False where handing on free text is the right design (one
+   * reads a field of it. False where handing on free text is the right design (one
    * summary that a notification sends as is); the `schema` check is then skipped.
    */
   structuredHandoff: boolean;
