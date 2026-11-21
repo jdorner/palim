@@ -88,8 +88,41 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-/** Wait time for filesystem events + debounce to settle in tests. */
+/**
+ * Quiet period for tests that assert something does NOT happen: filesystem
+ * events + debounce must have had their chance. A slow runner can only make
+ * these pass vacuously, never fail, so a fixed wait is fine here. Tests that
+ * wait for a state to appear use {@link waitFor} instead.
+ */
 const EVENT_SETTLE_MS = 1500;
+
+/** Upper bound for {@link waitFor}; generous because CI runners can be slow. */
+const WAIT_TIMEOUT_MS = 10_000;
+
+/** Bun test timeout for tests that wait on filesystem events (two waits fit). */
+const FS_TEST_TIMEOUT_MS = 2 * WAIT_TIMEOUT_MS + 5_000;
+
+/**
+ * Polls until `predicate` holds, so a test waits only as long as the watcher
+ * actually needs instead of a fixed time that a slow runner can exceed.
+ *
+ * @param predicate - The expected state.
+ * @param what - Description used in the timeout error.
+ * @returns Resolves once `predicate` returns true.
+ * @throws {Error} When the state is not reached within {@link WAIT_TIMEOUT_MS}.
+ */
+async function waitFor(predicate: () => boolean, what: string): Promise<void> {
+  const deadline = Date.now() + WAIT_TIMEOUT_MS;
+  while (!predicate()) {
+    if (Date.now() > deadline) throw new Error(`Timed out after ${WAIT_TIMEOUT_MS} ms waiting for ${what}`);
+    await sleep(25);
+  }
+}
+
+/** Whether an extension with this name (and version, if given) is loaded. */
+function isLoaded(registry: ExtensionRegistry, name: string, version?: string): boolean {
+  return registry.getLoadedExtensionInfo().some((i) => i.name === name && (!version || i.version === version));
+}
 
 describe("ExtensionWatcher", () => {
   let tempDir: string;
@@ -155,44 +188,45 @@ describe("ExtensionWatcher", () => {
   });
 
   describe("detecting new extensions", () => {
-    test("loads extension when index.ts is created in a new subdirectory", async () => {
-      await watcher.start();
+    test(
+      "loads extension when index.ts is created in a new subdirectory",
+      async () => {
+        await watcher.start();
 
-      // Create a new extension directory with index.ts
-      await createTempExtension(externalDir, "new-ext");
+        // Create a new extension directory with index.ts
+        await createTempExtension(externalDir, "new-ext");
 
-      // Wait for debounce + processing
-      await sleep(EVENT_SETTLE_MS);
+        await waitFor(() => isLoaded(registry, "new-ext"), "new-ext to load");
+      },
+      FS_TEST_TIMEOUT_MS,
+    );
 
-      const info = registry.getLoadedExtensionInfo();
-      expect(info.some((i) => i.name === "new-ext")).toBe(true);
-    });
+    test(
+      "loads extension when directory with existing index.ts is created",
+      async () => {
+        await watcher.start();
 
-    test("loads extension when directory with existing index.ts is created", async () => {
-      await watcher.start();
-
-      // Create directory and file in quick succession (simulates cp -r)
-      const extDir = join(externalDir, "copied-ext");
-      mkdirSync(extDir, { recursive: true });
-      const manifest = {
-        name: "copied-ext",
-        version: "1.0.0",
-        description: "Copied extension",
-      };
-      const code = `
+        // Create directory and file in quick succession (simulates cp -r)
+        const extDir = join(externalDir, "copied-ext");
+        mkdirSync(extDir, { recursive: true });
+        const manifest = {
+          name: "copied-ext",
+          version: "1.0.0",
+          description: "Copied extension",
+        };
+        const code = `
 export default {
   manifest: ${JSON.stringify(manifest)},
   async initialize(ctx) {},
   async shutdown() {},
 };
 `;
-      await Bun.write(join(extDir, "index.ts"), code);
+        await Bun.write(join(extDir, "index.ts"), code);
 
-      await sleep(EVENT_SETTLE_MS);
-
-      const info = registry.getLoadedExtensionInfo();
-      expect(info.some((i) => i.name === "copied-ext")).toBe(true);
-    });
+        await waitFor(() => isLoaded(registry, "copied-ext"), "copied-ext to load");
+      },
+      FS_TEST_TIMEOUT_MS,
+    );
 
     test("does not load extension without index.ts", async () => {
       await watcher.start();
@@ -230,40 +264,42 @@ export default {
   });
 
   describe("detecting removed extensions", () => {
-    test("unloads extension when directory is removed", async () => {
-      // Load an extension first
-      const extDir = await createTempExtension(externalDir, "remove-ext");
-      await registry.loadOne(join(extDir, "index.ts"));
-      enableExtension("remove-ext");
+    test(
+      "unloads extension when directory is removed",
+      async () => {
+        // Load an extension first
+        const extDir = await createTempExtension(externalDir, "remove-ext");
+        await registry.loadOne(join(extDir, "index.ts"));
+        enableExtension("remove-ext");
 
-      // Start watcher (seeds known extensions)
-      await watcher.start();
+        // Start watcher (seeds known extensions)
+        await watcher.start();
 
-      // Remove the extension directory
-      rmSync(extDir, { recursive: true, force: true });
+        // Remove the extension directory
+        rmSync(extDir, { recursive: true, force: true });
 
-      await sleep(EVENT_SETTLE_MS);
+        await waitFor(() => !isLoaded(registry, "remove-ext"), "remove-ext to unload");
+      },
+      FS_TEST_TIMEOUT_MS,
+    );
 
-      const info = registry.getLoadedExtensionInfo();
-      expect(info.some((i) => i.name === "remove-ext")).toBe(false);
-    });
+    test(
+      "unloads extension when index.ts is deleted",
+      async () => {
+        // Load an extension first
+        const extDir = await createTempExtension(externalDir, "index-delete-ext");
+        await registry.loadOne(join(extDir, "index.ts"));
+        enableExtension("index-delete-ext");
 
-    test("unloads extension when index.ts is deleted", async () => {
-      // Load an extension first
-      const extDir = await createTempExtension(externalDir, "index-delete-ext");
-      await registry.loadOne(join(extDir, "index.ts"));
-      enableExtension("index-delete-ext");
+        await watcher.start();
 
-      await watcher.start();
+        // Delete just index.ts (leave the directory)
+        rmSync(join(extDir, "index.ts"));
 
-      // Delete just index.ts (leave the directory)
-      rmSync(join(extDir, "index.ts"));
-
-      await sleep(EVENT_SETTLE_MS);
-
-      const info = registry.getLoadedExtensionInfo();
-      expect(info.some((i) => i.name === "index-delete-ext")).toBe(false);
-    });
+        await waitFor(() => !isLoaded(registry, "index-delete-ext"), "index-delete-ext to unload");
+      },
+      FS_TEST_TIMEOUT_MS,
+    );
 
     test("does not unload unknown extensions", async () => {
       await watcher.start();
@@ -282,62 +318,58 @@ export default {
       expect(info.length).toBe(0);
     });
 
-    test("unloads extension when directory name differs from manifest name", async () => {
-      await watcher.start();
+    test(
+      "unloads extension when directory name differs from manifest name",
+      async () => {
+        await watcher.start();
 
-      // Create extension with directory name "ext_my-app" but manifest name "my-app"
-      const dirName = "ext_my-app";
-      const extDir = join(externalDir, dirName);
-      mkdirSync(extDir, { recursive: true });
-      const manifest = {
-        name: "my-app",
-        version: "1.0.0",
-        description: "Extension with different dir/manifest name",
-      };
-      const code = `
+        // Create extension with directory name "ext_my-app" but manifest name "my-app"
+        const dirName = "ext_my-app";
+        const extDir = join(externalDir, dirName);
+        mkdirSync(extDir, { recursive: true });
+        const manifest = {
+          name: "my-app",
+          version: "1.0.0",
+          description: "Extension with different dir/manifest name",
+        };
+        const code = `
 export default {
   manifest: ${JSON.stringify(manifest)},
   async initialize(ctx) {},
   async shutdown() {},
 };
 `;
-      await Bun.write(join(extDir, "index.ts"), code);
+        await Bun.write(join(extDir, "index.ts"), code);
 
-      // Wait for watcher to detect and load
-      await sleep(EVENT_SETTLE_MS);
+        // Loads under the manifest name
+        await waitFor(() => isLoaded(registry, "my-app"), "my-app to load");
 
-      // Verify it loaded with manifest name
-      let info = registry.getLoadedExtensionInfo();
-      expect(info.some((i) => i.name === "my-app")).toBe(true);
-
-      // Now remove the directory
-      rmSync(extDir, { recursive: true, force: true });
-
-      await sleep(EVENT_SETTLE_MS);
-
-      // Should be unloaded using the manifest name
-      info = registry.getLoadedExtensionInfo();
-      expect(info.some((i) => i.name === "my-app")).toBe(false);
-    });
+        // Now remove the directory: unloaded using the manifest name
+        rmSync(extDir, { recursive: true, force: true });
+        await waitFor(() => !isLoaded(registry, "my-app"), "my-app to unload");
+      },
+      FS_TEST_TIMEOUT_MS,
+    );
   });
 
   describe("debouncing", () => {
-    test("batches multiple rapid additions into a single processing pass", async () => {
-      await watcher.start();
+    test(
+      "batches multiple rapid additions into a single processing pass",
+      async () => {
+        await watcher.start();
 
-      // Create multiple extensions rapidly
-      await createTempExtension(externalDir, "batch-ext-1");
-      await createTempExtension(externalDir, "batch-ext-2");
-      await createTempExtension(externalDir, "batch-ext-3");
+        // Create multiple extensions rapidly
+        await createTempExtension(externalDir, "batch-ext-1");
+        await createTempExtension(externalDir, "batch-ext-2");
+        await createTempExtension(externalDir, "batch-ext-3");
 
-      // Wait for single debounced processing
-      await sleep(EVENT_SETTLE_MS);
-
-      const info = registry.getLoadedExtensionInfo();
-      expect(info.some((i) => i.name === "batch-ext-1")).toBe(true);
-      expect(info.some((i) => i.name === "batch-ext-2")).toBe(true);
-      expect(info.some((i) => i.name === "batch-ext-3")).toBe(true);
-    });
+        await waitFor(
+          () => ["batch-ext-1", "batch-ext-2", "batch-ext-3"].every((name) => isLoaded(registry, name)),
+          "all three batch extensions to load",
+        );
+      },
+      FS_TEST_TIMEOUT_MS,
+    );
 
     test("cancel pending load if directory is removed before debounce fires", async () => {
       await watcher.start();
@@ -387,14 +419,16 @@ export default {
   });
 
   describe("reloading", () => {
-    test("reloads extension when index.ts is overwritten", async () => {
-      await watcher.start();
+    test(
+      "reloads extension when index.ts is overwritten",
+      async () => {
+        await watcher.start();
 
-      // Create and load the extension
-      const extDir = join(externalDir, "reload-ext");
-      mkdirSync(extDir, { recursive: true });
-      const manifestV1 = { name: "reload-ext", version: "1.0.0", description: "v1" };
-      const codeV1 = `
+        // Create and load the extension
+        const extDir = join(externalDir, "reload-ext");
+        mkdirSync(extDir, { recursive: true });
+        const manifestV1 = { name: "reload-ext", version: "1.0.0", description: "v1" };
+        const codeV1 = `
 export default {
   manifest: ${JSON.stringify(manifestV1)},
   async initialize(ctx) {
@@ -409,17 +443,13 @@ export default {
   async shutdown() {},
 };
 `;
-      await Bun.write(join(extDir, "index.ts"), codeV1);
-      await sleep(EVENT_SETTLE_MS);
+        await Bun.write(join(extDir, "index.ts"), codeV1);
+        await waitFor(() => isLoaded(registry, "reload-ext", "1.0.0"), "reload-ext v1 to load");
+        expect(registry.getRegisteredTools().some((t) => t.name === "reload-ext_tool_v1")).toBe(true);
 
-      // Verify v1 loaded
-      let info = registry.getLoadedExtensionInfo();
-      expect(info.some((i) => i.name === "reload-ext")).toBe(true);
-      expect(registry.getRegisteredTools().some((t) => t.name === "reload-ext_tool_v1")).toBe(true);
-
-      // Overwrite with v2 (simulates cp over existing)
-      const manifestV2 = { name: "reload-ext", version: "2.0.0", description: "v2" };
-      const codeV2 = `
+        // Overwrite with v2 (simulates cp over existing)
+        const manifestV2 = { name: "reload-ext", version: "2.0.0", description: "v2" };
+        const codeV2 = `
 export default {
   manifest: ${JSON.stringify(manifestV2)},
   async initialize(ctx) {
@@ -434,25 +464,27 @@ export default {
   async shutdown() {},
 };
 `;
-      await Bun.write(join(extDir, "index.ts"), codeV2);
-      await sleep(EVENT_SETTLE_MS);
+        await Bun.write(join(extDir, "index.ts"), codeV2);
+        await waitFor(() => isLoaded(registry, "reload-ext", "2.0.0"), "reload-ext v2 to load");
 
-      // v1 tool should be gone, v2 tool should be present
-      info = registry.getLoadedExtensionInfo();
-      expect(info.some((i) => i.name === "reload-ext" && i.version === "2.0.0")).toBe(true);
-      expect(registry.getRegisteredTools().some((t) => t.name === "reload-ext_tool_v1")).toBe(false);
-      expect(registry.getRegisteredTools().some((t) => t.name === "reload-ext_tool_v2")).toBe(true);
-    });
+        // v1 tool should be gone, v2 tool should be present
+        expect(registry.getRegisteredTools().some((t) => t.name === "reload-ext_tool_v1")).toBe(false);
+        expect(registry.getRegisteredTools().some((t) => t.name === "reload-ext_tool_v2")).toBe(true);
+      },
+      FS_TEST_TIMEOUT_MS,
+    );
 
-    test("reload picks up changed sibling modules and package.json", async () => {
-      await watcher.start();
-      const extDir = join(externalDir, "deps-ext");
-      mkdirSync(extDir, { recursive: true });
-      await Bun.write(join(extDir, "package.json"), JSON.stringify({ name: "deps-ext", version: "1.0.0" }));
-      await Bun.write(join(extDir, "dep.ts"), `export const label = "one";`);
-      await Bun.write(
-        join(extDir, "index.ts"),
-        `import pkg from "./package.json";
+    test(
+      "reload picks up changed sibling modules and package.json",
+      async () => {
+        await watcher.start();
+        const extDir = join(externalDir, "deps-ext");
+        mkdirSync(extDir, { recursive: true });
+        await Bun.write(join(extDir, "package.json"), JSON.stringify({ name: "deps-ext", version: "1.0.0" }));
+        await Bun.write(join(extDir, "dep.ts"), `export const label = "one";`);
+        await Bun.write(
+          join(extDir, "index.ts"),
+          `import pkg from "./package.json";
 import { label } from "./dep.ts";
 export default {
   manifest: { name: pkg.name, version: pkg.version, description: label },
@@ -460,47 +492,47 @@ export default {
   async shutdown() {},
 };
 `,
-      );
-      await sleep(EVENT_SETTLE_MS);
-      expect(registry.getLoadedExtensionInfo().find((i) => i.name === "deps-ext")).toMatchObject({
-        version: "1.0.0",
-        description: "one",
-      });
+        );
+        await waitFor(() => isLoaded(registry, "deps-ext", "1.0.0"), "deps-ext v1 to load");
+        expect(registry.getLoadedExtensionInfo().find((i) => i.name === "deps-ext")).toMatchObject({
+          version: "1.0.0",
+          description: "one",
+        });
 
-      await Bun.write(join(extDir, "package.json"), JSON.stringify({ name: "deps-ext", version: "2.0.0" }));
-      await Bun.write(join(extDir, "dep.ts"), `export const label = "two";`);
-      await Bun.write(join(extDir, "index.ts"), `${await Bun.file(join(extDir, "index.ts")).text()}\n`);
-      await sleep(EVENT_SETTLE_MS);
-      expect(registry.getLoadedExtensionInfo().find((i) => i.name === "deps-ext")).toMatchObject({
-        version: "2.0.0",
-        description: "two",
-      });
-    });
+        await Bun.write(join(extDir, "package.json"), JSON.stringify({ name: "deps-ext", version: "2.0.0" }));
+        await Bun.write(join(extDir, "dep.ts"), `export const label = "two";`);
+        await Bun.write(join(extDir, "index.ts"), `${await Bun.file(join(extDir, "index.ts")).text()}\n`);
+        await waitFor(() => isLoaded(registry, "deps-ext", "2.0.0"), "deps-ext v2 to load");
+        expect(registry.getLoadedExtensionInfo().find((i) => i.name === "deps-ext")).toMatchObject({
+          version: "2.0.0",
+          description: "two",
+        });
+      },
+      FS_TEST_TIMEOUT_MS,
+    );
   });
 
   describe("requestSync", () => {
     test("loads a present folder and unloads a removed one without filesystem events", async () => {
       // Not started: no filesystem events reach the watcher at all.
       await createTempExtension(externalDir, "sync-ext");
-      watcher.requestSync("sync-ext");
-      await sleep(EVENT_SETTLE_MS);
+      await watcher.requestSync("sync-ext");
       expect(registry.getLoadedExtensionInfo().some((i) => i.name === "sync-ext")).toBe(true);
 
       rmSync(join(externalDir, "sync-ext"), { recursive: true, force: true });
-      watcher.requestSync("sync-ext");
-      await sleep(EVENT_SETTLE_MS);
+      await watcher.requestSync("sync-ext");
       expect(registry.getLoadedExtensionInfo().some((i) => i.name === "sync-ext")).toBe(false);
     });
 
     test("ignores loaded folders and invalid names", async () => {
       await createTempExtension(externalDir, "steady-ext");
-      watcher.requestSync("steady-ext");
-      await sleep(EVENT_SETTLE_MS);
+      await watcher.requestSync("steady-ext");
       const loadedBefore = registry.getLoadedExtensionInfo().length;
-      watcher.requestSync("steady-ext");
-      watcher.requestSync("../etc");
-      watcher.requestSync(".hidden");
-      await sleep(EVENT_SETTLE_MS);
+      await Promise.all([
+        watcher.requestSync("steady-ext"),
+        watcher.requestSync("../etc"),
+        watcher.requestSync(".hidden"),
+      ]);
       expect(registry.getLoadedExtensionInfo().length).toBe(loadedBefore);
     });
 
