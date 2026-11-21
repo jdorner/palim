@@ -65,6 +65,72 @@ describe("createWorkflowFileIndex", () => {
     expect(promptOf("report")).toBe("hi");
   });
 
+  test("renaming a file works when the watcher reports the new file before the old one is gone", () => {
+    index.applyFile("nightly2.json5", def("report", "moved"));
+    expect(promptOf("report")).toBe("hi");
+    index.applyFile("nightly.json5", null);
+    expect(promptOf("report")).toBe("moved");
+    expect(index.loadErrors()).toEqual([]);
+    // The old file is gone for good: reporting it again changes nothing.
+    index.applyFile("nightly.json5", null);
+    expect(promptOf("report")).toBe("moved");
+  });
+
+  test("renaming a file works when the watcher reports the old file gone first", () => {
+    index.applyFile("nightly.json5", null);
+    index.applyFile("nightly2.json5", def("report", "moved"));
+    expect(promptOf("report")).toBe("moved");
+    expect(index.loadErrors()).toEqual([]);
+  });
+
+  test("deleting the original loads the first of two duplicates, the other stays a duplicate of it", () => {
+    index.applyFile("z-copy.json5", def("report", "z"));
+    index.applyFile("b-copy.json5", def("report", "b"));
+    index.applyFile("nightly.json5", null);
+    expect(promptOf("report")).toBe("b");
+    expect(index.loadErrors()).toEqual([
+      {
+        file: "z-copy.json5",
+        name: "report",
+        error: 'Duplicate workflow name "report" (already defined in b-copy.json5)',
+      },
+    ]);
+    index.applyFile("b-copy.json5", null);
+    expect(promptOf("report")).toBe("z");
+    expect(index.loadErrors()).toEqual([]);
+  });
+
+  test("a duplicate takes over when the original renames its workflow or breaks", () => {
+    index.applyFile("copy.json5", def("report", "copy"));
+    index.applyFile("nightly.json5", def("daily-report"));
+    expect(promptOf("report")).toBe("copy");
+    expect(store.has("daily-report")).toBe(true);
+
+    index.applyFile("again.json5", def("other", "again"));
+    index.applyFile("other.json5", null, { file: "other.json5", name: "other", error: "broken" });
+    expect(promptOf("other")).toBe("again");
+  });
+
+  test("a skipped duplicate that changes or goes away no longer waits for the name", () => {
+    index.applyFile("copy.json5", def("report", "copy"));
+    index.applyFile("copy.json5", def("own"));
+    index.applyFile("gone.json5", def("report", "gone"));
+    index.applyFile("gone.json5", null);
+    index.applyFile("nightly.json5", null);
+    expect(store.has("report")).toBe(false);
+    expect(store.has("own")).toBe(true);
+  });
+
+  test("a duplicate from a full scan takes over when the original is deleted", () => {
+    index.replaceAll([
+      { file: "a.json5", definition: def("x", "first") },
+      { file: "b.json5", definition: def("x", "second") },
+    ]);
+    index.applyFile("a.json5", null);
+    expect(promptOf("x")).toBe("second");
+    expect(index.loadErrors()).toEqual([]);
+  });
+
   test("replaceAll keeps the first of duplicate names", () => {
     index.replaceAll([
       { file: "a.json5", definition: def("x", "first") },

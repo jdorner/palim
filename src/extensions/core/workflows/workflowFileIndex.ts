@@ -11,6 +11,11 @@
  * name), so the API and the sandbox CLI can report it instead of the workflow
  * silently missing.
  *
+ * A file skipped for a duplicate name keeps its definition, and takes over
+ * the name once the file that has it lets go of it (deleted, broken, or
+ * renamed its workflow). So renaming a workflow file works whichever order
+ * the watcher reports the new and the old file in.
+ *
  * @module
  */
 
@@ -83,6 +88,8 @@ export function createWorkflowFileIndex(store: Map<string, DagWorkflowDefinition
   const nameByFile = new Map<string, string>();
   /** Why each skipped file is not loaded. */
   const errorByFile = new Map<string, WorkflowLoadError>();
+  /** Definitions of the files skipped because another file has their name. */
+  const duplicateByFile = new Map<string, DagWorkflowDefinition>();
 
   function duplicateError(file: string, name: string, owner: string): WorkflowLoadError {
     return { file, name, error: `Duplicate workflow name "${name}" (already defined in ${owner})` };
@@ -93,11 +100,40 @@ export function createWorkflowFileIndex(store: Map<string, DagWorkflowDefinition
     return undefined;
   }
 
+  function skipDuplicate(file: string, definition: DagWorkflowDefinition, owner: string): WorkflowLoadError {
+    duplicateByFile.set(file, definition);
+    const error = duplicateError(file, definition.name, owner);
+    errorByFile.set(file, error);
+    return error;
+  }
+
+  /**
+   * Hands a name no file defines any more to the first file (by file name)
+   * that was skipped for it, and points the remaining duplicates at that file.
+   */
+  function releaseName(name: string): void {
+    if (store.has(name)) return;
+    const waiting = [...duplicateByFile].filter(([, d]) => d.name === name).sort(([a], [b]) => a.localeCompare(b));
+    const next = waiting.shift();
+    if (!next) return;
+    const [file, definition] = next;
+    duplicateByFile.delete(file);
+    errorByFile.delete(file);
+    store.set(name, definition);
+    nameByFile.set(file, name);
+    log.info(`Loaded workflow "${name}" from ${file}, which no longer duplicates another file`);
+    for (const [other] of waiting) {
+      const error = errorByFile.get(other);
+      if (error) errorByFile.set(other, { ...error, ...duplicateError(other, name, file) });
+    }
+  }
+
   function removeFile(file: string): void {
     const previous = nameByFile.get(file);
     if (previous === undefined) return;
     nameByFile.delete(file);
     if (store.delete(previous)) log.info(`Removed workflow "${previous}" (${file})`);
+    releaseName(previous);
   }
 
   return {
@@ -105,11 +141,12 @@ export function createWorkflowFileIndex(store: Map<string, DagWorkflowDefinition
       store.clear();
       nameByFile.clear();
       errorByFile.clear();
+      duplicateByFile.clear();
       for (const error of errors) errorByFile.set(error.file, error);
       for (const { file, definition } of loaded) {
         if (store.has(definition.name)) {
           log.warn(`Duplicate workflow name "${definition.name}" from ${file}, skipping`);
-          errorByFile.set(file, duplicateError(file, definition.name, fileDefining(definition.name)!));
+          skipDuplicate(file, definition, fileDefining(definition.name)!);
           continue;
         }
         store.set(definition.name, definition);
@@ -119,6 +156,7 @@ export function createWorkflowFileIndex(store: Map<string, DagWorkflowDefinition
 
     applyFile(file, definition, error) {
       errorByFile.delete(file);
+      duplicateByFile.delete(file);
       if (!definition) {
         const previous = nameByFile.get(file);
         removeFile(file);
@@ -131,17 +169,18 @@ export function createWorkflowFileIndex(store: Map<string, DagWorkflowDefinition
         log.warn(`Duplicate workflow name "${definition.name}" from ${file} (already defined in ${owner}), skipping`);
         const previous = nameByFile.get(file);
         removeFile(file);
-        const duplicate = duplicateError(file, definition.name, owner);
-        errorByFile.set(file, previous === undefined ? duplicate : { ...duplicate, unloaded: previous });
+        const duplicate = skipDuplicate(file, definition, owner);
+        if (previous !== undefined) errorByFile.set(file, { ...duplicate, unloaded: previous });
         return;
       }
       const previous = nameByFile.get(file);
+      store.set(definition.name, definition);
+      nameByFile.set(file, definition.name);
       if (previous !== undefined && previous !== definition.name) {
         store.delete(previous);
         log.info(`Workflow "${previous}" was renamed to "${definition.name}" (${file})`);
+        releaseName(previous);
       }
-      store.set(definition.name, definition);
-      nameByFile.set(file, definition.name);
       log.info(
         `Reloaded workflow "${definition.name}" (${Object.keys(definition.steps).length} steps, ${definition.edges.length} edges) from ${file}`,
       );
