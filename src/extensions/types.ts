@@ -554,14 +554,18 @@ export interface StepTypeHandler {
   /**
    * Check rules about the step's own config that the {@link schema} cannot
    * express, such as fields that conflict with each other (e.g. a password
-   * given together with a connected-account auth mode).
+   * given together with a connected-account auth mode) or references to
+   * things that do not exist (e.g. an unknown data table).
    *
    * Called at authoring time (`workflow validate`/`write`, editor warnings)
    * only after the config passes {@link schema}, with the config fields
    * (`slug`, `type`, and `outputSchema` removed). Template expressions are
-   * still unresolved. Must be pure and must not throw; a thrown error is
-   * ignored. The handler should still enforce the same rules in
-   * {@link execute}, since a run does not repeat this check.
+   * still unresolved; skip templated values. Must be free of side effects and
+   * must not throw; it may read current state (e.g. the tables that exist
+   * now). A thrown error is ignored. Issues are shown as warnings, not
+   * errors, since the referenced state can change before the workflow runs.
+   * The handler should still enforce the same rules in {@link execute}, since
+   * a run does not repeat this check.
    *
    * @param config - The step's config fields, already valid against {@link schema}
    * @returns One entry per problem; an empty array when the config is consistent
