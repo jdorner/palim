@@ -28,7 +28,7 @@
     "pdf-to-img": "^7.0.2",
     "rezo": "^1.0.139",
     "subscript": "10.8.6",
-    "svelte": "^5.57.3",
+    "svelte": "^5.59.1",
     "tailwindcss": "^4.3.5",
     "turndown": "^7.2.5",
     "yaml": "^2.9.1"
