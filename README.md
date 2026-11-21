@@ -50,8 +50,11 @@ After first start, check Settings > Extensions in the web UI to enable the capab
 
 - **Conversational AI** - Multi-turn sessions with streamed responses and persistent chat history
 - **Local LLM support** - Use any inference engine with an OpenAI-compatible API (llama.cpp, llama-swap, vLLM, etc.)
-- **Extension system** - 15 built-in extensions covering webhooks, scheduling, Telegram, workflows, data tables, wiki, MCP bridging, ntfy notifications, and more. Extensions can add their own Svelte pages to the web UI
+- **Workflows** - DAG pipelines in JSON5 with parallel steps, joins, branching, per-item loops, signals, and `{{...}}` template expressions. Build them in the visual editor or describe them in chat and let the agent write them
+- **Extension system** - 15 built-in extensions covering webhooks, scheduling, Telegram, workflows, data tables, wiki, MCP bridging, ntfy notifications, and more. Extensions can add their own Svelte pages to the web UI, and external extensions can be installed from git repositories
 - **Sandboxed execution** - The agent's shell runs inside a virtual filesystem where only `AGENT_WORK_DIR` is mounted - file operations are real, but the agent cannot access anything outside that directory
+- **Multi-user** - Per-user logins with role-based permissions; agent jobs run as the user who started them
+- **Web UI in English and German**
 
 ## Scope
 
@@ -112,6 +115,9 @@ The `humanTask` workflow step and `/portal/` are experimental and disabled by de
 | `PORTAL_PUBLIC_URL`      | Public URL of the [portal](docs/portal.md)                                                             | -                           |
 | `DATA_DIR`               | Directory for databases, generated content, and external extensions (must be outside `AGENT_WORK_DIR`) | `<project>/.palim/`         |
 | `SECRETS_MASTER_KEY`     | Derivation key for SecretVault encryption                                                              | -                           |
+| `DEBUG`                  | Debug log filter (e.g. `DEBUG=*` shows all logs)                                                       | -                           |
+
+Extensions read their own settings from `EXT_<NAME>_<KEY>` variables; see [`.env.example`](.env.example) and the per-extension docs.
 
 ### Secrets
 
@@ -125,7 +131,8 @@ For **non-sensitive** shared configuration, Palim also has a plaintext global va
 
 - **Local LLMs** - Tested with models in the 20B-35B parameter range (Qwen 3.6, Gemma 4, gpt-oss). Smaller models (like Qwen 3.6 4B) work but may struggle with complex multi-turn tasks. Enabling thinking mode is recommended for most models.
 - **Extensions** - Functional with a stable SDK (`src/extensions/sdk.ts`). The API surface is still evolving.
-- **Workflows** - DAG-based engine with parallel fan-out, join barriers, and control flow. String fields support `{{...}}` template expressions with composable built-in function calls (e.g. `{{ jsonEscape(stripDataUri(image.dataUrl)) }}`). Visual DAG editing in the web UI is functional but still being refined.
+- **Workflows** - DAG-based engine with parallel fan-out, join barriers, control flow (`if`, `case`), per-item loops (`iterator`/`aggregator`), and signals (`waitFor`, `emit`). Agent steps can return structured output via an `outputSchema`. String fields support `{{...}}` template expressions with composable built-in function calls (e.g. `{{ jsonEscape(stripDataUri(image.dataUrl)) }}`). The chat agent can design workflows conversationally (`workflow-design` skill) and start, inspect, and wait for runs via the `workflow` command. Visual DAG editing in the web UI is functional but still being refined.
+- **Human tasks and portal** - Experimental (`HITL_ENABLED=true`): workflows can ask people for approvals or input in a separate end-user [portal](docs/portal.md).
 
 ## Development
 
@@ -134,12 +141,19 @@ Available `bun run` commands:
 ```bash
 bun run dev                      # Backend with file watching
 cd frontend && bun run dev       # Frontend dev server (Vite HMR)
+cd portal && bun run dev         # Portal dev server (port 5174)
 bun run check                    # Lint and format (Biome)
-bun run test                     # Run tests
+bunx tsc --noEmit                # Type check (never pass file arguments)
+bun run test                     # Backend tests (src/ and shared/)
+cd frontend && bun test          # Frontend tests (also run in portal/)
 bun run cli                      # Interactive sandbox shell (just-bash)
+bun run eval:workflows           # Workflow design eval against the configured LLM
+bun run reset-admin [username]   # Break-glass: re-enable user, grant admin, print new password
 ```
 
-`bun run dev` starts the backend with auto-restart on file changes. `bun run start` runs without watching (for production-like usage).
+`bun run dev` starts the backend with auto-restart on file changes. `bun run start` runs without watching (for production-like usage). Changes to an extension's `.svelte` files need a rebuild: toggle the extension off and on in the web UI (core extensions need a restart).
+
+`bun run eval:workflows` lets the chat agent write workflows for a set of scenarios and prints the checks as a table (options: `--runs`, `--scenario`, `--model`).
 
 `bun run cli` logs in to the running Palim server first, so programs that call the API (e.g. `datatable`) run as that user. It prompts for username and password, or reads `PALIM_USER` / `PALIM_PASSWORD` (required when stdin is not a terminal). If the login fails or the server is down, the shell starts unauthenticated.
 
@@ -190,23 +204,34 @@ See [docs/docker.md](docs/docker.md) for networking setup, local LLM connectivit
 ```text
 src/
 ├── app/           # Bootstrap and lifecycle orchestration
+├── config.ts      # Centralized env-based config
 ├── db/            # Drizzle ORM + SQLite (schema, migrations, config store)
 ├── session/       # Conversation session persistence
-├── jobs/          # Job queue definitions (agent, chat)
+├── jobs/          # Job queue definitions (agent, chat) and job logs
 ├── queue/         # ManagedQueue abstraction over bunqueue
-├── web/           # Elysia HTTP server, WebSocket, REST routes
+├── push/          # Out-of-band chat push
+├── web/           # Elysia HTTP server, WebSocket, REST routes, extension router
 ├── extensions/    # Plugin system (15 built-in extensions: 10 optional, 5 core)
+│   ├── engine/    # Registry, discovery, lifecycle, UI builder, watcher
 │   └── core/      # Non-deactivatable infrastructure extensions
+├── auth/          # Users, roles, permissions (RBAC), identity API
 ├── secrets/       # Encrypted vault, ACL, audit logging
 ├── variables/     # Plaintext global variable store (no ACL, no encryption)
+├── hitl/          # Human task service (experimental)
+├── portal/        # Portal workflow launchers (experimental)
 ├── skills/        # Skill loading and YAML frontmatter parsing
 ├── tools/         # Agent tools (file ops, sandbox shell)
+├── eval/          # Workflow design eval
 └── utils/         # Shared utilities (logging, validation, commands)
 
-shared/            # Types shared between backend and frontend
-frontend/          # Svelte 5 + Vite 8 + Tailwind CSS 4 web UI
+shared/            # Types and pure helpers shared between backend and frontend
+frontend/          # Operator web UI (Svelte 5 + Vite 8 + Tailwind CSS 4)
+portal/            # End-user portal for human tasks (separate package)
+drizzle/           # Database migrations
 .work/             # Default AGENT_WORK_DIR - the agent's workspace (tasks, inbox, wiki, workflows)
 ```
+
+For implementation internals (workflow engine, signals, human tasks, template expressions, extension UI build, i18n, auth), see [ARCHITECTURE.md](ARCHITECTURE.md).
 
 Key architectural decisions:
 
@@ -218,15 +243,17 @@ Key architectural decisions:
 
 ## Tech Stack
 
-| Layer    | Technology                                                       |
-| -------- | ---------------------------------------------------------------- |
-| Runtime  | [Bun >=1.4.3 and <1.5.0](https://bun.sh)                         |
-| Language | TypeScript 7.0 (strict mode)                                     |
-| Frontend | [Svelte 5](https://svelte.dev/) + Vite 8 + Tailwind CSS 4        |
-| Database | SQLite (Bun native) via [Drizzle ORM](https://orm.drizzle.team/) |
-| LLM      | OpenAI-compatible API                                            |
-| Sandbox  | [just-bash](https://github.com/vercel-labs/just-bash)            |
-| Queue    | [bunqueue](https://bunqueue.dev/)                                |
+| Layer    | Technology                                                                     |
+| -------- | ------------------------------------------------------------------------------ |
+| Runtime  | [Bun >=1.4.3 and <1.5.0](https://bun.sh)                                       |
+| Language | TypeScript 7.0 (strict mode)                                                   |
+| Agent    | [pi-agent-core](https://github.com/earendil-works/pi/tree/main/packages/agent) |
+| Server   | [Elysia](https://elysiajs.com/)                                                |
+| Frontend | [Svelte 5](https://svelte.dev/) + Vite 8 + Tailwind CSS 4                      |
+| Database | SQLite (Bun native) via [Drizzle ORM](https://orm.drizzle.team/)               |
+| LLM      | OpenAI-compatible API                                                          |
+| Sandbox  | [just-bash](https://github.com/vercel-labs/just-bash)                          |
+| Queue    | [bunqueue](https://bunqueue.dev/)                                              |
 
 ## Contributing
 
