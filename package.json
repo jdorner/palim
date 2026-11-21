@@ -59,9 +59,7 @@
     "@types/heic-decode": "^2.0.1",
     "@types/turndown": "^5.0.6",
     "drizzle-kit": "^0.31.10",
-    "fast-check": "^4.10.3"
-  },
-  "peerDependencies": {
+    "fast-check": "^4.10.3",
     "typescript": "^7.0.2"
   },
   "engines": {
