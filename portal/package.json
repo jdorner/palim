@@ -11,21 +11,21 @@
   },
   "dependencies": {
     "@comark/svelte": "^0.9.2",
-    "bits-ui": "^2.19.5",
+    "bits-ui": "^2.21.0",
     "clsx": "^2.1.1",
     "comark": "^0.9.2",
     "phosphor-svelte": "^3.1.1",
-    "tailwind-merge": "^3.7.0",
+    "tailwind-merge": "^3.7.1",
     "tailwind-variants": "^4.0.2"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",
-    "@tailwindcss/vite": "^4.3.3",
+    "@tailwindcss/vite": "^4.3.5",
     "@types/node": "^22.20.5",
     "svelte": "^5.57.2",
-    "svelte-check": "^4.7.6",
-    "tailwindcss": "^4.3.3",
+    "svelte-check": "^4.7.8",
+    "tailwindcss": "^4.3.5",
     "typescript": "~6",
-    "vite": "^8.3.4"
+    "vite": "^8.3.8"
   }
 }
