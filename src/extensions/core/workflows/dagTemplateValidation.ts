@@ -112,19 +112,23 @@ function getEnvAllowlist(): Set<string> {
  * Shared with the global-variable reference scan so a reference is detected in
  * exactly the fields validated here.
  *
+ * Only string values are reported, so an unvalidated step (the workflow design
+ * eval reads written files as they are) does not break the callers.
+ *
  * @param step - The DAG step definition (no slug field)
  * @returns Array of [fieldName, fieldValue] pairs that may contain templates
  */
 export function getTemplateFields(step: DagStepDef): [string, string][] {
   const fields: [string, string][] = [];
   if (step.type === "agent") {
-    fields.push(["prompt", (step as { prompt: string }).prompt]);
+    const prompt: unknown = (step as { prompt?: unknown }).prompt;
+    if (typeof prompt === "string") fields.push(["prompt", prompt]);
   } else if (step.type === "if") {
-    const ifStep = step as { condition: { ref: string } };
-    if (ifStep.condition?.ref) fields.push(["condition.ref", ifStep.condition.ref]);
+    const ref: unknown = (step as { condition?: { ref?: unknown } }).condition?.ref;
+    if (typeof ref === "string" && ref) fields.push(["condition.ref", ref]);
   } else if (step.type === "case") {
-    const caseStep = step as { match: string };
-    if (caseStep.match) fields.push(["match", caseStep.match]);
+    const match: unknown = (step as { match?: unknown }).match;
+    if (typeof match === "string" && match) fields.push(["match", match]);
   } else {
     // Custom / emit / waitFor: scan all string values in the config, recursively
     const { type: _t, outputSchema: _os, ...config } = step as Record<string, unknown>;

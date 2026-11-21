@@ -100,8 +100,19 @@ describe("hasAgentInLoop", () => {
 });
 
 describe("agentStepsMissingSchema", () => {
-  test("reports an agent step without outputSchema that another step references", () => {
-    expect(agentStepsMissingSchema(FLAT)).toEqual(["classify"]);
+  /** FLAT with the notification reading the given template. */
+  const flatReading = (message: string) => ({
+    ...FLAT,
+    steps: { ...FLAT.steps, notify: { type: "notify-ntfy", message } },
+  });
+
+  test("reports an agent step without outputSchema whose result fields another step reads", () => {
+    expect(agentStepsMissingSchema(flatReading("{{steps.classify.result.label}}"))).toEqual(["classify"]);
+  });
+
+  test("accepts a bare result handed on as text, and its length", () => {
+    expect(agentStepsMissingSchema(FLAT)).toEqual([]);
+    expect(agentStepsMissingSchema(flatReading("{{steps.classify.result.length}} chars"))).toEqual([]);
   });
 
   test("accepts an agent step with outputSchema", () => {
@@ -119,33 +130,41 @@ describe("agentStepsMissingSchema", () => {
     expect(agentStepsMissingSchema(def)).toEqual([]);
   });
 
-  test("sees bracket references and nested fields", () => {
+  test("sees references in nested config fields and inside expressions", () => {
     const def = {
       steps: {
         "sum-up": { type: "agent", prompt: "x" },
-        store: { type: "datatable-insert", row: { text: '{{steps["sum-up"].result}}' } },
+        store: { type: "datatable-insert", row: { text: '{{default(steps.sum-up.result.title, "-")}}' } },
       },
     };
     expect(agentStepsMissingSchema(def)).toEqual(["sum-up"]);
+  });
+
+  test("does not throw on malformed steps", () => {
+    const def = { steps: { a: { type: "agent", prompt: 3 }, b: { type: "if", condition: { ref: [] } } } };
+    expect(agentStepsMissingSchema(def)).toEqual([]);
   });
 });
 
 describe("agentStepsMissingSchema through an aggregator", () => {
   const withoutSchema = {
     ...LOOP,
-    steps: { ...LOOP.steps, classify: { type: "agent", prompt: "Classify {{mail.subject}}" } },
+    steps: {
+      ...LOOP.steps,
+      classify: { type: "agent", prompt: "Classify {{mail.subject}}" },
+      notify: { type: "notify-ntfy", message: "{{steps.each-mail-done.result.results.0.classify.label}}" },
+    },
   };
 
-  test("reports an agent step in a loop body whose aggregator is referenced", () => {
+  test("reports an agent step in a loop body whose fields are read through the aggregator", () => {
     expect(agentStepsMissingSchema(withoutSchema)).toEqual(["classify"]);
   });
 
-  test("ignores it when nobody reads the aggregator", () => {
-    const unread = {
-      ...withoutSchema,
-      steps: { ...withoutSchema.steps, notify: { type: "notify-ntfy", message: "Done" } },
-    };
-    expect(agentStepsMissingSchema(unread)).toEqual([]);
+  test("ignores it when nobody reads its fields through the aggregator", () => {
+    for (const message of ["Done", "{{steps.each-mail-done.result.succeeded}}", "{{steps.each-mail-done.result}}"]) {
+      const unread = { ...withoutSchema, steps: { ...withoutSchema.steps, notify: { type: "notify-ntfy", message } } };
+      expect(agentStepsMissingSchema(unread)).toEqual([]);
+    }
   });
 
   test("reports an agent step in the middle of the body too: every pass records it", () => {
@@ -318,10 +337,18 @@ describe("evaluateChecks", () => {
     });
   });
 
-  test("fails loop and schema for the flat design when a loop is expected", () => {
+  test("fails loop for the flat design when a loop is expected, but not schema: it hands on free text", () => {
     const result = evaluateChecks(facts(FLAT), LOOP_EXPECTED);
     expect(result.loop).toBe(false);
-    expect(result.schema).toBe(false);
+    expect(result.schema).toBe(true);
+  });
+
+  test("fails schema when a step reads a field of a schema-less agent result", () => {
+    const readsField = {
+      ...FLAT,
+      steps: { ...FLAT.steps, notify: { type: "notify-ntfy", message: "{{steps.classify.result.label}}" } },
+    };
+    expect(evaluateChecks(facts(readsField), LOOP_EXPECTED).schema).toBe(false);
   });
 
   test("passes the flat design when no loop is expected, and skips checks that do not apply", () => {

@@ -16,9 +16,10 @@
  */
 
 import { isObjectSchemaNode, type OutputSchema, unwrapArrayItems, walkSchemaPath } from "@shared/workflows";
+import type { WorkflowTopology } from "@shared/workflowTopology";
 import { getTemplateFields, type TemplateWarning, templateReferences } from "./dagTemplateValidation";
 import { definitionTopology } from "./definitionTopology";
-import type { DagWorkflowDefinition } from "./schemas";
+import type { DagStepDef, DagWorkflowDefinition } from "./schemas";
 
 /** A `steps.<slug>.result[.<path>]` reference, split. */
 interface ResultRef {
@@ -101,26 +102,32 @@ function getWholeListWarnings(
 }
 
 /**
- * Warns about agent steps without `outputSchema` whose result another step
+ * Finds the agent steps without `outputSchema` whose result another step
  * reads a field of: `{{steps.<agent>.result.<field>}}`, or through the
  * aggregator that collects the agent step
  * (`{{steps.<aggregator>.result.results.<n>.<agent>.<field>}}`).
  *
- * A bare `{{steps.<agent>.result}}` stays silent: handing free text to a
- * notification or to another prompt is a correct design. So does `.length`,
- * which a text has.
+ * A bare `{{steps.<agent>.result}}` does not count: handing free text to a
+ * notification or to another prompt is a correct design. Neither does
+ * `.length`, which a text has.
  *
- * @param definition - The workflow definition
- * @returns One warning per agent step, on its `outputSchema`, naming the first step that reads it
+ * The workflow design eval's `schema` check calls this too, so the warning and
+ * the check apply the same rule.
+ *
+ * @param steps - The workflow's steps by slug
+ * @param topology - The graph analysis of the same workflow
+ * @returns Each such agent step mapped to the first step that reads it
  */
-function getFreeTextAsDataWarnings(definition: DagWorkflowDefinition): TemplateWarning[] {
-  const slugs = new Set(Object.keys(definition.steps));
-  const topology = definitionTopology(definition);
+export function findFreeTextReadAsData(
+  steps: Readonly<Record<string, DagStepDef>>,
+  topology: WorkflowTopology,
+): Map<string, string> {
+  const slugs = new Set(Object.keys(steps));
 
   /** Agent steps without a schema, by the aggregator that collects them. */
   const collectedBy = new Map<string, Set<string>>();
   const schemaless = new Set<string>();
-  for (const [slug, step] of Object.entries(definition.steps)) {
+  for (const [slug, step] of Object.entries(steps)) {
     if (step.type !== "agent" || (step as { outputSchema?: unknown }).outputSchema !== undefined) continue;
     schemaless.add(slug);
     const iterator = topology.enclosingIterator(slug);
@@ -129,7 +136,9 @@ function getFreeTextAsDataWarnings(definition: DagWorkflowDefinition): TemplateW
       collectedBy.set(body.aggregator, (collectedBy.get(body.aggregator) ?? new Set()).add(slug));
     }
   }
-  if (schemaless.size === 0) return [];
+
+  const found = new Map<string, string>();
+  if (schemaless.size === 0) return found;
 
   /** The schema-less agent step a reference reads a field of, if any. */
   const readsFieldOf = (ref: ResultRef): string | null => {
@@ -144,24 +153,34 @@ function getFreeTextAsDataWarnings(definition: DagWorkflowDefinition): TemplateW
     return agent !== undefined && collected.has(agent) && field !== undefined && field !== "length" ? agent : null;
   };
 
-  const warned = new Map<string, TemplateWarning>();
-  for (const [reader, step] of Object.entries(definition.steps)) {
+  for (const [reader, step] of Object.entries(steps)) {
     for (const [, text] of getTemplateFields(step)) {
       for (const ref of templateReferences(text, slugs)) {
         for (const pathRef of ref.pathRefs) {
           const result = parseResultRef(pathRef, slugs);
           const agent = result ? readsFieldOf(result) : null;
-          if (!agent || agent === reader || warned.has(agent)) continue;
-          warned.set(agent, {
-            stepSlug: agent,
-            field: "outputSchema",
-            message: `Step "${agent}" returns free text, but "${reader}" reads its result as data. Add an outputSchema to "${agent}" so the result has fixed fields.`,
-          });
+          if (agent && agent !== reader && !found.has(agent)) found.set(agent, reader);
         }
       }
     }
   }
-  return [...warned.values()];
+  return found;
+}
+
+/**
+ * Warns about agent steps whose free-text result another step reads as data
+ * (see {@link findFreeTextReadAsData}).
+ *
+ * @param definition - The workflow definition
+ * @returns One warning per agent step, on its `outputSchema`, naming the first step that reads it
+ */
+function getFreeTextAsDataWarnings(definition: DagWorkflowDefinition): TemplateWarning[] {
+  const found = findFreeTextReadAsData(definition.steps, definitionTopology(definition));
+  return [...found].map(([agent, reader]) => ({
+    stepSlug: agent,
+    field: "outputSchema",
+    message: `Step "${agent}" returns free text, but "${reader}" reads its result as data. Add an outputSchema to "${agent}" so the result has fixed fields.`,
+  }));
 }
 
 /**
