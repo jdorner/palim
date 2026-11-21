@@ -12,6 +12,7 @@ import TimerIcon from "phosphor-svelte/lib/TimerIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import WarningIcon from "phosphor-svelte/lib/WarningIcon";
 import { onDestroy } from "svelte";
+import { onReconnect } from "$lib/appStore";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
@@ -36,6 +37,7 @@ import {
   type WorkflowRunCounts,
   writeCollapsedGroups,
 } from "$lib/workflowGroups";
+import { listNeedsRefetch } from "$lib/workflowList";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import type { WorkflowLoadError } from "../../../shared/workflows";
 import { navigate } from "../router";
@@ -221,7 +223,11 @@ $effect(() => {
   return () => document.removeEventListener("pointermove", onMove);
 });
 
+/** Sequence number of the latest list fetch; an older response that arrives later is dropped. */
+let fetchSeq = 0;
+
 async function fetchWorkflows(showLoading = true) {
+  const seq = ++fetchSeq;
   if (showLoading) loading = true;
   error = null;
   errorDetail = null;
@@ -231,10 +237,14 @@ async function fetchWorkflows(showLoading = true) {
       authFetch("/ext/workflows/meta/load-errors"),
     ]);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    workflows = (await res.json()).sort((a: WorkflowSummary, b: WorkflowSummary) => a.name.localeCompare(b.name));
+    const fresh = (await res.json()).sort((a: WorkflowSummary, b: WorkflowSummary) => a.name.localeCompare(b.name));
     // The list stays usable when only the load errors cannot be fetched.
-    loadErrors = errorsRes.ok ? await errorsRes.json() : [];
+    const freshErrors = errorsRes.ok ? await errorsRes.json() : [];
+    if (seq !== fetchSeq) return;
+    workflows = fresh;
+    loadErrors = freshErrors;
   } catch (err) {
+    if (seq !== fetchSeq) return;
     const msg = err instanceof Error ? err.message : "";
     errorDetail = msg || t("common.unknownError");
     if (msg.includes("Failed to fetch") || msg.includes("502") || msg.includes("503") || msg.includes("NetworkError")) {
@@ -243,7 +253,7 @@ async function fetchWorkflows(showLoading = true) {
       error = t("workflows.loadFailed");
     }
   } finally {
-    loading = false;
+    if (seq === fetchSeq) loading = false;
   }
 }
 
@@ -290,20 +300,23 @@ function loadErrorReason(loadError: WorkflowLoadError): string {
   return `${unloaded}: ${loadError.error}`;
 }
 
-/** Handle real-time workflow events to update run counts. */
+/** Handle real-time workflow events: run counts, and workflow files changed on disk (by an agent or an editor). */
 function handleWorkflowEvent(msg: WorkflowEvent) {
   if (msg.type === "workflow_started") {
     workflows = workflows.map((wf) => (wf.name === msg.workflowName ? { ...wf, activeRuns: wf.activeRuns + 1 } : wf));
   }
-  if (msg.type === "workflow_completed" || msg.type === "workflow_failed" || msg.type === "workflow_run_removed") {
+  if (listNeedsRefetch(msg.type)) {
     fetchWorkflows(false);
   }
 }
 
 const unsubWorkflow = workflowStore.subscribe(handleWorkflowEvent);
+// Events sent while the socket was down are lost, so catch up on reconnect.
+const unsubReconnect = onReconnect(() => fetchWorkflows(false));
 
 onDestroy(() => {
   unsubWorkflow();
+  unsubReconnect();
 });
 
 $effect(() => {
