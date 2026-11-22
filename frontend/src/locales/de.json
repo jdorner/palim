@@ -143,6 +143,7 @@
     "deleteConversation": "Unterhaltung löschen",
     "deleteConversationConfirm": "Möchtest du „{title}“ wirklich löschen? Dies kann nicht rückgängig gemacht werden.",
     "deleteConversationNamed": "Unterhaltung {title} löschen",
+    "deleteMessage": "Nachricht und alles danach löschen",
     "deleteResponse": "Antwort löschen",
     "done": "Erledigt",
     "editMessage": "Nachricht bearbeiten",

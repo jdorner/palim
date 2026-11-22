@@ -143,6 +143,7 @@
     "deleteConversation": "Delete conversation",
     "deleteConversationConfirm": "Are you sure you want to delete \"{title}\"? This cannot be undone.",
     "deleteConversationNamed": "Delete conversation {title}",
+    "deleteMessage": "Delete message and everything after it",
     "deleteResponse": "Delete response",
     "done": "Done",
     "editMessage": "Edit message",

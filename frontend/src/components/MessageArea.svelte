@@ -373,7 +373,7 @@ async function handleActionClick(endpoint: string, method: string, msgId: string
               class="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors disabled:opacity-50 disabled:pointer-events-none"
               onclick={() => onDeleteMessage?.(msg)}
               {disabled}
-              aria-label={t("chat.deleteResponse")}
+              aria-label={t("chat.deleteMessage")}
             >
               <TrashIcon class="w-3 h-3" aria-hidden="true" />
               {t("common.delete")}
