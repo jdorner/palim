@@ -6,7 +6,6 @@ import CaretRightIcon from "phosphor-svelte/lib/CaretRightIcon";
 import CheckIcon from "phosphor-svelte/lib/CheckIcon";
 import CopyIcon from "phosphor-svelte/lib/CopyIcon";
 import FileTextIcon from "phosphor-svelte/lib/FileTextIcon";
-import { tick } from "svelte";
 import type { SlideParams, TransitionConfig } from "svelte/transition";
 import { slide } from "svelte/transition";
 import { authFetch } from "$lib/auth";
@@ -15,10 +14,20 @@ import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { t } from "$lib/i18n.svelte";
 import { statusLabel } from "$lib/i18nCore";
-import { aggregateStepStatus, automationStyle, formatTimestamp, isJobCancellable, isRunCancellable } from "$lib/utils";
+import {
+  aggregateStepStatus,
+  automationStyle,
+  formatTimestamp,
+  isFinished,
+  isJobCancellable,
+  isRunCancellable,
+  responseError,
+} from "$lib/utils";
 import type { JobEntry } from "../../../shared/jobs";
-import DeleteRunButton from "./DeleteRunButton.svelte";
+import CancelButton from "./CancelButton.svelte";
+import DeleteButton from "./DeleteButton.svelte";
 import JobLogs from "./JobLogs.svelte";
+import RerunButton from "./RerunButton.svelte";
 import StatusDot from "./StatusDot.svelte";
 
 /**
@@ -35,20 +44,24 @@ function safeSlide(node: Element, params?: SlideParams): TransitionConfig {
   return slide(node, params);
 }
 
+/**
+ * Job list with the same actions everywhere: Cancel for a job or run that has
+ * not finished (it ends failed and stays listed), Retry (jobs) or Run again
+ * (workflow runs) plus Delete for failed ones, Delete for completed ones. A
+ * workflow run is the unit for Retry and Delete: its step rows only offer
+ * Cancel (which fails the run) and Logs.
+ */
 let {
   jobs,
-  onCancelJob,
   filterKey = "",
   runStatuses = {},
 }: {
   jobs: JobEntry[];
-  onCancelJob?: (jobId: string) => void;
   filterKey?: string;
   runStatuses?: Record<string, string>;
 } = $props();
 
 let selectedJobId = $state<string | null>(null);
-let cancellingJobId = $state<string | null>(null);
 let copiedJobId = $state<string | null>(null);
 let expandedWorkflows = $state<Set<string>>(new Set());
 
@@ -71,18 +84,18 @@ function workflowCompletedAt(workflowJobs: JobEntry[]): number | undefined {
 }
 
 /**
- * Computes an aggregate status for a workflow group.
- * Returns the status of the last step (the next one to execute).
- * Priority: failed > waiting-signal > active > waiting/delayed > completed
+ * Computes an aggregate status for a workflow group. The run's own status
+ * wins: its step jobs do not show a run that waits on a signal, has finished,
+ * or is between two steps. Without a run status (run record gone), the steps'
+ * aggregate (failed > waiting-signal > active > waiting/delayed > completed).
  */
 function computeAggregateStatus(workflowJobs: JobEntry[], runId: string): string {
-  // Check run-level status first (includes waiting-signal from workflow engine)
   const runStatus = runStatuses[runId];
-  if (runStatus === "failed") return "failed";
-  if (runStatus === "waiting-signal") return "waiting-signal";
-
-  // Fallback to overall status across all steps
-  return aggregateStepStatus(workflowJobs);
+  if (runStatus === "failed" || runStatus === "completed" || runStatus === "waiting-signal") return runStatus;
+  const steps = aggregateStepStatus(workflowJobs);
+  // A running run whose jobs so far have all ended is between two steps.
+  if (runStatus === "running" && !isRunCancellable(steps)) return "active";
+  return steps;
 }
 
 /**
@@ -164,23 +177,6 @@ function toggleWorkflow(workflowRunId: string) {
   expandedWorkflows = next;
 }
 
-/** Chain cancel confirmation state */
-let chainDialog = $state<{
-  open: boolean;
-  jobId: string;
-  workflowRunId: string;
-  siblings: JobEntry[];
-  loading: boolean;
-}>({ open: false, jobId: "", workflowRunId: "", siblings: [], loading: false });
-
-let chainCancelBtnEl = $state<HTMLButtonElement | undefined>(undefined);
-
-$effect(() => {
-  if (chainDialog.open) {
-    tick().then(() => chainCancelBtnEl?.focus());
-  }
-});
-
 async function copyWorkflowId(jobId: string, workflowId: string) {
   await navigator.clipboard.writeText(workflowId);
   copiedJobId = jobId;
@@ -189,145 +185,25 @@ async function copyWorkflowId(jobId: string, workflowId: string) {
   }, 1500);
 }
 
-function isCancellable(status: string): boolean {
-  return isJobCancellable(status);
-}
-
 /** Extracts the extension name from a queue identifier (e.g. "scheduler:jobs" -> "scheduler"). */
 function queueLabel(queue: string): string {
   return queue.split(":")[0];
 }
 
-/** Tracks the workflow run currently being cancelled, to disable its button. */
-let cancellingRunId = $state<string | null>(null);
-
-/**
- * Cancels an entire workflow run via the workflow extension's run endpoint.
- *
- * Used for workflow groups that are paused on a signal ("waiting-signal"): their
- * step jobs have already completed at the queue level, so the job chain-cancel
- * flow is a no-op for the run. This endpoint tears the run down properly -
- * removing the pending signal, deleting the run record, and cancelling any
- * remaining in-flight step jobs.
- *
- * @param workflowRunId - The workflow run to cancel
- */
-async function cancelWorkflowRun(workflowRunId: string) {
-  cancellingRunId = workflowRunId;
-  try {
-    const res = await authFetch(`/ext/workflows/runs/${workflowRunId}`, { method: "DELETE" });
-    if (!res.ok) {
-      console.error("Cancel workflow run failed:", await res.text());
-    }
-  } catch (err) {
-    console.error("Failed to cancel workflow run:", err);
-  } finally {
-    setTimeout(() => {
-      cancellingRunId = null;
-    }, 3000);
-  }
-}
-
-/**
- * Handles the workflow-group Cancel button.
- *
- * If the group still has a live (cancellable) step job, use the job chain-cancel
- * flow (which surfaces a confirmation dialog listing the chain). Otherwise the
- * run is paused with no live jobs (e.g. "waiting-signal"), so cancel the whole
- * run via the workflow run endpoint.
- *
- * @param item - The workflow display item
- */
-function handleWorkflowCancel(item: WorkflowItem) {
-  const liveJob = item.jobs.find((j) => isCancellable(j.status));
-  if (liveJob) {
-    handleCancel(liveJob.id);
-  } else {
-    cancelWorkflowRun(item.workflowRunId);
-  }
-}
-
-/**
- * Checks if this job is part of a workflow chain. If so, shows the chain
- * cancel dialog. Otherwise falls through to a normal single cancel.
- */
-async function handleCancel(jobId: string) {
-  const job = jobs.find((j) => j.id === jobId);
-  if (job?.queue !== "workflows:steps") {
-    cancellingJobId = jobId;
-    onCancelJob?.(jobId);
-    setTimeout(() => {
-      cancellingJobId = null;
-    }, 3000);
-    return;
-  }
-
-  chainDialog = { open: false, jobId, workflowRunId: "", siblings: [], loading: true };
-  try {
-    const res = await authFetch(`/api/jobs/${jobId}/chain`);
-    if (!res.ok) {
-      cancellingJobId = jobId;
-      onCancelJob?.(jobId);
-      setTimeout(() => {
-        cancellingJobId = null;
-      }, 3000);
-      return;
-    }
-    const data = await res.json();
-    chainDialog = {
-      open: true,
-      jobId,
-      workflowRunId: data.workflowRunId,
-      siblings: data.siblings,
-      loading: false,
-    };
-  } catch {
-    cancellingJobId = jobId;
-    onCancelJob?.(jobId);
-    setTimeout(() => {
-      cancellingJobId = null;
-    }, 3000);
-  }
-}
-
-async function confirmCancelChain() {
-  const { jobId } = chainDialog;
-  chainDialog = { ...chainDialog, open: false };
-  cancellingJobId = jobId;
-
-  try {
-    const res = await authFetch(`/api/jobs/${jobId}/cancel`, { method: "POST" });
-    if (!res.ok) {
-      console.error("Cancel chain failed:", await res.text());
-    }
-  } catch (err) {
-    console.error("Failed to cancel chain:", err);
-  } finally {
-    setTimeout(() => {
-      cancellingJobId = null;
-    }, 3000);
-  }
-}
-
-function dismissChainDialog() {
-  chainDialog = { open: false, jobId: "", workflowRunId: "", siblings: [], loading: false };
-}
-
 let retryingJobId = $state<string | null>(null);
+/** Refused retry, shown next to that job's button. */
+let retryFailure = $state<{ jobId: string; message: string } | null>(null);
 
 async function handleRetry(jobId: string) {
   retryingJobId = jobId;
+  retryFailure = null;
   try {
     const res = await authFetch(`/api/jobs/${jobId}/retry`, { method: "POST" });
-    if (!res.ok) {
-      console.error("Retry failed:", await res.text());
-    }
+    if (!res.ok) throw new Error(await responseError(res));
   } catch (err) {
-    console.error("Failed to retry job:", err);
+    retryFailure = { jobId, message: err instanceof Error ? err.message : String(err) };
   } finally {
-    setTimeout(() => {
-      retryingJobId = null;
-    }, 2000);
+    retryingJobId = null;
   }
 }
 /**
@@ -356,10 +232,7 @@ function trackColumnWidths(container: HTMLElement) {
 
 <svelte:window
   onkeydown={(e) => {
-    if (e.key === "Escape") {
-      if (chainDialog.open) dismissChainDialog();
-      else if (selectedJobId) selectedJobId = null;
-    }
+    if (e.key === "Escape" && selectedJobId) selectedJobId = null;
   }}
 />
 
@@ -377,8 +250,8 @@ function trackColumnWidths(container: HTMLElement) {
 
 {#snippet cardTimestamps(createdAt: number, completedAt: number | undefined, className = "")}
   <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground {className}">
-    <span>Created: {formatTimestamp(createdAt)}</span>
-    <span>Completed: {formatTimestamp(completedAt, "\u2013")}</span>
+    <span>{t("jobs.colCreated")}: {formatTimestamp(createdAt)}</span>
+    <span>{t("jobs.colCompleted")}: {formatTimestamp(completedAt, "\u2013")}</span>
   </div>
 {/snippet}
 
@@ -388,20 +261,32 @@ function trackColumnWidths(container: HTMLElement) {
   {/if}
 {/snippet}
 
-<!-- Retry / Cancel / Logs buttons for one job; `compact` shortens the busy labels for the card layout -->
+<!--
+  Actions for one job: Cancel while it has not finished; Retry and Delete once
+  it failed, Delete once it completed (not for a workflow step: its run is the
+  unit); always Logs.
+-->
 {#snippet jobActions(job: JobEntry, compact: boolean)}
   {@const iconMargin = compact ? "mr-1" : "mr-1.5"}
-  {#if job.status === "failed"}
+  {@const isStep = job.workflowRunId != null}
+  {#if isJobCancellable(job.status)}
+    <CancelButton url="/api/jobs/{job.id}/cancel" />
+  {/if}
+  {#if !isStep && job.status === "failed"}
+    {#if retryFailure?.jobId === job.id}
+      <span class="text-xs text-destructive" title={retryFailure.message}>{t("common.retryFailed")}</span>
+    {/if}
     <Button size="sm" variant="default" disabled={retryingJobId === job.id} onclick={() => handleRetry(job.id)}>
       <ArrowCounterClockwiseIcon size={14} class={iconMargin} aria-hidden="true" />
-      {retryingJobId === job.id ? (compact ? "..." : "Retrying") : "Retry"}
+      {retryingJobId === job.id ? t("common.retrying") : t("common.retry")}
     </Button>
   {/if}
-  {#if isCancellable(job.status)}
-    <Button size="sm" variant="destructive" disabled={cancellingJobId === job.id} onclick={() => handleCancel(job.id)}>
-      <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
-      {cancellingJobId === job.id ? (compact ? "..." : t("jobs.cancelling")) : t("common.cancel")}
-    </Button>
+  {#if !isStep && isFinished(job.status)}
+    <DeleteButton
+      url="/api/jobs/{job.id}"
+      confirmTitle={t("jobs.deleteTitle")}
+      confirmMessage={t("jobs.deleteConfirm", { id: job.id.slice(0, 8) })}
+    />
   {/if}
   <Button size="sm" variant="outline" onclick={() => (selectedJobId = job.id)}>
     <FileTextIcon size={14} class={iconMargin} aria-hidden="true" />
@@ -409,28 +294,21 @@ function trackColumnWidths(container: HTMLElement) {
   </Button>
 {/snippet}
 
-<!-- Delete for a failed workflow run, Cancel for one still in flight -->
+<!-- Actions for a workflow run: Cancel while in flight; Run again and Delete once failed; Delete once completed -->
 {#snippet workflowRunAction(item: WorkflowItem)}
-  {#if item.aggregateStatus === "failed"}
-    <DeleteRunButton runId={item.workflowRunId} />
-  {:else if isRunCancellable(item.aggregateStatus)}
-    {@render workflowCancelButton(item)}
+  {#if isRunCancellable(item.aggregateStatus)}
+    <CancelButton url="/ext/workflows/runs/{item.workflowRunId}/cancel" />
   {/if}
-{/snippet}
-
-{#snippet workflowCancelButton(item: WorkflowItem)}
-  <Button
-    size="sm"
-    variant="destructive"
-    disabled={cancellingRunId === item.workflowRunId || cancellingJobId === item.jobs[0]?.id}
-    onclick={(e: Event) => {
-      e.stopPropagation();
-      handleWorkflowCancel(item);
-    }}
-  >
-    <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
-    {t("common.cancel")}
-  </Button>
+  {#if item.aggregateStatus === "failed"}
+    <RerunButton runId={item.workflowRunId} />
+  {/if}
+  {#if isFinished(item.aggregateStatus)}
+    <DeleteButton
+      url="/ext/workflows/runs/{item.workflowRunId}"
+      confirmTitle={t("runs.deleteTitle")}
+      confirmMessage={t("runs.deleteConfirm", { id: item.workflowRunId.slice(0, 8) })}
+    />
+  {/if}
 {/snippet}
 
 {#snippet copyWorkflowIdButton(workflowRunId: string)}
@@ -505,7 +383,7 @@ function trackColumnWidths(container: HTMLElement) {
         </div>
         {@render cardTimestamps(workflowCreatedAt(item.jobs), workflowCompletedAt(item.jobs), "px-4 pb-3 -mt-1")}
 
-        {#if isRunCancellable(item.aggregateStatus) || item.aggregateStatus === "failed"}
+        {#if isRunCancellable(item.aggregateStatus) || isFinished(item.aggregateStatus)}
           <div class="flex flex-wrap items-center gap-2 px-4 pb-3">
             {@render workflowRunAction(item)}
           </div>
@@ -723,49 +601,4 @@ function trackColumnWidths(container: HTMLElement) {
 
 {#if selectedJobId && jobs.find((j) => j.id === selectedJobId)}
   <JobLogs job={jobs.find((j) => j.id === selectedJobId)} onClose={() => (selectedJobId = null)} />
-{/if}
-
-{#if chainDialog.open}
-  <!-- svelte-ignore a11y_no_noninteractive_element_interactions -->
-  <!-- svelte-ignore a11y_interactive_supports_focus -->
-  <div
-    class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-    role="dialog"
-    aria-modal="true"
-    aria-labelledby="chain-dialog-title"
-    onclick={(e) => {
-      if (e.target === e.currentTarget) dismissChainDialog();
-    }}
-    onkeydown={(e) => {
-      if (e.key === "Escape") dismissChainDialog();
-    }}
-  >
-    <div class="bg-background border border-border rounded-lg shadow-lg p-6 max-w-md w-full mx-4 space-y-4">
-      <h2 id="chain-dialog-title" class="text-lg font-semibold">{t("jobs.cancelChainTitle")}</h2>
-      <p class="text-sm text-muted-foreground">
-        {t("jobs.cancelChainMessage", { count: chainDialog.siblings.length })}
-      </p>
-      <ul class="list-none p-0 m-0 max-h-48 overflow-y-auto border border-border rounded-md">
-        {#each chainDialog.siblings as sibling (sibling.id)}
-          <li class="flex items-center gap-2 px-2 py-1.5 text-sm border-b border-border last:border-b-0">
-            <StatusDot status={sibling.status} />
-            <span class="truncate" title={sibling.description}>{sibling.description}</span>
-          </li>
-        {/each}
-      </ul>
-      <div class="flex justify-end gap-2 pt-2">
-        <button
-          bind:this={chainCancelBtnEl}
-          type="button"
-          class="inline-flex items-center justify-center rounded-md text-sm font-medium ring-offset-background transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 border border-input bg-background hover:bg-accent hover:text-accent-foreground h-9 px-3"
-          onclick={dismissChainDialog}
-        >
-          {t("common.cancel")}
-        </button>
-        <Button size="sm" variant="destructive" onclick={confirmCancelChain}>
-          {t("jobs.removeAll", { count: chainDialog.siblings.length })}
-        </Button>
-      </div>
-    </div>
-  </div>
 {/if}

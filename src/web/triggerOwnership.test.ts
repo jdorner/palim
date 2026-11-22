@@ -3,13 +3,13 @@ import type { Permission } from "@shared/auth";
 import type { ResolvedPrincipal } from "@src/auth";
 import { buildAbility } from "@src/auth";
 import { setPrincipal } from "./auth";
-import { requestUserId } from "./triggerOwnership";
+import { requestUserId, requestUsername } from "./triggerOwnership";
 
 describe("triggerOwnership", () => {
   /** Builds a request with a principal (built from the given identity) attached. */
-  function reqWith(userId: string, isAdmin: boolean, permissions: string[]): Request {
+  function reqWith(userId: string, isAdmin: boolean, permissions: string[], username = userId): Request {
     const principal: ResolvedPrincipal = {
-      user: { id: userId, username: userId, roles: [], kind: "operator" },
+      user: { id: userId, username, roles: [], kind: "operator" },
       isAdmin,
       permissions: permissions as Permission[],
       ability: buildAbility({ userId, isAdmin, permissions: permissions as Permission[] }),
@@ -26,5 +26,14 @@ describe("triggerOwnership", () => {
 
   test("requestUserId is undefined for an unauthenticated request", () => {
     expect(requestUserId(new Request("http://localhost/x"))).toBeUndefined();
+  });
+
+  test("requestUsername returns the principal's username", () => {
+    const request = reqWith("u1", false, [], "alice");
+    expect(requestUsername(request)).toBe("alice");
+  });
+
+  test("requestUsername is undefined for an unauthenticated request", () => {
+    expect(requestUsername(new Request("http://localhost/x"))).toBeUndefined();
   });
 });

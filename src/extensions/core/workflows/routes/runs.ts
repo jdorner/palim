@@ -1,5 +1,5 @@
 /**
- * Workflow run routes: rerun, run list, run detail, step logs, delete.
+ * Workflow run routes: rerun, cancel, run list, run detail, step logs, delete.
  *
  * The routes parse requests and pick the requesting user; the run lifecycle
  * ({@link WorkflowRuns}) does the work.
@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { RerunResult } from "../workflowRuns";
+import type { CancelRunResult, RemoveRunResult, RerunResult } from "../workflowRuns";
 import type { WorkflowRouteDeps } from "./types";
 
 /** HTTP answers for rerun refusals. */
@@ -15,6 +15,22 @@ const RERUN_REFUSALS: Record<Extract<RerunResult, { ok: false }>["reason"], { er
   run_not_found: { error: "Run not found", status: 404 },
   not_failed: { error: "Only failed runs can be re-run", status: 409 },
   workflow_not_found: { error: "Workflow not found", status: 404 },
+};
+
+/** HTTP answers for cancel refusals. */
+const CANCEL_REFUSALS: Record<Extract<CancelRunResult, { ok: false }>["reason"], { error: string; status: number }> = {
+  run_not_found: { error: "Run not found", status: 404 },
+  not_active: { error: "Only running or waiting runs can be cancelled", status: 409 },
+};
+
+/** HTTP answers for delete refusals. */
+const REMOVE_REFUSALS: Record<Extract<RemoveRunResult, { ok: false }>["reason"], { error: string; status: number }> = {
+  run_not_found: { error: "Run not found", status: 404 },
+  not_finished: { error: "Only completed or failed runs can be deleted; cancel the run first", status: 409 },
+  jobs_live: {
+    error: "Some of the run's jobs are still queued or running; try again once they have ended",
+    status: 409,
+  },
 };
 
 /**
@@ -36,6 +52,19 @@ export function registerRunsRoutes(deps: WorkflowRouteDeps): void {
       return Response.json({ error }, { status });
     }
     return Response.json({ ok: true, workflowRunId: result.workflowRunId, jobIds: result.jobIds }, { status: 202 });
+  });
+
+  // Cancels an active run: it ends failed ("Cancelled by <user>") and stays
+  // listed with its jobs until it is deleted.
+  ctx.routes.register("POST", "/runs/:runId/cancel", async (reqCtx) => {
+    const runId = (reqCtx.params as Record<string, string>).runId;
+    if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
+    const result = await runs.cancel(runId, ctx.auth.requestUsername(reqCtx.request));
+    if (!result.ok) {
+      const { error, status } = CANCEL_REFUSALS[result.reason];
+      return Response.json({ error }, { status });
+    }
+    return Response.json({ runId, cancelled: true });
   });
 
   // Lightweight bulk run-status lookup. Returns one { runId, status }
@@ -70,8 +99,11 @@ export function registerRunsRoutes(deps: WorkflowRouteDeps): void {
   ctx.routes.register("DELETE", "/runs/:runId", async (reqCtx) => {
     const runId = (reqCtx.params as Record<string, string>).runId;
     if (!runId) return Response.json({ error: "Missing runId" }, { status: 400 });
-    const removed = await runs.remove(runId);
-    if (!removed) return Response.json({ error: "Run not found" }, { status: 404 });
-    return Response.json({ runId, ...removed });
+    const result = await runs.remove(runId);
+    if (!result.ok) {
+      const { error, status } = REMOVE_REFUSALS[result.reason];
+      return Response.json({ error }, { status });
+    }
+    return Response.json({ runId, removed: result.removed, total: result.total });
   });
 }

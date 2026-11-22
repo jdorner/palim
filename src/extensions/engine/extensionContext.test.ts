@@ -239,7 +239,7 @@ describe("ctx.secrets.delete / keys", () => {
   });
 });
 
-describe("ctx.auth.requestUserId", () => {
+describe("ctx.auth", () => {
   test("returns the id of the principal attached to the request", () => {
     const { context } = createExtensionContext(createMinimalDeps());
     const request = new Request("http://localhost/ext/test-extension/items");
@@ -251,6 +251,19 @@ describe("ctx.auth.requestUserId", () => {
     });
 
     expect(context.auth.requestUserId(request)).toBe("u1");
+  });
+
+  test("requestUsername returns the username of the principal attached to the request", () => {
+    const { context } = createExtensionContext(createMinimalDeps());
+    const request = new Request("http://localhost/ext/test-extension/items");
+    setPrincipal(request, {
+      user: { id: "u1", username: "alice", roles: [], kind: "operator" },
+      isAdmin: false,
+      permissions: [],
+      ability: buildAbility({ userId: "u1", isAdmin: false, permissions: [] }),
+    });
+
+    expect(context.auth.requestUsername(request)).toBe("alice");
   });
 
   test("returns undefined for an unauthenticated request", () => {

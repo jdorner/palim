@@ -414,7 +414,7 @@ describe("handleDagStepFailure", () => {
     expect(failEvent.error).toBe("timeout");
   });
 
-  test("fail-fast sweeps a waiting-signal step to dead", async () => {
+  test("fail-fast fails a step waiting on a signal", async () => {
     const def: DagWorkflowDefinition = {
       name: "fail-with-wait-wf",
       trigger: { type: "manual" },
@@ -439,8 +439,8 @@ describe("handleDagStepFailure", () => {
 
     const finalRun = dagRunStore.get(run.id)!;
     expect(finalRun.status).toBe("failed");
-    // The paused waitFor step must be swept to dead, not left waiting-signal.
-    expect(finalRun.stepStatuses.wait).toBe("dead");
+    // The paused waitFor step is interrupted: it fails, not left waiting-signal.
+    expect(finalRun.stepStatuses.wait).toBe("failed");
   });
 });
 

@@ -13,7 +13,8 @@
  * - `POST   /ext/workflows/runs/:runId/rerun` - start a new run of a failed run with its trigger payload
  * - `POST   /ext/workflows/runs/:runId/steps/:slug/signal` - deliver a signal to a waiting step of a run
  * - `POST   /ext/workflows/signals/:signalId` - deliver a signal by signal ID
- * - `DELETE /ext/workflows/runs/:runId`  - cancel all steps of a workflow run
+ * - `POST   /ext/workflows/runs/:runId/cancel` - cancel an active run (it ends failed and stays listed)
+ * - `DELETE /ext/workflows/runs/:runId`  - delete a finished run with its jobs and logs
  * - `DELETE /ext/workflows/:name`        - delete a workflow definition (removes JSON5 file)
  *
  * Workflow definitions are loaded from `WORK_DIR/workflows/*.json5` at startup.
@@ -58,7 +59,7 @@ import { createWorkflowRuns, type WorkflowRuns } from "./workflowRuns";
 
 const manifest = {
   name: "workflows",
-  version: "3.0.2",
+  version: "4.0.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,

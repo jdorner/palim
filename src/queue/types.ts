@@ -168,6 +168,9 @@ export interface JobInfo<T = unknown> {
 // Queue events - used by the monitor to track job lifecycle
 // ---------------------------------------------------------------------------
 
+/** Outcome of {@link ManagedQueuePort.cancelJob}. */
+export type CancelOutcome = "cancelled" | "finished" | "not_found" | "not_cancellable";
+
 /** Payload for queue lifecycle events. Includes the resolved job for job-related events. */
 export type QueueEventMap<T = unknown> = {
   /** A job entered the waiting state. */
@@ -325,16 +328,21 @@ export interface ManagedQueuePort<T = unknown> {
   offEvent<E extends QueueEventType>(event: E, handler: QueueEventHandler<E, T>): void;
 
   /**
-   * Cancel a job. A job that has not started (waiting, delayed), or has
-   * finished, is removed from the queue. An active job's {@link QueueJob.signal}
-   * is aborted with `reason`; the processor stops and the job ends `failed`.
+   * Cancel a job. Cancelling never removes a job: it ends `failed` with
+   * `reason` as its error and stays in the queue (retry or remove it like any
+   * failed job). An active job's {@link QueueJob.signal} is aborted with
+   * `reason`; the processor stops and throws. A job that has not started
+   * (waiting, delayed) moves to failed at once: `reason` is appended to its log
+   * and a `failed` event fires with it, as if the job had run and failed.
    *
    * @param jobId - The job to cancel
    * @param reason - Why the job is cancelled (e.g. "Cancelled by alice"); becomes the
-   *   abort reason and so the failed job's error. Defaults to "Cancelled".
-   * @returns true if the job was removed or its cancellation was signalled
+   *   failed job's error. Defaults to "Cancelled".
+   * @returns `cancelled` when the job was failed or its abort signalled, `finished`
+   *   when it had already completed or failed, `not_found` for an unknown job,
+   *   `not_cancellable` for a job parked on its children (legacy flow chains)
    */
-  cancelJob(jobId: string, reason?: string): Promise<boolean>;
+  cancelJob(jobId: string, reason?: string): Promise<CancelOutcome>;
 
   /**
    * Remove multiple jobs from the queue in one batch, regardless of state.

@@ -1,6 +1,6 @@
 /**
- * Tests for the run lifecycle: queue events driving the coordinator, the one
- * teardown sequence (remove / forget), clean decisions, and rerun.
+ * Tests for the run lifecycle: queue events driving the coordinator, cancel,
+ * the one teardown sequence (remove / forget), clean decisions, and rerun.
  *
  * Uses an in-memory database and a fake steps queue whose jobs are created by
  * a fake flow producer.
@@ -51,9 +51,11 @@ function createHarness(definitions: DagWorkflowDefinition[], withHitl = true) {
           void handlers.get("failed")?.({ jobId: id, job, failedReason: reason });
         }, 10);
       } else if (job) {
-        job.state = "cancelled";
+        // Like the real queue: a job that has not started is failed at once.
+        job.state = "failed";
+        void handlers.get("failed")?.({ jobId: id, job, failedReason: reason });
       }
-      return true;
+      return job ? "cancelled" : "not_found";
     },
     // Like the real queue: returns only the IDs it removed; unknown IDs are skipped.
     removeJobs: async (ids: string[]) => {
@@ -188,20 +190,84 @@ describe("queue events", () => {
   });
 });
 
-describe("remove", () => {
-  test("removes the jobs and releases timers, tasks, signals, and the run record", async () => {
+describe("cancel", () => {
+  test("fails a running run and cancels its in-flight steps with the user's reason; run and jobs stay", async () => {
+    harness = createHarness([fanOut]);
+    const { workflowRunId, jobIds } = await harness.runs.start(fanOut, null);
+
+    expect(await harness.runs.cancel(workflowRunId, "alice")).toEqual({ ok: true });
+
+    const run = dagRunStore.get(workflowRunId);
+    expect(run?.status).toBe("failed");
+    expect(run?.failureReason).toBe("Cancelled by alice");
+    // The running step's job fails once cancelled, so the step fails; the others never started.
+    expect(run?.stepStatuses).toEqual({ a: "failed", b: "dead", c: "dead" });
+    expect(harness.cancelledJobs).toEqual(jobIds);
+    expect(harness.cancelReasons).toEqual(["Cancelled by alice"]);
+    // Cancelling never deletes: the step job is failed and still listed.
+    expect(harness.jobs.map((j) => [j.id, j.state])).toEqual([[jobIds[0] ?? "", "failed"]]);
+    expect(harness.cancelledTasks).toEqual([
+      { runId: workflowRunId, reason: "Workflow run failed: Cancelled by alice" },
+    ]);
+    expect(harness.broadcasts).toContainEqual({
+      type: "workflow_failed",
+      workflowRunId,
+      failedStep: "",
+      error: "Cancelled by alice",
+    });
+    // A deliberate stop is no error for the error-analyzer.
+    expect(harness.events.map((e) => e.type)).not.toContain("workflow:step_failed");
+  });
+
+  test("cancels a run waiting on a signal: withdraws the signal and clears its timer", async () => {
     harness = createHarness([waiting]);
     const { workflowRunId } = await harness.runs.start(waiting, null);
-    expect(signalStore.listWaitingForRun(workflowRunId)).toHaveLength(1);
+    const [signal] = signalStore.listWaitingForRun(workflowRunId);
     expect(signalTimers.activeCount()).toBe(1);
 
-    const removed = await harness.runs.remove(workflowRunId);
+    expect(await harness.runs.cancel(workflowRunId)).toEqual({ ok: true });
 
-    expect(removed).toEqual({ cancelled: [], total: 0 });
+    const run = dagRunStore.get(workflowRunId);
+    expect(run?.status).toBe("failed");
+    expect(run?.failureReason).toBe("Cancelled");
+    expect(run?.stepStatuses.wait).toBe("failed");
     expect(signalTimers.activeCount()).toBe(0);
-    expect(signalStore.listWaitingForRun(workflowRunId)).toHaveLength(0);
+    expect(signalStore.getById(signal?.id ?? "")?.status).toBe("cancelled");
+  });
+
+  test("refuses finished and unknown runs", async () => {
+    harness = createHarness([fanOut]);
+    const { workflowRunId } = await harness.runs.start(fanOut, null);
+    await harness.runs.cancel(workflowRunId);
+
+    expect(await harness.runs.cancel(workflowRunId)).toEqual({ ok: false, reason: "not_active" });
+    expect(await harness.runs.cancel("nope")).toEqual({ ok: false, reason: "run_not_found" });
+  });
+});
+
+describe("remove", () => {
+  test("refuses an active run and leaves it untouched", async () => {
+    harness = createHarness([waiting]);
+    const { workflowRunId } = await harness.runs.start(waiting, null);
+
+    expect(await harness.runs.remove(workflowRunId)).toEqual({ ok: false, reason: "not_finished" });
+
+    expect(dagRunStore.get(workflowRunId)?.status).toBe("waiting-signal");
+    expect(signalStore.listWaitingForRun(workflowRunId)).toHaveLength(1);
+    expect(signalTimers.activeCount()).toBe(1);
+  });
+
+  test("deletes a finished run and releases its tasks, signals, and record", async () => {
+    harness = createHarness([waiting]);
+    const { workflowRunId } = await harness.runs.start(waiting, null);
+    const signalId = signalStore.listWaitingForRun(workflowRunId)[0]?.id ?? "";
+    await harness.runs.cancel(workflowRunId);
+
+    expect(await harness.runs.remove(workflowRunId)).toEqual({ ok: true, removed: [], total: 0 });
+
+    expect(signalStore.getById(signalId)).toBeNull();
     expect(dagRunStore.get(workflowRunId)).toBeNull();
-    expect(harness.cancelledTasks).toEqual([{ runId: workflowRunId, reason: "Workflow run deleted" }]);
+    expect(harness.cancelledTasks.at(-1)).toEqual({ runId: workflowRunId, reason: "Workflow run deleted" });
     expect(harness.broadcasts.at(-1)).toEqual({
       type: "workflow_run_removed",
       workflowRunId,
@@ -209,34 +275,35 @@ describe("remove", () => {
     });
   });
 
-  test("broadcasts job_removed for every job before the run removal", async () => {
+  test("removes every job and broadcasts job_removed before the run removal", async () => {
     harness = createHarness([fanOut]);
     const { workflowRunId, jobIds } = await harness.runs.start(fanOut, null);
-    const removed = await harness.runs.remove(workflowRunId);
-    expect(removed).toEqual({ cancelled: jobIds, total: 1 });
+    await harness.runs.cancel(workflowRunId);
+
+    expect(await harness.runs.remove(workflowRunId)).toEqual({ ok: true, removed: jobIds, total: 1 });
     expect(harness.jobs).toHaveLength(0);
     expect(harness.broadcasts.slice(-2).map((b) => b.type)).toEqual(["job_removed", "workflow_run_removed"]);
   });
 
-  test("cancels an active step job and removes it once it has ended", async () => {
+  test("refuses while a cancelled step is still stopping, then deletes once it has ended", async () => {
     harness = createHarness([fanOut]);
     const { workflowRunId, jobIds } = await harness.runs.start(fanOut, null);
     const aJob = harness.jobs.find((j) => j.id === jobIds[0]);
     if (!aJob) throw new Error("no job for a");
     aJob.state = "active";
+    await harness.runs.cancel(workflowRunId);
 
-    const removed = await harness.runs.remove(workflowRunId);
+    expect(await harness.runs.remove(workflowRunId)).toEqual({ ok: false, reason: "jobs_live" });
+    expect(harness.jobs).toHaveLength(1);
 
-    expect(harness.cancelledJobs).toContain(aJob.id);
-    expect(harness.cancelReasons[0]).toBe("Cancelled: the workflow run was deleted");
-    expect(removed).toEqual({ cancelled: [aJob.id], total: 1 });
-    expect(harness.jobs).toHaveLength(0);
-    expect(dagRunStore.get(workflowRunId)).toBeNull();
+    await Bun.sleep(30);
+    expect(aJob.state).toBe("failed");
+    expect(await harness.runs.remove(workflowRunId)).toEqual({ ok: true, removed: [aJob.id], total: 1 });
   });
 
-  test("answers null for an unknown run", async () => {
+  test("answers run_not_found for an unknown run", async () => {
     harness = createHarness([]);
-    expect(await harness.runs.remove("nope")).toBeNull();
+    expect(await harness.runs.remove("nope")).toEqual({ ok: false, reason: "run_not_found" });
   });
 });
 

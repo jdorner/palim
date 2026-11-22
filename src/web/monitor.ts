@@ -9,12 +9,12 @@
 import type { JobEntry } from "@shared/jobs";
 import type { WebSocketMessage } from "@shared/websocket";
 import type { AuthResolver, ResolvedPrincipal } from "@src/auth";
-import type { JobInfo, ManagedQueuePort, QueueJobLogs } from "@src/queue";
+import type { CancelOutcome, JobInfo, ManagedQueuePort, QueueJobLogs } from "@src/queue";
 import { getLogStore } from "@src/queue";
 import { mainLogger as log } from "@src/utils/logger";
 import type { ServerWebSocket } from "elysia/ws/bun";
 import { JobCanceller } from "./jobCanceller";
-import { type CleanDecision, QueueCleaner } from "./queueCleaner";
+import { type CleanDecision, type DeleteOutcome, QueueCleaner, type RetryOutcome } from "./queueCleaner";
 
 /**
  * Extracts a `prompt` string from an unknown job data payload.
@@ -75,9 +75,9 @@ export class QueueMonitor {
   /** Chat-routed job IDs mapped to their chatId, for evicting {@link chatOwners}. */
   private jobChats: Map<string, string> = new Map();
   private queues: ManagedQueuePort[] = [];
-  /** Handles job cancellation and workflow chain resolution. */
+  /** Handles job cancellation. */
   private canceller: JobCanceller;
-  /** Handles job retry, cleanup, and log retrieval. */
+  /** Handles job retry, deletion, cleanup, and log retrieval. */
   private cleaner: QueueCleaner;
 
   /**
@@ -89,10 +89,6 @@ export class QueueMonitor {
     this.canceller = new JobCanceller({
       getQueues: () => this.queues,
       getCachedJob: (id) => this.jobCache.get(id),
-      evictJob: (id) => this.jobCache.delete(id),
-      mapJobStateToStatus: (state) => this.mapJobStateToStatus(state),
-      jobInfoToEntry: (job, queueName, status) => this.jobInfoToEntry(job, queueName, status),
-      broadcastFullState: () => this.broadcastFullState(),
     });
     this.cleaner = new QueueCleaner({
       getQueues: () => this.queues,
@@ -215,7 +211,6 @@ export class QueueMonitor {
       }
 
       // Not in cache - use the resolved job from the event or fetch as fallback
-      if (this.canceller.isRecentlyCancelled(jobId)) return;
       log.warn(`Job ${jobId} not in cache during '${status}' event, fetching from queue ${queue.name}`);
       const resolvedJob = job ?? (await queue.getJob(jobId));
       if (!resolvedJob) {
@@ -513,27 +508,26 @@ export class QueueMonitor {
   }
 
   /**
-   * Finds all jobs in the same workflow chain as the given job.
-   * A chain is identified by sharing the same `workflowRunId` in their data payload.
+   * Cancels one job (see {@link JobCanceller.cancelJob}): it ends `failed`
+   * and stays listed. Other jobs of its workflow run are left alone.
    *
-   * @param jobId - Any job in the chain
-   * @returns The list of sibling job entries and the workflow run ID, or null if not part of a chain
+   * @param jobId - The job to cancel
+   * @param reason - Why (see `cancelReason`); the job fails with it
+   * @returns The cancel outcome
    */
-  async getChainSiblings(jobId: string): Promise<{ workflowRunId: string; siblings: JobEntry[] } | null> {
-    return this.canceller.getChainSiblings(jobId);
+  async cancelJob(jobId: string, reason?: string): Promise<CancelOutcome> {
+    return this.canceller.cancelJob(jobId, reason);
   }
 
   /**
-   * Cancels a job by ID, searching across all tracked queues.
-   * If the job is part of a workflow chain (has a `workflowRunId` in its data),
-   * all sibling jobs in the chain are cancelled as well.
+   * Deletes one finished job with its logs (see {@link QueueCleaner.deleteJob}).
    *
-   * @param jobId - The job to cancel
-   * @param reason - Why (see `cancelReason`); an active job fails with it
-   * @returns true if the job was found and cancelled
+   * @param jobId - The job to delete
+   * @returns The delete outcome
+   * @throws When the queue refuses to remove a finished job
    */
-  async cancelJob(jobId: string, reason?: string): Promise<boolean> {
-    return this.canceller.cancelJob(jobId, reason);
+  async deleteJob(jobId: string): Promise<DeleteOutcome> {
+    return this.cleaner.deleteJob(jobId);
   }
 
   /**
@@ -547,14 +541,12 @@ export class QueueMonitor {
   }
 
   /**
-   * Retries a failed job by moving it from the DLQ back to waiting.
-   * Searches across all tracked queues for the job, using the job's
-   * queue name to ensure the retry targets the correct DLQ.
+   * Retries a failed job (see {@link QueueCleaner.retryJob}).
    *
    * @param jobId - The job to retry
-   * @returns true if the job was found and retried
+   * @returns The retry outcome
    */
-  async retryJob(jobId: string): Promise<boolean> {
+  async retryJob(jobId: string): Promise<RetryOutcome> {
     return this.cleaner.retryJob(jobId);
   }
 
@@ -693,7 +685,7 @@ export class QueueMonitor {
 
   /**
    * Broadcasts the full job cache as an `initial_state` message to all clients.
-   * Used after destructive operations (clean, cancel) to guarantee client/server
+   * Used after destructive operations (clean, delete, retry) to guarantee client/server
    * state consistency without relying on incremental deltas.
    */
   private broadcastFullState(): void {

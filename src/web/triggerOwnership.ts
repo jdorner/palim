@@ -28,6 +28,18 @@ export function requestUserId(request: Request): string | undefined {
 }
 
 /**
+ * Returns the username of the user who made the current request, or
+ * undefined when unauthenticated. For messages that name the user (e.g.
+ * "Cancelled by alice"); record ownership with {@link requestUserId}.
+ *
+ * @param request - The incoming request.
+ * @returns The requesting user's username, or undefined.
+ */
+export function requestUsername(request: Request): string | undefined {
+  return getPrincipal(request)?.user.username;
+}
+
+/**
  * Counts the triggers of one kind that a user created. Registered by the
  * trigger-owning core extensions so user deletion can refuse while the user
  * still owns triggers (which would otherwise fire with an unresolvable initiator).

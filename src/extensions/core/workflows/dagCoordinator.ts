@@ -1,8 +1,8 @@
 /**
  * DAG Coordinator - the I/O shell around the run kernel.
  *
- * Called to start runs, by the queue's `completed` and `failed` event
- * handlers, by signal delivery and by signal timeouts. Every state change goes through
+ * Called to start and cancel runs, by the queue's `completed` and `failed`
+ * event handlers, by signal delivery and by signal timeouts. Every state change goes through
  * {@link advance} in `runKernel.ts`: the shell loads the run, asks the kernel
  * what the event changes, applies that patch in one statement, then executes
  * the kernel's effects in order: enqueue jobs, resolve control-flow templates
@@ -63,8 +63,8 @@ export interface DagCoordinatorDeps {
   broadcast: (event: WorkflowWebSocketEvent) => void;
   /** Retrieves a DAG workflow definition by name. */
   getWorkflowDefinition: (name: string) => DagWorkflowDefinition | undefined;
-  /** Cancels a running job by ID (best-effort). */
-  cancelJob?: (jobId: string) => Promise<void>;
+  /** Cancels a running job by ID (best-effort); `reason` overrides the default fail-fast reason. */
+  cancelJob?: (jobId: string, reason?: string) => Promise<void>;
   /**
    * Lists a run's queued and active job IDs. With {@link cancelJob}, every
    * transition that fails a run cancels them (fail-fast for all failure paths:
@@ -203,16 +203,34 @@ export async function handleDagStepFailure(
 }
 
 /**
+ * Cancels a run: the kernel fails it as a whole, fails the steps waiting on a
+ * signal and sweeps the running and pending ones dead; the fail-fast rule
+ * cancels its in-flight jobs, whose steps turn failed once the jobs end failed.
+ * Waits and human tasks are withdrawn by the `workflow_failed` broadcast's
+ * listener, as for every failed run.
+ *
+ * @param runId - The workflow run ID
+ * @param reason - The failure reason (e.g. "Cancelled by alice")
+ * @param deps - Injected dependencies
+ * @returns Whether this call ended the run (false when it had already ended or does not exist)
+ */
+export async function cancelRun(runId: string, reason: string, deps: DagCoordinatorDeps): Promise<boolean> {
+  const { patch } = await processEvent(runId, { type: "runCancelled", reason }, deps);
+  return patch.status === "failed";
+}
+
+/**
  * Cancels jobs, best effort.
  *
  * @param jobIds - The jobs to cancel
  * @param deps - Injected dependencies (no-op without `cancelJob`)
+ * @param reason - Why, when not the default fail-fast reason (a cancelled run passes its own)
  */
-async function cancelJobs(jobIds: readonly string[], deps: DagCoordinatorDeps): Promise<void> {
+async function cancelJobs(jobIds: readonly string[], deps: DagCoordinatorDeps, reason?: string): Promise<void> {
   if (!deps.cancelJob) return;
   for (const jobId of jobIds) {
     try {
-      await deps.cancelJob(jobId);
+      await deps.cancelJob(jobId, reason);
     } catch {
       // Best effort
     }
@@ -256,10 +274,11 @@ async function processEvent(
     if (dispatched) outcome.dispatched.push(dispatched);
   }
   // Fail-fast: a transition that failed the run stops its in-flight jobs.
-  // Their failure events then reach an ended run and change nothing.
+  // Their failure events then reach an ended run and change nothing. The
+  // steps of a cancelled run fail with the run's reason ("Cancelled by alice").
   if (patch.status === "failed" && deps.cancelJob && deps.inFlightJobIds) {
     outcome.cancelled = await deps.inFlightJobIds(runId);
-    await cancelJobs(outcome.cancelled, deps);
+    await cancelJobs(outcome.cancelled, deps, event.type === "runCancelled" ? event.reason : undefined);
   }
   return outcome;
 }

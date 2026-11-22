@@ -1,6 +1,6 @@
 /**
- * Tests for {@link ManagedQueue.cancelJob} - verifies that jobs in all states
- * (waiting, waitingDeps, active/processing) are properly removed.
+ * Tests for {@link ManagedQueue} - cancelling (jobs end failed and stay in
+ * the queue), batch removal, and persisted logs.
  */
 
 import { describe, expect, test } from "bun:test";
@@ -12,88 +12,78 @@ import type { QueueJob } from "./types";
 const TEST_QUEUE = "test-cancel";
 
 describe("ManagedQueue.cancelJob", () => {
-  describe("waitingDeps jobs (flow chain)", () => {
-    test("cancels a job parked in waitingDeps", async () => {
+  describe("jobs that have not started", () => {
+    test("fails a waiting job with the reason, logs it, and emits failed", async () => {
+      const mq = new ManagedQueue(TEST_QUEUE, async () => {}, { autorun: false, dataPath: null });
+      const failed = new Promise<{ jobId: string; failedReason: string; state?: string }>((resolve) => {
+        mq.onEvent("failed", ({ jobId, failedReason, job }) => resolve({ jobId, failedReason, state: job?.state }));
+      });
+
+      const jobId = await mq.add("simple-job", { value: 42 });
+      expect((await mq.getJob(jobId))?.state).toBe("waiting");
+
+      expect(await mq.cancelJob(jobId, "Cancelled by alice")).toBe("cancelled");
+
+      // The job is not removed: it is failed and can be retried or deleted.
+      expect((await mq.getJob(jobId))?.state).toBe("failed");
+      expect(await failed).toEqual({ jobId, failedReason: "Cancelled by alice", state: "failed" });
+      const logs = await mq.getJobLogs(jobId);
+      expect(logs.logs.map((l) => l.message)).toEqual(["Cancelled by alice"]);
+      expect(await mq.retryJob(jobId)).toBe(true);
+      expect((await mq.getJob(jobId))?.state).toBe("waiting");
+
+      await mq.close();
+    });
+
+    test("fails a delayed job", async () => {
+      const mq = new ManagedQueue(TEST_QUEUE, async () => {}, { dataPath: null });
+      const jobId = await mq.add("delayed-job", { value: 1 }, { delay: 60_000 });
+      expect((await mq.getJob(jobId))?.state).toBe("delayed");
+
+      expect(await mq.cancelJob(jobId)).toBe("cancelled");
+      expect((await mq.getJob(jobId))?.state).toBe("failed");
+
+      await mq.close();
+    });
+
+    test("refuses a job parked on its children (flow chain)", async () => {
       const flow = new FlowProducer({ embedded: true });
+      const mq = new ManagedQueue(TEST_QUEUE, async () => {}, { autorun: false, dataPath: null });
 
-      // Create a queue that never processes (worker not started)
-      const mq = new ManagedQueue(
-        TEST_QUEUE,
-        async () => {
-          // Never resolves - jobs stay active indefinitely
-          await new Promise(() => {});
-        },
-        { autorun: false, dataPath: null },
-      );
-
-      // Create a 3-step chain: step-0 -> step-1 -> step-2
       const { jobIds } = await flow.addChain([
         { name: "step-0", queueName: TEST_QUEUE, data: { index: 0 } },
         { name: "step-1", queueName: TEST_QUEUE, data: { index: 1 } },
-        { name: "step-2", queueName: TEST_QUEUE, data: { index: 2 } },
       ]);
+      const [id0, id1] = jobIds as [string, string];
+      expect((await mq.getJob(id1))?.state).toBe("waiting-children");
 
-      const [id0, id1, id2] = jobIds as [string, string, string];
+      expect(await mq.cancelJob(id1)).toBe("not_cancellable");
+      expect((await mq.getJob(id1))?.state).toBe("waiting-children");
 
-      // step-1 and step-2 should be in waitingDeps (state: waiting-children)
-      const job1Before = await mq.getJob(id1);
-      expect(job1Before).not.toBeNull();
-      expect(job1Before!.state).toBe("waiting-children");
-
-      // Cancel step-1 (waitingDeps job)
-      const removed = await mq.cancelJob(id1);
-      expect(removed).toBe(true);
-
-      // Verify it's actually gone
-      const job1After = await mq.getJob(id1);
-      expect(job1After).toBeNull();
-
-      // Cancel step-2 as well
-      const removed2 = await mq.cancelJob(id2);
-      expect(removed2).toBe(true);
-
-      const job2After = await mq.getJob(id2);
-      expect(job2After).toBeNull();
-
-      // step-0 should still exist (it's in the queue, waiting to be processed)
-      const job0 = await mq.getJob(id0);
-      expect(job0).not.toBeNull();
-
-      // Cleanup
-      await mq.cancelJob(id0);
+      await mq.removeJobs([id0, id1]);
       await mq.close();
       await flow.close();
     });
+  });
 
-    test("cancels a waiting (non-deps) job", async () => {
-      const mq = new ManagedQueue(
-        TEST_QUEUE,
-        async () => {
-          await new Promise(() => {});
-        },
-        { autorun: false, dataPath: null },
-      );
+  describe("finished and unknown jobs", () => {
+    test("reports a finished job as finished and leaves it in place", async () => {
+      const mq = new ManagedQueue(TEST_QUEUE, async () => "done", { dataPath: null });
+      const completed = new Promise<void>((resolve) => mq.onEvent("completed", () => resolve()));
+      const jobId = await mq.add("quick-job", { value: 1 });
+      await completed;
 
-      const jobId = await mq.add("simple-job", { value: 42 });
+      expect(await mq.cancelJob(jobId)).toBe("finished");
+      expect((await mq.getJob(jobId))?.state).toBe("completed");
 
-      const jobBefore = await mq.getJob(jobId);
-      expect(jobBefore).not.toBeNull();
-      expect(jobBefore!.state).toBe("waiting");
-
-      const removed = await mq.cancelJob(jobId);
-      expect(removed).toBe(true);
-
-      const jobAfter = await mq.getJob(jobId);
-      expect(jobAfter).toBeNull();
-
+      await mq.removeJobs([jobId]);
       await mq.close();
     });
 
-    test("returns false for non-existent job", async () => {
+    test("returns not_found for a non-existent job", async () => {
       const mq = new ManagedQueue(TEST_QUEUE, async () => {}, { autorun: false, dataPath: null });
 
-      const removed = await mq.cancelJob("non-existent-job-id");
-      expect(removed).toBe(false);
+      expect(await mq.cancelJob("non-existent-job-id")).toBe("not_found");
 
       await mq.close();
     });
@@ -135,8 +125,7 @@ describe("ManagedQueue.cancelJob", () => {
       expect(jobBefore!.state).toBe("active");
 
       // Cancel should succeed — signals cooperative cancellation
-      const removed = await mq.cancelJob(jobId);
-      expect(removed).toBe(true);
+      expect(await mq.cancelJob(jobId)).toBe("cancelled");
 
       // Unblock the worker so close() can finish
       unblock!();
@@ -168,9 +157,48 @@ describe("ManagedQueue.cancelJob", () => {
       await startedPromise;
       await new Promise((resolve) => setTimeout(resolve, 50));
 
-      expect(await mq.cancelJob(jobId, "Cancelled by alice")).toBe(true);
+      expect(await mq.cancelJob(jobId, "Cancelled by alice")).toBe("cancelled");
       expect(await failed).toBe("Cancelled by alice");
       expect((await mq.getJob(jobId))?.state).toBe("failed");
+
+      await mq.close();
+    });
+
+    test("fails a cancelled job whose processor ignores the signal and returns", async () => {
+      let started: () => void;
+      const startedPromise = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      let finish: () => void;
+      const finishPromise = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+
+      const mq = new ManagedQueue<{ value: number }>(
+        TEST_QUEUE,
+        async () => {
+          started!();
+          // Not cooperative: runs to the end whatever the signal says.
+          await finishPromise;
+          return { done: true };
+        },
+        { concurrency: 1, dataPath: null },
+      );
+      const outcome = new Promise<string>((resolve) => {
+        mq.onEvent("failed", ({ failedReason }) => resolve(`failed: ${failedReason}`));
+        mq.onEvent("completed", () => resolve("completed"));
+      });
+
+      const jobId = await mq.add("stubborn-job", { value: 1 });
+      await startedPromise;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(await mq.cancelJob(jobId, "Cancelled by alice")).toBe("cancelled");
+      finish!();
+      expect(await outcome).toBe("failed: Cancelled by alice");
+      expect((await mq.getJob(jobId))?.state).toBe("failed");
+      const logs = await mq.getJobLogs(jobId);
+      expect(JSON.stringify(logs.logs)).toContain("**Error:** Cancelled by alice");
 
       await mq.close();
     });

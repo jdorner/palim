@@ -242,6 +242,7 @@ export function createDagStepProcessor(deps: DagStepWorkerDeps) {
           workDir: deps.ctx.paths.work,
           fs: getStepFs(),
           jobLog: async (msg: string) => job.log(msg),
+          signal: job.signal,
           workflowRunId: job.data.workflowRunId,
           stepSlug,
           stepResults: tmplCtx.stepResults,

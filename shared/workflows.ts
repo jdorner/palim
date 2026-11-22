@@ -383,7 +383,14 @@ export type WorkflowWebSocketEvent =
       evaluation?: ControlFlowEvaluation;
     }
   | { type: "workflow_step_dead"; workflowRunId: string; stepSlug: string }
-  | { type: "workflow_step_failed"; workflowRunId: string; stepSlug: string; jobId: string; error: string }
+  | {
+      type: "workflow_step_failed";
+      workflowRunId: string;
+      stepSlug: string;
+      /** The failed job; empty for a step the run interrupted when it failed (e.g. one waiting on a signal). */
+      jobId: string;
+      error: string;
+    }
   | {
       type: "workflow_step_waiting";
       workflowRunId: string;

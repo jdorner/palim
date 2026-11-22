@@ -112,7 +112,7 @@ export interface IterationState {
   as: string;
 }
 
-/** Something that happened to a run. Every event except `runStarted` names the step it concerns. */
+/** Something that happened to a run. Every event except `runStarted` and `runCancelled` names the step it concerns. */
 export type RunEvent =
   /** A queue job finished with a result. */
   | { type: "stepCompleted"; slug: string; result: unknown }
@@ -129,7 +129,9 @@ export type RunEvent =
   /** The shell created a waitFor/humanTask node's signal: the branch pauses, announcing what it waits for. */
   | { type: "waitRegistered"; slug: string; event: string; inputSchema: WaitInputSchema }
   /** A step failed; the run fails fast. */
-  | { type: "stepFailed"; slug: string; reason: string };
+  | { type: "stepFailed"; slug: string; reason: string }
+  /** Someone cancelled the run; it fails fast as a whole (no failed step). */
+  | { type: "runCancelled"; reason: string };
 
 /** The input schema announced with a waiting step. */
 export type WaitInputSchema = Extract<WorkflowWebSocketEvent, { type: "workflow_step_waiting" }>["inputSchema"];
@@ -181,11 +183,19 @@ const WORK_EFFECTS = new Set<RunEffect["type"]>(["dispatch", "evaluate", "regist
 export function advance(run: RunState, definition: DagWorkflowDefinition | undefined, event: RunEvent): Transition {
   const t = new TransitionBuilder(run);
   const slug = "slug" in event ? event.slug : null;
-  if (!t.active) {
+  if (!t.active && event.type === "stepFailed" && run.status === "failed" && t.statuses[event.slug] === "dead") {
+    // The run failed while this step's job was in flight (it swept the step
+    // dead), and the job has now failed too, e.g. cancelled by fail-fast: the
+    // step did run, so it failed. The run's status and reason stay. The queue
+    // already announced the failed job (workflow_step_failed).
+    t.setStatus(event.slug, "failed");
+  } else if (!t.active) {
     const subject = slug === null ? "" : ` of step "${slug}"`;
     t.log("warn", `DAG coordinator: run ${run.id} is "${run.status}", ignoring ${event.type}${subject}`);
   } else if (event.type === "stepFailed") {
     t.fail(event.slug, event.reason);
+  } else if (event.type === "runCancelled") {
+    t.fail(null, event.reason);
   } else if (!definition) {
     t.fail(slug, `Workflow definition "${run.workflowName}" no longer available`);
   } else {
@@ -271,7 +281,11 @@ class TransitionBuilder {
 
   /**
    * Fails the run at a step (or, with `null`, as a whole): drops pending work
-   * and sweeps every open step to dead.
+   * and settles every open step. A step waiting on a signal is interrupted
+   * and fails with `reason`. A running or pending step is dead: "running" does
+   * not tell whether its job was ever enqueued (the step is marked running
+   * before its dispatch). Once a swept step's job ends failed, the step turns
+   * failed after all (see {@link advance}).
    */
   fail(slug: string | null, reason: string): void {
     this.log("error", `DAG run ${this.runId} failed${slug === null ? "" : ` at step "${slug}"`}: ${reason}`);
@@ -280,7 +294,16 @@ class TransitionBuilder {
     this.setRunStatus("failed", reason);
     this.broadcast({ type: "workflow_failed", workflowRunId: this.runId, failedStep: slug ?? "", error: reason });
     for (const [s, status] of Object.entries(this.statuses)) {
-      if (status === "pending" || status === "running" || status === "waiting-signal") {
+      if (status === "waiting-signal") {
+        this.setStatus(s, "failed");
+        this.broadcast({
+          type: "workflow_step_failed",
+          workflowRunId: this.runId,
+          stepSlug: s,
+          jobId: "",
+          error: reason,
+        });
+      } else if (status === "pending" || status === "running") {
         this.setStatus(s, "dead");
         this.broadcast({ type: "workflow_step_dead", workflowRunId: this.runId, stepSlug: s });
       }
@@ -303,7 +326,7 @@ class GraphRules {
     this.topology = definitionTopology(definition);
   }
 
-  apply(event: Exclude<RunEvent, { type: "stepFailed" }>): void {
+  apply(event: Exclude<RunEvent, { type: "stepFailed" | "runCancelled" }>): void {
     const { t } = this;
     switch (event.type) {
       case "stepCompleted":

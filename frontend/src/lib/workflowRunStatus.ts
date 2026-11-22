@@ -85,8 +85,10 @@ export function isStaleStepStart(current: { status: string; jobId?: string } | u
 
 /**
  * Settles the steps a finished run left open. A completed run has no running
- * or waiting step left, and a failed run swept them dead; if one of those
- * step events was missed, the step would otherwise stay active or waiting.
+ * or waiting step left, and a failed run swept them dead (a step whose job
+ * failed or that waited on a signal is then marked failed by its own
+ * `workflow_step_failed` event); if one of those step events was missed, the
+ * step would otherwise stay active or waiting.
  *
  * @param steps - Steps of the run
  * @param to - Status for open steps: "completed" for a completed run, "dead" for a failed one

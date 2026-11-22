@@ -71,7 +71,7 @@ workflow trigger "<name>" "<payload>"  # trigger a run (payload optional, use ""
 workflow runs "<name>"                 # list recent runs with status
 workflow logs "<run-id>"               # show per-step execution logs
 workflow wait "<run-id>" [--timeout "<seconds>"]  # wait until the run ends or waits for input, then show its logs
-workflow cancel "<run-id>"             # cancel all steps of a running workflow
+workflow cancel "<run-id>"             # cancel a running or waiting run (it ends failed and stays listed)
 ```
 
 ## Creating a workflow

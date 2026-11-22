@@ -135,7 +135,7 @@ Only list proxies that put the address of the connection they received as the la
 Every signed-in user may read everything without any permission: workflow definitions and runs, jobs and their logs, triggers, secret metadata and audit logs, variables, models, extensions and data tables. There are three exceptions:
 
 - **Chat sessions** are private to their owner.
-- **Chat jobs** are private to the user who started them, admins included. They are left out of the job feed (see [WebSocket](#websocket)), and the per-job routes (`GET /api/jobs/:id/logs`, `GET /api/jobs/:id/chain`, `POST /api/jobs/:id/cancel`, `POST /api/jobs/:id/retry`) answer `404` to anyone else. Bulk cleanup (`POST /api/queues/clean`) still removes finished jobs of every user by state.
+- **Chat jobs** are private to the user who started them, admins included. They are left out of the job feed (see [WebSocket](#websocket)), and the per-job routes (`GET /api/jobs/:id/logs`, `POST /api/jobs/:id/cancel`, `POST /api/jobs/:id/retry`, `DELETE /api/jobs/:id`) answer `404` to anyone else. Bulk cleanup (`POST /api/queues/clean`) still removes finished jobs of every user by state.
 - **Users and roles** are listed only for holders of `users:manage`.
 
 Secret values are never returned by the API, so open reads don't expose them.
@@ -147,7 +147,7 @@ Writes need a permission. Permissions are `<domain>:<action>` strings. A role is
 | `chat:write`       | Create chat sessions and send messages in, clear or delete your own sessions                                                                                                     |
 | `workflows:write`  | Start workflow runs and cancel, signal or delete any run                                                                                                                         |
 | `workflows:manage` | Create, edit and delete workflow definitions. Definitions are shared, and runs started by other users' triggers execute them with those users' authority, so this is admin-level |
-| `jobs:write`       | Cancel, retry and clean jobs                                                                                                                                                     |
+| `jobs:write`       | Cancel, retry, delete and clean jobs                                                                                                                                             |
 | `triggers:write`   | Create, edit and delete any schedule, file watcher or webhook                                                                                                                    |
 | `secrets:write`    | Manage secrets                                                                                                                                                                   |
 | `variables:write`  | Manage global variables                                                                                                                                                          |

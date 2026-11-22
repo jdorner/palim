@@ -156,13 +156,16 @@ describe("workflow command", () => {
           return Response.json(loadErrors);
         }
 
-        // DELETE /runs/:runId - cancel a workflow run
-        if (reqPath.match(/^\/runs\/[^/]+$/) && req.method === "DELETE") {
+        // POST /runs/:runId/cancel - cancel a workflow run
+        if (reqPath.match(/^\/runs\/[^/]+\/cancel$/) && req.method === "POST") {
           const runId = reqPath.split("/")[2];
           if (runId === "not-found") {
-            return Response.json({ error: "Not found" }, { status: 404 });
+            return Response.json({ error: "Run not found" }, { status: 404 });
           }
-          return Response.json({ runId, cancelled: ["job-001", "job-002"], total: 2 });
+          if (runId === "run-done") {
+            return Response.json({ error: "Only running or waiting runs can be cancelled" }, { status: 409 });
+          }
+          return Response.json({ runId, cancelled: true });
         }
 
         // POST /meta/validate - authoritative server-side validation.
@@ -379,8 +382,17 @@ describe("workflow command", () => {
           if (runId === "not-found") {
             return Response.json({ error: "Not found" }, { status: 404 });
           }
-          if (runId === "empty-steps") {
-            return Response.json({ runId, workflowName: "test", status: "waiting", steps: [] });
+          if (runId === "run-cancelled") {
+            return Response.json({
+              runId,
+              workflowName: "deploy-app",
+              status: "failed",
+              failureReason: "Cancelled by alice",
+              steps: [
+                { slug: "build", type: "agent", status: "completed", jobId: "job-001" },
+                { slug: "deploy", type: "agent", status: "failed", jobId: "job-002" },
+              ],
+            });
           }
           return Response.json({
             runId,
@@ -1429,17 +1441,15 @@ describe("workflow command", () => {
   // ---------------------------------------------------------------------------
 
   describe("cancel", () => {
-    test("cancels a running workflow by run ID", async () => {
-      const result = await command(["cancel", "run-001"], makeCtx());
+    test("cancels a run and shows where it ended up", async () => {
+      const result = await command(["cancel", "run-cancelled"], makeCtx());
       expect(result.exitCode).toBe(0);
-      expect(result.stdout).toContain("Cancelled workflow run run-001");
-      expect(result.stdout).toContain("2 steps");
-      expect(result.stdout).toContain("build");
-      expect(result.stdout).toContain("deploy");
+      expect(result.stdout).toContain('Cancelled workflow run run-cancelled: it ended failed ("Cancelled by alice")');
+      expect(result.stdout).toContain("deploy [failed]");
 
-      // Verify it hit the DELETE endpoint for the run
-      const cancelReq = received.find((r) => r.path === "/runs/run-001" && r.method === "DELETE");
-      expect(cancelReq).toBeDefined();
+      // Cancelling uses the cancel endpoint and never deletes the run.
+      expect(received.some((r) => r.path === "/runs/run-cancelled/cancel" && r.method === "POST")).toBe(true);
+      expect(received.some((r) => r.method === "DELETE")).toBe(false);
     });
 
     test("reports error when run not found", async () => {
@@ -1448,10 +1458,10 @@ describe("workflow command", () => {
       expect(result.stderr).toContain('Run "not-found" not found');
     });
 
-    test("reports error when run has no steps", async () => {
-      const result = await command(["cancel", "empty-steps"], makeCtx());
+    test("reports the server's refusal for a run that has already ended", async () => {
+      const result = await command(["cancel", "run-done"], makeCtx());
       expect(result.exitCode).toBe(1);
-      expect(result.stderr).toContain("has no steps");
+      expect(result.stderr).toContain("Only running or waiting runs can be cancelled");
     });
   });
 
