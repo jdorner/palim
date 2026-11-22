@@ -233,34 +233,28 @@ describe("chat route identity stamping", () => {
       expect(res.status).toBe(409);
     });
 
-    test("skips the predecessor check when the last user message predates client IDs", async () => {
+    test("a user message stored without client ID is matched by legacy-<seq>", async () => {
       const sessionId = await start("conv-ids-5");
-      sessions.append(sessionId, { role: "user", content: "legacy", timestamp: Date.now() } as never);
+      sessions.append(sessionId, { role: "user", content: "no id", timestamp: Date.now() } as never);
+      const legacyId = `legacy-${sessions.getUserMessageMarkers(sessionId).at(-1)!.seq}`;
+
+      const wrong = await post({
+        message: "next",
+        chatId: "x",
+        sessionId,
+        clientMessageId: "m3",
+        expectedLastClientId: "m1",
+      });
+      expect(wrong.status).toBe(409);
+
       const res = await post({
         message: "next",
         chatId: "x",
         sessionId,
         clientMessageId: "m3",
-        expectedLastClientId: "ui-legacy",
+        expectedLastClientId: legacyId,
       });
       expect(res.status).toBe(201);
-    });
-
-    test("resending a legacy last message reruns it and stores its client ID", async () => {
-      const sessionId = await start("conv-ids-7");
-      sessions.append(sessionId, { role: "user", content: "legacy", timestamp: Date.now() } as never);
-      sessions.append(sessionId, { role: "assistant", content: [], timestamp: Date.now() } as never);
-      const res = await post({
-        message: "legacy",
-        chatId: "x",
-        sessionId,
-        clientMessageId: "ui-2",
-        expectedLastClientId: "m1",
-        userTurnIndex: 1,
-      });
-      expect(res.status).toBe(201);
-      expect(roles(sessionId)).toEqual(["user", "assistant", "user"]);
-      expect(sessions.getUserMessageMarkers(sessionId).map((m) => m.clientId)).toEqual(["m1", "ui-2"]);
     });
 
     test("returns 409 while a chat job for the session is pending", async () => {

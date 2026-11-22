@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { cutSeqForClientId, cutSeqForTurns, hasLegacyUserMessages, legacySeqForTurn, planChatSend } from "./chatSync";
+import { cutSeqForClientId, planChatSend } from "./chatSync";
 import type { UserMessageMarker } from "./types";
 
 /** User messages at seq 1, 5 and 7 with client IDs c1..c3. */
@@ -32,17 +32,14 @@ describe("planChatSend", () => {
     expect(planChatSend([], "c1", "c0")).toEqual({ kind: "diverged" });
   });
 
-  test("skips the predecessor check after a legacy message", () => {
-    expect(planChatSend([{ seq: 1, clientId: null }], "c2", "anything")).toEqual({ kind: "append" });
-    expect(planChatSend([{ seq: 1, clientId: null }], "c2", "anything", 1)).toEqual({ kind: "append" });
-  });
-
-  test("reruns and backfills a legacy last message the UI resends", () => {
+  test("a message stored without client ID is known by legacy-<seq>", () => {
     const legacy = [
       { seq: 1, clientId: null },
       { seq: 4, clientId: null },
     ];
-    expect(planChatSend(legacy, "ui-2", "ui-1", 1)).toEqual({ kind: "rerun", cutSeq: 5, backfillSeq: 4 });
+    expect(planChatSend(legacy, "c5", "legacy-4")).toEqual({ kind: "append" });
+    expect(planChatSend(legacy, "c5", "anything")).toEqual({ kind: "diverged" });
+    expect(planChatSend(legacy, "legacy-4", "legacy-1")).toEqual({ kind: "rerun", cutSeq: 5 });
   });
 });
 
@@ -55,40 +52,8 @@ describe("cutSeqForClientId", () => {
   test("returns undefined for an unknown ID", () => {
     expect(cutSeqForClientId(markers, "nope", "from")).toBeUndefined();
   });
-});
 
-describe("cutSeqForTurns", () => {
-  test("keep=0 without trailing clears everything", () => {
-    expect(cutSeqForTurns(markers, 0, false)).toBe(0);
-  });
-
-  test("keeps N turns, optionally with the next user message", () => {
-    expect(cutSeqForTurns(markers, 1, false)).toBe(5);
-    expect(cutSeqForTurns(markers, 1, true)).toBe(6);
-    expect(cutSeqForTurns(markers, 0, true)).toBe(2);
-  });
-
-  test("keeps everything when there are not more turns", () => {
-    expect(cutSeqForTurns(markers, 3, false)).toBeUndefined();
-    expect(cutSeqForTurns(markers, 3, true)).toBeUndefined();
-  });
-});
-
-describe("hasLegacyUserMessages", () => {
-  test("detects user messages without a client ID", () => {
-    expect(hasLegacyUserMessages(markers)).toBe(false);
-    expect(hasLegacyUserMessages([...markers, { seq: 9, clientId: null }])).toBe(true);
-  });
-});
-
-describe("legacySeqForTurn", () => {
-  test("returns the seq of a legacy user message at the turn, else undefined", () => {
-    const mixed = [
-      { seq: 1, clientId: null },
-      { seq: 3, clientId: "c2" },
-    ];
-    expect(legacySeqForTurn(mixed, 0)).toBe(1);
-    expect(legacySeqForTurn(mixed, 1)).toBeUndefined();
-    expect(legacySeqForTurn(mixed, 2)).toBeUndefined();
+  test("finds a message stored without client ID by legacy-<seq>", () => {
+    expect(cutSeqForClientId([{ seq: 3, clientId: null }], "legacy-3", "after")).toBe(4);
   });
 });

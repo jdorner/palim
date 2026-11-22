@@ -81,7 +81,6 @@ export function chatRoutes(
                 sessionStore.getUserMessageMarkers(sessionId),
                 clientMessageId,
                 body.expectedLastClientId ?? null,
-                body.userTurnIndex,
               )
             : ({ kind: "append" } as const);
           if (plan.kind === "diverged") {
@@ -90,9 +89,6 @@ export function chatRoutes(
           if (plan.kind === "rerun") {
             // The message already arrived (retry or regenerate): drop whatever followed it.
             sessionStore.truncateFrom(sessionId, plan.cutSeq);
-            if (plan.backfillSeq !== undefined && clientMessageId) {
-              sessionStore.setClientId(sessionId, plan.backfillSeq, clientMessageId);
-            }
           } else {
             sessionStore.append(
               sessionId,
@@ -137,13 +133,6 @@ export function chatRoutes(
             minLength: 1,
             description:
               "Client-generated ID of this user message. Resending the session's last user message reruns it instead of appending",
-          }),
-        ),
-        userTurnIndex: Type.Optional(
-          Type.Integer({
-            minimum: 0,
-            description:
-              "Zero-based position of this message among the client's user messages; identifies a resent message in sessions stored before client IDs",
           }),
         ),
         expectedLastClientId: Type.Optional(

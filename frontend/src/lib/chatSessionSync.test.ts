@@ -10,11 +10,10 @@ const conversation = [
 ];
 
 describe("chatSendSync", () => {
-  test("names the previous user message and the turn index", () => {
+  test("names the previous user message", () => {
     expect(chatSendSync(conversation, { id: "u3", role: "user" })).toEqual({
       clientMessageId: "u3",
       expectedLastClientId: "u2",
-      userTurnIndex: 2,
     });
   });
 
@@ -22,7 +21,6 @@ describe("chatSendSync", () => {
     expect(chatSendSync(conversation, { id: "u1", role: "user" })).toEqual({
       clientMessageId: "u1",
       expectedLastClientId: null,
-      userTurnIndex: 0,
     });
   });
 
@@ -33,24 +31,16 @@ describe("chatSendSync", () => {
 
 describe("truncateQuery", () => {
   test("a user message is deleted with everything after it", () => {
-    expect(truncateQuery(conversation, { id: "u2", role: "user" })).toEqual({ from: "u2", keep: "1" });
+    expect(truncateQuery(conversation, { id: "u2", role: "user" })).toEqual({ from: "u2" });
   });
 
   test("an assistant message keeps the user message it answers", () => {
-    expect(truncateQuery(conversation, { id: "a2", role: "assistant" })).toEqual({
-      after: "u2",
-      keep: "1",
-      includeTrailing: "true",
-    });
-    expect(truncateQuery(conversation, { id: "a1", role: "assistant" })).toEqual({
-      after: "u1",
-      keep: "0",
-      includeTrailing: "true",
-    });
+    expect(truncateQuery(conversation, { id: "a2", role: "assistant" })).toEqual({ after: "u2" });
+    expect(truncateQuery(conversation, { id: "a1", role: "assistant" })).toEqual({ after: "u1" });
   });
 
   test("an assistant message without a user message before it clears the session", () => {
-    expect(truncateQuery([{ id: "a0", role: "assistant" }], { id: "a0", role: "assistant" })).toEqual({ keep: "0" });
+    expect(truncateQuery([{ id: "a0", role: "assistant" }], { id: "a0", role: "assistant" })).toEqual({});
   });
 });
 

@@ -800,28 +800,4 @@ export class SessionStore implements SessionStorePort {
     logger.debug(`Truncated session ${sessionId} from seq ${fromSeq} (${deleted} messages)`);
     return deleted;
   }
-
-  /**
-   * Stores the client ID of a user message that was saved without one.
-   *
-   * Lets sessions written before client IDs existed pick them up as the UI
-   * refers to their messages.
-   *
-   * @param sessionId - The session
-   * @param seq - The user message's `seq`
-   * @param clientId - The client-generated message ID
-   */
-  setClientId(sessionId: string, seq: number, clientId: string): void {
-    this.db
-      .update(schema.sessionMessages)
-      .set({ clientId })
-      .where(
-        and(
-          eq(schema.sessionMessages.sessionId, sessionId),
-          eq(schema.sessionMessages.seq, seq),
-          eq(schema.sessionMessages.role, "user"),
-        ),
-      )
-      .run();
-  }
 }

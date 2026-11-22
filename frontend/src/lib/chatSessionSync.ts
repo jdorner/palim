@@ -2,9 +2,8 @@
  * Request parameters that keep a chat conversation (IndexedDB) in sync with its
  * server session.
  *
- * The server identifies user messages by the UI's message IDs. Turn counts are
- * sent alongside as a fallback for sessions stored before the server kept those
- * IDs (see `src/session/chatSync.ts`).
+ * The server identifies user messages by the UI's message IDs (see
+ * `src/session/chatSync.ts`).
  */
 
 /** The fields of a chat message these helpers read. */
@@ -17,7 +16,6 @@ export interface SyncMessage {
 export interface ChatSendSync {
   clientMessageId: string;
   expectedLastClientId: string | null;
-  userTurnIndex: number;
 }
 
 /** Error codes the server returns with a 409 on chat and session routes. */
@@ -38,7 +36,6 @@ export function chatSendSync(messages: SyncMessage[], userMsg: SyncMessage): Cha
   return {
     clientMessageId: userMsg.id,
     expectedLastClientId: earlierUsers.at(-1)?.id ?? null,
-    userTurnIndex: earlierUsers.length,
   };
 }
 
@@ -57,13 +54,10 @@ export function chatSendSync(messages: SyncMessage[], userMsg: SyncMessage): Cha
 export function truncateQuery(messages: SyncMessage[], msg: SyncMessage): Record<string, string> {
   const index = messages.findIndex((m) => m.id === msg.id);
   if (index < 0) throw new Error("Message is not part of the conversation");
-  const earlierUsers = messages.slice(0, index).filter((m) => m.role === "user");
-  if (msg.role === "user") {
-    return { from: msg.id, keep: String(earlierUsers.length) };
-  }
-  const answered = earlierUsers.at(-1);
-  if (!answered) return { keep: "0" };
-  return { after: answered.id, keep: String(earlierUsers.length - 1), includeTrailing: "true" };
+  if (msg.role === "user") return { from: msg.id };
+  const answered = messages.slice(0, index).findLast((m) => m.role === "user");
+  // An answer before any user message (a push): the whole session goes.
+  return answered ? { after: answered.id } : {};
 }
 
 /**

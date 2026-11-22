@@ -16,7 +16,7 @@ import { messageText, sessionToChatMessages, titleFromMessage, userMessageId } f
 import { Type } from "@sinclair/typebox";
 import { ownedSubject } from "@src/auth";
 import { getSessionStore } from "@src/session";
-import { cutSeqForClientId, cutSeqForTurns, hasLegacyUserMessages, legacySeqForTurn } from "@src/session/chatSync";
+import { cutSeqForClientId } from "@src/session/chatSync";
 import type { NotifySessionChanged } from "@src/session/sessionEvents";
 import type { SessionSummary } from "@src/session/types";
 import { mainLogger as log } from "@src/utils/logger";
@@ -169,37 +169,20 @@ export function sessionRoutes(sessionGuard: ChatSessionGuard, notifySessionChang
             return status(409, { error: "A response is still being generated for this session", code: "session_busy" });
           }
           try {
-            const markers = sessionStore.getUserMessageMarkers(params.id);
-            const keepTurns = query.keep ?? 0;
-            const includeTrailing = query.includeTrailing === "true";
             const target = query.from
               ? { clientId: query.from, mode: "from" as const }
               : query.after
                 ? { clientId: query.after, mode: "after" as const }
                 : undefined;
-
-            let cutSeq: number | undefined;
-            if (target) {
-              cutSeq = cutSeqForClientId(markers, target.clientId, target.mode);
-              if (cutSeq === undefined) {
-                // A message the session has no ID for: count turns if it predates
-                // client IDs, otherwise the UI and the session have diverged.
-                if (query.keep === undefined || !hasLegacyUserMessages(markers)) {
-                  return status(409, {
-                    error: "The conversation does not match the session",
-                    code: "session_diverged",
-                  });
-                }
-                cutSeq = cutSeqForTurns(markers, keepTurns, includeTrailing);
-                // The kept user message is the one the UI named: store its ID.
-                const backfillSeq = target.mode === "after" ? legacySeqForTurn(markers, keepTurns) : undefined;
-                if (backfillSeq !== undefined) sessionStore.setClientId(params.id, backfillSeq, target.clientId);
-              }
-            } else {
-              cutSeq = cutSeqForTurns(markers, keepTurns, includeTrailing);
+            // Without a target, everything goes.
+            const cutSeq = target
+              ? cutSeqForClientId(sessionStore.getUserMessageMarkers(params.id), target.clientId, target.mode)
+              : 0;
+            if (cutSeq === undefined) {
+              return status(409, { error: "The conversation does not match the session", code: "session_diverged" });
             }
 
-            if (cutSeq !== undefined && sessionStore.truncateFrom(params.id, cutSeq) > 0) {
+            if (sessionStore.truncateFrom(params.id, cutSeq) > 0) {
               notifySessionChanged?.(params.id, "truncate", query.origin);
             }
             return status(200, { sessionId: params.id, ok: true });
@@ -223,18 +206,6 @@ export function sessionRoutes(sessionGuard: ChatSessionGuard, notifySessionChang
             Type.String({
               minLength: 1,
               description: "Client ID of a user message: keep it, delete everything after it",
-            }),
-          ),
-          keep: Type.Optional(
-            Type.Number({
-              minimum: 0,
-              description:
-                "Number of complete turns to keep (a turn = user message + all following assistant/tool messages until the next user message). With from/after: fallback for sessions stored before client IDs",
-            }),
-          ),
-          includeTrailing: Type.Optional(
-            Type.String({
-              description: "If 'true', also keep the user message starting the next turn (without its response)",
             }),
           ),
           origin: Type.Optional(
