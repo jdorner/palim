@@ -8,6 +8,7 @@ import { modelStore } from "$lib/modelStore.svelte";
 import { navigate } from "../router";
 import ChatInput from "./ChatInput.svelte";
 import ConversationList from "./ConversationList.svelte";
+import ImportSessionsDialog from "./ImportSessionsDialog.svelte";
 import MessageArea from "./MessageArea.svelte";
 
 interface Props {
@@ -17,6 +18,8 @@ interface Props {
 let { conversationId = null }: Props = $props();
 
 let chatInputRef = $state<ChatInput | undefined>(undefined);
+let importOpen = $state(false);
+let importing = $state(false);
 
 // Only show streaming UI when the stream targets the currently viewed conversation
 let isStreamingHere = $derived(chatStream.activeStreaming);
@@ -65,6 +68,33 @@ async function onDelete(id: string) {
   }
 }
 
+/**
+ * Imports the picked server sessions one after another, then opens the first
+ * one that was imported.
+ * @param sessionIds - The server sessions to import, most recent first.
+ */
+async function onImport(sessionIds: string[]) {
+  importing = true;
+  let firstId: string | null = null;
+  let failed = false;
+  try {
+    for (const sessionId of sessionIds) {
+      const id = await chatStream.importSession(sessionId);
+      firstId ??= id;
+      if (!id) failed = true;
+    }
+  } finally {
+    importing = false;
+    importOpen = false;
+  }
+  if (firstId) {
+    await chatStream.selectConversation(firstId);
+    navigate("/chat/:conversationId", { params: { conversationId: firstId } });
+  }
+  // Each import clears the error; report a failure anywhere in the batch.
+  if (failed) chatStream.error = t("chat.importFailed");
+}
+
 async function onSubmit(content: string) {
   const convId = await chatStream.handleSubmit(content);
   if (convId) {
@@ -85,6 +115,9 @@ async function onSubmit(content: string) {
       {onCreate}
       onRename={(id, title) => chatStream.handleRename(id, title)}
       {onDelete}
+      onImport={() => {
+        importOpen = true;
+      }}
     />
   </div>
 
@@ -126,3 +159,12 @@ async function onSubmit(content: string) {
     {/if}
   </div>
 </div>
+
+<ImportSessionsDialog
+  open={importOpen}
+  {importing}
+  onClose={() => {
+    if (!importing) importOpen = false;
+  }}
+  {onImport}
+/>

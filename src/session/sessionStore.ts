@@ -10,6 +10,7 @@
  */
 
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { TranscriptSourceMessage } from "@shared/chatTranscript";
 import * as schema from "@src/db/schema";
 import { and, asc, desc, eq, gte, inArray, lt, notInArray, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
@@ -23,6 +24,7 @@ import type {
   Session,
   SessionData,
   SessionStorePort,
+  SessionSummary,
   UserMessageMarker,
 } from "./types";
 
@@ -650,6 +652,109 @@ export class SessionStore implements SessionStorePort {
       .where(and(eq(schema.sessionMessages.sessionId, sessionId), eq(schema.sessionMessages.role, "user")))
       .orderBy(asc(schema.sessionMessages.seq))
       .all();
+  }
+
+  /**
+   * Reads a session's messages together with their `seq` and client IDs, for
+   * converting the session into chat UI messages (see `shared/chatTranscript.ts`).
+   *
+   * @param sessionId - The session to read from
+   * @returns The messages, ordered by `seq`
+   */
+  getTranscriptRows(sessionId: string): TranscriptSourceMessage[] {
+    return this.db
+      .select()
+      .from(schema.sessionMessages)
+      .where(eq(schema.sessionMessages.sessionId, sessionId))
+      .orderBy(asc(schema.sessionMessages.seq))
+      .all()
+      .map((row) => {
+        const msg = rowToAgentMessage(row) as unknown as { content: unknown; usage?: unknown };
+        return {
+          seq: row.seq,
+          clientId: row.clientId,
+          role: row.role,
+          content: msg.content,
+          timestamp: row.timestamp,
+          ...(msg.usage !== undefined ? { usage: msg.usage } : {}),
+        };
+      });
+  }
+
+  /**
+   * Summarizes a user's chat sessions for listing them: the first user
+   * message (for a title) and the last user message's client ID.
+   *
+   * Sessions without any user message are left out.
+   *
+   * @param userId - The owning user
+   * @param source - The session source to list (e.g. "chat")
+   * @returns One summary per session, most recently updated first
+   */
+  listSessionSummaries(userId: string, source: string): SessionSummary[] {
+    return this.list({ userId, source }).flatMap((session) => {
+      const summary = this.summarize(session);
+      return summary ? [summary] : [];
+    });
+  }
+
+  /**
+   * Summarizes one session like {@link listSessionSummaries}.
+   *
+   * @param sessionId - The session
+   * @returns The summary; `firstUserContent` is `""` when the session has no user message
+   * @throws Error when the session does not exist
+   */
+  getSessionSummary(sessionId: string): SessionSummary {
+    const session = this.get(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    return (
+      this.summarize(session) ?? {
+        id: session.id,
+        createdAt: session.createdAt,
+        updatedAt: session.updatedAt,
+        firstUserContent: "",
+        lastUserClientId: null,
+      }
+    );
+  }
+
+  /**
+   * Reads a session's first user message and the client ID of its last one.
+   *
+   * @param session - The session
+   * @returns The summary, or `undefined` when the session has no user message
+   */
+  private summarize(session: SessionData): SessionSummary | undefined {
+    const userMessage = and(eq(schema.sessionMessages.sessionId, session.id), eq(schema.sessionMessages.role, "user"));
+    const first = this.db
+      .select({ content: schema.sessionMessages.content })
+      .from(schema.sessionMessages)
+      .where(userMessage)
+      .orderBy(asc(schema.sessionMessages.seq))
+      .limit(1)
+      .get();
+    if (!first) return undefined;
+    const last = this.db
+      .select({ clientId: schema.sessionMessages.clientId })
+      .from(schema.sessionMessages)
+      .where(userMessage)
+      .orderBy(desc(schema.sessionMessages.seq))
+      .limit(1)
+      .get();
+    let firstUserContent: unknown;
+    try {
+      firstUserContent = JSON.parse(first.content);
+    } catch {
+      firstUserContent = first.content;
+    }
+    return {
+      id: session.id,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      firstUserContent,
+      lastUserClientId: last?.clientId ?? null,
+    };
   }
 
   /**

@@ -7,6 +7,7 @@
  */
 
 import type { ChatWebSocketEvent } from "../../../shared/chat";
+import { summarizeToolCall, type TranscriptMessage } from "../../../shared/chatTranscript";
 import type { ApprovalRequestEvent, PushMessageEvent } from "../../../shared/websocket";
 import { authFetch } from "./auth";
 import { chatSendSync, conflictCode, truncateQuery } from "./chatSessionSync";
@@ -22,6 +23,7 @@ import {
   getMessages,
   type Message,
   type MessageSegment,
+  replaceMessages,
   setChatStoreUser,
   updateConversationSessionId,
   updateConversationTitle,
@@ -30,42 +32,6 @@ import {
 import { translateCore as t } from "./i18nCore";
 import { readState } from "./readState.svelte";
 import { uuid } from "./utils";
-
-function truncateString(str: string, limit: number) {
-  if (str.length > limit) {
-    return `${str.substring(0, limit - 3)}...`;
-  }
-  return str;
-}
-
-/**
- * Extracts a human-readable summary from tool call arguments.
- * @param name - Tool name (e.g. "exec", "read_file")
- * @param args - Raw tool arguments from the WebSocket event
- * @returns A short summary string, or the tool name as fallback
- */
-function summarizeToolCall(name: string, args?: Record<string, unknown>): string {
-  if (!args) return name;
-
-  // Shell commands - show the command itself
-  if (name === "exec" && typeof args.command === "string") {
-    return args.command;
-  }
-
-  // File tools - show the path
-  if (typeof args.path === "string") {
-    return `${name} ${args.path}`;
-  }
-
-  // Fallback: show first string arg value
-  for (const val of Object.values(args)) {
-    if (typeof val === "string" && val.length > 0) {
-      return val;
-    }
-  }
-
-  return name;
-}
 
 /** A segment of streaming content: either a block of text, a thinking block, or a group of tool calls. */
 export type StreamSegment =
@@ -98,6 +64,20 @@ interface InFlightStream {
   } | null;
   /** The server-side session ID used for this stream. */
   sessionId: string | null;
+}
+
+/** A server chat session as `GET /api/sessions?source=chat` lists it. */
+export interface ServerChatSession {
+  id: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  lastUserClientId: string | null;
+}
+
+/** Body of `GET /api/sessions/:id/chat`. */
+interface ServerChatTranscript extends ServerChatSession {
+  messages: TranscriptMessage[];
 }
 
 /**
@@ -267,6 +247,7 @@ class ChatStreamStore {
       // Restore persisted server-side session ID
       const conv = this.conversations.find((c) => c.id === id);
       this.currentSessionId = conv?.sessionId ?? null;
+      if (conv?.sessionId) void this.resyncIfStale(id, conv.sessionId, loaded);
     } catch (err) {
       console.error("Failed to load messages:", err);
       if (this.loadingConversationId === id) {
@@ -328,6 +309,132 @@ class ChatStreamStore {
   }
 
   // -------------------------------------------------------------------------
+  // Server sessions: import and resync
+  // -------------------------------------------------------------------------
+
+  /**
+   * Lists the user's chat sessions on the server that no local conversation mirrors.
+   * @returns The sessions, most recently updated first.
+   * @throws Error when the request fails.
+   */
+  async listImportableSessions(): Promise<ServerChatSession[]> {
+    const res = await authFetch("/api/sessions?source=chat");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const body = (await res.json()) as { sessions: ServerChatSession[] };
+    const local = new Set(this.conversations.map((c) => c.sessionId).filter(Boolean));
+    return body.sessions.filter((s) => !local.has(s.id));
+  }
+
+  /**
+   * Imports a server chat session as a conversation. When a conversation
+   * already mirrors the session, resyncs that one instead.
+   * @param sessionId - The server session to import.
+   * @returns The conversation's ID, or `null` when the import failed (sets `error`).
+   */
+  async importSession(sessionId: string): Promise<string | null> {
+    this.error = null;
+    const existing = this.conversations.find((c) => c.sessionId === sessionId);
+    if (existing) {
+      await this.resyncConversation(existing.id);
+      return existing.id;
+    }
+    const transcript = await this.fetchTranscript(sessionId);
+    if (!transcript) {
+      this.error = t("chat.importFailed");
+      return null;
+    }
+    try {
+      const conv = await createConversation(transcript.title || t("chat.newChat"), sessionId);
+      await replaceMessages(conv.id, transcript.messages);
+      await this.loadConversations();
+      return conv.id;
+    } catch (err) {
+      console.error("Failed to import session:", err);
+      this.error = t("chat.importFailed");
+      return null;
+    }
+  }
+
+  /**
+   * Replaces a conversation's messages with its server session's.
+   *
+   * Does nothing while the conversation has a response in flight; its end
+   * brings the conversation up to date on its own.
+   * @param conversationId - The conversation to resync.
+   * @returns Whether the conversation now matches the session.
+   */
+  async resyncConversation(conversationId: string): Promise<boolean> {
+    const conv = this.conversations.find((c) => c.id === conversationId);
+    if (!conv?.sessionId || this.convToChatId.has(conversationId)) return false;
+    const transcript = await this.fetchTranscript(conv.sessionId);
+    if (!transcript || this.convToChatId.has(conversationId)) return false;
+    try {
+      const stored = await replaceMessages(conversationId, transcript.messages);
+      if (this.activeConversationId === conversationId) this.messages = stored;
+      await this.loadConversations();
+      return true;
+    } catch (err) {
+      console.error("Failed to resync conversation:", err);
+      return false;
+    }
+  }
+
+  /**
+   * Resyncs a conversation when its last user message differs from the server session's.
+   * @param conversationId - The conversation just opened.
+   * @param sessionId - Its server session.
+   * @param messages - Its messages as loaded from IndexedDB.
+   */
+  private async resyncIfStale(conversationId: string, sessionId: string, messages: Message[]): Promise<void> {
+    try {
+      const res = await authFetch(`/api/sessions/${sessionId}`);
+      if (!res.ok) return;
+      const session = (await res.json()) as ServerChatSession;
+      const localLast = messages.findLast((m) => m.role === "user")?.id ?? null;
+      if (session.lastUserClientId !== localLast) await this.resyncConversation(conversationId);
+    } catch (err) {
+      console.error("Failed to check conversation sync:", err);
+    }
+  }
+
+  /**
+   * Fetches a server session converted into chat messages.
+   * @param sessionId - The server session.
+   * @returns The transcript, or `null` when the request failed.
+   */
+  private async fetchTranscript(sessionId: string): Promise<ServerChatTranscript | null> {
+    try {
+      const res = await authFetch(`/api/sessions/${sessionId}/chat`);
+      if (!res.ok) return null;
+      return (await res.json()) as ServerChatTranscript;
+    } catch (err) {
+      console.error("Failed to fetch session:", err);
+      return null;
+    }
+  }
+
+  /**
+   * Shows the message for a failed chat or session request; on a divergence,
+   * replaces the active conversation with the server's version.
+   * @param body - The parsed error response body.
+   * @param fallback - The message for errors that are no known conflict.
+   */
+  private async handleRequestError(body: unknown, fallback: string): Promise<void> {
+    const code = conflictCode(body);
+    if (code === "session_busy") {
+      this.error = t("chat.sessionBusy");
+      return;
+    }
+    if (code !== "session_diverged") {
+      this.error = fallback;
+      return;
+    }
+    const convId = this.activeConversationId;
+    this.error =
+      convId && (await this.resyncConversation(convId)) ? t("chat.sessionResynced") : t("chat.sessionDiverged");
+  }
+
+  // -------------------------------------------------------------------------
   // WebSocket event handling (called from App.svelte's global handler)
   // -------------------------------------------------------------------------
 
@@ -383,7 +490,7 @@ class ChatStreamStore {
       case "tool_start": {
         stream.activeTool = event.toolName ?? null;
         const name = event.toolName ?? "unknown";
-        const summary = truncateString(summarizeToolCall(name, event.toolArgs), 80);
+        const summary = summarizeToolCall(name, event.toolArgs);
         const toolEntry = { name, summary, running: true };
         const lastToolSeg = stream.segments[stream.segments.length - 1];
         if (lastToolSeg && lastToolSeg.type === "tools") {
@@ -741,8 +848,8 @@ class ChatStreamStore {
         }
       } else {
         const body = await res.json().catch(() => ({ error: t("chat.requestFailed") }));
-        this.error = this.conflictMessage(body) ?? (body.error || `HTTP ${res.status}`);
         this.removeStream(chatId);
+        await this.handleRequestError(body, body.error || `HTTP ${res.status}`);
       }
     } catch {
       this.error = t("chat.sendFailed");
@@ -886,24 +993,12 @@ class ChatStreamStore {
       });
       if (res.ok) return true;
       const body = await res.json().catch(() => null);
-      this.error = this.conflictMessage(body) ?? t("chat.syncFailed");
+      await this.handleRequestError(body, t("chat.syncFailed"));
     } catch (err) {
       console.error("Failed to truncate server session:", err);
       this.error = t("chat.syncFailed");
     }
     return false;
-  }
-
-  /**
-   * Translates a 409 body from the chat or session routes.
-   * @param body - The parsed response body.
-   * @returns The message to show, or `undefined` when the body is no known conflict.
-   */
-  private conflictMessage(body: unknown): string | undefined {
-    const code = conflictCode(body);
-    if (code === "session_busy") return t("chat.sessionBusy");
-    if (code === "session_diverged") return t("chat.sessionDiverged");
-    return undefined;
   }
 
   /**

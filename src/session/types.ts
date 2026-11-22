@@ -125,6 +125,20 @@ export interface SessionStorePort {
   replaceMessages(sessionId: string, msgs: AgentMessage[]): void;
 }
 
+/** A session as listed for the chat UI (see `SessionStore.listSessionSummaries`). */
+export interface SessionSummary {
+  /** The session ID. */
+  id: string;
+  /** Epoch timestamp (ms) when the session was created. */
+  createdAt: number;
+  /** Epoch timestamp (ms) of the last modification. */
+  updatedAt: number;
+  /** Content of the first user message (string or content blocks). */
+  firstUserContent: unknown;
+  /** Client ID of the last user message, or `null` when it has none. */
+  lastUserClientId: string | null;
+}
+
 /** Position and client ID of one user message in a session (see `SessionStore.getUserMessageMarkers`). */
 export interface UserMessageMarker {
   /** The message's sequence number within the session. */

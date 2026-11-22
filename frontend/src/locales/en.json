@@ -175,7 +175,20 @@
     "thinking": "Thinking",
     "thinkingActive": "Thinking...",
     "toggleThinking": "Toggle thinking",
-    "unknownError": "An unknown error occurred"
+    "unknownError": "An unknown error occurred",
+    "importButton": "Import from server",
+    "importTitle": "Import conversation",
+    "importDescription": "Conversations stored on the server that this browser does not show",
+    "importNone": "Every conversation on the server is already shown here.",
+    "importListFailed": "Could not load the conversations from the server.",
+    "importFailed": "Could not import the conversation from the server.",
+    "importUpdated": "Last changed {time}",
+    "sessionResynced": "This conversation was changed elsewhere (another tab or device). It now shows the server's version; your last action was not applied.",
+    "moreActions": "More actions",
+    "importSelectAll": "Select all",
+    "importSelectedCount": "{count} of {total} selected",
+    "importSubmit": "Import ({count})",
+    "importing": "Importing..."
   },
   "common": {
     "actions": "Actions",

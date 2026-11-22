@@ -2,6 +2,9 @@
  * Session routes - provides REST endpoints for session inspection.
  *
  * Handles:
+ * - `GET    /api/sessions` (the caller's own sessions of one source, for importing chats)
+ * - `GET    /api/sessions/:id` (summary: title and last user message ID)
+ * - `GET    /api/sessions/:id/chat` (the session converted into chat UI messages)
  * - `GET    /api/sessions/:id/messages`
  * - `DELETE /api/sessions/:id/messages`
  * - `DELETE /api/sessions/:id`
@@ -9,10 +12,12 @@
  * Note: Skill request routes are defined in `src/jobs/skillRequestQueue.ts`.
  */
 
+import { messageText, sessionToChatMessages, titleFromMessage } from "@shared/chatTranscript";
 import { Type } from "@sinclair/typebox";
 import { ownedSubject } from "@src/auth";
 import { getSessionStore } from "@src/session";
 import { cutSeqForClientId, cutSeqForTurns, hasLegacyUserMessages, legacySeqForTurn } from "@src/session/chatSync";
+import type { SessionSummary } from "@src/session/types";
 import { mainLogger as log } from "@src/utils/logger";
 import { Elysia } from "elysia";
 import { getPrincipal } from "../auth";
@@ -55,6 +60,23 @@ function requireOwnedSession(
 }
 
 /**
+ * Describes a session for the chat UI: its derived title and the client ID of
+ * its last user message, which the UI compares with its own copy.
+ *
+ * @param summary - The session summary from the store
+ * @returns The response body
+ */
+function describeSession(summary: SessionSummary) {
+  return {
+    id: summary.id,
+    title: titleFromMessage(messageText(summary.firstUserContent)),
+    createdAt: summary.createdAt,
+    updatedAt: summary.updatedAt,
+    lastUserClientId: summary.lastUserClientId,
+  };
+}
+
+/**
  * Creates the session route group.
  *
  * @param sessionGuard - Claims a session while a request changes it (shared with the chat route)
@@ -62,6 +84,50 @@ function requireOwnedSession(
  */
 export function sessionRoutes(sessionGuard: ChatSessionGuard) {
   return new Elysia()
+    .get(
+      "/api/sessions",
+      ({ query, request, status }) => {
+        const principal = getPrincipal(request);
+        if (!principal) return status(401, { error: "Unauthorized" });
+        try {
+          const sessions = getSessionStore().listSessionSummaries(principal.user.id, query.source).map(describeSession);
+          return { sessions };
+        } catch (error) {
+          log.error("Failed to list sessions", { error });
+          return status(500, { error: "Failed to list sessions" });
+        }
+      },
+      {
+        query: Type.Object({
+          source: Type.String({ minLength: 1, description: "Session source to list (e.g. 'chat')" }),
+        }),
+      },
+    )
+    .get("/api/sessions/:id", ({ params, request, status }) => {
+      try {
+        const sessionStore = getSessionStore();
+        const denied = requireOwnedSession(sessionStore, params.id, request, "read", status);
+        if (denied) return denied;
+        return describeSession(sessionStore.getSessionSummary(params.id));
+      } catch (error) {
+        log.error("Failed to read session", { error, sessionId: params.id });
+        return status(500, { error: "Failed to read session" });
+      }
+    })
+    .get("/api/sessions/:id/chat", ({ params, request, status }) => {
+      try {
+        const sessionStore = getSessionStore();
+        const denied = requireOwnedSession(sessionStore, params.id, request, "read", status);
+        if (denied) return denied;
+        return {
+          ...describeSession(sessionStore.getSessionSummary(params.id)),
+          messages: sessionToChatMessages(sessionStore.getTranscriptRows(params.id)),
+        };
+      } catch (error) {
+        log.error("Failed to convert session", { error, sessionId: params.id });
+        return status(500, { error: "Failed to read session" });
+      }
+    })
     .get(
       "/api/sessions/:id/messages",
       ({ params, query, request, status }) => {

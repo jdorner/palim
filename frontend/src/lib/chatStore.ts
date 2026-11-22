@@ -144,9 +144,10 @@ export function generateTitle(content: string): string {
 /**
  * Creates a new conversation in the store.
  * @param title - The conversation title.
+ * @param sessionId - The server session it mirrors (when importing one).
  * @returns The newly created Conversation.
  */
-export async function createConversation(title: string): Promise<Conversation> {
+export async function createConversation(title: string, sessionId?: string): Promise<Conversation> {
   const db = await initDB();
   const now = Date.now();
   const conversation: Conversation = {
@@ -154,6 +155,7 @@ export async function createConversation(title: string): Promise<Conversation> {
     title,
     createdAt: now,
     updatedAt: now,
+    ...(sessionId ? { sessionId } : {}),
   };
 
   return new Promise((resolve, reject) => {
@@ -316,6 +318,52 @@ export async function deleteMessagesFrom(conversationId: string, fromCreatedAt: 
     };
 
     tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
+ * Replaces all messages of a conversation in one transaction (resync from the
+ * server session). Messages without an `id` get a new one. Also bumps the
+ * conversation's `updatedAt`.
+ * @param conversationId - The conversation whose messages to replace.
+ * @param messages - The new messages, oldest first.
+ * @returns The stored messages, oldest first.
+ */
+export async function replaceMessages(
+  conversationId: string,
+  messages: (Omit<Message, "id" | "conversationId"> & { id?: string })[],
+): Promise<Message[]> {
+  const db = await initDB();
+  const stored: Message[] = messages.map((m) => ({ ...m, id: m.id ?? uuid(), conversationId }));
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(["messages", "conversations"], "readwrite");
+    const msgStore = tx.objectStore("messages");
+    const cursorReq = msgStore.index("idx_conversationId").openCursor(IDBKeyRange.only(conversationId));
+    cursorReq.onsuccess = () => {
+      const cursor = cursorReq.result;
+      if (cursor) {
+        cursor.delete();
+        cursor.continue();
+        return;
+      }
+      // put, not add: user messages keep their IDs, which a stray copy of the
+      // same session elsewhere must not turn into a failed resync.
+      for (const m of stored) msgStore.put(m);
+    };
+
+    const convStore = tx.objectStore("conversations");
+    const getReq = convStore.get(conversationId);
+    getReq.onsuccess = () => {
+      const conv = getReq.result as Conversation | undefined;
+      if (conv) {
+        conv.updatedAt = Date.now();
+        convStore.put(conv);
+      }
+    };
+
+    tx.oncomplete = () => resolve(stored);
     tx.onerror = () => reject(tx.error);
   });
 }
