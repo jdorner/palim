@@ -23,6 +23,7 @@ import { type AnyElysia, type Context, Elysia } from "elysia";
 import { rateLimit } from "elysia-rate-limit";
 import { clientAddress, extractBearerToken, extractWsToken, resolveRequestPrincipal, setPrincipal } from "./auth";
 import { authorizeRequest } from "./authorize";
+import { createChatSessionGuard } from "./chatSessionGuard";
 import { compression } from "./compression";
 import { ExtensionRouter } from "./extensionRouter";
 import { serveExtensionUiAsset } from "./extensionUiAssets";
@@ -108,6 +109,7 @@ export async function createWebServer(deps: WebServerDeps) {
 
   // Feed managed queues to the monitor for event-based tracking
   const monitor = new QueueMonitor([agentQueue, chatQueue]);
+  const chatSessionGuard = createChatSessionGuard(chatQueue);
   // Lets the monitor drop or re-scope open sockets when their credentials change.
   if (authService) monitor.setAuthResolver(authService);
   const revalidateSockets = () => monitor.revalidateClients();
@@ -163,8 +165,8 @@ export async function createWebServer(deps: WebServerDeps) {
     .use(extensionRoutes(getRegistry))
     .use(i18nRoutes(getRegistry))
     .use(modelRoutes(getRegistry))
-    .use(chatRoutes(chatQueue, (chatId, userId) => monitor.registerChatOwner(chatId, userId)))
-    .use(sessionRoutes())
+    .use(chatRoutes(chatQueue, chatSessionGuard, (chatId, userId) => monitor.registerChatOwner(chatId, userId)))
+    .use(sessionRoutes(chatSessionGuard))
     .use(pushRoutes(pushService.pushMessage))
     .use(secretRoutes(getRegistry, () => deps.secretVault))
     .use(globalSecretRoutes(() => deps.secretVault))

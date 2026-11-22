@@ -6,6 +6,7 @@ import type { ChatJob } from "@src/jobs";
 import type { ManagedQueuePort } from "@src/queue";
 import { SessionStore, setSessionStoreForTests } from "@src/session";
 import { Elysia } from "elysia";
+import { createChatSessionGuard } from "./chatSessionGuard";
 import { chatRoutes } from "./routes/chat";
 import { authCheck } from "./server";
 
@@ -18,17 +19,24 @@ describe("chat route identity stamping", () => {
   let aliceId: string;
   let lastJob: ChatJob | null = null;
 
+  /** Jobs the fake queue reports as active (to simulate a running chat job). */
+  let activeJobs: ChatJob[] = [];
+
   /** A fake chat queue that records the enqueued job payload. */
   const fakeQueue = {
     add: async (_name: string, data: ChatJob) => {
       lastJob = data;
       return "job-1";
     },
+    getWaiting: async () => [],
+    getActive: async () => activeJobs.map((data) => ({ data })),
   } as unknown as ManagedQueuePort<ChatJob>;
 
   /** Builds the test app: authCheck hook + chat routes over the fake queue. */
   function buildApp() {
-    return new Elysia().onBeforeHandle((c) => authCheck(c as never, auth)).use(chatRoutes(fakeQueue));
+    return new Elysia()
+      .onBeforeHandle((c) => authCheck(c as never, auth))
+      .use(chatRoutes(fakeQueue, createChatSessionGuard(fakeQueue)));
   }
 
   async function seed(username: string): Promise<string> {
@@ -130,5 +138,142 @@ describe("chat route identity stamping", () => {
     expect(res.status).toBe(404);
     expect(lastJob).toBeNull();
     expect(sessions.getMessages(sessionId).length).toBe(before);
+  });
+
+  describe("client message IDs", () => {
+    /** Posts as alice and returns the response. */
+    async function post(body: Record<string, unknown>): Promise<Response> {
+      const token = await login("alice");
+      return app.handle(
+        new Request("http://localhost/api/chat", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        }),
+      );
+    }
+
+    /** Starts a session with user message `m1` and an assistant answer. */
+    async function start(chatId: string): Promise<string> {
+      const res = await post({ message: "first", chatId, clientMessageId: "m1", expectedLastClientId: null });
+      expect(res.status).toBe(201);
+      const { sessionId } = (await res.json()) as { sessionId: string };
+      sessions.append(sessionId, {
+        role: "assistant",
+        content: [{ type: "text", text: "answer" }],
+        timestamp: Date.now(),
+      } as never);
+      return sessionId;
+    }
+
+    const roles = (sessionId: string) => sessions.getMessages(sessionId).map((m) => m.role);
+
+    test("stores the client ID and appends a new message whose predecessor matches", async () => {
+      const sessionId = await start("conv-ids-1");
+      const res = await post({
+        message: "second",
+        chatId: "x",
+        sessionId,
+        clientMessageId: "m2",
+        expectedLastClientId: "m1",
+      });
+      expect(res.status).toBe(201);
+      expect(sessions.getUserMessageMarkers(sessionId).map((m) => m.clientId)).toEqual(["m1", "m2"]);
+    });
+
+    test("resending the last user message reruns it without appending", async () => {
+      const sessionId = await start("conv-ids-2");
+      lastJob = null;
+      const res = await post({
+        message: "first",
+        chatId: "x",
+        sessionId,
+        clientMessageId: "m1",
+        expectedLastClientId: null,
+      });
+      expect(res.status).toBe(201);
+      expect(roles(sessionId)).toEqual(["user"]);
+      expect(lastJob as ChatJob | null).not.toBeNull();
+    });
+
+    test("returns 409 when the expected predecessor does not match", async () => {
+      const sessionId = await start("conv-ids-3");
+      lastJob = null;
+      const res = await post({
+        message: "second",
+        chatId: "x",
+        sessionId,
+        clientMessageId: "m2",
+        expectedLastClientId: "other",
+      });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { code: string }).code).toBe("session_diverged");
+      expect(roles(sessionId)).toEqual(["user", "assistant"]);
+      expect(lastJob).toBeNull();
+    });
+
+    test("returns 409 when resending a user message that is not the last one", async () => {
+      const sessionId = await start("conv-ids-4");
+      await post({ message: "second", chatId: "x", sessionId, clientMessageId: "m2", expectedLastClientId: "m1" });
+      const res = await post({
+        message: "first",
+        chatId: "x",
+        sessionId,
+        clientMessageId: "m1",
+        expectedLastClientId: null,
+      });
+      expect(res.status).toBe(409);
+    });
+
+    test("skips the predecessor check when the last user message predates client IDs", async () => {
+      const sessionId = await start("conv-ids-5");
+      sessions.append(sessionId, { role: "user", content: "legacy", timestamp: Date.now() } as never);
+      const res = await post({
+        message: "next",
+        chatId: "x",
+        sessionId,
+        clientMessageId: "m3",
+        expectedLastClientId: "ui-legacy",
+      });
+      expect(res.status).toBe(201);
+    });
+
+    test("resending a legacy last message reruns it and stores its client ID", async () => {
+      const sessionId = await start("conv-ids-7");
+      sessions.append(sessionId, { role: "user", content: "legacy", timestamp: Date.now() } as never);
+      sessions.append(sessionId, { role: "assistant", content: [], timestamp: Date.now() } as never);
+      const res = await post({
+        message: "legacy",
+        chatId: "x",
+        sessionId,
+        clientMessageId: "ui-2",
+        expectedLastClientId: "m1",
+        userTurnIndex: 1,
+      });
+      expect(res.status).toBe(201);
+      expect(roles(sessionId)).toEqual(["user", "assistant", "user"]);
+      expect(sessions.getUserMessageMarkers(sessionId).map((m) => m.clientId)).toEqual(["m1", "ui-2"]);
+    });
+
+    test("returns 409 while a chat job for the session is pending", async () => {
+      const sessionId = await start("conv-ids-6");
+      activeJobs = [{ context: { source: "chat", id: "x" }, sessionId }];
+      try {
+        lastJob = null;
+        const res = await post({
+          message: "second",
+          chatId: "x",
+          sessionId,
+          clientMessageId: "m2",
+          expectedLastClientId: "m1",
+        });
+        expect(res.status).toBe(409);
+        expect(((await res.json()) as { code: string }).code).toBe("session_busy");
+        expect(roles(sessionId)).toEqual(["user", "assistant"]);
+        expect(lastJob).toBeNull();
+      } finally {
+        activeJobs = [];
+      }
+    });
   });
 });

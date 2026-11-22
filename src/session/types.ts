@@ -124,3 +124,11 @@ export interface SessionStorePort {
   /** Atomically replace all messages in a session. */
   replaceMessages(sessionId: string, msgs: AgentMessage[]): void;
 }
+
+/** Position and client ID of one user message in a session (see `SessionStore.getUserMessageMarkers`). */
+export interface UserMessageMarker {
+  /** The message's sequence number within the session. */
+  seq: number;
+  /** The client-generated message ID, or `null` for messages stored without one. */
+  clientId: string | null;
+}

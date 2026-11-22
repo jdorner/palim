@@ -17,7 +17,9 @@ describe("session routes ownership", () => {
   let bobId: string;
 
   function buildApp(a: AuthService) {
-    return new Elysia().onBeforeHandle((c) => authCheck(c as never, a)).use(sessionRoutes());
+    return new Elysia()
+      .onBeforeHandle((c) => authCheck(c as never, a))
+      .use(sessionRoutes({ claim: async () => true, release: () => {} }));
   }
 
   async function seed(username: string, roleName: string, perms?: readonly string[]): Promise<string> {

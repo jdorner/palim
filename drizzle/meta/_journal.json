@@ -134,6 +134,13 @@
       "when": 1790760600000,
       "tag": "0019_drop-legacy-run-columns",
       "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "6",
+      "when": 1790760700000,
+      "tag": "0020_add-session-message-client-id",
+      "breakpoints": true
     }
   ]
 }

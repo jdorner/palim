@@ -20,6 +20,7 @@ import { getSessionStore, type SessionStore } from "@src/session";
 import { createTestDb } from "@src/test/db";
 import { Elysia } from "elysia";
 import { setPrincipal } from "../auth";
+import type { ChatSessionGuard } from "../chatSessionGuard";
 import { sessionRoutes } from "./sessions";
 
 function userMsg(text: string): AgentMessage {
@@ -48,6 +49,10 @@ function textOf(msg: AgentMessage): string {
   return content[0]?.text ?? "";
 }
 
+/** A guard that reports the session as busy while `busy` holds its ID. */
+const busy = new Set<string>();
+const guard: ChatSessionGuard = { claim: async (id) => !busy.has(id), release: () => {} };
+
 /** Builds the session routes with every request authenticated as an admin. */
 function buildAdminApp() {
   const adminId = "test-admin";
@@ -60,7 +65,7 @@ function buildAdminApp() {
         ability: buildAbility({ userId: adminId, isAdmin: true, permissions: [] }),
       }),
     )
-    .use(sessionRoutes());
+    .use(sessionRoutes(guard));
 }
 
 describe("DELETE /api/sessions/:id/messages (turn-based truncation)", () => {
@@ -316,6 +321,102 @@ describe("DELETE /api/sessions/:id/messages (turn-based truncation)", () => {
   test("returns 404 for non-existent session", async () => {
     const res = await deleteMessages("nonexistent-id", { keep: "1" });
     expect(res.status).toBe(404);
+  });
+
+  test("returns 409 while a chat job is pending for the session", async () => {
+    const id = createTestSession();
+    busy.add(id);
+    try {
+      const res = await deleteMessages(id, { keep: "1" });
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { code: string }).code).toBe("session_busy");
+      expect(store.getMessages(id).length).toBe(10);
+    } finally {
+      busy.delete(id);
+    }
+  });
+});
+
+describe("DELETE /api/sessions/:id/messages (by client message ID)", () => {
+  let store: SessionStore;
+  let app: ReturnType<typeof buildAdminApp>;
+
+  beforeAll(() => {
+    store = getSessionStore(createTestDb());
+    app = buildAdminApp();
+  });
+
+  /** u1 → a1 → tool → a1' → u2 → a2 → u3 → a3, user messages carrying client IDs c1..c3. */
+  function createSession(withIds: [boolean, boolean, boolean] = [true, true, true]): string {
+    const id = store.create({ source: "chat" }).id;
+    const user = (n: number) => store.append(id, userMsg(`u${n}`), withIds[n - 1] ? { clientId: `c${n}` } : undefined);
+    user(1);
+    store.append(id, assistantMsg("a1"));
+    store.append(id, toolResultMsg("call_1", "out"));
+    store.append(id, assistantMsg("a1'"));
+    user(2);
+    store.append(id, assistantMsg("a2"));
+    user(3);
+    store.append(id, assistantMsg("a3"));
+    return id;
+  }
+
+  async function deleteMessages(sessionId: string, params: Record<string, string>): Promise<Response> {
+    const qs = new URLSearchParams(params).toString();
+    return app.handle(new Request(`http://localhost/api/sessions/${sessionId}/messages?${qs}`, { method: "DELETE" }));
+  }
+
+  const texts = (id: string) => store.getMessages(id).map(textOf);
+
+  test("from deletes the user message and everything after it", async () => {
+    const id = createSession();
+    expect((await deleteMessages(id, { from: "c2" })).status).toBe(200);
+    expect(texts(id)).toEqual(["u1", "a1", "out", "a1'"]);
+  });
+
+  test("after keeps the user message and deletes its response and later turns", async () => {
+    const id = createSession();
+    expect((await deleteMessages(id, { after: "c2" })).status).toBe(200);
+    expect(texts(id)).toEqual(["u1", "a1", "out", "a1'", "u2"]);
+  });
+
+  test("from on the first message clears the session", async () => {
+    const id = createSession();
+    expect((await deleteMessages(id, { from: "c1" })).status).toBe(200);
+    expect(texts(id)).toEqual([]);
+  });
+
+  test("an unknown ID in a session with IDs returns 409 and changes nothing", async () => {
+    const id = createSession();
+    const res = await deleteMessages(id, { from: "nope", keep: "1" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as { code: string }).code).toBe("session_diverged");
+    expect(texts(id).length).toBe(8);
+  });
+
+  test("an unknown ID in a session with legacy messages falls back to counting turns", async () => {
+    const id = createSession([false, false, true]);
+    expect((await deleteMessages(id, { from: "ui-2", keep: "1" })).status).toBe(200);
+    expect(texts(id)).toEqual(["u1", "a1", "out", "a1'"]);
+  });
+
+  test("after on a legacy message stores its client ID", async () => {
+    const id = createSession([false, false, false]);
+    expect((await deleteMessages(id, { after: "ui-2", keep: "1", includeTrailing: "true" })).status).toBe(200);
+    expect(texts(id)).toEqual(["u1", "a1", "out", "a1'", "u2"]);
+    expect(store.getUserMessageMarkers(id).map((m) => m.clientId)).toEqual([null, "ui-2"]);
+  });
+
+  test("an unknown ID without a count fallback returns 409 even with legacy messages", async () => {
+    const id = createSession([false, false, false]);
+    expect((await deleteMessages(id, { from: "ui-2" })).status).toBe(409);
+    expect(texts(id).length).toBe(8);
+  });
+
+  test("an ID stored in a mixed session is found directly", async () => {
+    const id = createSession([false, false, true]);
+    expect((await deleteMessages(id, { after: "c3", keep: "0" })).status).toBe(200);
+    expect(texts(id)).toEqual(["u1", "a1", "out", "a1'", "u2", "a2", "u3"]);
   });
 });
 

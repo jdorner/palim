@@ -135,8 +135,13 @@ export const sessionMessages = sqliteTable(
     toolName: text("tool_name"),
     /** JSON-encoded token usage data (only for assistant messages). */
     usage: text("usage"),
+    /** Client-generated message ID (chat user messages only); null for all other messages. */
+    clientId: text("client_id"),
   },
-  (table) => [index("idx_session_messages_session_seq").on(table.sessionId, table.seq)],
+  (table) => [
+    index("idx_session_messages_session_seq").on(table.sessionId, table.seq),
+    index("idx_session_messages_session_client").on(table.sessionId, table.clientId),
+  ],
 );
 
 // Re-export auth/RBAC tables so drizzle-kit sees the complete schema.

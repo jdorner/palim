@@ -11,7 +11,7 @@
 
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
 import * as schema from "@src/db/schema";
-import { and, asc, desc, eq, inArray, lt, notInArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, lt, notInArray, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";
 import { nanoid } from "nanoid";
@@ -23,6 +23,7 @@ import type {
   Session,
   SessionData,
   SessionStorePort,
+  UserMessageMarker,
 } from "./types";
 
 const logger = createLogger("SessionStore");
@@ -153,6 +154,68 @@ function omitMetaFields(meta: Record<string, unknown>): Record<string, unknown> 
     }
   }
   return result;
+}
+
+/**
+ * Serializes an assistant message's usage plus the model identity fields
+ * (`api`, `provider`, `model`, `stopReason`) needed to replay it to the LLM.
+ *
+ * @param msg - The message to serialize
+ * @returns The JSON for the `usage` column, or `null` for non-assistant messages
+ */
+function serializeAssistantMeta(msg: AgentMessage): string | null {
+  if (msg.role !== "assistant") return null;
+  const m = msg as unknown as { usage?: object; api?: string; provider?: string; model?: string; stopReason?: string };
+  return JSON.stringify({
+    ...m.usage,
+    _api: m.api,
+    _provider: m.provider,
+    _model: m.model,
+    _stopReason: m.stopReason,
+  });
+}
+
+/** Token counters stored on a session row, as summed from its assistant messages. */
+interface TokenTotals {
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalCacheReadTokens: number;
+  totalCacheWriteTokens: number;
+  totalTokens: number;
+  lastInputTokens: number;
+}
+
+/**
+ * Sums the token usage of assistant messages, in order.
+ *
+ * @param usages - Usage objects of the assistant messages, oldest first
+ * @returns The session's token counters for exactly these messages
+ */
+function sumTokenUsage(usages: unknown[]): TokenTotals {
+  const totals: TokenTotals = {
+    totalInputTokens: 0,
+    totalOutputTokens: 0,
+    totalCacheReadTokens: 0,
+    totalCacheWriteTokens: 0,
+    totalTokens: 0,
+    lastInputTokens: 0,
+  };
+  for (const usage of usages) {
+    const u = usage as {
+      input?: number;
+      output?: number;
+      cacheRead?: number;
+      cacheWrite?: number;
+      totalTokens?: number;
+    };
+    totals.totalInputTokens += u.input ?? 0;
+    totals.totalOutputTokens += u.output ?? 0;
+    totals.totalCacheReadTokens += u.cacheRead ?? 0;
+    totals.totalCacheWriteTokens += u.cacheWrite ?? 0;
+    totals.totalTokens += u.totalTokens ?? 0;
+    totals.lastInputTokens = u.input ?? 0;
+  }
+  return totals;
 }
 
 /**
@@ -442,8 +505,9 @@ export class SessionStore implements SessionStorePort {
    *
    * @param sessionId - The session to append to
    * @param msg - The agent message to append
+   * @param opts - Optional client-generated message ID (chat user messages), used to sync with the UI
    */
-  append(sessionId: string, msg: AgentMessage): void {
+  append(sessionId: string, msg: AgentMessage, opts?: { clientId?: string }): void {
     this.db.transaction((tx) => {
       const result = tx
         .select({ maxSeq: sql<number>`COALESCE(MAX(${schema.sessionMessages.seq}), 0)` })
@@ -462,17 +526,7 @@ export class SessionStore implements SessionStorePort {
       // Extract usage for assistant messages
       const usage = msg.role === "assistant" ? ((msg as unknown as { usage?: unknown }).usage ?? null) : null;
       // Also persist model identity fields needed for correct LLM serialization (thinking blocks, tool signatures)
-      const assistantMeta =
-        msg.role === "assistant"
-          ? {
-              ...(usage ? (usage as object) : {}),
-              _api: (msg as unknown as { api?: string }).api,
-              _provider: (msg as unknown as { provider?: string }).provider,
-              _model: (msg as unknown as { model?: string }).model,
-              _stopReason: (msg as unknown as { stopReason?: string }).stopReason,
-            }
-          : null;
-      const usageJson = assistantMeta ? JSON.stringify(assistantMeta) : null;
+      const usageJson = serializeAssistantMeta(msg);
 
       tx.insert(schema.sessionMessages)
         .values({
@@ -485,6 +539,7 @@ export class SessionStore implements SessionStorePort {
           toolCallId,
           toolName,
           usage: usageJson,
+          clientId: opts?.clientId ?? null,
         })
         .run();
 
@@ -551,65 +606,115 @@ export class SessionStore implements SessionStorePort {
     this.db.transaction((tx) => {
       tx.delete(schema.sessionMessages).where(eq(schema.sessionMessages.sessionId, sessionId)).run();
 
-      // Accumulate token totals from assistant messages
-      let totalInput = 0;
-      let totalOutput = 0;
-      let totalCacheRead = 0;
-      let totalCacheWrite = 0;
-      let totalTokens = 0;
-      let lastInput = 0;
-
       if (msgs.length > 0) {
-        const rows = msgs.map((msg, i) => {
-          const usage = msg.role === "assistant" ? ((msg as unknown as { usage?: unknown }).usage ?? null) : null;
-          const usageJson = usage ? JSON.stringify(usage) : null;
-
-          if (msg.role === "assistant" && usage) {
-            const u = usage as {
-              input?: number;
-              output?: number;
-              cacheRead?: number;
-              cacheWrite?: number;
-              totalTokens?: number;
-            };
-            totalInput += u.input ?? 0;
-            totalOutput += u.output ?? 0;
-            totalCacheRead += u.cacheRead ?? 0;
-            totalCacheWrite += u.cacheWrite ?? 0;
-            totalTokens += u.totalTokens ?? 0;
-            lastInput = u.input ?? 0;
-          }
-
-          return {
-            sessionId,
-            role: msg.role,
-            content: JSON.stringify(msg.content),
-            type: deriveTypeTag(msg),
-            timestamp: msg.timestamp ?? Date.now(),
-            seq: i + 1,
-            toolCallId: msg.role === "toolResult" ? (msg as unknown as { toolCallId: string }).toolCallId : null,
-            toolName: msg.role === "toolResult" ? (msg as unknown as { toolName: string }).toolName : null,
-            usage: usageJson,
-          };
-        });
-
+        const rows = msgs.map((msg, i) => ({
+          sessionId,
+          role: msg.role,
+          content: JSON.stringify(msg.content),
+          type: deriveTypeTag(msg),
+          timestamp: msg.timestamp ?? Date.now(),
+          seq: i + 1,
+          toolCallId: msg.role === "toolResult" ? (msg as unknown as { toolCallId: string }).toolCallId : null,
+          toolName: msg.role === "toolResult" ? (msg as unknown as { toolName: string }).toolName : null,
+          usage: serializeAssistantMeta(msg),
+        }));
         tx.insert(schema.sessionMessages).values(rows).run();
       }
 
+      const usages = msgs
+        .filter((msg) => msg.role === "assistant")
+        .map((msg) => (msg as unknown as { usage?: unknown }).usage)
+        .filter((usage) => usage != null);
       tx.update(schema.sessions)
-        .set({
-          updatedAt: Date.now(),
-          totalInputTokens: totalInput,
-          totalOutputTokens: totalOutput,
-          totalCacheReadTokens: totalCacheRead,
-          totalCacheWriteTokens: totalCacheWrite,
-          totalTokens,
-          lastInputTokens: lastInput,
-        })
+        .set({ updatedAt: Date.now(), ...sumTokenUsage(usages) })
         .where(eq(schema.sessions.id, sessionId))
         .run();
     });
 
     logger.debug(`Replaced messages in session ${sessionId} (${msgs.length} messages)`);
+  }
+
+  /**
+   * Lists the user messages of a session as sync markers, oldest first.
+   *
+   * The chat UI identifies its messages by client-generated IDs; these markers
+   * let the server locate a UI message in the session without counting.
+   *
+   * @param sessionId - The session to read from
+   * @returns Each user message's `seq` and client ID (`null` for messages stored without one)
+   */
+  getUserMessageMarkers(sessionId: string): UserMessageMarker[] {
+    return this.db
+      .select({ seq: schema.sessionMessages.seq, clientId: schema.sessionMessages.clientId })
+      .from(schema.sessionMessages)
+      .where(and(eq(schema.sessionMessages.sessionId, sessionId), eq(schema.sessionMessages.role, "user")))
+      .orderBy(asc(schema.sessionMessages.seq))
+      .all();
+  }
+
+  /**
+   * Deletes every message whose `seq` is at least `fromSeq`, keeping the rows
+   * before it untouched, and recomputes the session's token totals.
+   *
+   * @param sessionId - The session to truncate
+   * @param fromSeq - The first `seq` to delete
+   * @returns The number of messages deleted
+   */
+  truncateFrom(sessionId: string, fromSeq: number): number {
+    const deleted = this.db.transaction((tx) => {
+      const removed = tx
+        .delete(schema.sessionMessages)
+        .where(and(eq(schema.sessionMessages.sessionId, sessionId), gte(schema.sessionMessages.seq, fromSeq)))
+        .returning({ id: schema.sessionMessages.id })
+        .all();
+
+      const usages = tx
+        .select({ usage: schema.sessionMessages.usage })
+        .from(schema.sessionMessages)
+        .where(and(eq(schema.sessionMessages.sessionId, sessionId), eq(schema.sessionMessages.role, "assistant")))
+        .orderBy(asc(schema.sessionMessages.seq))
+        .all()
+        .flatMap((row) => {
+          if (!row.usage) return [];
+          try {
+            return [JSON.parse(row.usage) as unknown];
+          } catch {
+            return [];
+          }
+        });
+
+      tx.update(schema.sessions)
+        .set({ updatedAt: Date.now(), ...sumTokenUsage(usages) })
+        .where(eq(schema.sessions.id, sessionId))
+        .run();
+      return removed.length;
+    });
+
+    logger.debug(`Truncated session ${sessionId} from seq ${fromSeq} (${deleted} messages)`);
+    return deleted;
+  }
+
+  /**
+   * Stores the client ID of a user message that was saved without one.
+   *
+   * Lets sessions written before client IDs existed pick them up as the UI
+   * refers to their messages.
+   *
+   * @param sessionId - The session
+   * @param seq - The user message's `seq`
+   * @param clientId - The client-generated message ID
+   */
+  setClientId(sessionId: string, seq: number, clientId: string): void {
+    this.db
+      .update(schema.sessionMessages)
+      .set({ clientId })
+      .where(
+        and(
+          eq(schema.sessionMessages.sessionId, sessionId),
+          eq(schema.sessionMessages.seq, seq),
+          eq(schema.sessionMessages.role, "user"),
+        ),
+      )
+      .run();
   }
 }

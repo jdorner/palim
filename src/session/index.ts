@@ -14,7 +14,7 @@ import { SessionStore } from "./sessionStore";
 import type { SessionStorePort } from "./types";
 
 export { SessionStore } from "./sessionStore";
-export type { SessionStorePort } from "./types";
+export type { SessionStorePort, UserMessageMarker } from "./types";
 
 /**
  * Delete the given sessions (and their messages) unless their `source` is `"chat"`.

@@ -9,6 +9,7 @@
 import type { ChatWebSocketEvent } from "../../../shared/chat";
 import type { ApprovalRequestEvent, PushMessageEvent } from "../../../shared/websocket";
 import { authFetch } from "./auth";
+import { chatSendSync, conflictCode, truncateQuery } from "./chatSessionSync";
 import {
   addMessage,
   type Conversation,
@@ -559,7 +560,7 @@ class ChatStreamStore {
     });
     this.messages = [...this.messages, userMsg];
 
-    await this.startStream(content);
+    await this.startStream(userMsg);
     return this.activeConversationId;
   }
 
@@ -587,25 +588,19 @@ class ChatStreamStore {
 
   /**
    * Deletes a single message and all subsequent messages.
+   *
+   * The server session is truncated first; when that fails the conversation
+   * stays as it is, so it never holds less than the session.
    * @param msg - The message to delete.
    */
   async handleDeleteMessage(msg: Message): Promise<void> {
     if (!this.activeConversationId) return;
     if (this.activeStreaming) return;
+    this.error = null;
+    if (this.currentSessionId && !(await this.truncateServerSession(truncateQuery(this.messages, msg)))) return;
+
     await deleteMessagesFrom(this.activeConversationId, msg.createdAt);
     this.messages = this.messages.filter((m) => m.createdAt < msg.createdAt);
-
-    // Sync server-side session: count remaining complete turns and trailing user message
-    if (this.currentSessionId) {
-      const lastMsg = this.messages[this.messages.length - 1];
-      const lastIsUser = lastMsg?.role === "user";
-      const userCount = this.messages.filter((m) => m.role === "user").length;
-      // If the last message is a user message, it's a trailing message without a response.
-      // Keep (userCount - 1) complete turns + that trailing user message.
-      // Otherwise keep all complete turns.
-      const completeTurns = lastIsUser ? userCount - 1 : userCount;
-      await this.truncateServerSession(completeTurns, lastIsUser);
-    }
   }
 
   /**
@@ -617,31 +612,29 @@ class ChatStreamStore {
     if (!this.activeConversationId) return;
     if (this.activeStreaming) return;
 
-    await updateMessageContent(msg.id, newContent);
-
     const msgIndex = this.messages.findIndex((m) => m.id === msg.id);
     if (msgIndex < 0) return;
+    this.error = null;
 
+    // The edited message is sent again as a new message under the same ID.
+    if (this.currentSessionId && !(await this.truncateServerSession(truncateQuery(this.messages, msg)))) return;
+
+    await updateMessageContent(msg.id, newContent);
     for (const m of this.messages.slice(msgIndex + 1)) {
       await deleteMessage(m.id);
     }
 
-    this.messages = this.messages
-      .slice(0, msgIndex + 1)
-      .map((m) => (m.id === msg.id ? { ...m, content: newContent } : m));
+    const edited = { ...msg, content: newContent };
+    this.messages = [...this.messages.slice(0, msgIndex), edited];
 
-    // Truncate server-side session: keep turns before the edited message
-    // (the edited user message will be re-sent as a new turn)
-    if (this.currentSessionId) {
-      const userTurns = this.messages.slice(0, msgIndex).filter((m) => m.role === "user").length;
-      await this.truncateServerSession(userTurns);
-    }
-
-    await this.startStream(newContent);
+    await this.startStream(edited);
   }
 
   /**
    * Regenerates the response for a given assistant message.
+   *
+   * Resending the user message under its ID makes the server drop the old
+   * response and run it again.
    * @param msg - The assistant message to regenerate from.
    */
   async handleRegenerate(msg: Message): Promise<void> {
@@ -655,21 +648,18 @@ class ChatStreamStore {
     await deleteMessagesFrom(this.activeConversationId, msg.createdAt);
     this.messages = this.messages.filter((m) => m.createdAt < msg.createdAt);
 
-    // Truncate server-side session to remove the assistant message being regenerated
-    // Keep all turns before the last one complete, plus the trailing user message
-    if (this.currentSessionId) {
-      const userTurns = this.messages.filter((m) => m.role === "user").length;
-      await this.truncateServerSession(userTurns - 1, true);
-    }
-
-    // Re-send the last user message
     const lastUserMsg = [...this.messages].reverse().find((m) => m.role === "user");
     if (!lastUserMsg) return;
 
-    await this.startStream(lastUserMsg.content, { skipAppend: true });
+    await this.startStream(lastUserMsg);
   }
 
-  /** Retries the last request using the current message history. */
+  /**
+   * Retries the last request.
+   *
+   * The user message is resent under its ID: the server appends it if the
+   * failed request never arrived, and otherwise runs it again.
+   */
   async handleRetry(): Promise<void> {
     const lastUserMsg = [...this.messages].reverse().find((m) => m.role === "user");
     if (!lastUserMsg || !this.activeConversationId) return;
@@ -684,11 +674,7 @@ class ChatStreamStore {
       this.messages = this.messages.filter((m) => m.createdAt < lastMsg.createdAt);
     }
 
-    // Only skip appending if we already have a server-side session (meaning the
-    // message was previously delivered). If the original request never reached the
-    // server, the message must be appended to the newly created session.
-    const skipAppend = !!this.currentSessionId;
-    await this.startStream(lastUserMsg.content, { skipAppend });
+    await this.startStream(lastUserMsg);
   }
 
   // -------------------------------------------------------------------------
@@ -697,10 +683,9 @@ class ChatStreamStore {
 
   /**
    * Starts a streaming request to the chat API.
-   * @param message - The user message to send.
-   * @param options - Optional flags for the request.
+   * @param userMsg - The user message to send; must be in `this.messages`.
    */
-  private async startStream(message: string, options?: { skipAppend?: boolean }): Promise<void> {
+  private async startStream(userMsg: Message): Promise<void> {
     const chatId = uuid();
     const convId = this.activeConversationId!;
 
@@ -725,15 +710,13 @@ class ChatStreamStore {
     this.activeStreamSegments = [];
 
     try {
-      const payload: Record<string, string | boolean> = {
-        message,
+      const payload: Record<string, string | number | null> = {
+        message: userMsg.content,
         chatId,
+        ...chatSendSync(this.messages, userMsg),
       };
       if (this.currentSessionId) {
         payload.sessionId = this.currentSessionId;
-      }
-      if (options?.skipAppend) {
-        payload.skipAppend = true;
       }
 
       const res = await authFetch("/api/chat", {
@@ -758,7 +741,7 @@ class ChatStreamStore {
         }
       } else {
         const body = await res.json().catch(() => ({ error: t("chat.requestFailed") }));
-        this.error = body.error || `HTTP ${res.status}`;
+        this.error = this.conflictMessage(body) ?? (body.error || `HTTP ${res.status}`);
         this.removeStream(chatId);
       }
     } catch {
@@ -888,26 +871,39 @@ class ChatStreamStore {
   }
 
   /**
-   * Truncates the server-side session to keep only the first N complete turns.
-   * A "turn" = a user message + all following assistant/tool messages until the
-   * next user message. Optionally keeps one additional trailing user message
-   * (without its response).
-   * @param keepTurns - Number of complete turns to keep.
-   * @param includeTrailingUserMessage - If true, also keep the user message that starts the next turn (without its response).
+   * Truncates the server-side session.
+   *
+   * On failure sets `this.error`; callers must then leave the conversation
+   * unchanged so it keeps matching the session.
+   * @param query - The truncation query, from `truncateQuery`.
+   * @returns Whether the session was truncated.
    */
-  private async truncateServerSession(keepTurns: number, includeTrailingUserMessage = false): Promise<void> {
-    if (!this.currentSessionId) return;
+  private async truncateServerSession(query: Record<string, string>): Promise<boolean> {
+    if (!this.currentSessionId) return true;
     try {
-      const params = new URLSearchParams({ keep: String(keepTurns) });
-      if (includeTrailingUserMessage) {
-        params.set("includeTrailing", "true");
-      }
-      await authFetch(`/api/sessions/${this.currentSessionId}/messages?${params}`, {
+      const res = await authFetch(`/api/sessions/${this.currentSessionId}/messages?${new URLSearchParams(query)}`, {
         method: "DELETE",
       });
+      if (res.ok) return true;
+      const body = await res.json().catch(() => null);
+      this.error = this.conflictMessage(body) ?? t("chat.syncFailed");
     } catch (err) {
       console.error("Failed to truncate server session:", err);
+      this.error = t("chat.syncFailed");
     }
+    return false;
+  }
+
+  /**
+   * Translates a 409 body from the chat or session routes.
+   * @param body - The parsed response body.
+   * @returns The message to show, or `undefined` when the body is no known conflict.
+   */
+  private conflictMessage(body: unknown): string | undefined {
+    const code = conflictCode(body);
+    if (code === "session_busy") return t("chat.sessionBusy");
+    if (code === "session_diverged") return t("chat.sessionDiverged");
+    return undefined;
   }
 
   /**

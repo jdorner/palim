@@ -12,9 +12,11 @@
 import { Type } from "@sinclair/typebox";
 import { ownedSubject } from "@src/auth";
 import { getSessionStore } from "@src/session";
+import { cutSeqForClientId, cutSeqForTurns, hasLegacyUserMessages, legacySeqForTurn } from "@src/session/chatSync";
 import { mainLogger as log } from "@src/utils/logger";
 import { Elysia } from "elysia";
 import { getPrincipal } from "../auth";
+import type { ChatSessionGuard } from "../chatSessionGuard";
 
 /**
  * Guard: resolves a session and enforces ownership.
@@ -55,9 +57,10 @@ function requireOwnedSession(
 /**
  * Creates the session route group.
  *
+ * @param sessionGuard - Claims a session while a request changes it (shared with the chat route)
  * @returns Elysia plugin with session routes
  */
-export function sessionRoutes() {
+export function sessionRoutes(sessionGuard: ChatSessionGuard) {
   return new Elysia()
     .get(
       "/api/sessions/:id/messages",
@@ -87,51 +90,51 @@ export function sessionRoutes() {
     )
     .delete(
       "/api/sessions/:id/messages",
-      ({ params, query, request, status }) => {
+      async ({ params, query, request, status }) => {
         try {
           const sessionStore = getSessionStore();
           const denied = requireOwnedSession(sessionStore, params.id, request, "update", status);
           if (denied) return denied;
 
-          const keepTurns = query.keep ?? 0;
-          const includeTrailing = query.includeTrailing === "true";
+          if (!(await sessionGuard.claim(params.id))) {
+            return status(409, { error: "A response is still being generated for this session", code: "session_busy" });
+          }
+          try {
+            const markers = sessionStore.getUserMessageMarkers(params.id);
+            const keepTurns = query.keep ?? 0;
+            const includeTrailing = query.includeTrailing === "true";
+            const target = query.from
+              ? { clientId: query.from, mode: "from" as const }
+              : query.after
+                ? { clientId: query.after, mode: "after" as const }
+                : undefined;
 
-          if (keepTurns > 0 || includeTrailing) {
-            // A "turn" = a user message plus all following non-user messages
-            // (assistant, toolResult, etc.) until the next user message.
-            // `keepTurns` means: keep the first N complete turns.
-            // `includeTrailing` means: also keep the user message that starts
-            // the next turn (without its response).
-            const messages = sessionStore.getMessages(params.id);
-            let turnsSeen = 0;
-            let cutIndex = messages.length; // default: keep all
-
-            for (let i = 0; i < messages.length; i++) {
-              if (messages[i]?.role === "user") {
-                turnsSeen++;
-
-                if (includeTrailing && turnsSeen === keepTurns + 1) {
-                  // Keep this user message but nothing after it
-                  cutIndex = i + 1;
-                  break;
+            let cutSeq: number | undefined;
+            if (target) {
+              cutSeq = cutSeqForClientId(markers, target.clientId, target.mode);
+              if (cutSeq === undefined) {
+                // A message the session has no ID for: count turns if it predates
+                // client IDs, otherwise the UI and the session have diverged.
+                if (query.keep === undefined || !hasLegacyUserMessages(markers)) {
+                  return status(409, {
+                    error: "The conversation does not match the session",
+                    code: "session_diverged",
+                  });
                 }
-
-                if (turnsSeen > keepTurns && !includeTrailing) {
-                  // Cut before this user message (don't include it)
-                  cutIndex = i;
-                  break;
-                }
+                cutSeq = cutSeqForTurns(markers, keepTurns, includeTrailing);
+                // The kept user message is the one the UI named: store its ID.
+                const backfillSeq = target.mode === "after" ? legacySeqForTurn(markers, keepTurns) : undefined;
+                if (backfillSeq !== undefined) sessionStore.setClientId(params.id, backfillSeq, target.clientId);
               }
+            } else {
+              cutSeq = cutSeqForTurns(markers, keepTurns, includeTrailing);
             }
 
-            const toKeep = messages.slice(0, cutIndex);
-            sessionStore.replaceMessages(params.id, toKeep);
-          } else {
-            // Clear all messages
-            sessionStore.replaceMessages(params.id, []);
+            if (cutSeq !== undefined) sessionStore.truncateFrom(params.id, cutSeq);
+            return status(200, { sessionId: params.id, ok: true });
+          } finally {
+            sessionGuard.release(params.id);
           }
-
-          return status(200, { sessionId: params.id, ok: true });
         } catch (error) {
           log.error("Failed to truncate session messages", { error, sessionId: params.id });
           return status(500, { error: "Failed to truncate session messages" });
@@ -139,11 +142,23 @@ export function sessionRoutes() {
       },
       {
         query: Type.Object({
+          from: Type.Optional(
+            Type.String({
+              minLength: 1,
+              description: "Client ID of a user message: delete it and everything after it",
+            }),
+          ),
+          after: Type.Optional(
+            Type.String({
+              minLength: 1,
+              description: "Client ID of a user message: keep it, delete everything after it",
+            }),
+          ),
           keep: Type.Optional(
             Type.Number({
               minimum: 0,
               description:
-                "Number of complete turns to keep (a turn = user message + all following assistant/tool messages until the next user message)",
+                "Number of complete turns to keep (a turn = user message + all following assistant/tool messages until the next user message). With from/after: fallback for sessions stored before client IDs",
             }),
           ),
           includeTrailing: Type.Optional(
