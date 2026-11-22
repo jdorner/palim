@@ -286,6 +286,15 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
   }
 
   /** @inheritdoc */
+  async appendJobLog(jobId: string, message: string): Promise<void> {
+    const store = getLogStore();
+    // After a restart the in-memory counter is gone: continue after the stored entries.
+    const seq = Math.max(this.logSeq.get(jobId) ?? 0, store.getLastSeq(jobId)) + 1;
+    this.logSeq.set(jobId, seq);
+    store.append(jobId, seq, message, Date.now());
+  }
+
+  /** @inheritdoc */
   async getJobLogs(jobId: string): Promise<QueueJobLogs> {
     const raw = await this.queue.getJobLogs(jobId, 0, 100);
 

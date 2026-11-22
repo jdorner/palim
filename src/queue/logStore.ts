@@ -78,6 +78,24 @@ export class LogStore {
   }
 
   /**
+   * Get the highest sequence number stored for a job.
+   *
+   * @param jobId - The job to check
+   * @returns The last sequence number, or 0 if no logs exist
+   */
+  getLastSeq(jobId: string): number {
+    const row = getDb()
+      .select({ seq: schema.jobLogs.seq })
+      .from(schema.jobLogs)
+      .where(eq(schema.jobLogs.jobId, jobId))
+      .orderBy(desc(schema.jobLogs.seq))
+      .limit(1)
+      .get();
+
+    return row?.seq ?? 0;
+  }
+
+  /**
    * Get the timestamp of the last log entry for a job.
    * Useful as an approximation of completion time when the queue doesn't persist it.
    *

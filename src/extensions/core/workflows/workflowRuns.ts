@@ -33,8 +33,17 @@ import { buildStepJobIdMap, runJobs, stepData } from "./stepJobs";
 /** The queue operations the run lifecycle needs from the steps queue. */
 export type StepsQueue = Pick<
   ManagedQueuePort<DagStepJobData>,
-  "getAllJobs" | "cancelJob" | "removeJobs" | "getJobLogs" | "onEvent"
+  "getAllJobs" | "cancelJob" | "removeJobs" | "getJobLogs" | "appendJobLog" | "onEvent"
 >;
+
+/** Job states in which a step job will still be processed (and report back through a queue event). */
+const LIVE_JOB_STATES: ReadonlySet<string> = new Set([
+  "waiting",
+  "prioritized",
+  "waiting-children",
+  "delayed",
+  "active",
+]);
 
 /** Messages the run lifecycle broadcasts to connected clients. */
 export type WorkflowRunsMessage = WorkflowWebSocketEvent | { type: "job_removed"; jobId: string };
@@ -201,6 +210,22 @@ export interface WorkflowRuns {
    */
   statuses(): { runId: string; status: dagRunStore.DagRunStatus }[];
   /**
+   * Fails the runs a server restart interrupted. bunqueue's startup recovery
+   * moves a job that was active at shutdown to the DLQ (or retries it)
+   * without emitting a queue event, and steps that ran inline (control flow,
+   * wait registration) leave nothing to resume. Such a run stays `running`
+   * forever. A step counts as interrupted when it is `running` in an active
+   * run last written before `writtenBefore` and its newest job is not queued
+   * or active any more (or it has no job at all). Its run fails fast through
+   * the kernel like any other step failure.
+   *
+   * @param writtenBefore - Only runs last updated before this epoch ms are
+   *   checked (default: this process's start, so runs this process is
+   *   dispatching are never touched)
+   * @returns Number of runs failed
+   */
+  recoverInterrupted(writtenBefore?: number): Promise<number>;
+  /**
    * Coordinator dependencies for code that delivers signals (signal routes,
    * the emit step, human tasks); they all go through `deliverSignal`.
    */
@@ -275,21 +300,20 @@ export function createWorkflowRuns(deps: WorkflowRunsDeps): WorkflowRuns {
     await handleDagStepCompletion(d.workflowRunId, d.stepSlug, job.returnvalue, d.id, coordinatorDeps);
   });
 
-  stepsQueue.onEvent("failed", async ({ jobId, failedReason, job }) => {
-    if (!job) return;
-    const d = stepData(job);
+  /** Announces a failed attempt of a step job to connected clients. */
+  const broadcastStepFailed = (d: ReturnType<typeof stepData>, error: string) =>
     deps.broadcast({
       type: "workflow_step_failed",
       workflowRunId: d.workflowRunId,
       stepSlug: d.stepSlug,
       jobId: d.id,
-      error: failedReason,
+      error,
     });
 
-    // Only fail the run once the job is truly failed (not a retry delay).
-    if (d.state !== "failed") return;
+  /** Fails the run of a terminally failed step job and tells other extensions. */
+  async function failRunOfJob(d: ReturnType<typeof stepData>, error: string): Promise<void> {
     // Fail-fast: the coordinator cancels the run's in-flight jobs.
-    await handleDagStepFailure(d.workflowRunId, d.stepSlug, failedReason, coordinatorDeps);
+    await handleDagStepFailure(d.workflowRunId, d.stepSlug, error, coordinatorDeps);
     // Domain event for cross-extension consumers (e.g. error-analyzer).
     deps.emitEvent({
       type: "workflow:step_failed",
@@ -299,10 +323,19 @@ export function createWorkflowRuns(deps: WorkflowRunsDeps): WorkflowRuns {
         workflowRunId: d.workflowRunId,
         workflowName: d.workflowName,
         stepSlug: d.stepSlug,
-        jobId,
-        error: failedReason,
+        jobId: d.id,
+        error,
       },
     });
+  }
+
+  stepsQueue.onEvent("failed", async ({ failedReason, job }) => {
+    if (!job) return;
+    const d = stepData(job);
+    broadcastStepFailed(d, failedReason);
+    // Only fail the run once the job is truly failed (not a retry delay).
+    if (d.state !== "failed") return;
+    await failRunOfJob(d, failedReason);
   });
 
   // --- Lifecycle operations ---
@@ -480,6 +513,59 @@ export function createWorkflowRuns(deps: WorkflowRunsDeps): WorkflowRuns {
 
     statuses() {
       return dagRunStore.getAll().map((run) => ({ runId: run.id, status: run.status }));
+    },
+
+    async recoverInterrupted(writtenBefore = performance.timeOrigin) {
+      // Snapshot the candidates before the first await: a run started while
+      // the queue is scanned is written by this process and must not match.
+      const candidates = dagRunStore
+        .getAll()
+        .filter(
+          (run) =>
+            dagRunStore.isActiveRunStatus(run.status) &&
+            run.updatedAt < writtenBefore &&
+            Object.values(run.stepStatuses).includes("running"),
+        );
+      if (candidates.length === 0) return 0;
+
+      const allJobs = await stepsQueue.getAllJobs();
+      let failedRuns = 0;
+      for (const run of candidates) {
+        const jobs = runJobs(allJobs, run.id);
+        for (const [slug, status] of Object.entries(run.stepStatuses)) {
+          if (status !== "running") continue;
+          // An iterator body has one job per iteration: the newest one counts.
+          const job = jobs
+            .filter((j) => j.stepSlug === slug)
+            .reduce<(typeof jobs)[number] | undefined>(
+              (newest, j) => (!newest || (j.timestamp ?? 0) >= (newest.timestamp ?? 0) ? j : newest),
+              undefined,
+            );
+          if (job && LIVE_JOB_STATES.has(job.state)) continue;
+
+          const reason = job
+            ? `Step was interrupted by a server restart (job ${job.id} is ${job.state})`
+            : "Step was interrupted by a server restart";
+          log.warn(`Failing workflow run ${run.id} at step "${slug}": ${reason}`);
+          if (job) {
+            // The step panel shows a job step's logs: end them the way the worker
+            // ends a failed step's, or they stop mid-step without a reason.
+            try {
+              await stepsQueue.appendJobLog(job.id, `Step "${slug}" failed: ${reason}`);
+            } catch (err) {
+              log.warn(`Could not log the interruption of step "${slug}" to job ${job.id}:`, err);
+            }
+            broadcastStepFailed(job, reason);
+            await failRunOfJob(job, reason);
+          } else {
+            await handleDagStepFailure(run.id, slug, reason, coordinatorDeps);
+          }
+          failedRuns++;
+          // The run failed fast: its other open steps are swept and cancelled.
+          break;
+        }
+      }
+      return failedRuns;
     },
 
     dispose() {

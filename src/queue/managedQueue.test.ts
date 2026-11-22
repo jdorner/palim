@@ -5,6 +5,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { FlowProducer } from "bunqueue/client";
+import { getLogStore } from "./logStore";
 import { ManagedQueue } from "./managedQueue";
 import type { QueueJob } from "./types";
 
@@ -206,6 +207,33 @@ describe("ManagedQueue.removeJobs", () => {
   test("returns empty array for empty input", async () => {
     const mq = new ManagedQueue(TEST_QUEUE, async () => {}, { autorun: false, dataPath: null });
     expect(await mq.removeJobs([])).toEqual([]);
+    await mq.close();
+  });
+});
+
+describe("ManagedQueue.appendJobLog", () => {
+  test("continues after the stored entries of a job from an earlier process", async () => {
+    const jobId = `test-append-${Date.now()}`;
+    // Entries an earlier process persisted; this queue's in-memory counter does not know them.
+    getLogStore().append(jobId, 1, "first", 1000);
+    getLogStore().append(jobId, 2, "second", 2000);
+    const mq = new ManagedQueue(TEST_QUEUE, async () => {}, { autorun: false, dataPath: null });
+
+    await mq.appendJobLog(jobId, "interrupted");
+    await mq.appendJobLog(jobId, "again");
+
+    expect(
+      getLogStore()
+        .getLogs(jobId)
+        .map((e) => e.message),
+    ).toEqual(["first", "second", "interrupted", "again"]);
+    expect((await mq.getJobLogs(jobId)).logs.map((e) => e.message)).toEqual([
+      "first",
+      "second",
+      "interrupted",
+      "again",
+    ]);
+    getLogStore().deleteLogs(jobId);
     await mq.close();
   });
 });

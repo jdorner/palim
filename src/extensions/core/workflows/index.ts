@@ -58,7 +58,7 @@ import { createWorkflowRuns, type WorkflowRuns } from "./workflowRuns";
 
 const manifest = {
   name: "workflows",
-  version: "3.0.1",
+  version: "3.0.2",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -191,6 +191,13 @@ export function createExtension(): Extension {
         hitl,
       });
       state.runs = runs;
+      // Runs whose step job a restart lost would otherwise stay "running" forever.
+      try {
+        const recovered = await runs.recoverInterrupted();
+        if (recovered > 0) logger.warn(`Failed ${recovered} workflow run(s) interrupted by a restart`);
+      } catch (err) {
+        logger.error("Failed to recover workflow runs interrupted by a restart:", err);
+      }
       // The host's queue clean asks the run lifecycle instead of reading the stores.
       state.uninstallRunHooks = registerWorkflowRunHooks(runs);
 

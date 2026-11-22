@@ -290,6 +290,16 @@ export interface ManagedQueuePort<T = unknown> {
   getJobLogs(jobId: string): Promise<QueueJobLogs>;
 
   /**
+   * Appends an entry to a job's persisted log from outside its processor
+   * (e.g. why a job of an earlier process ended without running to the end).
+   * {@link getJobLogs} shows persisted entries for jobs whose in-memory logs
+   * are gone, which is the case for every job of an earlier process.
+   * @param jobId - The job to log for
+   * @param message - Log message
+   */
+  appendJobLog(jobId: string, message: string): Promise<void>;
+
+  /**
    * Subscribe to a queue lifecycle event.
    * For job-related events (waiting, active, completed, failed),
    * the handler receives the resolved {@link JobInfo} alongside the job ID.
