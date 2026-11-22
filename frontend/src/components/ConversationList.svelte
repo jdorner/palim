@@ -1,7 +1,4 @@
 <script lang="ts">
-import { DropdownMenu } from "bits-ui";
-import CloudArrowDownIcon from "phosphor-svelte/lib/CloudArrowDownIcon";
-import DotsThreeVerticalIcon from "phosphor-svelte/lib/DotsThreeVerticalIcon";
 import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
@@ -9,7 +6,6 @@ import { tick } from "svelte";
 import type { Conversation } from "$lib/chatStore";
 import { AlertDialog } from "$lib/components/ui/alert-dialog";
 import { Button } from "$lib/components/ui/button";
-import { buttonVariants } from "$lib/components/ui/button/button.svelte";
 import { t } from "$lib/i18n.svelte";
 import { readState } from "$lib/readState.svelte";
 
@@ -26,11 +22,9 @@ interface Props {
   onRename?: (id: string, title: string) => void;
   /** Callback when a conversation is deleted. */
   onDelete?: (id: string) => void;
-  /** Callback to import a conversation from the server. */
-  onImport?: () => void;
 }
 
-let { conversations = [], activeId = null, onSelect, onCreate, onRename, onDelete, onImport }: Props = $props();
+let { conversations = [], activeId = null, onSelect, onCreate, onRename, onDelete }: Props = $props();
 
 let renamingId = $state<string | null>(null);
 let renameValue = $state("");
@@ -74,36 +68,11 @@ let deleteTitle = $derived(
 </script>
 
 <div class="flex flex-col h-full border-r border-border bg-muted/30">
-  <div class="p-4 border-b border-border flex gap-1.5">
-    <Button size="sm" variant="outline" class="flex-1 min-w-0" onclick={() => onCreate?.()}>
+  <div class="p-4 border-b border-border">
+    <Button size="sm" variant="outline" class="w-full" onclick={() => onCreate?.()}>
       <PlusIcon class="w-4 h-4 mr-1.5" aria-hidden="true" />
       {t("chat.newChatShort")}
     </Button>
-    {#if onImport}
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger
-          class={`${buttonVariants({ variant: "outline", size: "sm" })} min-w-0! w-8! p-0! shrink-0`}
-          aria-label={t("chat.moreActions")}
-        >
-          <DotsThreeVerticalIcon size={16} aria-hidden="true" />
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            align="start"
-            sideOffset={4}
-            class="z-9999 min-w-40 rounded-md border border-border bg-background p-1 shadow-lg"
-          >
-            <DropdownMenu.Item
-              class="flex items-center gap-2 px-2 py-1.5 text-sm rounded-sm cursor-pointer outline-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
-              onSelect={() => onImport?.()}
-            >
-              <CloudArrowDownIcon size={14} aria-hidden="true" />
-              {t("chat.importButton")}
-            </DropdownMenu.Item>
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
-    {/if}
   </div>
 
   <div class="flex-1 overflow-y-auto">

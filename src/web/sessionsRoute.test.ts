@@ -123,7 +123,7 @@ describe("session routes ownership", () => {
     return { status: res.status, body: await res.json().catch(() => null) };
   }
 
-  test("GET /api/sessions lists only the caller's sessions of the source, with a derived title", async () => {
+  test("GET /api/sessions lists all the caller's sessions of the source, with a derived title", async () => {
     const mine = sessions.create({ source: "chat", sourceId: "list-mine", userId: aliceId });
     sessions.append(mine.id, { role: "user", content: "  Hello there  ", timestamp: 1 }, { clientId: "c1" });
     sessions.append(mine.id, { role: "user", content: "second", timestamp: 2 }, { clientId: "c2" });
@@ -137,10 +137,14 @@ describe("session routes ownership", () => {
     expect(status).toBe(200);
     const ids = body.sessions.map((s: { id: string }) => s.id);
     expect(ids).toContain(mine.id);
-    expect(ids).not.toContain(empty.id);
+    expect(body.sessions.find((s: { id: string }) => s.id === empty.id)).toMatchObject({
+      title: "",
+      lastUserClientId: null,
+    });
     expect(ids).not.toContain(other.id);
     expect(ids).not.toContain(telegram.id);
     expect(body.sessions.find((s: { id: string }) => s.id === mine.id)).toMatchObject({
+      conversationId: "list-mine",
       title: "Hello there",
       lastUserClientId: "c2",
     });
@@ -166,6 +170,7 @@ describe("session routes ownership", () => {
     expect(own.body.messages).toEqual([
       { id: "u1", role: "user", content: "hi", createdAt: 1 },
       {
+        id: "u1:reply",
         role: "assistant",
         content: "hello",
         createdAt: 2,
@@ -194,5 +199,33 @@ describe("session routes ownership", () => {
     const chat = await get(`/api/sessions/${session.id}/chat`, "alice");
     expect(summary.body.lastUserClientId).toBe(chat.body.messages[0].id);
     expect(summary.body.lastUserClientId).toMatch(/^legacy-\d+$/);
+  });
+
+  test("PATCH /api/sessions/:id renames the owner's session; null derives the title again", async () => {
+    const session = sessions.create({ source: "chat", sourceId: "rename", userId: aliceId });
+    sessions.append(session.id, { role: "user", content: "first words", timestamp: 1 }, { clientId: "u1" });
+    const patch = async (username: string, title: string | null) => {
+      const token = await login(username);
+      return app.handle(
+        new Request(`http://localhost/api/sessions/${session.id}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ title }),
+        }),
+      );
+    };
+
+    const renamed = await patch("alice", "  My chat ");
+    expect(renamed.status).toBe(200);
+    expect(await renamed.json()).toMatchObject({ title: "My chat", titleSet: true });
+    expect((await get(`/api/sessions/${session.id}`, "alice")).body.title).toBe("My chat");
+
+    expect((await patch("bob", "hijack")).status).toBe(404);
+
+    await patch("alice", null);
+    expect((await get(`/api/sessions/${session.id}`, "alice")).body).toMatchObject({
+      title: "first words",
+      titleSet: false,
+    });
   });
 });

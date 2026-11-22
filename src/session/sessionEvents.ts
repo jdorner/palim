@@ -5,14 +5,15 @@
  * @module
  */
 
-import { userMessageId } from "@shared/chatTranscript";
+import { sessionTitle, userMessageId } from "@shared/chatTranscript";
 import type { SessionChangedEvent, SessionChangeReason } from "@shared/websocket";
 import { mainLogger as log } from "@src/utils/logger";
 import { getSessionStore } from "./index";
 
 /**
  * Announces that a session changed. Does nothing for sessions that are not
- * chat sessions or have no owner. Never throws.
+ * chat sessions or have no owner. Never throws. Call it before deleting a
+ * session (reason `deleted`), while the session can still be read.
  *
  * @param sessionId - The changed session
  * @param reason - What changed
@@ -38,6 +39,7 @@ export function createSessionChangeNotifier(broadcast: (event: SessionChangedEve
         userId: session.userId,
         sessionId,
         lastUserClientId: summary.lastUserSeq > 0 ? userMessageId(summary.lastUserClientId, summary.lastUserSeq) : null,
+        title: sessionTitle(summary.title, summary.firstUserContent),
         reason,
         ...(origin ? { origin } : {}),
       });

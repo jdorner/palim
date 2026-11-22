@@ -129,6 +129,7 @@ describe("QueueMonitor chat stream scoping", () => {
       userId: "alice",
       sessionId: "s1",
       lastUserClientId: "u1",
+      title: "t",
       reason: "response",
     });
     expect(alice.messages.length).toBe(1);

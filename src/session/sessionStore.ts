@@ -82,6 +82,7 @@ function rowToSession(row: typeof schema.sessions.$inferSelect): SessionData {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     metadata,
+    title: row.title,
     totalInputTokens: row.totalInputTokens,
     totalOutputTokens: row.totalOutputTokens,
     totalCacheReadTokens: row.totalCacheReadTokens,
@@ -322,6 +323,7 @@ export class SessionStore implements SessionStorePort {
       createdAt: now,
       updatedAt: now,
       metadata: opts.metadata ?? null,
+      title: null,
       totalInputTokens: 0,
       totalOutputTokens: 0,
       totalCacheReadTokens: 0,
@@ -682,51 +684,52 @@ export class SessionStore implements SessionStorePort {
   }
 
   /**
-   * Summarizes a user's chat sessions for listing them: the first user
-   * message (for a title) and the last user message's client ID.
-   *
-   * Sessions without any user message are left out.
+   * Summarizes a user's sessions of one source for listing them: the stored
+   * title, the first user message (to derive a title), and the last user
+   * message's client ID. Sessions without user messages are included.
    *
    * @param userId - The owning user
    * @param source - The session source to list (e.g. "chat")
    * @returns One summary per session, most recently updated first
    */
   listSessionSummaries(userId: string, source: string): SessionSummary[] {
-    return this.list({ userId, source }).flatMap((session) => {
-      const summary = this.summarize(session);
-      return summary ? [summary] : [];
-    });
+    return this.list({ userId, source }).map((session) => this.summarize(session));
   }
 
   /**
    * Summarizes one session like {@link listSessionSummaries}.
    *
    * @param sessionId - The session
-   * @returns The summary; `firstUserContent` is `""` when the session has no user message
+   * @returns The summary
    * @throws Error when the session does not exist
    */
   getSessionSummary(sessionId: string): SessionSummary {
     const session = this.get(sessionId);
     if (!session) throw new Error(`Session not found: ${sessionId}`);
-    return (
-      this.summarize(session) ?? {
-        id: session.id,
-        createdAt: session.createdAt,
-        updatedAt: session.updatedAt,
-        firstUserContent: "",
-        lastUserClientId: null,
-        lastUserSeq: 0,
-      }
-    );
+    return this.summarize(session);
+  }
+
+  /**
+   * Sets or clears the title of a session.
+   *
+   * @param sessionId - The session
+   * @param title - The new title, or `null` to derive it from the first user message again
+   */
+  setTitle(sessionId: string, title: string | null): void {
+    this.db
+      .update(schema.sessions)
+      .set({ title, updatedAt: Date.now() })
+      .where(eq(schema.sessions.id, sessionId))
+      .run();
   }
 
   /**
    * Reads a session's first user message and the client ID of its last one.
    *
    * @param session - The session
-   * @returns The summary, or `undefined` when the session has no user message
+   * @returns The summary (`firstUserContent` is `""` and `lastUserSeq` 0 without user messages)
    */
-  private summarize(session: SessionData): SessionSummary | undefined {
+  private summarize(session: SessionData): SessionSummary {
     const userMessage = and(eq(schema.sessionMessages.sessionId, session.id), eq(schema.sessionMessages.role, "user"));
     const first = this.db
       .select({ content: schema.sessionMessages.content })
@@ -735,7 +738,6 @@ export class SessionStore implements SessionStorePort {
       .orderBy(asc(schema.sessionMessages.seq))
       .limit(1)
       .get();
-    if (!first) return undefined;
     const last = this.db
       .select({ clientId: schema.sessionMessages.clientId, seq: schema.sessionMessages.seq })
       .from(schema.sessionMessages)
@@ -743,16 +745,20 @@ export class SessionStore implements SessionStorePort {
       .orderBy(desc(schema.sessionMessages.seq))
       .limit(1)
       .get();
-    let firstUserContent: unknown;
-    try {
-      firstUserContent = JSON.parse(first.content);
-    } catch {
-      firstUserContent = first.content;
+    let firstUserContent: unknown = "";
+    if (first) {
+      try {
+        firstUserContent = JSON.parse(first.content);
+      } catch {
+        firstUserContent = first.content;
+      }
     }
     return {
       id: session.id,
       createdAt: session.createdAt,
       updatedAt: session.updatedAt,
+      sourceId: session.sourceId,
+      title: session.title,
       firstUserContent,
       lastUserClientId: last?.clientId ?? null,
       lastUserSeq: last?.seq ?? 0,

@@ -71,10 +71,11 @@ describe("sessionToChatMessages", () => {
       row("user", "thanks", { clientId: "u2" }),
     ];
 
-    const out = sessionToChatMessages(rows);
+    const out = sessionToChatMessages("s1", rows);
     expect(out).toHaveLength(3);
     expect(out[0]).toMatchObject({ id: "u1", role: "user", content: "list files" });
     expect(out[1]).toEqual({
+      id: "u1:reply",
       role: "assistant",
       content: "There is ",
       createdAt: out[1]!.createdAt,
@@ -95,18 +96,19 @@ describe("sessionToChatMessages", () => {
   });
 
   test("a user message without a response yields no assistant message", () => {
-    const out = sessionToChatMessages([row("user", "hi", { clientId: "u1" })]);
+    const out = sessionToChatMessages("s1", [row("user", "hi", { clientId: "u1" })]);
     expect(out).toEqual([{ id: "u1", role: "user", content: "hi", createdAt: out[0]!.createdAt }]);
   });
 
   test("push messages become push segments, also when no job ran", () => {
-    const out = sessionToChatMessages([
+    const out = sessionToChatMessages("s1", [
       row("push", "before anything"),
       row("user", "hi", { clientId: "u1" }),
       row("assistant", [{ type: "text", text: "hello" }]),
       row("push", "**later**"),
     ]);
     expect(out.map((m) => m.role)).toEqual(["assistant", "user", "assistant"]);
+    expect(out.map((m) => m.id)).toEqual(["s1:start", "u1", "u1:reply"]);
     expect(out[0]!.segments).toEqual([{ type: "push", content: "before anything", contentType: "text/markdown" }]);
     expect(out[2]!.segments).toEqual([
       { type: "text", content: "hello" },
@@ -117,11 +119,11 @@ describe("sessionToChatMessages", () => {
 
   test("user messages without a client ID get a seq-based ID", () => {
     const r = row("user", "old");
-    expect(sessionToChatMessages([r])[0]!.id).toBe(`legacy-${r.seq}`);
+    expect(sessionToChatMessages("s1", [r])[0]!.id).toBe(`legacy-${r.seq}`);
   });
 
   test("createdAt strictly increases even when timestamps repeat", () => {
-    const out = sessionToChatMessages([
+    const out = sessionToChatMessages("s1", [
       row("user", "a", { clientId: "u1", timestamp: 5 }),
       row("assistant", [{ type: "text", text: "b" }], { timestamp: 5 }),
       row("user", "c", { clientId: "u2", timestamp: 4 }),
@@ -130,7 +132,7 @@ describe("sessionToChatMessages", () => {
   });
 
   test("ignores malformed content", () => {
-    const out = sessionToChatMessages([
+    const out = sessionToChatMessages("s1", [
       row("user", "a", { clientId: "u1" }),
       row("assistant", [null, { type: "toolCall" }, { type: "text", text: "" }]),
       row("assistant", "plain"),

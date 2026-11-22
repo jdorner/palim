@@ -14,6 +14,8 @@ export interface Conversation {
   updatedAt: number;
   /** Server-side session ID, persisted so edits/deletes can sync after reload. */
   sessionId?: string;
+  /** The server session's `updatedAt` when the messages were last replaced from it (resync). */
+  syncedAt?: number;
 }
 
 /** A persisted segment of an assistant response: either text, thinking, or a group of tool calls. */
@@ -124,7 +126,16 @@ function openDB(name: string): Promise<IDBDatabase> {
       }
     };
 
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      const db = request.result;
+      // Another tab deletes or upgrades the database: let go, so it is not
+      // blocked; the next operation opens it again.
+      db.onversionchange = () => {
+        db.close();
+        if (dbEntry?.userId && name === `${DB_NAME_PREFIX}:${dbEntry.userId}`) dbEntry = null;
+      };
+      resolve(db);
+    };
 
     request.onerror = () => reject(request.error);
   });
@@ -142,12 +153,49 @@ export function generateTitle(content: string): string {
 }
 
 /**
+ * Makes sure a conversation mirrors a server session, under the ID every
+ * client gives it. Idempotent, also across tabs sharing the database: an
+ * existing conversation with that ID only gets the session ID set.
+ * @param mirror - The conversation ID, the session, its title and timestamps.
+ * @returns The conversation, and whether it was created.
+ */
+export async function ensureMirrorConversation(mirror: {
+  id: string;
+  sessionId: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+}): Promise<{ conversation: Conversation; created: boolean }> {
+  const db = await initDB();
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("conversations", "readwrite");
+    const store = tx.objectStore("conversations");
+    let result: { conversation: Conversation; created: boolean };
+    const getReq = store.get(mirror.id);
+    getReq.onsuccess = () => {
+      const existing = getReq.result as Conversation | undefined;
+      if (existing) {
+        const conversation = { ...existing, sessionId: mirror.sessionId };
+        store.put(conversation);
+        result = { conversation, created: false };
+      } else {
+        const conversation: Conversation = { ...mirror };
+        store.add(conversation);
+        result = { conversation, created: true };
+      }
+    };
+    tx.oncomplete = () => resolve(result);
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
  * Creates a new conversation in the store.
  * @param title - The conversation title.
- * @param sessionId - The server session it mirrors (when importing one).
  * @returns The newly created Conversation.
  */
-export async function createConversation(title: string, sessionId?: string): Promise<Conversation> {
+export async function createConversation(title: string): Promise<Conversation> {
   const db = await initDB();
   const now = Date.now();
   const conversation: Conversation = {
@@ -155,7 +203,6 @@ export async function createConversation(title: string, sessionId?: string): Pro
     title,
     createdAt: now,
     updatedAt: now,
-    ...(sessionId ? { sessionId } : {}),
   };
 
   return new Promise((resolve, reject) => {
@@ -210,6 +257,28 @@ export async function updateConversationTitle(id: string, title: string): Promis
       store.put(conv);
     };
 
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error);
+  });
+}
+
+/**
+ * Changes fields of a conversation without bumping its `updatedAt`, so the
+ * change does not mark it unread.
+ * @param id - The conversation ID.
+ * @param patch - The fields to change.
+ */
+export async function patchConversation(id: string, patch: Partial<Pick<Conversation, "title">>): Promise<void> {
+  const db = await initDB();
+
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction("conversations", "readwrite");
+    const store = tx.objectStore("conversations");
+    const getReq = store.get(id);
+    getReq.onsuccess = () => {
+      const conv = getReq.result as Conversation | undefined;
+      if (conv) store.put({ ...conv, ...patch });
+    };
     tx.oncomplete = () => resolve();
     tx.onerror = () => reject(tx.error);
   });
@@ -324,18 +393,21 @@ export async function deleteMessagesFrom(conversationId: string, fromCreatedAt: 
 
 /**
  * Replaces all messages of a conversation in one transaction (resync from the
- * server session). Messages without an `id` get a new one. Also bumps the
- * conversation's `updatedAt`.
+ * server session). The conversation takes the session's `updatedAt` (as
+ * `updatedAt` and `syncedAt`), so its place in the list and its unread state
+ * follow the server's last change, not the moment of the resync.
  * @param conversationId - The conversation whose messages to replace.
  * @param messages - The new messages, oldest first.
+ * @param sessionUpdatedAt - The server session's `updatedAt`.
  * @returns The stored messages, oldest first.
  */
 export async function replaceMessages(
   conversationId: string,
-  messages: (Omit<Message, "id" | "conversationId"> & { id?: string })[],
+  messages: Omit<Message, "conversationId">[],
+  sessionUpdatedAt: number,
 ): Promise<Message[]> {
   const db = await initDB();
-  const stored: Message[] = messages.map((m) => ({ ...m, id: m.id ?? uuid(), conversationId }));
+  const stored: Message[] = messages.map((m) => ({ ...m, conversationId }));
 
   return new Promise((resolve, reject) => {
     const tx = db.transaction(["messages", "conversations"], "readwrite");
@@ -357,10 +429,7 @@ export async function replaceMessages(
     const getReq = convStore.get(conversationId);
     getReq.onsuccess = () => {
       const conv = getReq.result as Conversation | undefined;
-      if (conv) {
-        conv.updatedAt = Date.now();
-        convStore.put(conv);
-      }
+      if (conv) convStore.put({ ...conv, updatedAt: sessionUpdatedAt, syncedAt: sessionUpdatedAt });
     };
 
     tx.oncomplete = () => resolve(stored);

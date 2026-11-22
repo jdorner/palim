@@ -176,19 +176,8 @@
     "thinkingActive": "Denkt nach...",
     "toggleThinking": "Denkprozess ein-/ausblenden",
     "unknownError": "Ein unbekannter Fehler ist aufgetreten",
-    "importButton": "Vom Server importieren",
-    "importTitle": "Unterhaltung importieren",
-    "importDescription": "Unterhaltungen auf dem Server, die dieser Browser nicht anzeigt",
-    "importNone": "Alle Unterhaltungen auf dem Server werden hier bereits angezeigt.",
-    "importListFailed": "Die Unterhaltungen konnten nicht vom Server geladen werden.",
-    "importFailed": "Die Unterhaltung konnte nicht vom Server importiert werden.",
-    "importUpdated": "Zuletzt geändert {time}",
     "sessionResynced": "Diese Unterhaltung wurde woanders geändert (anderer Tab oder anderes Gerät). Sie zeigt jetzt den Stand des Servers; deine letzte Aktion wurde nicht ausgeführt.",
-    "moreActions": "Weitere Aktionen",
-    "importSelectAll": "Alle auswählen",
-    "importSelectedCount": "{count} von {total} ausgewählt",
-    "importSubmit": "Importieren ({count})",
-    "importing": "Importiere..."
+    "renameFailed": "Die Unterhaltung konnte auf dem Server nicht umbenannt werden."
   },
   "common": {
     "actions": "Aktionen",

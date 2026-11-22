@@ -4,6 +4,7 @@
  * Handles:
  * - `GET    /api/sessions` (the caller's own sessions of one source, for importing chats)
  * - `GET    /api/sessions/:id` (summary: title and last user message ID)
+ * - `PATCH  /api/sessions/:id` (rename)
  * - `GET    /api/sessions/:id/chat` (the session converted into chat UI messages)
  * - `GET    /api/sessions/:id/messages`
  * - `DELETE /api/sessions/:id/messages`
@@ -12,7 +13,7 @@
  * Note: Skill request routes are defined in `src/jobs/skillRequestQueue.ts`.
  */
 
-import { messageText, sessionToChatMessages, titleFromMessage, userMessageId } from "@shared/chatTranscript";
+import { sessionTitle, sessionToChatMessages, userMessageId } from "@shared/chatTranscript";
 import { Type } from "@sinclair/typebox";
 import { ownedSubject } from "@src/auth";
 import { getSessionStore } from "@src/session";
@@ -70,7 +71,11 @@ function requireOwnedSession(
 function describeSession(summary: SessionSummary) {
   return {
     id: summary.id,
-    title: titleFromMessage(messageText(summary.firstUserContent)),
+    // The ID every client gives the conversation mirroring this session.
+    conversationId: summary.sourceId ?? summary.id,
+    title: sessionTitle(summary.title, summary.firstUserContent),
+    // Whether the user gave the title (else it is derived from the first user message).
+    titleSet: summary.title !== null,
     createdAt: summary.createdAt,
     updatedAt: summary.updatedAt,
     // The ID the converted transcript gives that message, so the UI compares like with like.
@@ -124,7 +129,7 @@ export function sessionRoutes(sessionGuard: ChatSessionGuard, notifySessionChang
         if (denied) return denied;
         return {
           ...describeSession(sessionStore.getSessionSummary(params.id)),
-          messages: sessionToChatMessages(sessionStore.getTranscriptRows(params.id)),
+          messages: sessionToChatMessages(params.id, sessionStore.getTranscriptRows(params.id)),
         };
       } catch (error) {
         log.error("Failed to convert session", { error, sessionId: params.id });
@@ -217,12 +222,37 @@ export function sessionRoutes(sessionGuard: ChatSessionGuard, notifySessionChang
         }),
       },
     )
+    .patch(
+      "/api/sessions/:id",
+      ({ params, body, request, status }) => {
+        try {
+          const sessionStore = getSessionStore();
+          const denied = requireOwnedSession(sessionStore, params.id, request, "update", status);
+          if (denied) return denied;
+          const title = body.title?.trim() || null;
+          sessionStore.setTitle(params.id, title);
+          notifySessionChanged?.(params.id, "rename");
+          return describeSession(sessionStore.getSessionSummary(params.id));
+        } catch (error) {
+          log.error("Failed to rename session", { error, sessionId: params.id });
+          return status(500, { error: "Failed to rename session" });
+        }
+      },
+      {
+        body: Type.Object({
+          title: Type.Union([Type.String({ maxLength: 200 }), Type.Null()], {
+            description: "The new title; null or blank derives it from the first user message again",
+          }),
+        }),
+      },
+    )
     .delete("/api/sessions/:id", ({ params, request, status }) => {
       try {
         const sessionStore = getSessionStore();
         const denied = requireOwnedSession(sessionStore, params.id, request, "delete", status);
         if (denied) return denied;
 
+        notifySessionChanged?.(params.id, "deleted");
         sessionStore.delete(params.id);
 
         return status(200, { sessionId: params.id, ok: true });

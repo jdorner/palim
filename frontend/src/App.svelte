@@ -69,6 +69,8 @@ function handleMessage(message: WebSocketMessage) {
   switch (message.type) {
     case "initial_state":
       jobs.set(message.jobs);
+      // Sent on every (re)connect: catch up on chat sessions changed meanwhile.
+      void chatStream.syncConversations();
       break;
     case "job_added":
       jobs.update((prev) => {

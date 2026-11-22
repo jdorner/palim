@@ -96,6 +96,23 @@ describe("chat route identity stamping", () => {
     expect(notified.at(-1)).toEqual([sessionId, "message", "conv-alice-1"]);
   });
 
+  test("names a new session after the client's conversation ID, and finds it again by that ID", async () => {
+    const token = await login("alice");
+    const send = (chatId: string) =>
+      app.handle(
+        new Request("http://localhost/api/chat", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ message: "hello", chatId, conversationId: "conv-uuid-1" }),
+        }),
+      );
+    const first = (await (await send("chat-a")).json()) as { sessionId: string };
+    expect(sessions.get(first.sessionId)?.sourceId).toBe("conv-uuid-1");
+    // A retry without the session ID (the first response never arrived) lands in the same session.
+    const second = (await (await send("chat-b")).json()) as { sessionId: string };
+    expect(second.sessionId).toBe(first.sessionId);
+  });
+
   test("rejects posting into another user's session with 404", async () => {
     // Alice creates a session.
     const aliceToken = await login("alice");

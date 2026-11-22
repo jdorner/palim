@@ -45,18 +45,19 @@ export function chatRoutes(
     async ({ body, request, status }) => {
       try {
         const sessionStore = getSessionStore();
-        const { message, chatId, sessionId: requestedSessionId } = body;
+        const { message, chatId, sessionId: requestedSessionId, conversationId } = body;
 
         const principal = getPrincipal(request);
         const initiatorUserId = principal?.user.id;
 
-        // Resolve the target session: by explicit ID, or by chat ID (which may
-        // match an existing session, possibly owned by someone else).
+        // Resolve the target session: by explicit ID, or by the client's
+        // conversation ID (falling back to the chat ID), which may match an
+        // existing session, possibly owned by someone else.
         const session = requestedSessionId
           ? sessionStore.get(requestedSessionId)
           : sessionStore.getOrCreate({
               source: "chat",
-              sourceId: chatId,
+              sourceId: conversationId ?? chatId,
               ...(initiatorUserId ? { userId: initiatorUserId } : {}),
             });
         if (!session) {
@@ -128,6 +129,13 @@ export function chatRoutes(
         message: Type.String({ minLength: 1, description: "The user message to send" }),
         chatId: Type.String({ minLength: 1, description: "Client-generated conversation correlation ID" }),
         sessionId: Type.Optional(Type.String({ description: "Existing session ID" })),
+        conversationId: Type.Optional(
+          Type.String({
+            minLength: 1,
+            description:
+              "Client-generated conversation ID; without sessionId it names the session (its sourceId), so every client mirrors the session under the same ID",
+          }),
+        ),
         clientMessageId: Type.Optional(
           Type.String({
             minLength: 1,

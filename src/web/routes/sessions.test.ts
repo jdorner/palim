@@ -251,6 +251,14 @@ describe("DELETE /api/sessions/:id (session deletion)", () => {
     expect(store.getMessages(session.id)).toEqual([]);
   });
 
+  test("announces the deletion", async () => {
+    const id = store.create({ source: "chat" }).id;
+    notified.length = 0;
+    const res = await app.handle(new Request(`http://localhost/api/sessions/${id}`, { method: "DELETE" }));
+    expect(res.status).toBe(200);
+    expect(notified).toEqual([[id, "deleted", undefined]]);
+  });
+
   test("returns 404 for a non-existent session", async () => {
     const res = await deleteSession("nonexistent-id");
     expect(res.status).toBe(404);

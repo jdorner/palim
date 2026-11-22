@@ -22,6 +22,8 @@ export interface SessionData {
   updatedAt: number;
   /** Optional parsed metadata object. */
   metadata: Record<string, unknown> | null;
+  /** Title the user gave the conversation, or `null` (derived from the first user message). */
+  title: string | null;
   /** Running total: sum of input tokens across all assistant messages. */
   totalInputTokens: number;
   /** Running total: sum of output tokens across all assistant messages. */
@@ -133,7 +135,11 @@ export interface SessionSummary {
   createdAt: number;
   /** Epoch timestamp (ms) of the last modification. */
   updatedAt: number;
-  /** Content of the first user message (string or content blocks). */
+  /** The caller's own identifier for the session (for chat: the client's conversation ID). */
+  sourceId: string | null;
+  /** Title the user gave the conversation, or `null`. */
+  title: string | null;
+  /** Content of the first user message (string or content blocks), or `""` when there is none. */
   firstUserContent: unknown;
   /** Client ID of the last user message, or `null` when it has none. */
   lastUserClientId: string | null;

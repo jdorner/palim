@@ -43,8 +43,12 @@ export type TranscriptSegment =
 
 /** A converted chat message, ready to store in the UI. */
 export interface TranscriptMessage {
-  /** The UI message ID: the client ID for user messages, `undefined` for assistant messages (the UI assigns one). */
-  id?: string;
+  /**
+   * The UI message ID: the client ID for user messages, `<user ID>:reply` for
+   * the answer to one (`<session ID>:start` before the first user message).
+   * Stable across conversions, so a resync re-renders only what changed.
+   */
+  id: string;
   /** "user" or "assistant". */
   role: "user" | "assistant";
   /** The message text. For assistant messages, the final text block of the turn. */
@@ -110,6 +114,18 @@ export function userMessageId(clientId: string | null, seq: number): string {
 export function titleFromMessage(content: string): string {
   const trimmed = content.trim();
   return trimmed.length <= 50 ? trimmed : `${trimmed.slice(0, 47)}...`;
+}
+
+/**
+ * The title a session shows: the one the user gave it, else one derived from
+ * its first user message.
+ *
+ * @param stored - The stored title, or `null`
+ * @param firstUserContent - Content of the first user message (`""` when there is none)
+ * @returns The title; `""` when there is neither
+ */
+export function sessionTitle(stored: string | null, firstUserContent: unknown): string {
+  return stored ?? titleFromMessage(messageText(firstUserContent));
 }
 
 /**
@@ -214,7 +230,8 @@ function addAssistantContent(turn: TurnBuilder, content: unknown): void {
  * Converts a chat session into UI messages.
  *
  * - A user message becomes a user message whose ID is its client ID. Rows
- *   stored without one get `legacy-<seq>`.
+ *   stored without one get `legacy-<seq>`. The assistant message answering it
+ *   gets `<that ID>:reply`; one before any user message `<sessionId>:start`.
  * - Everything up to the next user message becomes one assistant message.
  *   Its text is the turn's final text block (as the `done` event reports it),
  *   its usage that of the last assistant message with usage. Tool results are
@@ -223,10 +240,11 @@ function addAssistantContent(turn: TurnBuilder, content: unknown): void {
  * - `createdAt` follows the stored timestamps but is forced to increase, since
  *   the UI orders and truncates messages by it.
  *
+ * @param sessionId - The session's ID (for the ID of an answer before any user message)
  * @param rows - The session's messages, ordered by `seq`
  * @returns The UI messages, oldest first
  */
-export function sessionToChatMessages(rows: TranscriptSourceMessage[]): TranscriptMessage[] {
+export function sessionToChatMessages(sessionId: string, rows: TranscriptSourceMessage[]): TranscriptMessage[] {
   const out: TranscriptMessage[] = [];
   let lastCreatedAt = Number.NEGATIVE_INFINITY;
   const nextCreatedAt = (ts: number) => {
@@ -235,9 +253,11 @@ export function sessionToChatMessages(rows: TranscriptSourceMessage[]): Transcri
   };
 
   let turn: TurnBuilder | null = null;
+  let lastUserId: string | null = null;
   const flush = () => {
     if (turn && turn.segments.length > 0) {
       out.push({
+        id: lastUserId ? `${lastUserId}:reply` : `${sessionId}:start`,
         role: "assistant",
         content: turn.finalText,
         createdAt: nextCreatedAt(turn.lastTimestamp),
@@ -251,8 +271,9 @@ export function sessionToChatMessages(rows: TranscriptSourceMessage[]): Transcri
   for (const row of rows) {
     if (row.role === "user") {
       flush();
+      lastUserId = userMessageId(row.clientId, row.seq);
       out.push({
-        id: userMessageId(row.clientId, row.seq),
+        id: lastUserId,
         role: "user",
         content: messageText(row.content),
         createdAt: nextCreatedAt(row.timestamp),

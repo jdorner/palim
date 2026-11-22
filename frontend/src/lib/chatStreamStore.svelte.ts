@@ -18,11 +18,13 @@ import {
   deleteConversation,
   deleteMessage,
   deleteMessagesFrom,
+  ensureMirrorConversation,
   generateTitle,
   getConversations,
   getMessages,
   type Message,
   type MessageSegment,
+  patchConversation,
   replaceMessages,
   setChatStoreUser,
   updateConversationSessionId,
@@ -69,7 +71,12 @@ interface InFlightStream {
 /** A server chat session as `GET /api/sessions?source=chat` lists it. */
 export interface ServerChatSession {
   id: string;
+  /** The ID every client gives the conversation mirroring this session. */
+  conversationId: string;
+  /** The title (`""` while the session has no user message). */
   title: string;
+  /** Whether the user gave the title (else it is derived from the first user message). */
+  titleSet: boolean;
   createdAt: number;
   updatedAt: number;
   lastUserClientId: string | null;
@@ -125,6 +132,18 @@ class ChatStreamStore {
 
   /** The resync running for each conversation, so resyncs of one conversation run in order. */
   private resyncs = new Map<string, Promise<boolean>>();
+
+  /** The list sync in progress, if any (see {@link syncConversations}). */
+  private syncing: Promise<void> | null = null;
+
+  /**
+   * A conversation removed because its session went away on the server (another
+   * tab or device deleted it). The chat view leaves it when it is the open one.
+   */
+  removedConversationId = $state<string | null>(null);
+
+  /** Conversations removed because their session is gone; they can no longer be selected. */
+  private removedIds = new Set<string>();
 
   // -------------------------------------------------------------------------
   // Derived state for the active conversation's stream
@@ -193,6 +212,8 @@ class ChatStreamStore {
     this.streams = new Map();
     this.convToChatId = new Map();
     this.currentSessionId = null;
+    this.removedIds = new Set();
+    this.removedConversationId = null;
     this.activeStreamContent = "";
     this.activeStreamTool = null;
     this.activeStreamSegments = [];
@@ -221,6 +242,8 @@ class ChatStreamStore {
     // remounting every message (a fresh comark/rangi parse of each code block)
     // — the visible multi-flicker.
     if (id === this.loadingConversationId) return;
+    // Its session was deleted (the chat view is about to leave it).
+    if (this.removedIds.has(id)) return;
     if (id === this.activeConversationId && this.messages.length > 0) return;
 
     this.loadingConversationId = id;
@@ -287,6 +310,11 @@ class ChatStreamStore {
    * @param title - New title.
    */
   async handleRename(id: string, title: string): Promise<void> {
+    const sessionId = this.conversations.find((c) => c.id === id)?.sessionId;
+    if (sessionId && !(await this.renameServerSession(sessionId, title))) {
+      this.error = t("chat.renameFailed");
+      return;
+    }
     await updateConversationTitle(id, title);
     await this.loadConversations();
   }
@@ -318,51 +346,121 @@ class ChatStreamStore {
   }
 
   // -------------------------------------------------------------------------
-  // Server sessions: import and resync
+  // Server sessions: list sync and resync
   // -------------------------------------------------------------------------
 
   /**
-   * Lists the user's chat sessions on the server that no local conversation mirrors.
-   * @returns The sessions, most recently updated first.
-   * @throws Error when the request fails.
+   * Brings the conversation list in line with the user's chat sessions on the
+   * server, which are the source of truth:
+   * - a session no conversation mirrors gets one, under the ID every client
+   *   gives it (`conversationId`), with the session's timestamps, marked read;
+   *   its messages load when it is opened,
+   * - several conversations mirroring one session (left by earlier versions)
+   *   shrink to one,
+   * - a conversation whose session is gone is removed,
+   * - titles follow the server; a title renamed only in this browser before
+   *   the server kept titles is sent to the server instead.
+   *
+   * Conversations without a session (approval requests, chats not sent yet)
+   * are left alone. Concurrent calls share one run; runs in other tabs write
+   * the same records, so they cannot duplicate conversations either.
+   * @returns Resolves when the list is in sync (or the server could not be reached).
    */
-  async listImportableSessions(): Promise<ServerChatSession[]> {
-    const res = await authFetch("/api/sessions?source=chat");
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const body = (await res.json()) as { sessions: ServerChatSession[] };
-    const local = new Set(this.conversations.map((c) => c.sessionId).filter(Boolean));
-    return body.sessions.filter((s) => !local.has(s.id));
+  syncConversations(): Promise<void> {
+    this.syncing ??= this.runSync().finally(() => {
+      this.syncing = null;
+    });
+    return this.syncing;
+  }
+
+  /** Performs one list sync (see {@link syncConversations}). */
+  private async runSync(): Promise<void> {
+    let sessions: ServerChatSession[];
+    try {
+      const res = await authFetch("/api/sessions?source=chat");
+      if (!res.ok) return;
+      sessions = ((await res.json()) as { sessions: ServerChatSession[] }).sessions;
+    } catch (err) {
+      console.error("Failed to list chat sessions:", err);
+      return;
+    }
+
+    try {
+      const local = await getConversations();
+      const bySession = new Map<string, Conversation[]>();
+      for (const c of local) if (c.sessionId) bySession.set(c.sessionId, [...(bySession.get(c.sessionId) ?? []), c]);
+
+      for (const session of sessions) {
+        const mirrors = bySession.get(session.id) ?? [];
+        let conv: Conversation;
+        if (mirrors.length === 0) {
+          const ensured = await ensureMirrorConversation({
+            id: session.conversationId,
+            sessionId: session.id,
+            title: session.title || t("chat.newChat"),
+            createdAt: session.createdAt,
+            updatedAt: session.updatedAt,
+          });
+          if (ensured.created) readState.markRead(ensured.conversation.id);
+          conv = ensured.conversation;
+        } else {
+          // Keep the open one, else the one under the shared ID, else the oldest.
+          conv =
+            mirrors.find((c) => c.id === this.activeConversationId) ??
+            mirrors.find((c) => c.id === session.conversationId) ??
+            mirrors.reduce((a, b) => (b.createdAt < a.createdAt ? b : a));
+          for (const extra of mirrors) if (extra !== conv) await this.removeLocalConversation(extra.id);
+        }
+        if (session.titleSet || !session.title) {
+          if (session.title && session.title !== conv.title) await patchConversation(conv.id, { title: session.title });
+        } else if (conv.title !== session.title && conv.title !== t("chat.newChat")) {
+          await this.renameServerSession(session.id, conv.title);
+        }
+      }
+      const listed = new Set(sessions.map((s) => s.id));
+      for (const conv of local) {
+        if (conv.sessionId && !listed.has(conv.sessionId)) await this.removeLocalConversation(conv.id);
+      }
+    } catch (err) {
+      console.error("Failed to sync conversations:", err);
+    }
+    await this.loadConversations();
   }
 
   /**
-   * Imports a server chat session as a conversation. When a conversation
-   * already mirrors the session, resyncs that one instead.
-   * @param sessionId - The server session to import.
-   * @returns The conversation's ID, or `null` when the import failed (sets `error`).
+   * Removes a conversation from this browser only, because its server session
+   * is gone. Keeps it while a response for it is in flight.
+   * @param conversationId - The conversation to remove.
    */
-  async importSession(sessionId: string): Promise<string | null> {
-    this.error = null;
-    const existing = this.conversations.find((c) => c.sessionId === sessionId);
-    if (existing) {
-      await this.resyncConversation(existing.id);
-      return existing.id;
+  private async removeLocalConversation(conversationId: string): Promise<void> {
+    if (this.convToChatId.has(conversationId)) return;
+    this.removedIds.add(conversationId);
+    await deleteConversation(conversationId);
+    if (this.activeConversationId === conversationId) {
+      this.activeConversationId = null;
+      this.messages = [];
+      this.currentSessionId = null;
     }
-    const transcript = await this.fetchTranscript(sessionId);
-    if (!transcript) {
-      this.error = t("chat.importFailed");
-      return null;
-    }
+    this.removedConversationId = conversationId;
+  }
+
+  /**
+   * Stores a conversation's title on its server session.
+   * @param sessionId - The server session.
+   * @param title - The title.
+   * @returns Whether the server took it.
+   */
+  private async renameServerSession(sessionId: string, title: string): Promise<boolean> {
     try {
-      const conv = await createConversation(transcript.title || t("chat.newChat"), sessionId);
-      await replaceMessages(conv.id, transcript.messages);
-      // The user asked for this conversation: it holds nothing new to them.
-      readState.markRead(conv.id);
-      await this.loadConversations();
-      return conv.id;
+      const res = await authFetch(`/api/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      return res.ok;
     } catch (err) {
-      console.error("Failed to import session:", err);
-      this.error = t("chat.importFailed");
-      return null;
+      console.error("Failed to rename server session:", err);
+      return false;
     }
   }
 
@@ -395,7 +493,7 @@ class ChatStreamStore {
     const transcript = await this.fetchTranscript(conv.sessionId);
     if (!transcript || this.convToChatId.has(conversationId)) return false;
     try {
-      const stored = await replaceMessages(conversationId, transcript.messages);
+      const stored = await replaceMessages(conversationId, transcript.messages, transcript.updatedAt);
       if (this.activeConversationId === conversationId) {
         this.messages = stored;
         // The user sees the new state, so the bumped updatedAt is not unread.
@@ -420,7 +518,23 @@ class ChatStreamStore {
   async handleSessionChanged(event: SessionChangedEvent): Promise<void> {
     if (event.origin && this.ownOrigins.has(event.origin)) return;
     const conv = this.conversations.find((c) => c.sessionId === event.sessionId);
-    if (!conv) return;
+    if (!conv) {
+      // A session this browser does not know yet (started on another device).
+      if (event.reason !== "deleted") await this.syncConversations();
+      return;
+    }
+    if (event.reason === "deleted") {
+      await this.removeLocalConversation(conv.id);
+      await this.loadConversations();
+      return;
+    }
+    if (event.reason === "rename") {
+      if (event.title && event.title !== conv.title) {
+        await patchConversation(conv.id, { title: event.title });
+        await this.loadConversations();
+      }
+      return;
+    }
     if (event.reason === "message") {
       try {
         const local = conv.id === this.activeConversationId ? this.messages : await getMessages(conv.id);
@@ -433,7 +547,8 @@ class ChatStreamStore {
   }
 
   /**
-   * Resyncs a conversation when its last user message differs from the server session's.
+   * Resyncs a conversation when its last user message differs from the server
+   * session's, or the session changed since the conversation was last resynced.
    * @param conversationId - The conversation just opened.
    * @param sessionId - Its server session.
    * @param messages - Its messages as loaded from IndexedDB.
@@ -441,10 +556,20 @@ class ChatStreamStore {
   private async resyncIfStale(conversationId: string, sessionId: string, messages: Message[]): Promise<void> {
     try {
       const res = await authFetch(`/api/sessions/${sessionId}`);
+      if (res.status === 404) {
+        // The session is gone (deleted while this browser did not hear of it).
+        await this.removeLocalConversation(conversationId);
+        await this.loadConversations();
+        return;
+      }
       if (!res.ok) return;
       const session = (await res.json()) as ServerChatSession;
       const localLast = messages.findLast((m) => m.role === "user")?.id ?? null;
-      if (session.lastUserClientId !== localLast) await this.resyncConversation(conversationId);
+      const syncedAt = this.conversations.find((c) => c.id === conversationId)?.syncedAt;
+      // Also when the session changed since the last resync (e.g. an answer finished while no tab was open).
+      if (session.lastUserClientId !== localLast || session.updatedAt !== syncedAt) {
+        await this.resyncConversation(conversationId);
+      }
     } catch (err) {
       console.error("Failed to check conversation sync:", err);
     }
@@ -875,6 +1000,8 @@ class ChatStreamStore {
       const payload: Record<string, string | number | null> = {
         message: userMsg.content,
         chatId,
+        // Names a new session, so every client mirrors it under this conversation's ID.
+        conversationId: convId,
         ...chatSendSync(this.messages, userMsg),
       };
       if (this.currentSessionId) {

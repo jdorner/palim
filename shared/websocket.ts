@@ -41,7 +41,7 @@ export interface PushMessageEvent {
 }
 
 /** Why a chat session changed (see {@link SessionChangedEvent}). */
-export type SessionChangeReason = "message" | "response" | "truncate" | "push";
+export type SessionChangeReason = "message" | "response" | "truncate" | "push" | "rename" | "deleted";
 
 /**
  * A chat session changed on the server. Sent to the session's owner only, so
@@ -56,6 +56,8 @@ export interface SessionChangedEvent {
   sessionId: string;
   /** UI ID of the session's last user message, or `null` when it has none. */
   lastUserClientId: string | null;
+  /** The session's title (see `sessionTitle`); `""` when it has none yet. */
+  title: string;
   /** What changed. */
   reason: SessionChangeReason;
   /**

@@ -27,6 +27,7 @@ describe("createSessionChangeNotifier", () => {
         userId: "alice",
         sessionId: session.id,
         lastUserClientId: "u1",
+        title: "hi",
         reason: "message",
         origin: "chat-1",
       },
@@ -38,7 +39,14 @@ describe("createSessionChangeNotifier", () => {
     const session = store.create({ source: "chat", sourceId: "ev-2", userId: "alice" });
     notify(session.id, "push");
     expect(sent).toEqual([
-      { type: "session_changed", userId: "alice", sessionId: session.id, lastUserClientId: null, reason: "push" },
+      {
+        type: "session_changed",
+        userId: "alice",
+        sessionId: session.id,
+        lastUserClientId: null,
+        title: "",
+        reason: "push",
+      },
     ]);
   });
 
@@ -48,5 +56,14 @@ describe("createSessionChangeNotifier", () => {
     notify(store.create({ source: "chat", sourceId: "ev-4" }).id, "response");
     notify("missing", "response");
     expect(sent).toEqual([]);
+  });
+
+  test("carries the stored title once the session is renamed", () => {
+    sent.length = 0;
+    const session = store.create({ source: "chat", sourceId: "ev-5", userId: "alice" });
+    store.append(session.id, { role: "user", content: "derived", timestamp: 1 }, { clientId: "u1" });
+    store.setTitle(session.id, "Mine");
+    notify(session.id, "rename");
+    expect(sent[0]?.title).toBe("Mine");
   });
 });
