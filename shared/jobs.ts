@@ -33,3 +33,30 @@ export interface LogEntry {
   timestamp: number;
   message: string;
 }
+
+/** Leading word of every {@link cancelReason}. */
+const CANCELLED = "Cancelled";
+
+/**
+ * Error message of a job cancelled while it ran. The cancelled processor
+ * throws it, so it is the job's `failedReason` and its last log line.
+ *
+ * @param by - Who cancelled the job (a username), or why when no user did it
+ *   (e.g. "the workflow run failed"); omitted for an anonymous cancel
+ * @returns "Cancelled by alice", "Cancelled: the workflow run failed", or "Cancelled"
+ */
+export function cancelReason(by?: { user: string } | { cause: string }): string {
+  if (!by) return CANCELLED;
+  return "user" in by ? `${CANCELLED} by ${by.user}` : `${CANCELLED}: ${by.cause}`;
+}
+
+/**
+ * Whether a job's failure reason says it was cancelled (see {@link cancelReason}).
+ *
+ * @param reason - The job's `failedReason` / error text
+ * @returns true when the job failed because it was cancelled
+ */
+export function isCancelReason(reason: string | undefined): boolean {
+  if (!reason) return false;
+  return reason === CANCELLED || reason.startsWith(`${CANCELLED} by `) || reason.startsWith(`${CANCELLED}: `);
+}

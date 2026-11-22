@@ -529,10 +529,11 @@ export class QueueMonitor {
    * all sibling jobs in the chain are cancelled as well.
    *
    * @param jobId - The job to cancel
+   * @param reason - Why (see `cancelReason`); an active job fails with it
    * @returns true if the job was found and cancelled
    */
-  async cancelJob(jobId: string): Promise<boolean> {
-    return this.canceller.cancelJob(jobId);
+  async cancelJob(jobId: string, reason?: string): Promise<boolean> {
+    return this.canceller.cancelJob(jobId, reason);
   }
 
   /**

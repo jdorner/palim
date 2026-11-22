@@ -10,6 +10,7 @@ import { existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { Model } from "@mariozechner/pi-ai";
+import { isCancelReason } from "@shared/jobs";
 import type { WebSocketMessage } from "@shared/websocket";
 import { AuthService, seedAuth, setIdentityMinter, UserStore } from "@src/auth";
 import {
@@ -528,7 +529,8 @@ export class AppBootstrap {
     // Broadcast chat error events when agent jobs fail
     this.agentQueue.onEvent("failed", async ({ failedReason, job }) => {
       const context = (job?.data as AgentJob | undefined)?.context;
-      if (context?.source === "chat" && context.id) {
+      // A cancelled job was stopped on purpose (the chat's stop button): no error to show.
+      if (context?.source === "chat" && context.id && !isCancelReason(failedReason)) {
         const isLLMError = isLLMConnectionError(failedReason);
         this.monitor.broadcast({
           type: "chat_event",
@@ -542,7 +544,8 @@ export class AppBootstrap {
     // Broadcast chat error events when chat queue jobs fail
     this.chatQueue.onEvent("failed", async ({ failedReason, job }) => {
       const context = (job?.data as ChatJob | undefined)?.context;
-      if (context?.source === "chat" && context.id) {
+      // A cancelled job was stopped on purpose (the chat's stop button): no error to show.
+      if (context?.source === "chat" && context.id && !isCancelReason(failedReason)) {
         const isLLMError = isLLMConnectionError(failedReason);
         this.monitor.broadcast({
           type: "chat_event",

@@ -11,6 +11,7 @@
  * their visibility in the WebSocket job feed.
  */
 
+import { cancelReason } from "@shared/jobs";
 import { Type } from "@sinclair/typebox";
 import { mainLogger as log } from "@src/utils/logger";
 import { Elysia } from "elysia";
@@ -62,7 +63,8 @@ export function jobRoutes(monitor: QueueMonitor) {
           if (!(await monitor.canAccessJob(jobId, getPrincipal(request)))) {
             return status(404, { error: `Job ${jobId} not found` });
           }
-          const cancelled = await monitor.cancelJob(jobId);
+          const user = getPrincipal(request)?.user.username;
+          const cancelled = await monitor.cancelJob(jobId, cancelReason(user ? { user } : undefined));
 
           if (!cancelled) {
             return status(404, { error: `Job ${jobId} not found` });

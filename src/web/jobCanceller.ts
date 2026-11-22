@@ -9,7 +9,6 @@
  */
 
 import type { JobEntry } from "@shared/jobs";
-import { abortJob } from "@src/jobs";
 import type { JobInfo, ManagedQueuePort } from "@src/queue";
 
 /** How long (ms) to remember cancelled job IDs to suppress stale worker events. */
@@ -124,10 +123,14 @@ export class JobCanceller {
    * If the job is part of a workflow chain (has a `workflowRunId` in its data),
    * all sibling jobs in the chain are cancelled as well.
    *
+   * An active job is not removed: its processor is aborted and the job ends
+   * `failed` with `reason` as its error.
+   *
    * @param jobId - The job to cancel
+   * @param reason - Why (see `cancelReason`); defaults to the queue's "Cancelled"
    * @returns true if the job was found and cancelled
    */
-  async cancelJob(jobId: string): Promise<boolean> {
+  async cancelJob(jobId: string, reason?: string): Promise<boolean> {
     let jobsToDelete: { id: string; queueName: string }[] = [];
 
     // Check if this job is part of a workflow chain
@@ -144,13 +147,11 @@ export class JobCanceller {
 
     let overallStatus = true;
     for (const jobToDelete of jobsToDelete) {
-      abortJob(jobToDelete.id);
-
       const queue = this.deps.getQueues().find((q) => q.name === jobToDelete.queueName);
       if (queue) {
         const job = await queue.getJob(jobToDelete.id);
         if (job) {
-          const removed = await queue.cancelJob(jobToDelete.id);
+          const removed = await queue.cancelJob(jobToDelete.id, reason);
           if (removed) {
             this.deps.evictJob(jobToDelete.id);
             this.markCancelled(jobToDelete.id);

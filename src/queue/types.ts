@@ -24,6 +24,13 @@ export interface QueueJob<T = unknown> {
   /** Number of processing attempts so far. */
   attemptsMade: number;
   /**
+   * Aborted when the job is cancelled while it runs ({@link ManagedQueuePort.cancelJob}).
+   * Its `reason` is an `Error` whose message says who cancelled the job. A
+   * processor that honours it should stop its work and throw, so the job ends
+   * `failed`. Absent on jobs built outside a queue worker (e.g. in tests).
+   */
+  signal?: AbortSignal;
+  /**
    * Append a log entry to the job.
    * @param message - Log message
    */
@@ -318,13 +325,16 @@ export interface ManagedQueuePort<T = unknown> {
   offEvent<E extends QueueEventType>(event: E, handler: QueueEventHandler<E, T>): void;
 
   /**
-   * Cancel a job by removing it from the queue.
-   * Works for waiting, delayed, failed, active, and completed jobs.
+   * Cancel a job. A job that has not started (waiting, delayed), or has
+   * finished, is removed from the queue. An active job's {@link QueueJob.signal}
+   * is aborted with `reason`; the processor stops and the job ends `failed`.
    *
    * @param jobId - The job to cancel
-   * @returns true if the job was found and removed
+   * @param reason - Why the job is cancelled (e.g. "Cancelled by alice"); becomes the
+   *   abort reason and so the failed job's error. Defaults to "Cancelled".
+   * @returns true if the job was removed or its cancellation was signalled
    */
-  cancelJob(jobId: string): Promise<boolean>;
+  cancelJob(jobId: string, reason?: string): Promise<boolean>;
 
   /**
    * Remove multiple jobs from the queue in one batch, regardless of state.

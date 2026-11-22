@@ -142,6 +142,38 @@ describe("ManagedQueue.cancelJob", () => {
       unblock!();
       await mq.close();
     });
+
+    test("aborts the job's signal with the reason, so the job ends failed with it", async () => {
+      let started: () => void;
+      const startedPromise = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+
+      const mq = new ManagedQueue<{ value: number }>(
+        TEST_QUEUE,
+        async (job: QueueJob<{ value: number }>) => {
+          started!();
+          // A cooperative processor: wait for the abort, then throw its reason.
+          await new Promise<void>((_, reject) => {
+            job.signal!.addEventListener("abort", () => reject(job.signal!.reason), { once: true });
+          });
+        },
+        { concurrency: 1, dataPath: null },
+      );
+      const failed = new Promise<string | undefined>((resolve) => {
+        mq.onEvent("failed", ({ failedReason }) => resolve(failedReason));
+      });
+
+      const jobId = await mq.add("active-job", { value: 1 });
+      await startedPromise;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(await mq.cancelJob(jobId, "Cancelled by alice")).toBe(true);
+      expect(await failed).toBe("Cancelled by alice");
+      expect((await mq.getJob(jobId))?.state).toBe("failed");
+
+      await mq.close();
+    });
   });
 });
 
