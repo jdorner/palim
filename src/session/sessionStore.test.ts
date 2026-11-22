@@ -188,6 +188,76 @@ describe("SessionStore", () => {
     });
   });
 
+  describe("client IDs and truncation", () => {
+    /** An assistant message with model identity fields and token usage. */
+    function assistantWithUsage(text: string, input: number, output: number): AgentMessage {
+      return {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        timestamp: Date.now(),
+        api: "openai-completions",
+        provider: "local",
+        model: "m",
+        stopReason: "stop",
+        usage: { input, output, cacheRead: 0, cacheWrite: 0, totalTokens: input + output },
+      } as unknown as AgentMessage;
+    }
+
+    test("returns user message markers with their client IDs, oldest first", () => {
+      const session = store.create({ source: "chat" });
+      store.append(session.id, makeTextMessage("user", "legacy"));
+      store.append(session.id, makeTextMessage("assistant", "a"));
+      store.append(session.id, makeTextMessage("user", "new"), { clientId: "c2" });
+
+      expect(store.getUserMessageMarkers(session.id)).toEqual([
+        { seq: 1, clientId: null },
+        { seq: 3, clientId: "c2" },
+      ]);
+    });
+
+    test("truncateFrom deletes from a seq on and recomputes token totals", () => {
+      const session = store.create({ source: "chat" });
+      store.append(session.id, makeTextMessage("user", "u1"), { clientId: "c1" });
+      store.append(session.id, assistantWithUsage("a1", 10, 2));
+      store.append(session.id, makeTextMessage("user", "u2"), { clientId: "c2" });
+      store.append(session.id, assistantWithUsage("a2", 30, 4));
+
+      expect(store.truncateFrom(session.id, 3)).toBe(2);
+
+      expect(store.getMessages(session.id).map((m) => m.role)).toEqual(["user", "assistant"]);
+      const after = store.get(session.id)!;
+      expect(after.totalInputTokens).toBe(10);
+      expect(after.totalOutputTokens).toBe(2);
+      expect(after.totalTokens).toBe(12);
+      expect(after.lastInputTokens).toBe(10);
+      expect(store.getUserMessageMarkers(session.id)).toEqual([{ seq: 1, clientId: "c1" }]);
+    });
+
+    test("truncateFrom keeps the model identity of remaining assistant messages", () => {
+      const session = store.create({ source: "chat" });
+      store.append(session.id, makeTextMessage("user", "u1"));
+      store.append(session.id, assistantWithUsage("a1", 1, 1));
+      store.append(session.id, makeTextMessage("user", "u2"));
+
+      store.truncateFrom(session.id, 3);
+
+      const kept = store.getMessages(session.id)[1] as unknown as { api: string; model: string; stopReason: string };
+      expect(kept.api).toBe("openai-completions");
+      expect(kept.model).toBe("m");
+      expect(kept.stopReason).toBe("stop");
+    });
+
+    test("replaceMessages keeps the model identity of assistant messages", () => {
+      const session = store.create({ source: "chat" });
+      store.replaceMessages(session.id, [makeTextMessage("user", "u"), assistantWithUsage("a", 5, 1)]);
+
+      const kept = store.getMessages(session.id)[1] as unknown as { api: string; usage: { input: number } };
+      expect(kept.api).toBe("openai-completions");
+      expect(kept.usage.input).toBe(5);
+      expect(store.get(session.id)!.totalInputTokens).toBe(5);
+    });
+  });
+
   // ---------------------------------------------------------------------------
   // toolResult message persistence (the bug fix)
   // ---------------------------------------------------------------------------

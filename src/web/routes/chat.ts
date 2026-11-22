@@ -4,6 +4,10 @@
  * The server resolves or creates sessions. The frontend sends a sessionId
  * (if it has one) plus the latest user message, not the full history.
  *
+ * With a `clientMessageId` the message is matched against the session by that
+ * ID (see `src/session/chatSync.ts`): resending the session's last user
+ * message reruns it, and a UI that disagrees with the session gets a 409.
+ *
  * Handles `POST /api/chat`.
  */
 
@@ -12,21 +16,25 @@ import { ownedSubject } from "@src/auth";
 import type { ChatJob } from "@src/jobs";
 import type { ManagedQueuePort } from "@src/queue";
 import { getSessionStore } from "@src/session";
+import { planChatSend } from "@src/session/chatSync";
 import { isLLMConnectionError } from "@src/utils/error";
 import { mainLogger as log } from "@src/utils/logger";
 import { Elysia } from "elysia";
 import { getPrincipal } from "../auth";
+import type { ChatSessionGuard } from "../chatSessionGuard";
 
 /**
  * Creates the chat route group.
  *
  * @param chatQueue - The managed chat queue to enqueue jobs into
+ * @param sessionGuard - Claims a session while a request changes it (shared with the session routes)
  * @param registerChatOwner - Records the chat's owner before enqueueing so streamed
  *   output is scoped to them from the first event
  * @returns Elysia plugin with chat routes
  */
 export function chatRoutes(
   chatQueue: ManagedQueuePort<ChatJob>,
+  sessionGuard: ChatSessionGuard,
   registerChatOwner?: (chatId: string, userId: string | null) => void,
 ) {
   return new Elysia().post(
@@ -59,23 +67,49 @@ export function chatRoutes(
         }
         const sessionId = session.id;
 
-        // Append the user message to the session (skip when regenerating - message already exists)
-        if (!body.skipAppend) {
-          sessionStore.append(sessionId, {
-            role: "user",
-            content: message,
-            timestamp: Date.now(),
-          });
+        if (!(await sessionGuard.claim(sessionId))) {
+          return status(409, { error: "A response is still being generated for this session", code: "session_busy" });
         }
+        let jobId: string;
+        try {
+          const { clientMessageId } = body;
+          const plan = clientMessageId
+            ? planChatSend(
+                sessionStore.getUserMessageMarkers(sessionId),
+                clientMessageId,
+                body.expectedLastClientId ?? null,
+                body.userTurnIndex,
+              )
+            : ({ kind: "append" } as const);
+          if (plan.kind === "diverged") {
+            return status(409, { error: "The conversation does not match the session", code: "session_diverged" });
+          }
+          if (plan.kind === "rerun") {
+            // The message already arrived (retry or regenerate): drop whatever followed it.
+            sessionStore.truncateFrom(sessionId, plan.cutSeq);
+            if (plan.backfillSeq !== undefined && clientMessageId) {
+              sessionStore.setClientId(sessionId, plan.backfillSeq, clientMessageId);
+            }
+          } else {
+            sessionStore.append(
+              sessionId,
+              { role: "user", content: message, timestamp: Date.now() },
+              clientMessageId ? { clientId: clientMessageId } : undefined,
+            );
+          }
 
-        const jobData: ChatJob = {
-          context: { source: "chat", id: chatId },
-          sessionId,
-          ...(initiatorUserId ? { initiatorUserId } : {}),
-        };
+          const jobData: ChatJob = {
+            context: { source: "chat", id: chatId },
+            sessionId,
+            ...(initiatorUserId ? { initiatorUserId } : {}),
+          };
 
-        registerChatOwner?.(chatId, initiatorUserId ?? null);
-        const jobId = await chatQueue.add(`${chatId}`, jobData);
+          registerChatOwner?.(chatId, initiatorUserId ?? null);
+          jobId = await chatQueue.add(`${chatId}`, jobData);
+        } finally {
+          // Once enqueued, the pending job itself keeps the session busy.
+          sessionGuard.release(sessionId);
+        }
 
         log.info("Chat job enqueued", { jobId, chatId, sessionId });
         return status(201, { jobId, sessionId });
@@ -94,10 +128,24 @@ export function chatRoutes(
         message: Type.String({ minLength: 1, description: "The user message to send" }),
         chatId: Type.String({ minLength: 1, description: "Client-generated conversation correlation ID" }),
         sessionId: Type.Optional(Type.String({ description: "Existing session ID" })),
-        skipAppend: Type.Optional(
-          Type.Boolean({
+        clientMessageId: Type.Optional(
+          Type.String({
+            minLength: 1,
             description:
-              "Skip appending the message to the session (used for regeneration where the message already exists)",
+              "Client-generated ID of this user message. Resending the session's last user message reruns it instead of appending",
+          }),
+        ),
+        userTurnIndex: Type.Optional(
+          Type.Integer({
+            minimum: 0,
+            description:
+              "Zero-based position of this message among the client's user messages; identifies a resent message in sessions stored before client IDs",
+          }),
+        ),
+        expectedLastClientId: Type.Optional(
+          Type.Union([Type.String({ minLength: 1 }), Type.Null()], {
+            description:
+              "Client ID of the user message the client sees before this one (null: none). A mismatch with the session returns 409",
           }),
         ),
       }),
