@@ -160,9 +160,14 @@ export function createHttpRequestHandler(): StepTypeHandler {
 
       await ctx.jobLog(`${method} ${url}`);
 
-      // Execute the request with timeout
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), timeout);
+      // Execute the request with timeout; cancelling the step aborts it too.
+      const timeoutSignal = AbortSignal.timeout(timeout);
+      const signal = ctx.signal ? AbortSignal.any([ctx.signal, timeoutSignal]) : timeoutSignal;
+      const abortReason = (err: unknown): unknown => {
+        if (ctx.signal?.aborted) return ctx.signal.reason;
+        if (timeoutSignal.aborted) return new Error(`HTTP request timed out after ${timeout}ms`);
+        return err;
+      };
 
       let response: Response;
       try {
@@ -170,33 +175,31 @@ export function createHttpRequestHandler(): StepTypeHandler {
           method,
           headers,
           body: method !== "GET" && method !== "HEAD" ? body : undefined,
-          signal: controller.signal,
+          signal,
         });
       } catch (err) {
-        if (err instanceof Error && err.name === "AbortError") {
-          throw new Error(`HTTP request timed out after ${timeout}ms`);
-        }
-        throw err;
-      } finally {
-        clearTimeout(timer);
+        throw abortReason(err);
       }
+
+      /** Reads the response body, mapping a cancel or timeout like the request itself. */
+      const readText = (): Promise<string> => response.text().catch((err: unknown) => Promise.reject(abortReason(err)));
 
       // Validate status code
       const expectedStatuses = config.expectedStatus;
       if (expectedStatuses && expectedStatuses.length > 0) {
         if (!expectedStatuses.includes(response.status)) {
-          const text = await response.text();
+          const text = await readText();
           throw new Error(
             `HTTP ${response.status} ${response.statusText} (expected ${expectedStatuses.join("|")}): ${text}`,
           );
         }
       } else if (!response.ok) {
-        const text = await response.text();
+        const text = await readText();
         throw new Error(`HTTP ${response.status} ${response.statusText}: ${text}`);
       }
 
       // Parse response
-      const responseText = await response.text();
+      const responseText = await readText();
       let responseBody: unknown = responseText;
 
       if (responseFormat === "json") {
