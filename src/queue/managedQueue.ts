@@ -15,8 +15,11 @@ import createLogger from "logging";
 // bunqueue's exports map doesn't expose the manager module, so it is
 // imported by its file path inside node_modules.
 import { getSharedManager } from "../../node_modules/bunqueue/dist/client/manager.js";
+// The manager takes branded job IDs; its own helper brands them.
+import { jobId as toJobId } from "../../node_modules/bunqueue/dist/domain/job/ids.js";
 import { getLogStore } from "./logStore";
 import type {
+  CancelOutcome,
   JobInfo,
   JobProcessor,
   ManagedQueueOptions,
@@ -352,46 +355,65 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
   }
 
   /** @inheritdoc */
-  async cancelJob(jobId: string, reason = "Cancelled"): Promise<boolean> {
+  async cancelJob(jobId: string, reason = "Cancelled"): Promise<CancelOutcome> {
     try {
-      // Check whether the job actually exists before attempting removal.
-      const stateBefore = await this.queue.getJobState(jobId);
-      if (stateBefore === "unknown") {
+      const state = await this.queue.getJobState(jobId);
+      if (state === "unknown") {
         logger.warn(`Job ${jobId} not found in "${this.queue.name}" for cancellation`);
-        return false;
+        return "not_found";
+      }
+      if (state === "completed" || state === "failed") return "finished";
+      // A legacy flow-chain job parked on its children cannot be moved to the DLQ.
+      if (state === "waiting-children") return "not_cancellable";
+
+      // Not started yet: move it to the DLQ directly (bunqueue's discard; the
+      // client API only offers it fire-and-forget).
+      if (state !== "active" && (await getSharedManager().discard(toJobId(jobId)))) {
+        // The worker may have claimed the job between the state read and the
+        // discard (discard takes processing jobs too): stop its processor as well.
+        this.worker.cancelJob(jobId, reason);
+        await this.failDiscarded(jobId, reason);
+        logger.info(`Cancelled job ${jobId} in "${this.queue.name}" before it started`);
+        return "cancelled";
       }
 
-      // DLQ (failed) and completed jobs need dedicated removal paths. Delegate to
-      // the batch remover (single-element) so there is one implementation.
-      if (stateBefore === "failed" || stateBefore === "completed") {
-        const removed = await this.removeJobs([jobId]);
-        return removed.includes(jobId);
-      }
-
-      // removeAsync handles queue, waitingDeps, and waitingChildren states.
-      await this.tryRemove(jobId);
-
-      // An active job survives the removal attempt, so verify via state.
-      const stateAfter = await this.queue.getJobState(jobId);
-      if (stateAfter === "unknown") {
-        logger.info(`Cancelled job ${jobId} from "${this.queue.name}"`);
-        return true;
-      }
-
-      // Job is still active (being processed): abort its signal. The processor
-      // stops and throws, so the job ends failed with `reason` as its error.
-      const signalled = this.worker.cancelJob(jobId, reason);
-      if (signalled) {
+      // The job is being processed: abort its signal. The processor stops and
+      // throws, so the job ends failed with `reason` as its error.
+      if (this.worker.cancelJob(jobId, reason)) {
         logger.info(`Signalled cancellation for active job ${jobId} in "${this.queue.name}"`);
-        return true;
+        return "cancelled";
       }
 
-      logger.warn(`Job ${jobId} not found in "${this.queue.name}" for cancellation`);
-      return false;
+      // It finished in the meantime, or another process's worker holds it.
+      const now = await this.queue.getJobState(jobId);
+      if (now === "completed" || now === "failed") return "finished";
+      logger.warn(`Job ${jobId} in "${this.queue.name}" could not be cancelled (state: ${now})`);
+      return now === "unknown" ? "not_found" : "not_cancellable";
     } catch (err) {
       logger.warn(`Failed to cancel job ${jobId} from "${this.queue.name}"`, err);
-      return false;
+      return "not_cancellable";
     }
+  }
+
+  /**
+   * Finishes cancelling a job that was moved to the DLQ before it ran: logs
+   * the reason and announces the failure. bunqueue's discard records no error
+   * and emits no event, so without this the job would fail silently (and a
+   * workflow waiting on it would never learn).
+   *
+   * @param jobId - The discarded job
+   * @param reason - The cancel reason (logged, and the event's `failedReason`)
+   * @returns Resolves once the log entry is written and the event emitted
+   */
+  private async failDiscarded(jobId: string, reason: string): Promise<void> {
+    try {
+      await this.appendJobLog(jobId, reason);
+    } catch (err) {
+      logger.warn(`Could not log the cancellation of job ${jobId} in "${this.queue.name}"`, err);
+    }
+    // Same shape as bunqueue's own failed event, so every onEvent("failed")
+    // handler (queue monitor, workflow runs) treats it like any failure.
+    this.events.emit("failed", { jobId, failedReason: reason });
   }
 
   /**

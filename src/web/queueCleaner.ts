@@ -1,7 +1,7 @@
 /**
  * Queue maintenance operations extracted from QueueMonitor.
  *
- * Handles job retry, bulk cleanup, and log retrieval - operations that
+ * Handles job retry, deletion, bulk cleanup, and log retrieval - operations that
  * modify queue state but are not part of the real-time event tracking
  * or cancellation flows.
  *
@@ -60,6 +60,9 @@ export interface QueueCleanerDeps {
  * - `default`: apply the normal rule (remove iff `job.state === cleanType`).
  */
 export type CleanDecision = "keep" | "remove" | "default";
+
+/** Outcome of {@link QueueCleaner.deleteJob}. */
+export type DeleteOutcome = "deleted" | "not_found" | "not_finished" | "workflow_step";
 
 /**
  * Manages queue maintenance: retry, cleanup, and log retrieval.
@@ -138,6 +141,37 @@ export class QueueCleaner {
       this.deps.broadcastFullState();
     }
     return ok;
+  }
+
+  /**
+   * Deletes one finished job (completed or failed) with its logs and evicts it
+   * from the cache. A job of a workflow run is not deleted on its own: the run
+   * is the unit, deleted through the workflows extension. A cached entry whose
+   * job no longer exists in any queue is evicted.
+   *
+   * @param jobId - The job to delete
+   * @returns `deleted`; `not_found` for an unknown job; `not_finished` while the job
+   *   waits or runs (cancel it first); `workflow_step` for a job of a workflow run
+   * @throws When the queue refuses to remove a finished job
+   */
+  async deleteJob(jobId: string): Promise<DeleteOutcome> {
+    for (const queue of this.deps.getQueues()) {
+      const job = await queue.getJob(jobId);
+      if (!job) continue;
+      if (job.state !== "completed" && job.state !== "failed") return "not_finished";
+      const data = job.data as Record<string, unknown> | null;
+      if (data && typeof data.workflowRunId === "string") return "workflow_step";
+
+      const removed = await queue.removeJobs([jobId]);
+      if (!removed.includes(jobId)) throw new Error(`Queue "${queue.name}" did not remove job ${jobId}`);
+      this.deps.removeJobs([jobId]);
+      log.info(`Deleted job ${jobId} from "${queue.name}"`);
+      return "deleted";
+    }
+    if (!this.deps.getCachedJob(jobId)) return "not_found";
+    // Stale entry: the job is gone from its queue.
+    this.deps.removeJobs([jobId]);
+    return "deleted";
   }
 
   /**

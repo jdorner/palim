@@ -4,7 +4,7 @@ import type { ResolvedPrincipal } from "@src/auth";
 import { buildAbility } from "@src/auth";
 import { createTestDb } from "@src/test/db";
 import { setPrincipal } from "@src/web/auth";
-import { requestUserId } from "@src/web/triggerOwnership";
+import { requestUserId, requestUsername } from "@src/web/triggerOwnership";
 import type { Context } from "elysia";
 import * as dagRunStore from "../dagRunStore";
 import { initSignalStore } from "../signalStore";
@@ -12,16 +12,21 @@ import { createWorkflowRuns, type StepsQueue } from "../workflowRuns";
 import { registerRunsRoutes } from "./runs";
 import type { WorkflowRouteDeps } from "./types";
 
-/** Registers the run routes against a capturing ctx and returns the run-detail handler. */
-function runDetailHandler(): RouteHandler {
+/** Registers the run routes against a capturing ctx and returns the handler of one route. */
+function routeHandler(route: string): RouteHandler {
   const handlers = new Map<string, RouteHandler>();
   const ctx = {
     routes: { register: (method: string, path: string, h: RouteHandler) => handlers.set(`${method} ${path}`, h) },
-    auth: { requestUserId },
+    auth: { requestUserId, requestUsername },
   } as unknown as ExtensionContext;
   const log = { info() {}, warn() {}, error() {}, debug() {} } as unknown as Logger;
   const runs = createWorkflowRuns({
-    stepsQueue: { getAllJobs: async () => [], onEvent() {} } as unknown as StepsQueue,
+    stepsQueue: {
+      getAllJobs: async () => [],
+      onEvent() {},
+      cancelJob: async () => "cancelled",
+      removeJobs: async () => [],
+    } as unknown as StepsQueue,
     flowProducer: {} as never,
     sessionFactory: {} as never,
     log,
@@ -32,10 +37,13 @@ function runDetailHandler(): RouteHandler {
   });
   const deps = { ctx, logger: log, store: new Map(), runs, hitlEnabled: false } as unknown as WorkflowRouteDeps;
   registerRunsRoutes(deps);
-  const handler = handlers.get("GET /runs/:runId");
-  if (!handler) throw new Error("run detail route not registered");
+  const handler = handlers.get(route);
+  if (!handler) throw new Error(`${route} not registered`);
   return handler;
 }
+
+/** The run-detail handler. */
+const runDetailHandler = () => routeHandler("GET /runs/:runId");
 
 function call(handler: RouteHandler, runId: string, query = "", userId = "owner"): Promise<Response> {
   const request = new Request(`http://localhost/ext/workflows/runs/${runId}${query}`);
@@ -111,5 +119,56 @@ describe("GET /runs/:runId", () => {
 
   test("answers 404 for an unknown run", async () => {
     expect((await call(runDetailHandler(), "nope")).status).toBe(404);
+  });
+});
+
+describe("POST /runs/:runId/cancel", () => {
+  test("fails an active run with the requesting user's name", async () => {
+    dagRunStore.create({
+      id: "run-active",
+      workflowName: "wf",
+      status: "running",
+      edgeStates: {},
+      stepStatuses: { a: "running" },
+      stepResults: {},
+      triggerPayload: null,
+      failureReason: null,
+    });
+    const res = await call(routeHandler("POST /runs/:runId/cancel"), "run-active", "", "alice");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ runId: "run-active", cancelled: true });
+    expect(dagRunStore.get("run-active")).toMatchObject({ status: "failed", failureReason: "Cancelled by alice" });
+  });
+
+  test("answers 409 for a finished run and 404 for an unknown one", async () => {
+    const cancel = routeHandler("POST /runs/:runId/cancel");
+    expect((await call(cancel, "run-1")).status).toBe(409);
+    expect((await call(cancel, "nope")).status).toBe(404);
+  });
+});
+
+describe("DELETE /runs/:runId", () => {
+  test("deletes a finished run", async () => {
+    const res = await call(routeHandler("DELETE /runs/:runId"), "run-1");
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ runId: "run-1", removed: [], total: 0 });
+    expect(dagRunStore.get("run-1")).toBeNull();
+  });
+
+  test("answers 409 for an active run and 404 for an unknown one", async () => {
+    dagRunStore.create({
+      id: "run-active",
+      workflowName: "wf",
+      status: "waiting-signal",
+      edgeStates: {},
+      stepStatuses: { w: "waiting-signal" },
+      stepResults: {},
+      triggerPayload: null,
+      failureReason: null,
+    });
+    const remove = routeHandler("DELETE /runs/:runId");
+    expect((await call(remove, "run-active")).status).toBe(409);
+    expect(dagRunStore.get("run-active")).not.toBeNull();
+    expect((await call(remove, "nope")).status).toBe(404);
   });
 });

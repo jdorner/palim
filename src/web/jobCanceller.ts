@@ -1,21 +1,19 @@
 /**
  * Job cancellation logic extracted from QueueMonitor.
  *
- * Handles single-job cancellation and workflow chain resolution (cancelling
- * all sibling jobs in a workflow run). Manages a TTL-based set of recently
- * cancelled IDs to suppress stale worker events.
+ * Cancels exactly one job: it ends `failed` and stays in its queue. Deleting
+ * a job is a separate operation ({@link QueueCleaner.deleteJob}); a workflow
+ * step's run is cancelled through the workflows extension, which also decides
+ * what a cancelled step means for its run.
+ *
+ * Also resolves a job's workflow chain (the jobs sharing its `workflowRunId`)
+ * for the chain lookup route.
  *
  * @module
  */
 
 import type { JobEntry } from "@shared/jobs";
-import type { JobInfo, ManagedQueuePort } from "@src/queue";
-
-/** How long (ms) to remember cancelled job IDs to suppress stale worker events. */
-const CANCELLED_ID_TTL_MS = 30_000;
-
-/** How often (ms) to sweep expired entries from the cancelled-job map. */
-const CANCELLED_SWEEP_INTERVAL_MS = 10_000;
+import type { CancelOutcome, JobInfo, ManagedQueuePort } from "@src/queue";
 
 /** Dependencies injected from QueueMonitor. */
 export interface JobCancellerDeps {
@@ -23,44 +21,20 @@ export interface JobCancellerDeps {
   getQueues: () => ManagedQueuePort[];
   /** Returns the cached job entry by ID. */
   getCachedJob: (jobId: string) => JobEntry | undefined;
-  /** Removes a job from the cache. */
-  evictJob: (jobId: string) => void;
   /** Maps a job state to a frontend status. */
   mapJobStateToStatus: (state: string) => JobEntry["status"];
   /** Converts a JobInfo to a JobEntry. */
   jobInfoToEntry: (job: JobInfo, queueName: string, status: JobEntry["status"]) => JobEntry;
-  /** Broadcasts a full state refresh to all clients. */
-  broadcastFullState: () => void;
 }
 
 /**
- * Manages job cancellation with workflow chain resolution and stale-event suppression.
+ * Cancels single jobs and resolves workflow chains.
  */
 export class JobCanceller {
   private readonly deps: JobCancellerDeps;
 
-  /**
-   * Recently cancelled job IDs mapped to their expiry timestamp (ms).
-   * Used to suppress stale events from workers still running after cancellation.
-   */
-  private cancelledJobs: Map<string, number> = new Map();
-
-  /** Handle for the periodic cancelled-job sweep timer, or null when idle. */
-  private cancelledSweepTimer: ReturnType<typeof setInterval> | null = null;
-
   constructor(deps: JobCancellerDeps) {
     this.deps = deps;
-  }
-
-  /**
-   * Checks whether a job ID was recently cancelled (used by the monitor
-   * to suppress stale events from workers that haven't noticed yet).
-   *
-   * @param jobId - The job ID to check
-   * @returns true if the job was recently cancelled
-   */
-  isRecentlyCancelled(jobId: string): boolean {
-    return this.cancelledJobs.has(jobId);
   }
 
   /**
@@ -119,93 +93,37 @@ export class JobCanceller {
   }
 
   /**
-   * Cancels a job by ID, searching across all tracked queues.
-   * If the job is part of a workflow chain (has a `workflowRunId` in its data),
-   * all sibling jobs in the chain are cancelled as well.
-   *
-   * An active job is not removed: its processor is aborted and the job ends
-   * `failed` with `reason` as its error.
+   * Cancels one job. The job is never removed: an active job's processor is
+   * aborted and a waiting or delayed one is failed at once, so it ends
+   * `failed` with `reason` as its error. Its queue's `failed` event updates
+   * the cache and the clients. Other jobs of the same workflow run are left
+   * alone; the run reacts to the failed step itself.
    *
    * @param jobId - The job to cancel
    * @param reason - Why (see `cancelReason`); defaults to the queue's "Cancelled"
-   * @returns true if the job was found and cancelled
+   * @returns The queue's outcome; `not_found` when no tracked queue has the job
    */
-  async cancelJob(jobId: string, reason?: string): Promise<boolean> {
-    let jobsToDelete: { id: string; queueName: string }[] = [];
-
-    // Check if this job is part of a workflow chain
-    const chainResult = await this.getChainSiblings(jobId);
-
-    if (chainResult) {
-      jobsToDelete = chainResult.siblings.map((job) => ({ id: job.id, queueName: job.queue }));
-    } else {
-      // Not part of a chain — use the cached entry's queue name for targeted removal.
-      const cachedEntry = this.deps.getCachedJob(jobId);
-      const queueName = cachedEntry?.queue ?? "";
-      jobsToDelete = [{ id: jobId, queueName }];
-    }
-
-    let overallStatus = true;
-    for (const jobToDelete of jobsToDelete) {
-      const queue = this.deps.getQueues().find((q) => q.name === jobToDelete.queueName);
-      if (queue) {
-        const job = await queue.getJob(jobToDelete.id);
-        if (job) {
-          const removed = await queue.cancelJob(jobToDelete.id, reason);
-          if (removed) {
-            this.deps.evictJob(jobToDelete.id);
-            this.markCancelled(jobToDelete.id);
-          } else if (job.state === "failed" || job.state === "completed") {
-            // Job is in a terminal state (e.g. DLQ) that cancelJob can't remove.
-            // Evict from cache so it doesn't linger as a stale entry.
-            this.deps.evictJob(jobToDelete.id);
-          } else {
-            overallStatus = false;
-          }
-        } else {
-          // Job no longer exists in the queue — evict the stale cache entry.
-          this.deps.evictJob(jobToDelete.id);
-        }
-      } else {
-        // Queue not found — evict the orphaned cache entry.
-        this.deps.evictJob(jobToDelete.id);
-      }
-    }
-
-    this.deps.broadcastFullState();
-
-    return overallStatus;
+  async cancelJob(jobId: string, reason?: string): Promise<CancelOutcome> {
+    const queue = await this.findQueue(jobId);
+    if (!queue) return "not_found";
+    return queue.cancelJob(jobId, reason);
   }
 
   /**
-   * Records a cancelled job ID with an expiry timestamp and starts the
-   * periodic sweep timer if it isn't already running.
+   * Finds the queue that holds a job: the cached entry's queue, or the first
+   * tracked queue that knows the job.
    *
-   * @param jobId - The cancelled job ID to track
+   * @param jobId - The job
+   * @returns The queue, or undefined when no tracked queue has the job
    */
-  private markCancelled(jobId: string): void {
-    this.cancelledJobs.set(jobId, Date.now() + CANCELLED_ID_TTL_MS);
-
-    if (!this.cancelledSweepTimer) {
-      this.cancelledSweepTimer = setInterval(() => this.sweepCancelledJobs(), CANCELLED_SWEEP_INTERVAL_MS);
+  private async findQueue(jobId: string): Promise<ManagedQueuePort | undefined> {
+    const queues = this.deps.getQueues();
+    const cachedQueue = this.deps.getCachedJob(jobId)?.queue;
+    const byName = cachedQueue ? queues.find((q) => q.name === cachedQueue) : undefined;
+    if (byName && (await byName.getJob(jobId))) return byName;
+    for (const queue of queues) {
+      if (await queue.getJob(jobId)) return queue;
     }
-  }
-
-  /**
-   * Removes expired entries from the cancelled-job map.
-   * Stops the sweep timer when the map is empty.
-   */
-  private sweepCancelledJobs(): void {
-    const now = Date.now();
-    for (const [id, expiry] of this.cancelledJobs) {
-      if (now >= expiry) {
-        this.cancelledJobs.delete(id);
-      }
-    }
-
-    if (this.cancelledJobs.size === 0 && this.cancelledSweepTimer) {
-      clearInterval(this.cancelledSweepTimer);
-      this.cancelledSweepTimer = null;
-    }
+    return undefined;
   }
 }

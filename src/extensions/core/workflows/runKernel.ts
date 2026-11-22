@@ -112,7 +112,7 @@ export interface IterationState {
   as: string;
 }
 
-/** Something that happened to a run. Every event except `runStarted` names the step it concerns. */
+/** Something that happened to a run. Every event except `runStarted` and `runCancelled` names the step it concerns. */
 export type RunEvent =
   /** A queue job finished with a result. */
   | { type: "stepCompleted"; slug: string; result: unknown }
@@ -129,7 +129,9 @@ export type RunEvent =
   /** The shell created a waitFor/humanTask node's signal: the branch pauses, announcing what it waits for. */
   | { type: "waitRegistered"; slug: string; event: string; inputSchema: WaitInputSchema }
   /** A step failed; the run fails fast. */
-  | { type: "stepFailed"; slug: string; reason: string };
+  | { type: "stepFailed"; slug: string; reason: string }
+  /** Someone cancelled the run; it fails fast as a whole (no failed step). */
+  | { type: "runCancelled"; reason: string };
 
 /** The input schema announced with a waiting step. */
 export type WaitInputSchema = Extract<WorkflowWebSocketEvent, { type: "workflow_step_waiting" }>["inputSchema"];
@@ -186,6 +188,8 @@ export function advance(run: RunState, definition: DagWorkflowDefinition | undef
     t.log("warn", `DAG coordinator: run ${run.id} is "${run.status}", ignoring ${event.type}${subject}`);
   } else if (event.type === "stepFailed") {
     t.fail(event.slug, event.reason);
+  } else if (event.type === "runCancelled") {
+    t.fail(null, event.reason);
   } else if (!definition) {
     t.fail(slug, `Workflow definition "${run.workflowName}" no longer available`);
   } else {
@@ -303,7 +307,7 @@ class GraphRules {
     this.topology = definitionTopology(definition);
   }
 
-  apply(event: Exclude<RunEvent, { type: "stepFailed" }>): void {
+  apply(event: Exclude<RunEvent, { type: "stepFailed" | "runCancelled" }>): void {
     const { t } = this;
     switch (event.type) {
       case "stepCompleted":

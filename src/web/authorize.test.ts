@@ -65,8 +65,10 @@ describe("authorizeRequest", () => {
   test("job control requires jobs:write", () => {
     expect(authorizeRequest("POST", "/api/jobs/j1/cancel", userAbility).allowed).toBe(false);
     expect(authorizeRequest("POST", "/api/jobs/j1/retry", userAbility).allowed).toBe(false);
+    expect(authorizeRequest("DELETE", "/api/jobs/j1", userAbility).allowed).toBe(false);
     expect(authorizeRequest("POST", "/api/queues/clean", userAbility).allowed).toBe(false);
     expect(authorizeRequest("POST", "/api/jobs/j1/cancel", builtInUserAbility).allowed).toBe(true);
+    expect(authorizeRequest("DELETE", "/api/jobs/j1", builtInUserAbility).allowed).toBe(true);
     expect(authorizeRequest("POST", "/api/queues/clean", builtInUserAbility).allowed).toBe(true);
   });
 
@@ -110,6 +112,7 @@ describe("authorizeRequest", () => {
     test("built-in user can start and modify any run", () => {
       expect(authorizeRequest("POST", "/ext/workflows/run/wf", builtInUserAbility).allowed).toBe(true);
       expect(authorizeRequest("POST", "/ext/workflows/runs/r1/rerun", builtInUserAbility).allowed).toBe(true);
+      expect(authorizeRequest("POST", "/ext/workflows/runs/r1/cancel", builtInUserAbility).allowed).toBe(true);
       expect(authorizeRequest("GET", "/ext/workflows/runs", builtInUserAbility).allowed).toBe(true);
       expect(authorizeRequest("GET", "/ext/workflows/runs/r1/logs", builtInUserAbility).allowed).toBe(true);
       expect(authorizeRequest("POST", "/ext/workflows/runs/r1/steps/wait/signal", builtInUserAbility).allowed).toBe(
@@ -119,9 +122,10 @@ describe("authorizeRequest", () => {
       expect(authorizeRequest("DELETE", "/ext/workflows/runs/r1", builtInUserAbility).allowed).toBe(true);
     });
 
-    test("a user without workflows:write cannot start or delete runs", () => {
+    test("a user without workflows:write cannot start, cancel, or delete runs", () => {
       expect(authorizeRequest("POST", "/ext/workflows/run/wf", userAbility).allowed).toBe(false);
       expect(authorizeRequest("POST", "/ext/workflows/runs/r1/rerun", userAbility).allowed).toBe(false);
+      expect(authorizeRequest("POST", "/ext/workflows/runs/r1/cancel", userAbility).allowed).toBe(false);
       expect(authorizeRequest("DELETE", "/ext/workflows/runs/r1", userAbility).allowed).toBe(false);
     });
 

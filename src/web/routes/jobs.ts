@@ -2,9 +2,11 @@
  * Job management routes - cancel jobs, fetch logs, and clean queues.
  *
  * Handles:
- * - `POST /api/jobs/:jobId/cancel`
+ * - `POST   /api/jobs/:jobId/cancel` - stop a job; it ends failed and stays listed
+ * - `DELETE /api/jobs/:jobId`        - remove a finished job and its logs
  * - `GET  /api/jobs/:jobId/chain`
  * - `GET  /api/jobs/:jobId/logs`
+ * - `POST /api/jobs/:jobId/retry`
  * - `POST /api/queues/clean`
  *
  * Per-job routes treat other users' chat jobs as nonexistent (404), matching
@@ -64,11 +66,10 @@ export function jobRoutes(monitor: QueueMonitor) {
             return status(404, { error: `Job ${jobId} not found` });
           }
           const user = getPrincipal(request)?.user.username;
-          const cancelled = await monitor.cancelJob(jobId, cancelReason(user ? { user } : undefined));
-
-          if (!cancelled) {
-            return status(404, { error: `Job ${jobId} not found` });
-          }
+          const outcome = await monitor.cancelJob(jobId, cancelReason(user ? { user } : undefined));
+          if (outcome === "not_found") return status(404, { error: `Job ${jobId} not found` });
+          if (outcome === "finished") return status(409, { error: `Job ${jobId} has already finished` });
+          if (outcome === "not_cancellable") return status(409, { error: `Job ${jobId} cannot be cancelled` });
 
           log.info("Job cancelled", { jobId });
           return status(200, { jobId, cancelled: true });
@@ -80,6 +81,36 @@ export function jobRoutes(monitor: QueueMonitor) {
       {
         params: Type.Object({
           jobId: Type.String({ minLength: 1, description: "ID of the job to cancel" }),
+        }),
+      },
+    )
+    .delete(
+      "/api/jobs/:jobId",
+      async ({ params, request, status }) => {
+        try {
+          const { jobId } = params;
+          if (!(await monitor.canAccessJob(jobId, getPrincipal(request)))) {
+            return status(404, { error: `Job ${jobId} not found` });
+          }
+          const outcome = await monitor.deleteJob(jobId);
+          if (outcome === "not_found") return status(404, { error: `Job ${jobId} not found` });
+          if (outcome === "not_finished") {
+            return status(409, { error: `Job ${jobId} has not finished; cancel it first` });
+          }
+          if (outcome === "workflow_step") {
+            return status(409, { error: `Job ${jobId} is a workflow step; delete its workflow run instead` });
+          }
+
+          log.info("Job deleted", { jobId });
+          return status(200, { jobId, deleted: true });
+        } catch (error) {
+          log.error("Failed to delete job", { error });
+          return status(500, { error: "Failed to delete job" });
+        }
+      },
+      {
+        params: Type.Object({
+          jobId: Type.String({ minLength: 1, description: "ID of the finished job to delete" }),
         }),
       },
     )

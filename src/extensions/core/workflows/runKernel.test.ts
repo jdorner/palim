@@ -449,6 +449,24 @@ describe("run guards", () => {
     ]);
   });
 
+  test("a cancelled run fails as a whole and sweeps every open step, even without its definition", () => {
+    const run = runOf(def, { steps: { a: "completed", b: "waiting-signal" }, edges: { "a:b": "satisfied" } });
+    const { patch, effects } = advance(run, undefined, { type: "runCancelled", reason: "Cancelled by alice" });
+    expect(patch).toMatchObject({ status: "failed", failureReason: "Cancelled by alice" });
+    expect(patch.stepStatuses).toEqual({ b: "dead" });
+    expect(broadcasts(effects)).toEqual(["workflow_failed", "workflow_step_dead:b"]);
+    expect(effects).toContainEqual({
+      type: "broadcast",
+      event: { type: "workflow_failed", workflowRunId: run.id, failedStep: "", error: "Cancelled by alice" },
+    });
+  });
+
+  test("cancelling an ended run changes nothing", () => {
+    const run = { ...runOf(def, { steps: { a: "completed", b: "completed" } }), status: "completed" as const };
+    const { patch } = advance(run, def, { type: "runCancelled", reason: "Cancelled" });
+    expect(patch).toEqual({ stepStatuses: {}, edgeStates: {}, stepResults: {} });
+  });
+
   test("the run completes when the last terminal completes", () => {
     const run = runOf(def, { steps: { a: "completed", b: "running" }, edges: { "a:b": "satisfied" } });
     const { patch, effects } = advance(run, def, { type: "stepCompleted", slug: "b", result: 2 });

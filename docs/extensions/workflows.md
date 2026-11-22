@@ -228,9 +228,13 @@ Deliver a signal to the waiting `waitFor` step `:slug` of a run. The JSON body b
 
 Deliver a signal by its ID (`waitSignalId` of a waiting step in `GET /ext/workflows/runs/:runId`). Same body and status codes as above.
 
+### POST /ext/workflows/runs/:runId/cancel
+
+Cancel a running run, or one waiting on a signal or a human task. The run ends `failed` with the failure reason `Cancelled by <user>`, and its open steps are marked dead. Steps that are still queued or running are cancelled with the same reason: their jobs end `failed` and stay in the job queue. Waiting signals are withdrawn, their timeouts cleared, and open human tasks cancelled. The run and its jobs are kept; delete them with `DELETE`. Answers `404` for an unknown run and `409` for a run that has already ended.
+
 ### DELETE /ext/workflows/runs/:runId
 
-Cancel all steps of a workflow run.
+Delete a finished (completed or failed) run with all its jobs and their logs. Answers `409` while the run is active (cancel it first) or while one of its jobs is still queued or running, e.g. a cancelled step that has not stopped yet, and `404` for an unknown run.
 
 ## Agent Skill
 

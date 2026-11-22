@@ -4,7 +4,7 @@
  * A run's state lives in five places: the steps queue (its jobs), the run
  * store, the signal store, the in-memory signal timers, and open human tasks.
  * {@link createWorkflowRuns} is the only code that touches all of them
- * together: it starts and re-runs runs, describes them, tears them down, and
+ * together: it starts, re-runs, and cancels runs, describes them, tears them down, and
  * feeds queue events into the coordinator. Routes and the host's queue
  * monitor ask it instead of assembling a run from its parts.
  *
@@ -17,6 +17,7 @@ import type { ControlFlowEvaluation, WorkflowWebSocketEvent } from "@shared/work
 import type { FlowProducer } from "bunqueue/client";
 import { describeControlFlowStep } from "./controlFlowEvaluation";
 import {
+  cancelRun,
   type DagCoordinatorDeps,
   handleDagStepCompletion,
   handleDagStepFailure,
@@ -48,15 +49,6 @@ const LIVE_JOB_STATES: ReadonlySet<string> = new Set([
 
 /** Why fail-fast cancels a failed run's other in-flight step jobs. */
 const RUN_FAILED_CANCEL_REASON = cancelReason({ cause: "the workflow run failed" });
-
-/** Why deleting a run cancels its active step jobs. */
-const RUN_DELETED_CANCEL_REASON = cancelReason({ cause: "the workflow run was deleted" });
-
-/** How long {@link WorkflowRuns.remove} waits for cancelled active jobs to end before removing them. */
-const CANCEL_SETTLE_TIMEOUT_MS = 5000;
-
-/** Poll interval while waiting for cancelled jobs to end. */
-const CANCEL_SETTLE_POLL_MS = 50;
 
 /** Messages the run lifecycle broadcasts to connected clients. */
 export type WorkflowRunsMessage = WorkflowWebSocketEvent | { type: "job_removed"; jobId: string };
@@ -90,6 +82,14 @@ export interface StartedRun {
 export type RerunResult =
   | ({ ok: true } & StartedRun)
   | { ok: false; reason: "run_not_found" | "not_failed" | "workflow_not_found" };
+
+/** Outcome of {@link WorkflowRuns.cancel}. */
+export type CancelRunResult = { ok: true } | { ok: false; reason: "run_not_found" | "not_active" };
+
+/** Outcome of {@link WorkflowRuns.remove}. */
+export type RemoveRunResult =
+  | { ok: true; removed: string[]; total: number }
+  | { ok: false; reason: "run_not_found" | "not_finished" | "jobs_live" };
 
 /** The open human task a waiting `humanTask` step shows on the run page. */
 export interface WaitingHumanTask {
@@ -188,13 +188,29 @@ export interface WorkflowRuns {
    */
   stepLogs(runId: string): Promise<RunStepLogs | null>;
   /**
-   * Deletes a run: removes all its jobs from the queue (any state), then
-   * releases its other resources (see {@link forget}).
+   * Cancels an active run (running or waiting on a signal). The kernel fails
+   * it as a whole with "Cancelled by <user>" and sweeps its open steps to
+   * dead; fail-fast cancels its in-flight step jobs (they end failed with the
+   * same reason), and its waits, signal timers, and open human tasks are
+   * withdrawn like those of any failed run. The run and its jobs stay; delete
+   * them with {@link remove}.
    *
    * @param runId - The run
-   * @returns Removed job IDs and the run's job count, or null when neither the run nor any job exists
+   * @param cancelledBy - Username of the user cancelling the run, if known
+   * @returns `ok`, or why the run could not be cancelled
    */
-  remove(runId: string): Promise<{ cancelled: string[]; total: number } | null>;
+  cancel(runId: string, cancelledBy?: string): Promise<CancelRunResult>;
+  /**
+   * Deletes a finished run (completed or failed): removes all its jobs with
+   * their logs from the queue, then releases its other resources (see
+   * {@link forget}). An active run must be cancelled first. A job of the run
+   * that is still queued or running (a cancelled step that has not stopped
+   * yet, or a job whose run record is gone) also blocks the deletion.
+   *
+   * @param runId - The run
+   * @returns Removed job IDs and the run's job count, or why nothing was removed
+   */
+  remove(runId: string): Promise<RemoveRunResult>;
   /**
    * Releases everything a run holds outside the queue: signal timers, open
    * human tasks, signal records, and the run record, then announces
@@ -266,21 +282,33 @@ export function createWorkflowRuns(deps: WorkflowRunsDeps): WorkflowRuns {
       .filter((s) => s.state === "active" || s.state === "waiting" || s.state === "delayed")
       .map((s) => s.id);
 
+  /**
+   * Withdraws a run's open waits: cancels their signals so nothing can
+   * deliver to them any more, and clears their timeout timers.
+   */
+  const withdrawWaits = (runId: string): void => {
+    for (const signal of signalStore.listWaitingForRun(runId)) {
+      signalTimers.cancel(signal.id);
+      signalStore.markCancelled(signal.id);
+    }
+  };
+
   const coordinatorDeps: DagCoordinatorDeps = {
     flowProducer: deps.flowProducer,
     sessionFactory: deps.sessionFactory,
     log,
     broadcast: (event) => {
-      // Every failure path announces workflow_failed; a failed run's open
-      // human tasks can no longer be answered.
+      // Every failure path (cancellation included) announces workflow_failed;
+      // a failed run's open human tasks and waits can no longer be answered.
       if (event.type === "workflow_failed") {
         cancelRunTasks(hitl, event.workflowRunId, `Workflow run failed: ${event.error}`);
+        withdrawWaits(event.workflowRunId);
       }
       deps.broadcast(event);
     },
     getWorkflowDefinition: deps.getWorkflowDefinition,
-    cancelJob: async (jobId) => {
-      await stepsQueue.cancelJob(jobId, RUN_FAILED_CANCEL_REASON);
+    cancelJob: async (jobId, reason) => {
+      await stepsQueue.cancelJob(jobId, reason ?? RUN_FAILED_CANCEL_REASON);
     },
     inFlightJobIds,
     hitl,
@@ -347,34 +375,13 @@ export function createWorkflowRuns(deps: WorkflowRunsDeps): WorkflowRuns {
   stepsQueue.onEvent("failed", async ({ failedReason, job }) => {
     if (!job) return;
     const d = stepData(job);
-    // The run was deleted while this job ran (its cancellation ended it): nothing to fail.
+    // A job whose run record is gone (an orphan): nothing to fail.
     if (!dagRunStore.get(d.workflowRunId)) return;
     broadcastStepFailed(d, failedReason);
     // Only fail the run once the job is truly failed (not a retry delay).
     if (d.state !== "failed") return;
     await failRunOfJob(d, failedReason);
   });
-
-  /**
-   * Waits until none of the given jobs is active any more, or the timeout passes.
-   *
-   * @param runId - The run the jobs belong to
-   * @param ids - The cancelled job IDs
-   * @returns The run's jobs after waiting
-   */
-  async function settle(runId: string, ids: ReadonlySet<string>): Promise<Awaited<ReturnType<typeof jobsOf>>> {
-    const deadline = Date.now() + CANCEL_SETTLE_TIMEOUT_MS;
-    for (;;) {
-      const jobs = await jobsOf(runId);
-      const pending = jobs.filter((d) => ids.has(d.id) && d.state === "active");
-      if (pending.length === 0) return jobs;
-      if (Date.now() >= deadline) {
-        log.warn(`Run ${runId}: ${pending.length} cancelled job(s) still active after ${CANCEL_SETTLE_TIMEOUT_MS} ms`);
-        return jobs;
-      }
-      await Bun.sleep(CANCEL_SETTLE_POLL_MS);
-    }
-  }
 
   // --- Lifecycle operations ---
 
@@ -524,30 +531,36 @@ export function createWorkflowRuns(deps: WorkflowRunsDeps): WorkflowRuns {
       return { runId, steps: await Promise.all(entries) };
     },
 
+    async cancel(runId, cancelledBy) {
+      const run = dagRunStore.get(runId);
+      if (!run) return { ok: false, reason: "run_not_found" };
+      if (!dagRunStore.isActiveRunStatus(run.status)) return { ok: false, reason: "not_active" };
+      const reason = cancelReason(cancelledBy ? { user: cancelledBy } : undefined);
+      // The run can end between the check above and the kernel's transition.
+      if (!(await cancelRun(runId, reason, coordinatorDeps))) return { ok: false, reason: "not_active" };
+      log.info(`Cancelled workflow run ${runId} (${reason})`);
+      return { ok: true };
+    },
+
     async remove(runId) {
       const run = dagRunStore.get(runId);
-      let jobs = await jobsOf(runId);
-      if (jobs.length === 0 && !run) return null;
+      const jobs = await jobsOf(runId);
+      if (jobs.length === 0 && !run) return { ok: false, reason: "run_not_found" };
+      if (run && dagRunStore.isActiveRunStatus(run.status)) return { ok: false, reason: "not_finished" };
+      // A queued or running job cannot be removed safely (it would report to a
+      // deleted run, or keep running): it has to end first.
+      if (jobs.some((d) => LIVE_JOB_STATES.has(d.state))) return { ok: false, reason: "jobs_live" };
 
-      // An active job cannot be removed: cancel it (aborting its LLM request)
-      // and wait for it to end, so it is removed below instead of lingering.
-      const active = jobs.filter((d) => d.state === "active").map((d) => d.id);
-      if (active.length > 0) {
-        for (const id of active) await stepsQueue.cancelJob(id, RUN_DELETED_CANCEL_REASON);
-        jobs = await settle(runId, new Set(active));
-      }
-
-      // removeJobs handles every state in one batch: live jobs, DLQ jobs, and
-      // completed jobs (requeued and removed under one queue pause so the
-      // worker cannot re-run them). A run parked on a signal whose jobs have
-      // all completed is purged too, so its jobs do not resurface after a restart.
-      const cancelled = await stepsQueue.removeJobs(jobs.map((d) => d.id));
+      // removeJobs handles DLQ and completed jobs in one batch (completed ones
+      // are requeued and removed under one queue pause so the worker cannot
+      // re-run them), and drops their logs.
+      const removed = await stepsQueue.removeJobs(jobs.map((d) => d.id));
       // Clients drop the whole job group, whatever each job's prior state.
       for (const d of jobs) deps.broadcast({ type: "job_removed", jobId: d.id });
       forget(new Map([[runId, run?.workflowName]]));
 
-      log.info(`Cancelled workflow run ${runId} (${cancelled.length}/${jobs.length} jobs removed)`);
-      return { cancelled, total: jobs.length };
+      log.info(`Deleted workflow run ${runId} (${removed.length}/${jobs.length} jobs removed)`);
+      return { ok: true, removed, total: jobs.length };
     },
 
     cleanDecision(runId, cleanType) {

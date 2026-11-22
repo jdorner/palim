@@ -354,9 +354,10 @@ Avoid unnecessary prefixes like `/admin/` - all extension routes are already beh
 
 ### Request Identity (`ctx.auth`)
 
-| Method                            | Description                                                                                                               |
-| --------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `ctx.auth.requestUserId(request)` | Id of the user who made the request, or `undefined` when it is unauthenticated (a `public: true` route, or auth disabled) |
+| Method                              | Description                                                                                                               |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `ctx.auth.requestUserId(request)`   | Id of the user who made the request, or `undefined` when it is unauthenticated (a `public: true` route, or auth disabled) |
+| `ctx.auth.requestUsername(request)` | Username of that user, for messages that name them (e.g. "Cancelled by alice"); record ownership with the id              |
 
 Use it in a route handler to record who created or changed something:
 

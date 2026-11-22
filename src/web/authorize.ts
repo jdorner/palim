@@ -80,6 +80,7 @@ const RULES: readonly AuthorizationRule[] = [
   { methods: ["PUT", "POST"], pattern: /^\/api\/models(\/|$)/, action: "update", subject: "Model" },
   // Job control.
   { methods: ["POST"], pattern: /^\/api\/jobs\/[^/]+\/(cancel|retry)$/, action: "update", subject: "Job" },
+  { methods: ["DELETE"], pattern: /^\/api\/jobs\/[^/]+$/, action: "delete", subject: "Job" },
   { methods: ["POST"], pattern: /^\/api\/queues\/clean$/, action: "delete", subject: "Job" },
   // Extension enable/disable + settings mutations.
   {
@@ -125,6 +126,7 @@ const RULES: readonly AuthorizationRule[] = [
   // editing them needs workflows:manage.
   { methods: ["POST"], pattern: /^\/ext\/workflows\/run\/[^/]+$/, action: "create", subject: "WorkflowRun" },
   { methods: ["POST"], pattern: /^\/ext\/workflows\/runs\/[^/]+\/rerun$/, action: "create", subject: "WorkflowRun" },
+  { methods: ["POST"], pattern: /^\/ext\/workflows\/runs\/[^/]+\/cancel$/, action: "update", subject: "WorkflowRun" },
   // Signal delivery: by run + event, by run + step, or by signal ID.
   {
     methods: ["POST"],

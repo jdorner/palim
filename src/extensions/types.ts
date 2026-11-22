@@ -701,6 +701,15 @@ export interface ExtensionContext {
      *   unauthenticated (e.g. a `{ public: true }` route or auth disabled)
      */
     requestUserId(request: Request): string | undefined;
+    /**
+     * Returns the username of the user who made a request to one of this
+     * extension's routes, for messages that name them (e.g. "Cancelled by
+     * alice"). Record ownership with {@link requestUserId}, not the username.
+     *
+     * @param request - The incoming request
+     * @returns The requesting user's username, or `undefined` when the request is unauthenticated
+     */
+    requestUsername(request: Request): string | undefined;
   };
 
   // -------------------------------------------------------------------------
