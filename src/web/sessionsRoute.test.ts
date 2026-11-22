@@ -186,4 +186,13 @@ describe("session routes ownership", () => {
     expect((await get(`/api/sessions/${session.id}`, "alice")).body.lastUserClientId).toBe("u9");
     expect((await get(`/api/sessions/${session.id}`, "bob")).status).toBe(404);
   });
+
+  test("a user message stored without client ID is reported with the ID the transcript gives it", async () => {
+    const session = sessions.create({ source: "chat", sourceId: "summary-legacy", userId: aliceId });
+    sessions.append(session.id, { role: "user", content: "old", timestamp: 1 });
+    const summary = await get(`/api/sessions/${session.id}`, "alice");
+    const chat = await get(`/api/sessions/${session.id}/chat`, "alice");
+    expect(summary.body.lastUserClientId).toBe(chat.body.messages[0].id);
+    expect(summary.body.lastUserClientId).toMatch(/^legacy-\d+$/);
+  });
 });

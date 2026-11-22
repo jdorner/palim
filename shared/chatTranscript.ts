@@ -90,6 +90,18 @@ function rawToolSummary(name: string, args?: Record<string, unknown>): string {
 }
 
 /**
+ * The UI message ID of a stored user message: its client ID, or `legacy-<seq>`
+ * for messages stored without one.
+ *
+ * @param clientId - The stored client ID, or `null`
+ * @param seq - The message's sequence number
+ * @returns The ID
+ */
+export function userMessageId(clientId: string | null, seq: number): string {
+  return clientId ?? `legacy-${seq}`;
+}
+
+/**
  * Derives a conversation title from its first user message.
  *
  * @param content - The message text
@@ -240,7 +252,7 @@ export function sessionToChatMessages(rows: TranscriptSourceMessage[]): Transcri
     if (row.role === "user") {
       flush();
       out.push({
-        id: row.clientId ?? `legacy-${row.seq}`,
+        id: userMessageId(row.clientId, row.seq),
         role: "user",
         content: messageText(row.content),
         createdAt: nextCreatedAt(row.timestamp),

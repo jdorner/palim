@@ -715,6 +715,7 @@ export class SessionStore implements SessionStorePort {
         updatedAt: session.updatedAt,
         firstUserContent: "",
         lastUserClientId: null,
+        lastUserSeq: 0,
       }
     );
   }
@@ -736,7 +737,7 @@ export class SessionStore implements SessionStorePort {
       .get();
     if (!first) return undefined;
     const last = this.db
-      .select({ clientId: schema.sessionMessages.clientId })
+      .select({ clientId: schema.sessionMessages.clientId, seq: schema.sessionMessages.seq })
       .from(schema.sessionMessages)
       .where(userMessage)
       .orderBy(desc(schema.sessionMessages.seq))
@@ -754,6 +755,7 @@ export class SessionStore implements SessionStorePort {
       updatedAt: session.updatedAt,
       firstUserContent,
       lastUserClientId: last?.clientId ?? null,
+      lastUserSeq: last?.seq ?? 0,
     };
   }
 

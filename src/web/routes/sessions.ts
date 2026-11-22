@@ -12,7 +12,7 @@
  * Note: Skill request routes are defined in `src/jobs/skillRequestQueue.ts`.
  */
 
-import { messageText, sessionToChatMessages, titleFromMessage } from "@shared/chatTranscript";
+import { messageText, sessionToChatMessages, titleFromMessage, userMessageId } from "@shared/chatTranscript";
 import { Type } from "@sinclair/typebox";
 import { ownedSubject } from "@src/auth";
 import { getSessionStore } from "@src/session";
@@ -72,7 +72,8 @@ function describeSession(summary: SessionSummary) {
     title: titleFromMessage(messageText(summary.firstUserContent)),
     createdAt: summary.createdAt,
     updatedAt: summary.updatedAt,
-    lastUserClientId: summary.lastUserClientId,
+    // The ID the converted transcript gives that message, so the UI compares like with like.
+    lastUserClientId: summary.lastUserSeq > 0 ? userMessageId(summary.lastUserClientId, summary.lastUserSeq) : null,
   };
 }
 

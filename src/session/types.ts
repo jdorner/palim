@@ -137,6 +137,8 @@ export interface SessionSummary {
   firstUserContent: unknown;
   /** Client ID of the last user message, or `null` when it has none. */
   lastUserClientId: string | null;
+  /** Sequence number of the last user message (0 when there is none). */
+  lastUserSeq: number;
 }
 
 /** Position and client ID of one user message in a session (see `SessionStore.getUserMessageMarkers`). */

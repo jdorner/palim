@@ -346,6 +346,8 @@ class ChatStreamStore {
     try {
       const conv = await createConversation(transcript.title || t("chat.newChat"), sessionId);
       await replaceMessages(conv.id, transcript.messages);
+      // The user asked for this conversation: it holds nothing new to them.
+      readState.markRead(conv.id);
       await this.loadConversations();
       return conv.id;
     } catch (err) {
@@ -370,7 +372,11 @@ class ChatStreamStore {
     if (!transcript || this.convToChatId.has(conversationId)) return false;
     try {
       const stored = await replaceMessages(conversationId, transcript.messages);
-      if (this.activeConversationId === conversationId) this.messages = stored;
+      if (this.activeConversationId === conversationId) {
+        this.messages = stored;
+        // The user sees the new state, so the bumped updatedAt is not unread.
+        if (this.chatVisible) readState.markRead(conversationId);
+      }
       await this.loadConversations();
       return true;
     } catch (err) {
