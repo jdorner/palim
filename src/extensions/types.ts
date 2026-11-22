@@ -345,6 +345,16 @@ export interface StepExecutionContext {
    */
   jobLog(message: string): Promise<void>;
 
+  /**
+   * Aborted when the step's job is cancelled (the user cancelled the step or
+   * its run, or the run failed while the step ran). Its `reason` is an `Error`
+   * saying why. A handler doing long work should pass it on (to `fetch`, a
+   * sandbox shell's `exec`, a subprocess) or check it, and stop. A handler that
+   * ignores it runs to the end, but its result is discarded and the step fails
+   * with the cancel reason anyway.
+   */
+  readonly signal?: AbortSignal;
+
   /** The workflow run ID this step belongs to (available for run-aware handlers). */
   readonly workflowRunId?: string;
 

@@ -37,6 +37,26 @@ import type {
 const logger = createLogger("ManagedQueue");
 
 /**
+ * Runs a processor and fails the job if it was cancelled meanwhile. A processor
+ * that ignores {@link QueueJob.signal} runs to the end, but its result is
+ * discarded: the job ends `failed` with the cancel reason, like one whose
+ * processor honoured the signal, so a cancelled job never ends `completed`.
+ *
+ * @param job - The job, with its signal
+ * @param processor - The queue's processor
+ * @returns The processor's result
+ * @throws The cancel reason when the job was cancelled, or the processor's error
+ */
+async function runUntilCancelled<T, R>(job: QueueJob<T>, processor: JobProcessor<T, R>): Promise<R> {
+  const result = await processor(job);
+  const signal = job.signal;
+  if (!signal?.aborted) return result;
+  const reason = signal.reason instanceof Error ? signal.reason : new Error(String(signal.reason ?? "Cancelled"));
+  await job.log(`**Error:** ${reason.message}`);
+  throw reason;
+}
+
+/**
  * Concrete implementation of {@link ManagedQueuePort} backed by bunqueue.
  *
  * @typeParam T - Job data type
@@ -89,7 +109,7 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
           store.append(job.id, seq, message, ts);
           return origLog(`[ts:${ts}] ${message}`);
         };
-        return processor(job as unknown as QueueJob<T>);
+        return runUntilCancelled(job as unknown as QueueJob<T>, processor);
       },
       {
         embedded: true,

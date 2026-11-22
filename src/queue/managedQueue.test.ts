@@ -163,6 +163,45 @@ describe("ManagedQueue.cancelJob", () => {
 
       await mq.close();
     });
+
+    test("fails a cancelled job whose processor ignores the signal and returns", async () => {
+      let started: () => void;
+      const startedPromise = new Promise<void>((resolve) => {
+        started = resolve;
+      });
+      let finish: () => void;
+      const finishPromise = new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+
+      const mq = new ManagedQueue<{ value: number }>(
+        TEST_QUEUE,
+        async () => {
+          started!();
+          // Not cooperative: runs to the end whatever the signal says.
+          await finishPromise;
+          return { done: true };
+        },
+        { concurrency: 1, dataPath: null },
+      );
+      const outcome = new Promise<string>((resolve) => {
+        mq.onEvent("failed", ({ failedReason }) => resolve(`failed: ${failedReason}`));
+        mq.onEvent("completed", () => resolve("completed"));
+      });
+
+      const jobId = await mq.add("stubborn-job", { value: 1 });
+      await startedPromise;
+      await new Promise((resolve) => setTimeout(resolve, 50));
+
+      expect(await mq.cancelJob(jobId, "Cancelled by alice")).toBe("cancelled");
+      finish!();
+      expect(await outcome).toBe("failed: Cancelled by alice");
+      expect((await mq.getJob(jobId))?.state).toBe("failed");
+      const logs = await mq.getJobLogs(jobId);
+      expect(JSON.stringify(logs.logs)).toContain("**Error:** Cancelled by alice");
+
+      await mq.close();
+    });
   });
 });
 

@@ -1200,12 +1200,13 @@ When both `validateInput` and `inputSchema` are present, `validateInput` takes p
 
 The `execute` function receives a `StepExecutionContext` (not the full `ExtensionContext`):
 
-| Property/Method                 | Description                                                                               |
-| ------------------------------- | ----------------------------------------------------------------------------------------- |
-| `ctx.resolveTemplate(template)` | Resolve `{{...}}` expressions (trigger payload, step results, step configs, env, secrets) |
-| `ctx.log`                       | Logger instance                                                                           |
-| `ctx.workDir`                   | Absolute path to the agent's work directory                                               |
-| `ctx.jobLog(message)`           | Write to the job's persistent log (visible in the web UI)                                 |
+| Property/Method                 | Description                                                                                                                                                                                                                   |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctx.resolveTemplate(template)` | Resolve `{{...}}` expressions (trigger payload, step results, step configs, env, secrets)                                                                                                                                     |
+| `ctx.log`                       | Logger instance                                                                                                                                                                                                               |
+| `ctx.workDir`                   | Absolute path to the agent's work directory                                                                                                                                                                                   |
+| `ctx.jobLog(message)`           | Write to the job's persistent log (visible in the web UI)                                                                                                                                                                     |
+| `ctx.signal`                    | `AbortSignal`, aborted when the step's job is cancelled. Pass it to `fetch` or the sandbox shell's `exec`, or check it, and stop; a handler that ignores it runs to the end, but the step fails with the cancel reason anyway |
 
 ### Template Expressions Available
 
