@@ -21,6 +21,7 @@ interface FakeJob {
   data: DagStepJobData;
   state: string;
   returnvalue?: unknown;
+  timestamp?: number;
 }
 
 type Handler = (args: { jobId: string; job?: FakeJob; failedReason?: string }) => unknown;
@@ -33,6 +34,7 @@ function createHarness(definitions: DagWorkflowDefinition[], withHitl = true) {
   const events: { type: string; context?: Record<string, unknown> }[] = [];
   const cancelledJobs: string[] = [];
   const cancelledTasks: { runId: string; reason: string }[] = [];
+  const appendedLogs: { jobId: string; message: string }[] = [];
   let counter = 0;
 
   const stepsQueue = {
@@ -55,6 +57,9 @@ function createHarness(definitions: DagWorkflowDefinition[], withHitl = true) {
       return removed;
     },
     getJobLogs: async () => ({ logs: [], count: 0 }),
+    appendJobLog: async (jobId: string, message: string) => {
+      appendedLogs.push({ jobId, message });
+    },
     onEvent: (event: string, handler: Handler) => {
       handlers.set(event, handler);
     },
@@ -94,7 +99,7 @@ function createHarness(definitions: DagWorkflowDefinition[], withHitl = true) {
     await handlers.get(event)?.({ jobId: job.id, job, failedReason: reason });
   }
 
-  return { runs, jobs, broadcasts, events, cancelledJobs, cancelledTasks, fire };
+  return { runs, jobs, broadcasts, events, cancelledJobs, cancelledTasks, appendedLogs, fire };
 }
 
 const fanOut: DagWorkflowDefinition = {
@@ -306,5 +311,83 @@ describe("stepLogs", () => {
   test("answers null for an unknown run", async () => {
     harness = createHarness([]);
     expect(await harness.runs.stepLogs("nope")).toBeNull();
+  });
+});
+
+describe("recoverInterrupted", () => {
+  /** A cutoff after every write of the test: the runs count as written by an earlier process. */
+  const afterAllWrites = () => Date.now() + 1000;
+
+  test("fails a run whose active step job was moved to the DLQ by a restart", async () => {
+    harness = createHarness([fanOut]);
+    const { workflowRunId, jobIds } = await harness.runs.start(fanOut, null);
+    // bunqueue's startup recovery: the job lands in the DLQ without a queue event.
+    const job = harness.jobs.find((j) => j.id === jobIds[0]);
+    if (job) job.state = "failed";
+
+    expect(await harness.runs.recoverInterrupted(afterAllWrites())).toBe(1);
+
+    const run = dagRunStore.get(workflowRunId);
+    expect(run?.status).toBe("failed");
+    expect(run?.stepStatuses.a).toBe("failed");
+    expect(run?.failureReason).toBe(`Step was interrupted by a server restart (job ${jobIds[0]} is failed)`);
+    // The step panel shows the job's logs, so the reason ends them.
+    expect(harness.appendedLogs).toEqual([
+      { jobId: jobIds[0] ?? "", message: `Step "a" failed: ${run?.failureReason}` },
+    ]);
+    expect(harness.events.map((e) => e.type)).toContain("workflow:step_failed");
+    expect(harness.broadcasts.map((b) => b.type)).toContain("workflow_step_failed");
+  });
+
+  test("fails a running step that has no job at all", async () => {
+    harness = createHarness([fanOut]);
+    const { workflowRunId } = await harness.runs.start(fanOut, null);
+    harness.jobs.length = 0;
+
+    expect(await harness.runs.recoverInterrupted(afterAllWrites())).toBe(1);
+
+    expect(dagRunStore.get(workflowRunId)?.failureReason).toBe("Step was interrupted by a server restart");
+    // Without a job there is no job failure to report to other extensions.
+    expect(harness.events.map((e) => e.type)).not.toContain("workflow:step_failed");
+    expect(harness.appendedLogs).toEqual([]);
+  });
+
+  test("leaves steps whose job is still queued or active", async () => {
+    harness = createHarness([fanOut]);
+    const { workflowRunId } = await harness.runs.start(fanOut, null);
+    expect(await harness.runs.recoverInterrupted(afterAllWrites())).toBe(0);
+    const job = harness.jobs[0];
+    if (job) job.state = "active";
+    expect(await harness.runs.recoverInterrupted(afterAllWrites())).toBe(0);
+    expect(dagRunStore.get(workflowRunId)?.status).toBe("running");
+  });
+
+  test("judges a step by its newest job", async () => {
+    harness = createHarness([fanOut]);
+    const { workflowRunId } = await harness.runs.start(fanOut, null);
+    const first = harness.jobs[0];
+    if (!first) throw new Error("no job");
+    Object.assign(first, { state: "failed", timestamp: 1 });
+    harness.jobs.push({ id: "job-newer", data: first.data, state: "active", timestamp: 2 });
+
+    expect(await harness.runs.recoverInterrupted(afterAllWrites())).toBe(0);
+    expect(dagRunStore.get(workflowRunId)?.status).toBe("running");
+  });
+
+  test("leaves runs written by this process", async () => {
+    harness = createHarness([fanOut]);
+    const { workflowRunId } = await harness.runs.start(fanOut, null);
+    harness.jobs.length = 0;
+
+    expect(await harness.runs.recoverInterrupted(0)).toBe(0);
+    expect(dagRunStore.get(workflowRunId)?.status).toBe("running");
+  });
+
+  test("leaves runs parked on a signal", async () => {
+    harness = createHarness([waiting]);
+    const { workflowRunId } = await harness.runs.start(waiting, null);
+
+    expect(await harness.runs.recoverInterrupted(afterAllWrites())).toBe(0);
+    expect(dagRunStore.get(workflowRunId)?.status).toBe("waiting-signal");
   });
 });

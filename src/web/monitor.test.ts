@@ -74,6 +74,7 @@ function createFakeQueue(queueName: string, jobs: JobInfo[] = []) {
     async getJobLogs(): Promise<QueueJobLogs> {
       return { logs: [], count: 0 };
     },
+    async appendJobLog() {},
     onEvent<E extends QueueEventType>(event: E, handler: QueueEventHandler<E>) {
       const list = handlers.get(event) ?? [];
       list.push(handler);
@@ -518,6 +519,7 @@ describe("QueueMonitor clean guard - protected jobs", () => {
       async getJobLogs(): Promise<QueueJobLogs> {
         return { logs: [], count: 0 };
       },
+      async appendJobLog() {},
       onEvent() {},
       offEvent() {},
       async cancelJob(jobId: string) {

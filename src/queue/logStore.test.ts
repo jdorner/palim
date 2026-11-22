@@ -15,6 +15,20 @@ describe("LogStore", () => {
     store = new LogStore();
   });
 
+  describe("getLastSeq", () => {
+    test("returns 0 when no logs exist for a job", () => {
+      expect(store.getLastSeq("nonexistent-job-id")).toBe(0);
+    });
+
+    test("returns the highest sequence number", () => {
+      const jobId = `test-last-seq-${Date.now()}`;
+      store.append(jobId, 2, "second", 2000);
+      store.append(jobId, 1, "first", 1000);
+      expect(store.getLastSeq(jobId)).toBe(2);
+      store.deleteLogs(jobId);
+    });
+  });
+
   describe("getLastTimestamp", () => {
     test("returns undefined when no logs exist for a job", () => {
       const result = store.getLastTimestamp("nonexistent-job-id");
