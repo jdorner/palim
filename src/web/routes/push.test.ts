@@ -15,10 +15,16 @@ import { pushRoutes } from "./push";
 /** Collected broadcast messages for assertions. */
 let broadcastMessages: unknown[] = [];
 
+/** Session changes the push service announced: [sessionId, reason]. */
+let notified: [string, string][] = [];
+
 /** Create the push service with a fake broadcast that records messages. */
 const pushService = createPushService({
   broadcastFn: (msg: WebSocketMessage) => {
     broadcastMessages.push(msg);
+  },
+  notifySessionChanged: (id, reason) => {
+    notified.push([id, reason]);
   },
 });
 
@@ -33,6 +39,7 @@ describe("pushRoutes", () => {
 
   beforeEach(() => {
     broadcastMessages = [];
+    notified = [];
     testCounter++;
     // Ensure DB and session store are initialized
     const db = getDb();
@@ -42,6 +49,11 @@ describe("pushRoutes", () => {
     sessionId = session.id;
     // Clean up session-chat mapping
     unregisterSessionChat(sessionId);
+  });
+
+  test("announces the stored push as a session change", () => {
+    pushService.pushMessage(sessionId, "hello");
+    expect(notified).toEqual([[sessionId, "push"]]);
   });
 
   describe("POST /api/push - validation", () => {

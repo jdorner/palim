@@ -8,7 +8,7 @@
 
 import type { ChatWebSocketEvent } from "../../../shared/chat";
 import { summarizeToolCall, type TranscriptMessage } from "../../../shared/chatTranscript";
-import type { ApprovalRequestEvent, PushMessageEvent } from "../../../shared/websocket";
+import type { ApprovalRequestEvent, PushMessageEvent, SessionChangedEvent } from "../../../shared/websocket";
 import { authFetch } from "./auth";
 import { chatSendSync, conflictCode, truncateQuery } from "./chatSessionSync";
 import {
@@ -116,6 +116,15 @@ class ChatStreamStore {
 
   /** The user whose conversations are loaded (null when logged out or unknown). */
   private userId: string | null = null;
+
+  /**
+   * IDs this tab sent with its own session changes (chat IDs, truncation request
+   * IDs). `session_changed` events carrying one of them are this tab's own.
+   */
+  private ownOrigins = new Set<string>();
+
+  /** The resync running for each conversation, so resyncs of one conversation run in order. */
+  private resyncs = new Map<string, Promise<boolean>>();
 
   // -------------------------------------------------------------------------
   // Derived state for the active conversation's stream
@@ -365,7 +374,22 @@ class ChatStreamStore {
    * @param conversationId - The conversation to resync.
    * @returns Whether the conversation now matches the session.
    */
-  async resyncConversation(conversationId: string): Promise<boolean> {
+  resyncConversation(conversationId: string): Promise<boolean> {
+    const previous = this.resyncs.get(conversationId) ?? Promise.resolve(true);
+    const next = previous.then(() => this.runResync(conversationId));
+    this.resyncs.set(conversationId, next);
+    next.finally(() => {
+      if (this.resyncs.get(conversationId) === next) this.resyncs.delete(conversationId);
+    });
+    return next;
+  }
+
+  /**
+   * Performs one resync (see {@link resyncConversation}).
+   * @param conversationId - The conversation to resync.
+   * @returns Whether the conversation now matches the session.
+   */
+  private async runResync(conversationId: string): Promise<boolean> {
     const conv = this.conversations.find((c) => c.id === conversationId);
     if (!conv?.sessionId || this.convToChatId.has(conversationId)) return false;
     const transcript = await this.fetchTranscript(conv.sessionId);
@@ -383,6 +407,29 @@ class ChatStreamStore {
       console.error("Failed to resync conversation:", err);
       return false;
     }
+  }
+
+  /**
+   * Handles a `session_changed` event: another tab or device (or a push)
+   * changed a session this browser shows, so resync its conversation.
+   *
+   * Skips the tab's own changes, sessions no conversation mirrors, and new
+   * messages the conversation already holds.
+   * @param event - The event from the server.
+   */
+  async handleSessionChanged(event: SessionChangedEvent): Promise<void> {
+    if (event.origin && this.ownOrigins.has(event.origin)) return;
+    const conv = this.conversations.find((c) => c.sessionId === event.sessionId);
+    if (!conv) return;
+    if (event.reason === "message") {
+      try {
+        const local = conv.id === this.activeConversationId ? this.messages : await getMessages(conv.id);
+        if ((local.findLast((m) => m.role === "user")?.id ?? null) === event.lastUserClientId) return;
+      } catch (err) {
+        console.error("Failed to read conversation:", err);
+      }
+    }
+    await this.resyncConversation(conv.id);
   }
 
   /**
@@ -801,6 +848,8 @@ class ChatStreamStore {
   private async startStream(userMsg: Message): Promise<void> {
     const chatId = uuid();
     const convId = this.activeConversationId!;
+    // The server announces this message and its response with the chat ID.
+    this.ownOrigins.add(chatId);
 
     // Register the stream in the map
     const stream: InFlightStream = {
@@ -993,10 +1042,13 @@ class ChatStreamStore {
    */
   private async truncateServerSession(query: Record<string, string>): Promise<boolean> {
     if (!this.currentSessionId) return true;
+    const origin = uuid();
+    this.ownOrigins.add(origin);
     try {
-      const res = await authFetch(`/api/sessions/${this.currentSessionId}/messages?${new URLSearchParams(query)}`, {
-        method: "DELETE",
-      });
+      const res = await authFetch(
+        `/api/sessions/${this.currentSessionId}/messages?${new URLSearchParams({ ...query, origin })}`,
+        { method: "DELETE" },
+      );
       if (res.ok) return true;
       const body = await res.json().catch(() => null);
       await this.handleRequestError(body, t("chat.syncFailed"));

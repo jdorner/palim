@@ -99,6 +99,9 @@ function handleMessage(message: WebSocketMessage) {
     case "push_message":
       chatStream.handlePushMessage(message);
       break;
+    case "session_changed":
+      void chatStream.handleSessionChanged(message);
+      break;
     case "webhooks_reload":
       fetchWebhookCount();
       break;

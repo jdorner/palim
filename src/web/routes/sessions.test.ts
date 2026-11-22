@@ -53,6 +53,9 @@ function textOf(msg: AgentMessage): string {
 const busy = new Set<string>();
 const guard: ChatSessionGuard = { claim: async (id) => !busy.has(id), release: () => {} };
 
+/** Session changes the routes announced: [sessionId, reason, origin]. */
+const notified: [string, string, string | undefined][] = [];
+
 /** Builds the session routes with every request authenticated as an admin. */
 function buildAdminApp() {
   const adminId = "test-admin";
@@ -65,7 +68,7 @@ function buildAdminApp() {
         ability: buildAbility({ userId: adminId, isAdmin: true, permissions: [] }),
       }),
     )
-    .use(sessionRoutes(guard));
+    .use(sessionRoutes(guard, (id, reason, origin) => notified.push([id, reason, origin])));
 }
 
 describe("DELETE /api/sessions/:id/messages (turn-based truncation)", () => {
@@ -108,6 +111,20 @@ describe("DELETE /api/sessions/:id/messages (turn-based truncation)", () => {
     const url = `http://localhost/api/sessions/${sessionId}/messages${qs ? `?${qs}` : ""}`;
     return app.handle(new Request(url, { method: "DELETE" }));
   }
+
+  test("a truncation that deletes messages is announced with the request's origin", async () => {
+    const id = store.create({ source: "chat" }).id;
+    store.append(id, userMsg("a"), { clientId: "u1" });
+    store.append(id, assistantMsg("b"));
+    notified.length = 0;
+
+    expect((await deleteMessages(id, { after: "u1", origin: "req-1" })).status).toBe(200);
+    expect(notified).toEqual([[id, "truncate", "req-1"]]);
+
+    // Nothing left to delete: nothing changed, nothing announced.
+    expect((await deleteMessages(id, { after: "u1", origin: "req-2" })).status).toBe(200);
+    expect(notified).toHaveLength(1);
+  });
 
   // ---------------------------------------------------------------------------
   // keep=0 (clear all)

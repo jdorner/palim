@@ -17,6 +17,7 @@ import { createPushService } from "@src/push";
 import type { ManagedQueuePort } from "@src/queue";
 import type { SecretVault } from "@src/secrets/vault";
 import { getSessionStore } from "@src/session";
+import { createSessionChangeNotifier } from "@src/session/sessionEvents";
 import { mainLogger as log } from "@src/utils/logger";
 import type { VariableStore } from "@src/variables/store";
 import { type AnyElysia, type Context, Elysia } from "elysia";
@@ -115,7 +116,8 @@ export async function createWebServer(deps: WebServerDeps) {
   const revalidateSockets = () => monitor.revalidateClients();
 
   // Create the push service with broadcast wired to the monitor
-  const pushService = createPushService({ broadcastFn: (msg) => monitor.broadcast(msg) });
+  const notifySessionChanged = createSessionChangeNotifier((event) => monitor.broadcast(event));
+  const pushService = createPushService({ broadcastFn: (msg) => monitor.broadcast(msg), notifySessionChanged });
   // Live task updates for the portal (portal accounts cannot use the WebSocket).
   const portalEventHub =
     deps.hitlService && authService ? new PortalEventHub(deps.hitlService, authService) : undefined;
@@ -165,8 +167,15 @@ export async function createWebServer(deps: WebServerDeps) {
     .use(extensionRoutes(getRegistry))
     .use(i18nRoutes(getRegistry))
     .use(modelRoutes(getRegistry))
-    .use(chatRoutes(chatQueue, chatSessionGuard, (chatId, userId) => monitor.registerChatOwner(chatId, userId)))
-    .use(sessionRoutes(chatSessionGuard))
+    .use(
+      chatRoutes(
+        chatQueue,
+        chatSessionGuard,
+        (chatId, userId) => monitor.registerChatOwner(chatId, userId),
+        notifySessionChanged,
+      ),
+    )
+    .use(sessionRoutes(chatSessionGuard, notifySessionChanged))
     .use(pushRoutes(pushService.pushMessage))
     .use(secretRoutes(getRegistry, () => deps.secretVault))
     .use(globalSecretRoutes(() => deps.secretVault))

@@ -17,6 +17,7 @@ import { Type } from "@sinclair/typebox";
 import { ownedSubject } from "@src/auth";
 import { getSessionStore } from "@src/session";
 import { cutSeqForClientId, cutSeqForTurns, hasLegacyUserMessages, legacySeqForTurn } from "@src/session/chatSync";
+import type { NotifySessionChanged } from "@src/session/sessionEvents";
 import type { SessionSummary } from "@src/session/types";
 import { mainLogger as log } from "@src/utils/logger";
 import { Elysia } from "elysia";
@@ -81,9 +82,10 @@ function describeSession(summary: SessionSummary) {
  * Creates the session route group.
  *
  * @param sessionGuard - Claims a session while a request changes it (shared with the chat route)
+ * @param notifySessionChanged - Announces truncations to the owner's other tabs and devices
  * @returns Elysia plugin with session routes
  */
-export function sessionRoutes(sessionGuard: ChatSessionGuard) {
+export function sessionRoutes(sessionGuard: ChatSessionGuard, notifySessionChanged?: NotifySessionChanged) {
   return new Elysia()
     .get(
       "/api/sessions",
@@ -197,7 +199,9 @@ export function sessionRoutes(sessionGuard: ChatSessionGuard) {
               cutSeq = cutSeqForTurns(markers, keepTurns, includeTrailing);
             }
 
-            if (cutSeq !== undefined) sessionStore.truncateFrom(params.id, cutSeq);
+            if (cutSeq !== undefined && sessionStore.truncateFrom(params.id, cutSeq) > 0) {
+              notifySessionChanged?.(params.id, "truncate", query.origin);
+            }
             return status(200, { sessionId: params.id, ok: true });
           } finally {
             sessionGuard.release(params.id);
@@ -231,6 +235,12 @@ export function sessionRoutes(sessionGuard: ChatSessionGuard) {
           includeTrailing: Type.Optional(
             Type.String({
               description: "If 'true', also keep the user message starting the next turn (without its response)",
+            }),
+          ),
+          origin: Type.Optional(
+            Type.String({
+              minLength: 1,
+              description: "Client-chosen request ID, echoed in the session_changed event so the caller can skip it",
             }),
           ),
         }),

@@ -632,6 +632,9 @@ export class QueueMonitor {
         const owner = this.chatOwners.get(message.chatId);
         return owner != null && owner === principal?.user.id ? message : null;
       }
+      // A session change concerns its owner only (admins included).
+      case "session_changed":
+        return message.userId === principal?.user.id ? message : null;
       case "initial_state":
         return { type: "initial_state", jobs: message.jobs.filter((j) => this.isJobVisibleTo(j.id, principal)) };
       case "job_added":

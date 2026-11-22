@@ -18,6 +18,8 @@ describe("chat route identity stamping", () => {
   let app: ReturnType<typeof buildApp>;
   let aliceId: string;
   let lastJob: ChatJob | null = null;
+  /** Session changes the route announced: [sessionId, reason, origin]. */
+  const notified: [string, string, string | undefined][] = [];
 
   /** Jobs the fake queue reports as active (to simulate a running chat job). */
   let activeJobs: ChatJob[] = [];
@@ -36,7 +38,11 @@ describe("chat route identity stamping", () => {
   function buildApp() {
     return new Elysia()
       .onBeforeHandle((c) => authCheck(c as never, auth))
-      .use(chatRoutes(fakeQueue, createChatSessionGuard(fakeQueue)));
+      .use(
+        chatRoutes(fakeQueue, createChatSessionGuard(fakeQueue), undefined, (id, reason, origin) =>
+          notified.push([id, reason, origin]),
+        ),
+      );
   }
 
   async function seed(username: string): Promise<string> {
@@ -86,6 +92,8 @@ describe("chat route identity stamping", () => {
     const captured = lastJob as ChatJob | null;
     expect(captured?.initiatorUserId).toBe(aliceId);
     expect(captured?.sessionId).toBe(sessionId);
+    // Other tabs learn about the message; the chat ID lets the sender skip it.
+    expect(notified.at(-1)).toEqual([sessionId, "message", "conv-alice-1"]);
   });
 
   test("rejects posting into another user's session with 404", async () => {
