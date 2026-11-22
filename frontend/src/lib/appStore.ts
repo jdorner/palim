@@ -105,19 +105,7 @@ export async function fetchScheduleCount() {
   }
 }
 
-/** Cancels a job by ID via the REST API. */
-export async function cancelJob(jobId: string) {
-  try {
-    const res = await authFetch(`/api/jobs/${jobId}/cancel`, { method: "POST" });
-    if (!res.ok) {
-      console.error("Cancel failed:", await res.text());
-    }
-  } catch (err) {
-    console.error("Failed to cancel job:", err);
-  }
-}
-
-/** Cleans completed or failed jobs from the queue. */
+/** Deletes all completed or failed jobs (a workflow run's jobs by the run's status) from the queues. */
 export async function cleanQueue(type: string) {
   cleaning.set(true);
   try {

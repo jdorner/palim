@@ -100,8 +100,11 @@ function createFakeQueue(queueName: string, jobs: JobInfo[] = []) {
       currentJobs = currentJobs.filter((j) => !present.has(j.id));
       return [...present];
     },
-    async retryJob() {
-      return false;
+    async retryJob(jobId: string) {
+      const job = currentJobs.find((j) => j.id === jobId);
+      if (job?.state !== "failed") return false;
+      job.state = "waiting";
+      return true;
     },
     async clean() {
       return [];
@@ -291,6 +294,40 @@ describe("QueueMonitor.deleteJob", () => {
   test("returns not_found for an unknown job", async () => {
     const monitor = new QueueMonitor([createFakeQueue("agents").queue]);
     expect(await monitor.deleteJob("nope")).toBe("not_found");
+  });
+});
+
+describe("QueueMonitor.retryJob", () => {
+  test("moves a failed job back to waiting", async () => {
+    const fake = createFakeQueue("agents", [agentJob("j-failed", "failed")]);
+    const monitor = new QueueMonitor([fake.queue]);
+    await tick(50);
+
+    expect(await monitor.retryJob("j-failed")).toBe("retried");
+    expect((await fake.queue.getJob("j-failed"))?.state).toBe("waiting");
+    expect(getMonitorJobs(monitor).find((j) => j.id === "j-failed")?.status).toBe("waiting");
+  });
+
+  test("refuses a job that has not failed", async () => {
+    const fake = createFakeQueue("agents", [agentJob("j-done", "completed")]);
+    const monitor = new QueueMonitor([fake.queue]);
+    await tick(50);
+
+    expect(await monitor.retryJob("j-done")).toBe("not_failed");
+  });
+
+  test("refuses a workflow step: its failed run would ignore the result", async () => {
+    const fake = createFakeQueue("workflows:steps", [stepJob("s0", "run-4", "fetch", "failed")]);
+    const monitor = new QueueMonitor([fake.queue]);
+    await tick(50);
+
+    expect(await monitor.retryJob("s0")).toBe("workflow_step");
+    expect((await fake.queue.getJob("s0"))?.state).toBe("failed");
+  });
+
+  test("returns not_found for an unknown job", async () => {
+    const monitor = new QueueMonitor([createFakeQueue("agents").queue]);
+    expect(await monitor.retryJob("nope")).toBe("not_found");
   });
 });
 

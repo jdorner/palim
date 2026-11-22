@@ -4,10 +4,9 @@
  * Handles:
  * - `POST   /api/jobs/:jobId/cancel` - stop a job; it ends failed and stays listed
  * - `DELETE /api/jobs/:jobId`        - remove a finished job and its logs
- * - `GET  /api/jobs/:jobId/chain`
- * - `GET  /api/jobs/:jobId/logs`
- * - `POST /api/jobs/:jobId/retry`
- * - `POST /api/queues/clean`
+ * - `GET    /api/jobs/:jobId/logs`
+ * - `POST   /api/jobs/:jobId/retry`  - retry a failed job (not a workflow step: re-run its run)
+ * - `POST   /api/queues/clean`
  *
  * Per-job routes treat other users' chat jobs as nonexistent (404), matching
  * their visibility in the WebSocket job feed.
@@ -115,35 +114,6 @@ export function jobRoutes(monitor: QueueMonitor) {
       },
     )
     .get(
-      "/api/jobs/:jobId/chain",
-      async ({ params, request, status }) => {
-        try {
-          const { jobId } = params;
-          if (!(await monitor.canAccessJob(jobId, getPrincipal(request)))) {
-            return status(404, { error: `Job ${jobId} not found` });
-          }
-          const result = await monitor.getChainSiblings(jobId);
-
-          if (!result) {
-            return status(404, { error: `Job ${jobId} is not part of a workflow chain` });
-          }
-
-          return status(200, {
-            workflowRunId: result.workflowRunId,
-            siblings: result.siblings,
-          });
-        } catch (error) {
-          log.error("Failed to get chain siblings", { error });
-          return status(500, { error: "Failed to get chain siblings" });
-        }
-      },
-      {
-        params: Type.Object({
-          jobId: Type.String({ minLength: 1, description: "ID of any job in the chain" }),
-        }),
-      },
-    )
-    .get(
       "/api/jobs/:jobId/logs",
       async ({ params, request, status }) => {
         try {
@@ -174,10 +144,11 @@ export function jobRoutes(monitor: QueueMonitor) {
           if (!(await monitor.canAccessJob(jobId, getPrincipal(request)))) {
             return status(404, { error: `Job ${jobId} not found` });
           }
-          const retried = await monitor.retryJob(jobId);
-
-          if (!retried) {
-            return status(404, { error: `Job ${jobId} not found or not in failed state` });
+          const outcome = await monitor.retryJob(jobId);
+          if (outcome === "not_found") return status(404, { error: `Job ${jobId} not found` });
+          if (outcome === "not_failed") return status(409, { error: "Only failed jobs can be retried" });
+          if (outcome === "workflow_step") {
+            return status(409, { error: `Job ${jobId} is a workflow step; re-run its workflow run instead` });
           }
 
           log.info("Job retried", { jobId });

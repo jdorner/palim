@@ -236,6 +236,8 @@ Cancel a running run, or one waiting on a signal or a human task. The run ends `
 
 Delete a finished (completed or failed) run with all its jobs and their logs. Answers `409` while the run is active (cancel it first) or while one of its jobs is still queued or running, e.g. a cancelled step that has not stopped yet, and `404` for an unknown run.
 
+A run is the unit for deleting and retrying: its step jobs cannot be deleted or retried on their own (`DELETE /api/jobs/:id` and `POST /api/jobs/:id/retry` answer `409`). A failed run is restarted with `POST /ext/workflows/runs/:runId/rerun`.
+
 ## Agent Skill
 
 The extension provides a `workflows` skill with sandbox commands (plus the `workflow-writing`, `workflow-crystallize`, and `workflow-design` skills on authoring, on turning a chat task into a workflow, and on designing a new workflow with the user):

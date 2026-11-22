@@ -13,13 +13,15 @@ import { extensions } from "$lib/extensionStore";
 import { t } from "$lib/i18n.svelte";
 import { statusLabel } from "$lib/i18nCore";
 import { localizeStepType } from "$lib/stepTypes";
-import { formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
+import { formatTimestamp, isFinished, isRunCancellable, statusVariant } from "$lib/utils";
 import { buildStatusMap, type GraphStepStatus } from "$lib/workflowRunStatus";
 import { type RunStep, workflowStore } from "$lib/workflowRunStore.svelte";
+import CancelButton from "../components/CancelButton.svelte";
 import ChatMarkdown from "../components/ChatMarkdown.svelte";
-import DeleteRunButton from "../components/DeleteRunButton.svelte";
+import DeleteButton from "../components/DeleteButton.svelte";
 import DetailPanelModeToggle from "../components/DetailPanelModeToggle.svelte";
 import HumanTaskCard from "../components/HumanTaskCard.svelte";
+import RerunButton from "../components/RerunButton.svelte";
 import SignalDeliveryForm from "../components/SignalDeliveryForm.svelte";
 import StatusDot from "../components/StatusDot.svelte";
 import StepPanelHeader from "../components/StepPanelHeader.svelte";
@@ -30,7 +32,6 @@ type StepStatus = GraphStepStatus;
 
 let loading = $state(true);
 let error = $state<string | null>(null);
-let cancelling = $state(false);
 /**
  * The step shown in the panel: its slug and graph type, plus a placeholder for
  * steps the run has not recorded (skipped branches).
@@ -159,20 +160,6 @@ async function fetchRun(silent = false) {
 
 let sidebarOpen = $state(false);
 
-async function cancelRun() {
-  if (!runId) return;
-  cancelling = true;
-  try {
-    const res = await authFetch(`/ext/workflows/runs/${runId}`, { method: "DELETE" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    navigate("/workflows/:name", { params: { name: `${workflowName}` } });
-  } catch (err) {
-    console.error("Failed to cancel workflow run:", err);
-  } finally {
-    cancelling = false;
-  }
-}
-
 function openSidebar(step: { slug: string; type: string; status?: string; jobId?: string }) {
   const found = run?.steps.find((s) => s.slug === step.slug);
   if (!found) {
@@ -255,19 +242,22 @@ onDestroy(() => {
         <span class="text-xs text-muted-foreground font-mono">{t("runs.runId", { id: run.runId.slice(0, 8) })}</span>
       </div>
       <div class="flex items-center gap-2">
+        <!-- Cancel keeps the page: the run ends failed and updates live -->
+        {#if isRunCancellable(run.status)}
+          <CancelButton url="/ext/workflows/runs/{run.runId}/cancel" />
+        {/if}
         {#if run.status === "failed"}
-          <DeleteRunButton
-            runId={run.runId}
+          <RerunButton runId={run.runId} />
+        {/if}
+        {#if isFinished(run.status)}
+          <DeleteButton
+            url="/ext/workflows/runs/{run.runId}"
+            confirmTitle={t("runs.deleteTitle")}
+            confirmMessage={t("runs.deleteConfirm", { id: run.runId.slice(0, 8) })}
             onDeleted={() => {
               navigate("/workflows/:name", { params: { name: `${workflowName}` } });
             }}
           />
-        {/if}
-        {#if isRunCancellable(run.status)}
-          <Button size="sm" variant="destructive" onclick={cancelRun} disabled={cancelling}>
-            <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
-            {cancelling ? t("runs.cancelling") : t("common.cancel")}
-          </Button>
         {/if}
         <Badge variant={statusVariant(run.status)}>{statusLabel(run.status)}</Badge>
       </div>

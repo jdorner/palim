@@ -14,7 +14,7 @@ import { getLogStore } from "@src/queue";
 import { mainLogger as log } from "@src/utils/logger";
 import type { ServerWebSocket } from "elysia/ws/bun";
 import { JobCanceller } from "./jobCanceller";
-import { type CleanDecision, type DeleteOutcome, QueueCleaner } from "./queueCleaner";
+import { type CleanDecision, type DeleteOutcome, QueueCleaner, type RetryOutcome } from "./queueCleaner";
 
 /**
  * Extracts a `prompt` string from an unknown job data payload.
@@ -75,7 +75,7 @@ export class QueueMonitor {
   /** Chat-routed job IDs mapped to their chatId, for evicting {@link chatOwners}. */
   private jobChats: Map<string, string> = new Map();
   private queues: ManagedQueuePort[] = [];
-  /** Handles job cancellation and workflow chain resolution. */
+  /** Handles job cancellation. */
   private canceller: JobCanceller;
   /** Handles job retry, deletion, cleanup, and log retrieval. */
   private cleaner: QueueCleaner;
@@ -89,8 +89,6 @@ export class QueueMonitor {
     this.canceller = new JobCanceller({
       getQueues: () => this.queues,
       getCachedJob: (id) => this.jobCache.get(id),
-      mapJobStateToStatus: (state) => this.mapJobStateToStatus(state),
-      jobInfoToEntry: (job, queueName, status) => this.jobInfoToEntry(job, queueName, status),
     });
     this.cleaner = new QueueCleaner({
       getQueues: () => this.queues,
@@ -510,17 +508,6 @@ export class QueueMonitor {
   }
 
   /**
-   * Finds all jobs in the same workflow chain as the given job.
-   * A chain is identified by sharing the same `workflowRunId` in their data payload.
-   *
-   * @param jobId - Any job in the chain
-   * @returns The list of sibling job entries and the workflow run ID, or null if not part of a chain
-   */
-  async getChainSiblings(jobId: string): Promise<{ workflowRunId: string; siblings: JobEntry[] } | null> {
-    return this.canceller.getChainSiblings(jobId);
-  }
-
-  /**
    * Cancels one job (see {@link JobCanceller.cancelJob}): it ends `failed`
    * and stays listed. Other jobs of its workflow run are left alone.
    *
@@ -554,14 +541,12 @@ export class QueueMonitor {
   }
 
   /**
-   * Retries a failed job by moving it from the DLQ back to waiting.
-   * Searches across all tracked queues for the job, using the job's
-   * queue name to ensure the retry targets the correct DLQ.
+   * Retries a failed job (see {@link QueueCleaner.retryJob}).
    *
    * @param jobId - The job to retry
-   * @returns true if the job was found and retried
+   * @returns The retry outcome
    */
-  async retryJob(jobId: string): Promise<boolean> {
+  async retryJob(jobId: string): Promise<RetryOutcome> {
     return this.cleaner.retryJob(jobId);
   }
 

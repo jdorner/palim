@@ -1,9 +1,11 @@
 <script lang="ts">
 import CheckCircleIcon from "phosphor-svelte/lib/CheckCircleIcon";
 import TrashIcon from "phosphor-svelte/lib/TrashIcon";
-import { cancelJob, cleaning, cleanQueue, jobs } from "$lib/appStore";
+import { cleaning, cleanQueue, jobs } from "$lib/appStore";
 import { authFetch } from "$lib/auth";
+import { AlertDialog } from "$lib/components/ui/alert-dialog";
 import { Button } from "$lib/components/ui/button";
+import { t } from "$lib/i18n.svelte";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import JobFilters from "../components/JobFilters.svelte";
 import JobList from "../components/JobList.svelte";
@@ -12,6 +14,9 @@ let selectedStatuses = $state(new Set<string>());
 let selectedQueues = $state(new Set<string>());
 
 let filterKey = $derived(`${[...selectedStatuses].sort().join(",")}|${[...selectedQueues].sort().join(",")}`);
+
+/** Bulk delete awaiting confirmation. */
+let pendingClean = $state<"completed" | "failed" | null>(null);
 
 let runStatuses = $state<Record<string, string>>({});
 let runStatusesLoaded = $state(false);
@@ -74,23 +79,40 @@ let filteredJobs = $derived(
     size="sm"
     variant="outline"
     disabled={$cleaning || !$jobs.some((j) => j.status === "completed")}
-    onclick={() => cleanQueue("completed")}
+    onclick={() => (pendingClean = "completed")}
   >
     <CheckCircleIcon size={14} class="mr-1.5" aria-hidden="true" />
-    {$cleaning ? "Cleaning..." : "Clean Completed"}
+    {$cleaning ? t("common.deleting") : t("jobs.cleanCompleted")}
   </Button>
   <Button
     size="sm"
     variant="destructive"
     disabled={$cleaning || !$jobs.some((j) => j.status === "failed")}
-    onclick={() => cleanQueue("failed")}
+    onclick={() => (pendingClean = "failed")}
   >
     <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-    {$cleaning ? "Cleaning..." : "Clean Failed"}
+    {$cleaning ? t("common.deleting") : t("jobs.cleanFailed")}
   </Button>
 </div>
 
 <JobFilters bind:selectedStatuses bind:selectedQueues jobs={$jobs} />
 {#if runStatusesLoaded}
-  <JobList jobs={filteredJobs} onCancelJob={cancelJob} {filterKey} {runStatuses} />
+  <JobList jobs={filteredJobs} {filterKey} {runStatuses} />
 {/if}
+
+<AlertDialog
+  open={pendingClean !== null}
+  title={pendingClean === "failed" ? t("jobs.cleanFailedTitle") : t("jobs.cleanCompletedTitle")}
+  description={pendingClean === "failed" ? t("jobs.cleanFailedConfirm") : t("jobs.cleanCompletedConfirm")}
+  confirmLabel={t("common.delete")}
+  cancelLabel={t("common.cancel")}
+  confirmVariant="destructive"
+  onConfirm={() => {
+    const type = pendingClean;
+    pendingClean = null;
+    if (type) cleanQueue(type);
+  }}
+  onCancel={() => {
+    pendingClean = null;
+  }}
+/>

@@ -61,6 +61,9 @@ export interface QueueCleanerDeps {
  */
 export type CleanDecision = "keep" | "remove" | "default";
 
+/** Outcome of {@link QueueCleaner.retryJob}. */
+export type RetryOutcome = "retried" | "not_found" | "not_failed" | "workflow_step";
+
 /** Outcome of {@link QueueCleaner.deleteJob}. */
 export type DeleteOutcome = "deleted" | "not_found" | "not_finished" | "workflow_step";
 
@@ -95,10 +98,15 @@ export class QueueCleaner {
    * Searches across all tracked queues for the job, using the job's
    * queue name to ensure the retry targets the correct DLQ.
    *
+   * A job of a workflow run is not retried on its own: its run has already
+   * failed and ignores the step's result, so the job would only run again for
+   * nothing. The run is re-run through the workflows extension instead.
+   *
    * @param jobId - The job to retry
-   * @returns true if the job was found and retried
+   * @returns `retried`; `not_found` for an unknown job; `not_failed` unless the job
+   *   failed; `workflow_step` for a job of a workflow run
    */
-  async retryJob(jobId: string): Promise<boolean> {
+  async retryJob(jobId: string): Promise<RetryOutcome> {
     const cached = this.deps.getCachedJob(jobId);
     const queueName = cached?.queue;
 
@@ -121,26 +129,28 @@ export class QueueCleaner {
 
     if (!targetQueue) {
       log.warn(`Cannot retry job ${jobId}: not found in any tracked queue`);
-      return false;
+      return "not_found";
     }
 
     const job = await targetQueue.getJob(jobId);
-    if (job?.state !== "failed") {
-      log.warn(`Cannot retry job ${jobId}: current state is "${job?.state ?? "unknown"}", expected "failed"`);
-      return false;
+    if (!job) return "not_found";
+    if (job.state !== "failed") {
+      log.warn(`Cannot retry job ${jobId}: current state is "${job.state}", expected "failed"`);
+      return "not_failed";
     }
+    const data = job.data as Record<string, unknown> | null;
+    if (data && typeof data.workflowRunId === "string") return "workflow_step";
 
     const ok = await targetQueue.retryJob(jobId);
-    if (ok) {
-      const entry = this.deps.getCachedJob(jobId);
-      if (entry) {
-        entry.status = "waiting";
-        entry.completedAt = undefined;
-        entry.error = undefined;
-      }
-      this.deps.broadcastFullState();
+    if (!ok) return "not_failed";
+    const entry = this.deps.getCachedJob(jobId);
+    if (entry) {
+      entry.status = "waiting";
+      entry.completedAt = undefined;
+      entry.error = undefined;
     }
-    return ok;
+    this.deps.broadcastFullState();
+    return "retried";
   }
 
   /**

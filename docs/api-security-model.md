@@ -135,7 +135,7 @@ Only list proxies that put the address of the connection they received as the la
 Every signed-in user may read everything without any permission: workflow definitions and runs, jobs and their logs, triggers, secret metadata and audit logs, variables, models, extensions and data tables. There are three exceptions:
 
 - **Chat sessions** are private to their owner.
-- **Chat jobs** are private to the user who started them, admins included. They are left out of the job feed (see [WebSocket](#websocket)), and the per-job routes (`GET /api/jobs/:id/logs`, `GET /api/jobs/:id/chain`, `POST /api/jobs/:id/cancel`, `POST /api/jobs/:id/retry`, `DELETE /api/jobs/:id`) answer `404` to anyone else. Bulk cleanup (`POST /api/queues/clean`) still removes finished jobs of every user by state.
+- **Chat jobs** are private to the user who started them, admins included. They are left out of the job feed (see [WebSocket](#websocket)), and the per-job routes (`GET /api/jobs/:id/logs`, `POST /api/jobs/:id/cancel`, `POST /api/jobs/:id/retry`, `DELETE /api/jobs/:id`) answer `404` to anyone else. Bulk cleanup (`POST /api/queues/clean`) still removes finished jobs of every user by state.
 - **Users and roles** are listed only for holders of `users:manage`.
 
 Secret values are never returned by the API, so open reads don't expose them.

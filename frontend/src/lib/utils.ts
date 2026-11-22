@@ -139,12 +139,32 @@ export function automationStyle(type: string): AutomationStyle {
 }
 
 /**
- * Checks whether a job status allows cancellation.
+ * Checks whether a job status allows cancellation (the job has not finished yet).
  * @param status - Job status string
  * @returns true if the job can be cancelled
  */
 export function isJobCancellable(status: string): boolean {
-  return status === "active" || status === "waiting" || status === "delayed" || status === "failed";
+  return status === "active" || status === "waiting" || status === "delayed";
+}
+
+/**
+ * Checks whether a job or workflow run status is finished, so it can be deleted.
+ * @param status - Job or run status string
+ * @returns true for completed and failed
+ */
+export function isFinished(status: string): boolean {
+  return status === "completed" || status === "failed";
+}
+
+/**
+ * Reads the error message of a failed API response (`{ error }` body), falling
+ * back to the HTTP status.
+ * @param res - The failed response
+ * @returns The message
+ */
+export async function responseError(res: Response): Promise<string> {
+  const body = (await res.json().catch(() => ({}))) as { error?: unknown };
+  return typeof body.error === "string" ? body.error : `HTTP ${res.status}`;
 }
 
 /**

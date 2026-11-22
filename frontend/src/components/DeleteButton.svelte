@@ -4,40 +4,51 @@ import { authFetch } from "$lib/auth";
 import { AlertDialog } from "$lib/components/ui/alert-dialog";
 import { Button } from "$lib/components/ui/button";
 import { t } from "$lib/i18n.svelte";
+import { responseError } from "$lib/utils";
 
 /**
- * Delete action for a finished (failed) workflow run: asks for confirmation,
- * then removes the run with its step jobs and logs.
+ * Delete action for a finished job or workflow run: asks for confirmation,
+ * then sends DELETE to its endpoint. A refusal is shown next to the button,
+ * with the server's reason as tooltip.
  */
 interface Props {
-  /** ID of the run to delete. */
-  runId: string;
+  /** Delete endpoint (`/api/jobs/:id` or `/ext/workflows/runs/:id`). */
+  url: string;
+  /** Confirmation dialog title. */
+  confirmTitle: string;
+  /** Confirmation dialog text. */
+  confirmMessage: string;
   /** Button size. */
   size?: "xs" | "sm";
-  /** Called after the run was deleted. */
+  /** Called after the deletion succeeded. */
   onDeleted?: () => void | Promise<void>;
 }
 
-let { runId, size = "sm", onDeleted }: Props = $props();
+let { url, confirmTitle, confirmMessage, size = "sm", onDeleted }: Props = $props();
 
 let confirming = $state(false);
 let deleting = $state(false);
+let failure = $state<string | null>(null);
 
-async function deleteRun() {
+async function remove() {
   confirming = false;
   deleting = true;
+  failure = null;
   try {
-    const res = await authFetch(`/ext/workflows/runs/${runId}`, { method: "DELETE" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const res = await authFetch(url, { method: "DELETE" });
+    if (!res.ok) throw new Error(await responseError(res));
     await onDeleted?.();
   } catch (err) {
-    console.error("Failed to delete workflow run:", err);
+    failure = err instanceof Error ? err.message : String(err);
   } finally {
     deleting = false;
   }
 }
 </script>
 
+{#if failure}
+  <span class="text-xs text-destructive" title={failure}>{t("common.deleteFailed")}</span>
+{/if}
 <Button
   {size}
   variant="destructive"
@@ -53,12 +64,12 @@ async function deleteRun() {
 
 <AlertDialog
   open={confirming}
-  title={t("runs.deleteTitle")}
-  description={t("runs.deleteConfirm", { id: runId.slice(0, 8) })}
+  title={confirmTitle}
+  description={confirmMessage}
   confirmLabel={t("common.delete")}
   cancelLabel={t("common.cancel")}
   confirmVariant="destructive"
-  onConfirm={deleteRun}
+  onConfirm={remove}
   onCancel={() => {
     confirming = false;
   }}

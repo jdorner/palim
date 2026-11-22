@@ -1109,7 +1109,7 @@ onDestroy(() => {
       </Tabs.Content>
 
       <Tabs.Content value="runs" class="flex-1 min-h-0 overflow-y-auto">
-        <WorkflowRunsTab workflowName={name} runs={workflow.runs} onRunCancelled={fetchWorkflow} />
+        <WorkflowRunsTab workflowName={name} runs={workflow.runs} onRunChanged={fetchWorkflow} />
       </Tabs.Content>
     </Tabs.Root>
   </div>

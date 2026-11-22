@@ -6,14 +6,11 @@
  * step's run is cancelled through the workflows extension, which also decides
  * what a cancelled step means for its run.
  *
- * Also resolves a job's workflow chain (the jobs sharing its `workflowRunId`)
- * for the chain lookup route.
- *
  * @module
  */
 
 import type { JobEntry } from "@shared/jobs";
-import type { CancelOutcome, JobInfo, ManagedQueuePort } from "@src/queue";
+import type { CancelOutcome, ManagedQueuePort } from "@src/queue";
 
 /** Dependencies injected from QueueMonitor. */
 export interface JobCancellerDeps {
@@ -21,75 +18,16 @@ export interface JobCancellerDeps {
   getQueues: () => ManagedQueuePort[];
   /** Returns the cached job entry by ID. */
   getCachedJob: (jobId: string) => JobEntry | undefined;
-  /** Maps a job state to a frontend status. */
-  mapJobStateToStatus: (state: string) => JobEntry["status"];
-  /** Converts a JobInfo to a JobEntry. */
-  jobInfoToEntry: (job: JobInfo, queueName: string, status: JobEntry["status"]) => JobEntry;
 }
 
 /**
- * Cancels single jobs and resolves workflow chains.
+ * Cancels single jobs.
  */
 export class JobCanceller {
   private readonly deps: JobCancellerDeps;
 
   constructor(deps: JobCancellerDeps) {
     this.deps = deps;
-  }
-
-  /**
-   * Finds all jobs in the same workflow chain as the given job.
-   * A chain is identified by sharing the same `workflowRunId` in their data payload.
-   *
-   * @param jobId - Any job in the chain
-   * @returns The list of sibling job entries and the workflow run ID, or null if not part of a chain
-   */
-  async getChainSiblings(jobId: string): Promise<{ workflowRunId: string; siblings: JobEntry[] } | null> {
-    const entry = this.deps.getCachedJob(jobId);
-    if (!entry) return null;
-
-    let workflowRunId: string | null = null;
-
-    // Look up the actual job data from the queue to get the workflowRunId
-    for (const queue of this.deps.getQueues()) {
-      const job = await queue.getJob(jobId);
-      if (job) {
-        const data = job.data as Record<string, unknown> | null;
-        if (data && typeof data.workflowRunId === "string") {
-          workflowRunId = data.workflowRunId;
-        }
-        break;
-      }
-    }
-
-    if (!workflowRunId) return null;
-
-    // Find all jobs sharing that workflowRunId
-    const siblings: JobEntry[] = [];
-    const seenIds = new Set<string>();
-    for (const queue of this.deps.getQueues()) {
-      const allJobs = await queue.getAllJobs();
-      for (const job of allJobs) {
-        const data = job.data as Record<string, unknown> | null;
-        if (data && data.workflowRunId === workflowRunId) {
-          seenIds.add(job.id);
-          const cached = this.deps.getCachedJob(job.id);
-          if (cached) {
-            siblings.push(cached);
-          } else {
-            const status = this.deps.mapJobStateToStatus(job.state);
-            siblings.push(this.deps.jobInfoToEntry(job, queue.name, status));
-          }
-        }
-      }
-    }
-
-    // Ensure the triggering job is included even if it's no longer in the queue
-    if (!seenIds.has(jobId) && entry) {
-      siblings.unshift(entry);
-    }
-
-    return { workflowRunId, siblings };
   }
 
   /**

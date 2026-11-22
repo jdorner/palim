@@ -1,20 +1,21 @@
 <script lang="ts">
-import ArrowCounterClockwiseIcon from "phosphor-svelte/lib/ArrowCounterClockwiseIcon";
 import CaretLeftIcon from "phosphor-svelte/lib/CaretLeftIcon";
 import CaretRightIcon from "phosphor-svelte/lib/CaretRightIcon";
-import { authFetch } from "$lib/auth";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { t } from "$lib/i18n.svelte";
 /**
  * Paginated run history for a workflow: cards on small screens, a table on
- * desktop, with Run again and Delete (failed runs) and Cancel (in-flight runs) actions.
+ * desktop. Actions: Cancel while a run is in flight (it ends failed and stays
+ * listed), Run again and Delete once it failed, Delete once it completed.
  */
 import { statusLabel } from "$lib/i18nCore";
-import { aggregateStepStatus, formatTimestamp, isRunCancellable, statusVariant } from "$lib/utils";
+import { aggregateStepStatus, formatTimestamp, isFinished, isRunCancellable, statusVariant } from "$lib/utils";
 import type { WorkflowRunSummary } from "$lib/workflowDetail";
-import DeleteRunButton from "./DeleteRunButton.svelte";
+import CancelButton from "./CancelButton.svelte";
+import DeleteButton from "./DeleteButton.svelte";
+import RerunButton from "./RerunButton.svelte";
 import StatusDot from "./StatusDot.svelte";
 
 interface Props {
@@ -23,10 +24,10 @@ interface Props {
   /** Runs, newest first. */
   runs: WorkflowRunSummary[];
   /** Called after a run was cancelled or deleted, so the parent can refresh. */
-  onRunCancelled: () => void | Promise<void>;
+  onRunChanged: () => void | Promise<void>;
 }
 
-let { workflowName, runs, onRunCancelled }: Props = $props();
+let { workflowName, runs, onRunChanged }: Props = $props();
 
 const RUNS_PAGE_SIZE = 10;
 
@@ -40,45 +41,6 @@ $effect(() => {
     runsPage = runsTotalPages;
   }
 });
-
-let cancellingRunId = $state<string | null>(null);
-let rerunningRunId = $state<string | null>(null);
-/** Failed re-run attempt, shown next to that run's button. */
-let rerunError = $state<{ runId: string; message: string } | null>(null);
-
-/**
- * Starts a new run of a failed run's workflow with the same trigger payload.
- * The failed run stays unchanged; the new run shows up in the list via the
- * `workflow_started` WebSocket event.
- */
-async function rerun(runId: string) {
-  rerunningRunId = runId;
-  rerunError = null;
-  try {
-    const res = await authFetch(`/ext/workflows/runs/${runId}/rerun`, { method: "POST" });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => ({}))) as { error?: string };
-      throw new Error(body.error ?? `HTTP ${res.status}`);
-    }
-  } catch (err) {
-    rerunError = { runId, message: err instanceof Error ? err.message : String(err) };
-  } finally {
-    rerunningRunId = null;
-  }
-}
-
-async function cancelRun(runId: string) {
-  cancellingRunId = runId;
-  try {
-    const res = await authFetch(`/ext/workflows/runs/${runId}`, { method: "DELETE" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    await onRunCancelled();
-  } catch (err) {
-    console.error("Failed to cancel workflow run:", err);
-  } finally {
-    cancellingRunId = null;
-  }
-}
 </script>
 
 {#snippet runLink(runId: string)}
@@ -87,20 +49,23 @@ async function cancelRun(runId: string) {
   </a>
 {/snippet}
 
-{#snippet rerunButton(runId: string, size: "xs" | "sm")}
-  {#if rerunError?.runId === runId}
-    <span class="text-xs text-destructive" title={rerunError.message}>{t("runs.rerunFailed")}</span>
+<!-- Cancel while in flight; Run again and Delete once failed; Delete once completed -->
+{#snippet runActions(runId: string, status: string, size: "xs" | "sm")}
+  {#if isRunCancellable(status)}
+    <CancelButton url="/ext/workflows/runs/{runId}/cancel" {size} onCancelled={onRunChanged} />
   {/if}
-  <Button
-    {size}
-    variant="default"
-    disabled={rerunningRunId === runId}
-    title={t("runs.rerunHint")}
-    onclick={() => rerun(runId)}
-  >
-    <ArrowCounterClockwiseIcon size={size === "xs" ? 12 : 14} class="mr-1" aria-hidden="true" />
-    {rerunningRunId === runId ? t("runs.rerunning") : t("runs.rerun")}
-  </Button>
+  {#if status === "failed"}
+    <RerunButton {runId} {size} />
+  {/if}
+  {#if isFinished(status)}
+    <DeleteButton
+      url="/ext/workflows/runs/{runId}"
+      confirmTitle={t("runs.deleteTitle")}
+      confirmMessage={t("runs.deleteConfirm", { id: runId.slice(0, 8) })}
+      {size}
+      onDeleted={onRunChanged}
+    />
+  {/if}
 {/snippet}
 
 {#if runs.length === 0}
@@ -123,23 +88,9 @@ async function cancelRun(runId: string) {
           <span>{t("runs.completed", { time: formatTimestamp(run.completedAt, "—") })}</span>
         </div>
 
-        {#if run.status === "failed" || isRunCancellable(run.status)}
+        {#if isRunCancellable(run.status) || isFinished(run.status)}
           <div class="flex flex-wrap items-center gap-2">
-            {#if run.status === "failed"}
-              {@render rerunButton(run.runId, "xs")}
-              <DeleteRunButton runId={run.runId} size="xs" onDeleted={onRunCancelled} />
-            {/if}
-            {#if isRunCancellable(run.status)}
-              <Button
-                size="xs"
-                variant="destructive"
-                disabled={cancellingRunId === run.runId}
-                onclick={() => cancelRun(run.runId)}
-              >
-                <span class="text-xs font-bold mr-1" aria-hidden="true">&#x2715;</span>
-                {cancellingRunId === run.runId ? "..." : t("common.cancel")}
-              </Button>
-            {/if}
+            {@render runActions(run.runId, run.status, "xs")}
           </div>
         {/if}
       </div>
@@ -178,21 +129,7 @@ async function cancelRun(runId: string) {
             </TableCell>
             <TableCell class="text-right">
               <div class="inline-flex items-center justify-end gap-2 flex-wrap xl:flex-nowrap">
-                {#if run.status === "failed"}
-                  {@render rerunButton(run.runId, "sm")}
-                  <DeleteRunButton runId={run.runId} onDeleted={onRunCancelled} />
-                {/if}
-                {#if isRunCancellable(run.status)}
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    disabled={cancellingRunId === run.runId}
-                    onclick={() => cancelRun(run.runId)}
-                  >
-                    <span class="text-xs font-bold mr-1.5" aria-hidden="true">&#x2715;</span>
-                    {cancellingRunId === run.runId ? "Cancelling" : "Cancel"}
-                  </Button>
-                {/if}
+                {@render runActions(run.runId, run.status, "sm")}
               </div>
             </TableCell>
           </TableRow>
