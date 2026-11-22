@@ -251,7 +251,7 @@ export function buildWorkflowCommand(scriptCtx: SkillScriptContext, waitOptions:
       },
       {
         name: "cancel",
-        description: "Cancel all steps of a running workflow by its run ID",
+        description: "Cancel a running or waiting workflow run by its run ID (it ends failed and stays listed)",
         args: [{ name: "run-id", description: "Workflow run ID to cancel" }],
         handler: buildCancelHandler(scriptCtx),
       },
@@ -1521,33 +1521,37 @@ interface WorkflowRunResponse {
   error?: string;
 }
 
+/**
+ * Builds the `cancel` handler: cancels a running or waiting run. The run ends
+ * failed with "Cancelled by <user>" and stays listed (cancelling never deletes).
+ *
+ * @param scriptCtx - The skill script context
+ * @returns The command handler
+ */
 function buildCancelHandler(scriptCtx: SkillScriptContext) {
   return async (_ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
     const runId = args.get("run-id");
 
     try {
-      // First, get the run details for the summary output
-      const runResp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/runs/${runId}`);
-      if (!runResp.ok) {
+      const cancelResp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/runs/${encodeURIComponent(runId)}/cancel`, {
+        method: "POST",
+      });
+      if (cancelResp.status === 404) {
         return { exitCode: 1, stdout: "", stderr: `Error: Run "${runId}" not found` };
       }
-
-      const run = (await runResp.json()) as WorkflowRunResponse;
-      if (!run.steps || run.steps.length === 0) {
-        return { exitCode: 1, stdout: "", stderr: `Error: Run "${runId}" has no steps` };
-      }
-
-      // Cancel the run via DELETE /ext/workflows/runs/:runId
-      const cancelResp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/runs/${runId}`, { method: "DELETE" });
       if (!cancelResp.ok) {
-        const body = (await cancelResp.json()) as { error?: string };
+        const body = (await cancelResp.json().catch(() => ({}))) as { error?: string };
         return { exitCode: 1, stdout: "", stderr: `Error: ${body.error || `HTTP ${cancelResp.status}`}` };
       }
 
-      const stepSummary = run.steps.map((s) => `  ${s.slug} [${s.status}]`).join("\n");
+      // Show where the run ended up; a running step turns failed once its job has stopped.
+      const runResp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/runs/${encodeURIComponent(runId)}`);
+      const run = runResp.ok ? ((await runResp.json()) as WorkflowRunResponse) : null;
+      const reason = run?.failureReason ? ` ("${run.failureReason}")` : "";
+      const stepSummary = run?.steps?.length ? `\n${run.steps.map((s) => `  ${s.slug} [${s.status}]`).join("\n")}` : "";
       return {
         exitCode: 0,
-        stdout: `Cancelled workflow run ${runId} (${run.steps.length} steps):\n${stepSummary}`,
+        stdout: `Cancelled workflow run ${runId}: it ended failed${reason} and stays listed until it is deleted.${stepSummary}`,
         stderr: "",
       };
     } catch (err) {
