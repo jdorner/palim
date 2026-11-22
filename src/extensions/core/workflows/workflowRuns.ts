@@ -12,6 +12,7 @@
  */
 
 import type { DomainEvent, HitlApi, Logger, ManagedQueuePort } from "@ext/types";
+import { cancelReason, isCancelReason } from "@shared/jobs";
 import type { ControlFlowEvaluation, WorkflowWebSocketEvent } from "@shared/workflows";
 import type { FlowProducer } from "bunqueue/client";
 import { describeControlFlowStep } from "./controlFlowEvaluation";
@@ -44,6 +45,18 @@ const LIVE_JOB_STATES: ReadonlySet<string> = new Set([
   "delayed",
   "active",
 ]);
+
+/** Why fail-fast cancels a failed run's other in-flight step jobs. */
+const RUN_FAILED_CANCEL_REASON = cancelReason({ cause: "the workflow run failed" });
+
+/** Why deleting a run cancels its active step jobs. */
+const RUN_DELETED_CANCEL_REASON = cancelReason({ cause: "the workflow run was deleted" });
+
+/** How long {@link WorkflowRuns.remove} waits for cancelled active jobs to end before removing them. */
+const CANCEL_SETTLE_TIMEOUT_MS = 5000;
+
+/** Poll interval while waiting for cancelled jobs to end. */
+const CANCEL_SETTLE_POLL_MS = 50;
 
 /** Messages the run lifecycle broadcasts to connected clients. */
 export type WorkflowRunsMessage = WorkflowWebSocketEvent | { type: "job_removed"; jobId: string };
@@ -267,7 +280,7 @@ export function createWorkflowRuns(deps: WorkflowRunsDeps): WorkflowRuns {
     },
     getWorkflowDefinition: deps.getWorkflowDefinition,
     cancelJob: async (jobId) => {
-      await stepsQueue.cancelJob(jobId);
+      await stepsQueue.cancelJob(jobId, RUN_FAILED_CANCEL_REASON);
     },
     inFlightJobIds,
     hitl,
@@ -314,6 +327,8 @@ export function createWorkflowRuns(deps: WorkflowRunsDeps): WorkflowRuns {
   async function failRunOfJob(d: ReturnType<typeof stepData>, error: string): Promise<void> {
     // Fail-fast: the coordinator cancels the run's in-flight jobs.
     await handleDagStepFailure(d.workflowRunId, d.stepSlug, error, coordinatorDeps);
+    // A cancelled step was stopped on purpose: no error for others to analyze.
+    if (isCancelReason(error)) return;
     // Domain event for cross-extension consumers (e.g. error-analyzer).
     deps.emitEvent({
       type: "workflow:step_failed",
@@ -332,11 +347,34 @@ export function createWorkflowRuns(deps: WorkflowRunsDeps): WorkflowRuns {
   stepsQueue.onEvent("failed", async ({ failedReason, job }) => {
     if (!job) return;
     const d = stepData(job);
+    // The run was deleted while this job ran (its cancellation ended it): nothing to fail.
+    if (!dagRunStore.get(d.workflowRunId)) return;
     broadcastStepFailed(d, failedReason);
     // Only fail the run once the job is truly failed (not a retry delay).
     if (d.state !== "failed") return;
     await failRunOfJob(d, failedReason);
   });
+
+  /**
+   * Waits until none of the given jobs is active any more, or the timeout passes.
+   *
+   * @param runId - The run the jobs belong to
+   * @param ids - The cancelled job IDs
+   * @returns The run's jobs after waiting
+   */
+  async function settle(runId: string, ids: ReadonlySet<string>): Promise<Awaited<ReturnType<typeof jobsOf>>> {
+    const deadline = Date.now() + CANCEL_SETTLE_TIMEOUT_MS;
+    for (;;) {
+      const jobs = await jobsOf(runId);
+      const pending = jobs.filter((d) => ids.has(d.id) && d.state === "active");
+      if (pending.length === 0) return jobs;
+      if (Date.now() >= deadline) {
+        log.warn(`Run ${runId}: ${pending.length} cancelled job(s) still active after ${CANCEL_SETTLE_TIMEOUT_MS} ms`);
+        return jobs;
+      }
+      await Bun.sleep(CANCEL_SETTLE_POLL_MS);
+    }
+  }
 
   // --- Lifecycle operations ---
 
@@ -488,8 +526,16 @@ export function createWorkflowRuns(deps: WorkflowRunsDeps): WorkflowRuns {
 
     async remove(runId) {
       const run = dagRunStore.get(runId);
-      const jobs = await jobsOf(runId);
+      let jobs = await jobsOf(runId);
       if (jobs.length === 0 && !run) return null;
+
+      // An active job cannot be removed: cancel it (aborting its LLM request)
+      // and wait for it to end, so it is removed below instead of lingering.
+      const active = jobs.filter((d) => d.state === "active").map((d) => d.id);
+      if (active.length > 0) {
+        for (const id of active) await stepsQueue.cancelJob(id, RUN_DELETED_CANCEL_REASON);
+        jobs = await settle(runId, new Set(active));
+      }
 
       // removeJobs handles every state in one batch: live jobs, DLQ jobs, and
       // completed jobs (requeued and removed under one queue pause so the

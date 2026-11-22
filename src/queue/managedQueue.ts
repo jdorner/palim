@@ -72,7 +72,10 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
 
     this.worker = new Worker<T, R>(
       name,
-      (job) => {
+      (job, processorCtx) => {
+        // Hand bunqueue's abort signal to the processor: worker.cancelJob()
+        // aborts it, which is how an active job is cancelled.
+        (job as unknown as QueueJob<T>).signal = processorCtx?.signal;
         // Wrap job.log to prepend a timestamp prefix and persist to SQLite
         const origLog = job.log.bind(job);
         const store = getLogStore();
@@ -349,7 +352,7 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
   }
 
   /** @inheritdoc */
-  async cancelJob(jobId: string): Promise<boolean> {
+  async cancelJob(jobId: string, reason = "Cancelled"): Promise<boolean> {
     try {
       // Check whether the job actually exists before attempting removal.
       const stateBefore = await this.queue.getJobState(jobId);
@@ -375,10 +378,9 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
         return true;
       }
 
-      // Job is still active (being processed). Signal cooperative cancellation
-      // via the worker and return success — the processor will see the
-      // cancellation flag and exit, after which the job is cleaned up normally.
-      const signalled = this.worker.cancelJob(jobId, "Cancelled");
+      // Job is still active (being processed): abort its signal. The processor
+      // stops and throws, so the job ends failed with `reason` as its error.
+      const signalled = this.worker.cancelJob(jobId, reason);
       if (signalled) {
         logger.info(`Signalled cancellation for active job ${jobId} in "${this.queue.name}"`);
         return true;

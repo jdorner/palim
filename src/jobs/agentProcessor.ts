@@ -20,7 +20,6 @@ import type { QueueJob } from "@src/queue";
 import { getSessionStore } from "@src/session";
 import { createSandboxTools, SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { Bash } from "just-bash";
-import { registerJob, unregisterJob } from "./cancellation";
 
 /** Dependencies injected into the agent processor at call time. */
 export interface AgentProcessorConfig {
@@ -78,18 +77,21 @@ export type { AgentProcessorResult };
  *
  * @param job - The queue job (used for logging)
  * @param config - Injected dependencies (model, tools, API key, sessionId, etc.)
+ * Cancellation: when `job.signal` aborts, the in-flight LLM request is
+ * aborted and the run throws the signal's reason (logged to the job), so the
+ * job ends `failed` and nothing is appended to the session.
+ *
  * @param onAgentEvent - Optional override callback. When provided, replaces the
  *   automatic EventBus dispatch for agent lifecycle events.
  * @returns The processing result
+ * @throws The abort reason when the job is cancelled, or the agent's error
  */
 export async function runAgent(
   job: QueueJob<unknown>,
   config: AgentProcessorConfig,
   onAgentEvent?: (event: AgentEvent) => void,
 ): Promise<AgentProcessorResult> {
-  const ac = new AbortController();
-  registerJob(job.id, ac);
-
+  const signal = job.signal;
   let shell: Bash | null = null;
 
   try {
@@ -122,6 +124,8 @@ export async function runAgent(
     const sessionStore = getSessionStore();
     const messages: AgentMessage[] = sessionStore.getMessages(config.sessionId);
 
+    signal?.throwIfAborted();
+
     // Dispatch before_agent_start - let extensions mutate systemPrompt and messages
     let systemPrompt = config.systemPrompt;
     if (config.eventBus) {
@@ -148,8 +152,10 @@ export async function runAgent(
       getApiKey: () => config.apiKey,
     });
 
-    // Wire external cancellation to agent abort
-    ac.signal.addEventListener("abort", () => agent.abort(), { once: true });
+    // Cancellation aborts the in-flight LLM request (and the tool loop).
+    signal?.throwIfAborted();
+    const onAbort = () => agent.abort();
+    signal?.addEventListener("abort", onAbort, { once: true });
 
     // Log conversation context and prompt in chronological order.
     // Prior turns (everything before the last user message) are logged as context,
@@ -242,12 +248,14 @@ export async function runAgent(
       }
     });
 
-    await agent.prompt(messages);
-
-    if (ac.signal.aborted) {
-      await job.log("Agent run was cancelled.");
-      return { answer: "", state: agent.state, timestamp: Date.now() };
+    try {
+      await agent.prompt(messages);
+    } finally {
+      signal?.removeEventListener("abort", onAbort);
     }
+
+    // A cancelled run fails the job: its partial answer is no result.
+    signal?.throwIfAborted();
 
     if (agent.state.errorMessage) {
       throw new Error(agent.state.errorMessage);
@@ -267,10 +275,11 @@ export async function runAgent(
 
     return { answer: assistantMessage, state: agent.state, timestamp: Date.now() };
   } catch (err: unknown) {
-    await job.log(`**Error:** ${err instanceof Error ? err.message : String(err)}`);
-    throw err;
-  } finally {
-    unregisterJob(job.id);
+    // Once cancelled, whatever the abort surfaced as (an AbortError from the
+    // LLM request, a tool failure) is reported as the cancellation itself.
+    const error: unknown = signal?.aborted ? signal.reason : err;
+    await job.log(`**Error:** ${error instanceof Error ? error.message : String(error)}`);
+    throw error;
   }
 }
 

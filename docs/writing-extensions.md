@@ -771,6 +771,10 @@ const extension: Extension = {
 export default extension;
 ```
 
+### Cancellation
+
+Cancelling a running job (the Job Queues page, the chat's stop button, or a failing workflow run) aborts `job.signal`. `ctx.agent.run` watches it: it aborts the LLM request, logs the reason (e.g. `Cancelled by alice`), and throws it, so the job ends `failed` and nothing is appended to the session. Let that error propagate. A processor that does other long work (`fetch`, subprocesses) should pass `job.signal` on or check it, and throw `job.signal.reason` once it is aborted.
+
 For fire-and-forget agent jobs, use `ctx.agent.enqueue()`:
 
 ```typescript
