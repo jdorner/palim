@@ -431,7 +431,7 @@ describe("run guards", () => {
     expect(patch.failureReason).toBe('Workflow definition "wf" no longer available');
   });
 
-  test("a failed step sweeps pending, running and waiting steps", () => {
+  test("a failed step fails waiting steps and sweeps running and pending ones dead", () => {
     const three = wf({ a: agent, b: agent, w: { type: "waitFor", event: "e" } as Steps[string], done: agent }, [
       { from: "a", to: "done" },
       { from: "b", to: "done" },
@@ -440,25 +440,46 @@ describe("run guards", () => {
     const run = runOf(three, { steps: { a: "running", b: "running", w: "waiting-signal" } });
     const { patch, effects } = advance(run, three, { type: "stepFailed", slug: "a", reason: "boom" });
     expect(patch).toMatchObject({ status: "failed", failureReason: "boom" });
-    expect(patch.stepStatuses).toEqual({ a: "failed", b: "dead", w: "dead", done: "dead" });
+    expect(patch.stepStatuses).toEqual({ a: "failed", b: "dead", w: "failed", done: "dead" });
     expect(broadcasts(effects)).toEqual([
       "workflow_failed",
       "workflow_step_dead:b",
-      "workflow_step_dead:w",
+      "workflow_step_failed:w",
       "workflow_step_dead:done",
     ]);
+    expect(effects).toContainEqual({
+      type: "broadcast",
+      event: { type: "workflow_step_failed", workflowRunId: run.id, stepSlug: "w", jobId: "", error: "boom" },
+    });
   });
 
-  test("a cancelled run fails as a whole and sweeps every open step, even without its definition", () => {
+  test("a cancelled run fails as a whole and fails its interrupted steps, even without its definition", () => {
     const run = runOf(def, { steps: { a: "completed", b: "waiting-signal" }, edges: { "a:b": "satisfied" } });
     const { patch, effects } = advance(run, undefined, { type: "runCancelled", reason: "Cancelled by alice" });
     expect(patch).toMatchObject({ status: "failed", failureReason: "Cancelled by alice" });
-    expect(patch.stepStatuses).toEqual({ b: "dead" });
-    expect(broadcasts(effects)).toEqual(["workflow_failed", "workflow_step_dead:b"]);
+    expect(patch.stepStatuses).toEqual({ b: "failed" });
+    expect(broadcasts(effects)).toEqual(["workflow_failed", "workflow_step_failed:b"]);
     expect(effects).toContainEqual({
       type: "broadcast",
       event: { type: "workflow_failed", workflowRunId: run.id, failedStep: "", error: "Cancelled by alice" },
     });
+  });
+
+  test("a swept step whose job fails after the run failed turns failed; the run stays as it is", () => {
+    const run = {
+      ...runOf(def, { steps: { a: "failed", b: "dead" } }),
+      status: "failed" as const,
+      failureReason: "Cancelled by alice",
+    };
+    const { patch, effects } = advance(run, def, { type: "stepFailed", slug: "b", reason: "Cancelled by alice" });
+    expect(patch).toEqual({ stepStatuses: { b: "failed" }, edgeStates: {}, stepResults: {} });
+    expect(effects).toEqual([]);
+  });
+
+  test("a failed job of a step that is not swept dead changes nothing once the run has ended", () => {
+    const run = { ...runOf(def, { steps: { a: "failed", b: "completed" } }), status: "failed" as const };
+    const { patch } = advance(run, def, { type: "stepFailed", slug: "b", reason: "late" });
+    expect(patch).toEqual({ stepStatuses: {}, edgeStates: {}, stepResults: {} });
   });
 
   test("cancelling an ended run changes nothing", () => {

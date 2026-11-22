@@ -183,7 +183,13 @@ const WORK_EFFECTS = new Set<RunEffect["type"]>(["dispatch", "evaluate", "regist
 export function advance(run: RunState, definition: DagWorkflowDefinition | undefined, event: RunEvent): Transition {
   const t = new TransitionBuilder(run);
   const slug = "slug" in event ? event.slug : null;
-  if (!t.active) {
+  if (!t.active && event.type === "stepFailed" && run.status === "failed" && t.statuses[event.slug] === "dead") {
+    // The run failed while this step's job was in flight (it swept the step
+    // dead), and the job has now failed too, e.g. cancelled by fail-fast: the
+    // step did run, so it failed. The run's status and reason stay. The queue
+    // already announced the failed job (workflow_step_failed).
+    t.setStatus(event.slug, "failed");
+  } else if (!t.active) {
     const subject = slug === null ? "" : ` of step "${slug}"`;
     t.log("warn", `DAG coordinator: run ${run.id} is "${run.status}", ignoring ${event.type}${subject}`);
   } else if (event.type === "stepFailed") {
@@ -275,7 +281,11 @@ class TransitionBuilder {
 
   /**
    * Fails the run at a step (or, with `null`, as a whole): drops pending work
-   * and sweeps every open step to dead.
+   * and settles every open step. A step waiting on a signal is interrupted
+   * and fails with `reason`. A running or pending step is dead: "running" does
+   * not tell whether its job was ever enqueued (the step is marked running
+   * before its dispatch). Once a swept step's job ends failed, the step turns
+   * failed after all (see {@link advance}).
    */
   fail(slug: string | null, reason: string): void {
     this.log("error", `DAG run ${this.runId} failed${slug === null ? "" : ` at step "${slug}"`}: ${reason}`);
@@ -284,7 +294,16 @@ class TransitionBuilder {
     this.setRunStatus("failed", reason);
     this.broadcast({ type: "workflow_failed", workflowRunId: this.runId, failedStep: slug ?? "", error: reason });
     for (const [s, status] of Object.entries(this.statuses)) {
-      if (status === "pending" || status === "running" || status === "waiting-signal") {
+      if (status === "waiting-signal") {
+        this.setStatus(s, "failed");
+        this.broadcast({
+          type: "workflow_step_failed",
+          workflowRunId: this.runId,
+          stepSlug: s,
+          jobId: "",
+          error: reason,
+        });
+      } else if (status === "pending" || status === "running") {
         this.setStatus(s, "dead");
         this.broadcast({ type: "workflow_step_dead", workflowRunId: this.runId, stepSlug: s });
       }

@@ -203,8 +203,9 @@ export async function handleDagStepFailure(
 }
 
 /**
- * Cancels a run: the kernel fails it as a whole (no failed step) and sweeps
- * every open step to dead; the fail-fast rule cancels its in-flight jobs.
+ * Cancels a run: the kernel fails it as a whole, fails the steps waiting on a
+ * signal and sweeps the running and pending ones dead; the fail-fast rule
+ * cancels its in-flight jobs, whose steps turn failed once the jobs end failed.
  * Waits and human tasks are withdrawn by the `workflow_failed` broadcast's
  * listener, as for every failed run.
  *

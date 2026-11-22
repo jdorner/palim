@@ -200,7 +200,8 @@ describe("cancel", () => {
     const run = dagRunStore.get(workflowRunId);
     expect(run?.status).toBe("failed");
     expect(run?.failureReason).toBe("Cancelled by alice");
-    expect(run?.stepStatuses).toEqual({ a: "dead", b: "dead", c: "dead" });
+    // The running step's job fails once cancelled, so the step fails; the others never started.
+    expect(run?.stepStatuses).toEqual({ a: "failed", b: "dead", c: "dead" });
     expect(harness.cancelledJobs).toEqual(jobIds);
     expect(harness.cancelReasons).toEqual(["Cancelled by alice"]);
     // Cancelling never deletes: the step job is failed and still listed.
@@ -229,7 +230,7 @@ describe("cancel", () => {
     const run = dagRunStore.get(workflowRunId);
     expect(run?.status).toBe("failed");
     expect(run?.failureReason).toBe("Cancelled");
-    expect(run?.stepStatuses.wait).toBe("dead");
+    expect(run?.stepStatuses.wait).toBe("failed");
     expect(signalTimers.activeCount()).toBe(0);
     expect(signalStore.getById(signal?.id ?? "")?.status).toBe("cancelled");
   });

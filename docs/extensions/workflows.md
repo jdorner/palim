@@ -230,7 +230,7 @@ Deliver a signal by its ID (`waitSignalId` of a waiting step in `GET /ext/workfl
 
 ### POST /ext/workflows/runs/:runId/cancel
 
-Cancel a running run, or one waiting on a signal or a human task. The run ends `failed` with the failure reason `Cancelled by <user>`, and its open steps are marked dead. Steps that are still queued or running are cancelled with the same reason: their jobs end `failed` and stay in the job queue. Waiting signals are withdrawn, their timeouts cleared, and open human tasks cancelled. The run and its jobs are kept; delete them with `DELETE`. Answers `404` for an unknown run and `409` for a run that has already ended.
+Cancel a running run, or one waiting on a signal or a human task. The run ends `failed` with the failure reason `Cancelled by <user>`. Steps it interrupts end `failed` too (a running step once its job has stopped, a step waiting on a signal at once); steps that never started are marked dead. Steps that are still queued or running are cancelled with the same reason: their jobs end `failed` and stay in the job queue. Waiting signals are withdrawn, their timeouts cleared, and open human tasks cancelled. The run and its jobs are kept; delete them with `DELETE`. Answers `404` for an unknown run and `409` for a run that has already ended.
 
 ### DELETE /ext/workflows/runs/:runId
 
