@@ -141,6 +141,20 @@
       "when": 1790760700000,
       "tag": "0020_add-session-message-client-id",
       "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "6",
+      "when": 1790760800000,
+      "tag": "0021_backfill-chat-client-ids",
+      "breakpoints": true
+    },
+    {
+      "idx": 22,
+      "version": "6",
+      "when": 1790760900000,
+      "tag": "0022_add-session-title",
+      "breakpoints": true
     }
   ]
 }

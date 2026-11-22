@@ -10,6 +10,7 @@
  */
 
 import type { AgentMessage } from "@mariozechner/pi-agent-core";
+import type { TranscriptSourceMessage } from "@shared/chatTranscript";
 import * as schema from "@src/db/schema";
 import { and, asc, desc, eq, gte, inArray, lt, notInArray, sql } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
@@ -23,6 +24,7 @@ import type {
   Session,
   SessionData,
   SessionStorePort,
+  SessionSummary,
   UserMessageMarker,
 } from "./types";
 
@@ -80,6 +82,7 @@ function rowToSession(row: typeof schema.sessions.$inferSelect): SessionData {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
     metadata,
+    title: row.title,
     totalInputTokens: row.totalInputTokens,
     totalOutputTokens: row.totalOutputTokens,
     totalCacheReadTokens: row.totalCacheReadTokens,
@@ -320,6 +323,7 @@ export class SessionStore implements SessionStorePort {
       createdAt: now,
       updatedAt: now,
       metadata: opts.metadata ?? null,
+      title: null,
       totalInputTokens: 0,
       totalOutputTokens: 0,
       totalCacheReadTokens: 0,
@@ -653,6 +657,115 @@ export class SessionStore implements SessionStorePort {
   }
 
   /**
+   * Reads a session's messages together with their `seq` and client IDs, for
+   * converting the session into chat UI messages (see `shared/chatTranscript.ts`).
+   *
+   * @param sessionId - The session to read from
+   * @returns The messages, ordered by `seq`
+   */
+  getTranscriptRows(sessionId: string): TranscriptSourceMessage[] {
+    return this.db
+      .select()
+      .from(schema.sessionMessages)
+      .where(eq(schema.sessionMessages.sessionId, sessionId))
+      .orderBy(asc(schema.sessionMessages.seq))
+      .all()
+      .map((row) => {
+        const msg = rowToAgentMessage(row) as unknown as { content: unknown; usage?: unknown };
+        return {
+          seq: row.seq,
+          clientId: row.clientId,
+          role: row.role,
+          content: msg.content,
+          timestamp: row.timestamp,
+          ...(msg.usage !== undefined ? { usage: msg.usage } : {}),
+        };
+      });
+  }
+
+  /**
+   * Summarizes a user's sessions of one source for listing them: the stored
+   * title, the first user message (to derive a title), and the last user
+   * message's client ID. Sessions without user messages are included.
+   *
+   * @param userId - The owning user
+   * @param source - The session source to list (e.g. "chat")
+   * @returns One summary per session, most recently updated first
+   */
+  listSessionSummaries(userId: string, source: string): SessionSummary[] {
+    return this.list({ userId, source }).map((session) => this.summarize(session));
+  }
+
+  /**
+   * Summarizes one session like {@link listSessionSummaries}.
+   *
+   * @param sessionId - The session
+   * @returns The summary
+   * @throws Error when the session does not exist
+   */
+  getSessionSummary(sessionId: string): SessionSummary {
+    const session = this.get(sessionId);
+    if (!session) throw new Error(`Session not found: ${sessionId}`);
+    return this.summarize(session);
+  }
+
+  /**
+   * Sets or clears the title of a session.
+   *
+   * @param sessionId - The session
+   * @param title - The new title, or `null` to derive it from the first user message again
+   */
+  setTitle(sessionId: string, title: string | null): void {
+    this.db
+      .update(schema.sessions)
+      .set({ title, updatedAt: Date.now() })
+      .where(eq(schema.sessions.id, sessionId))
+      .run();
+  }
+
+  /**
+   * Reads a session's first user message and the client ID of its last one.
+   *
+   * @param session - The session
+   * @returns The summary (`firstUserContent` is `""` and `lastUserSeq` 0 without user messages)
+   */
+  private summarize(session: SessionData): SessionSummary {
+    const userMessage = and(eq(schema.sessionMessages.sessionId, session.id), eq(schema.sessionMessages.role, "user"));
+    const first = this.db
+      .select({ content: schema.sessionMessages.content })
+      .from(schema.sessionMessages)
+      .where(userMessage)
+      .orderBy(asc(schema.sessionMessages.seq))
+      .limit(1)
+      .get();
+    const last = this.db
+      .select({ clientId: schema.sessionMessages.clientId, seq: schema.sessionMessages.seq })
+      .from(schema.sessionMessages)
+      .where(userMessage)
+      .orderBy(desc(schema.sessionMessages.seq))
+      .limit(1)
+      .get();
+    let firstUserContent: unknown = "";
+    if (first) {
+      try {
+        firstUserContent = JSON.parse(first.content);
+      } catch {
+        firstUserContent = first.content;
+      }
+    }
+    return {
+      id: session.id,
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      sourceId: session.sourceId,
+      title: session.title,
+      firstUserContent,
+      lastUserClientId: last?.clientId ?? null,
+      lastUserSeq: last?.seq ?? 0,
+    };
+  }
+
+  /**
    * Deletes every message whose `seq` is at least `fromSeq`, keeping the rows
    * before it untouched, and recomputes the session's token totals.
    *
@@ -692,29 +805,5 @@ export class SessionStore implements SessionStorePort {
 
     logger.debug(`Truncated session ${sessionId} from seq ${fromSeq} (${deleted} messages)`);
     return deleted;
-  }
-
-  /**
-   * Stores the client ID of a user message that was saved without one.
-   *
-   * Lets sessions written before client IDs existed pick them up as the UI
-   * refers to their messages.
-   *
-   * @param sessionId - The session
-   * @param seq - The user message's `seq`
-   * @param clientId - The client-generated message ID
-   */
-  setClientId(sessionId: string, seq: number, clientId: string): void {
-    this.db
-      .update(schema.sessionMessages)
-      .set({ clientId })
-      .where(
-        and(
-          eq(schema.sessionMessages.sessionId, sessionId),
-          eq(schema.sessionMessages.seq, seq),
-          eq(schema.sessionMessages.role, "user"),
-        ),
-      )
-      .run();
   }
 }

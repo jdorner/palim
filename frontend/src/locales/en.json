@@ -175,7 +175,9 @@
     "thinking": "Thinking",
     "thinkingActive": "Thinking...",
     "toggleThinking": "Toggle thinking",
-    "unknownError": "An unknown error occurred"
+    "unknownError": "An unknown error occurred",
+    "sessionResynced": "This conversation was changed elsewhere (another tab or device). It now shows the server's version; your last action was not applied.",
+    "renameFailed": "Could not rename the conversation on the server."
   },
   "common": {
     "actions": "Actions",

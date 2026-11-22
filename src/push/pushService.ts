@@ -10,6 +10,7 @@
 
 import type { WebSocketMessage } from "@shared/websocket";
 import { getSessionStore } from "@src/session";
+import type { NotifySessionChanged } from "@src/session/sessionEvents";
 import { resolveSessionChat } from "@src/web/sessionChatMap";
 import createLogger from "logging";
 import type { PushMessageOptions, PushMessageResult } from "./types";
@@ -22,6 +23,8 @@ const log = createLogger("PushService");
 export interface PushServiceDeps {
   /** Function to broadcast a WebSocket message to all connected clients. */
   broadcastFn: (message: WebSocketMessage) => void;
+  /** Announces the session change to the owner's other tabs and devices. */
+  notifySessionChanged?: NotifySessionChanged;
 }
 
 /**
@@ -63,6 +66,7 @@ export function createPushService(deps: PushServiceDeps) {
       contentType,
       timestamp: Date.now(),
     });
+    deps.notifySessionChanged?.(sessionId, "push");
 
     // If chatId found: broadcast and return "broadcast"
     if (chatId) {

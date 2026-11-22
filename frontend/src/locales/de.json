@@ -175,7 +175,9 @@
     "thinking": "Denkprozess",
     "thinkingActive": "Denkt nach...",
     "toggleThinking": "Denkprozess ein-/ausblenden",
-    "unknownError": "Ein unbekannter Fehler ist aufgetreten"
+    "unknownError": "Ein unbekannter Fehler ist aufgetreten",
+    "sessionResynced": "Diese Unterhaltung wurde woanders geändert (anderer Tab oder anderes Gerät). Sie zeigt jetzt den Stand des Servers; deine letzte Aktion wurde nicht ausgeführt.",
+    "renameFailed": "Die Unterhaltung konnte auf dem Server nicht umbenannt werden."
   },
   "common": {
     "actions": "Aktionen",

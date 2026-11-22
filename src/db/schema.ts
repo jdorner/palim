@@ -89,6 +89,8 @@ export const sessions = sqliteTable(
     updatedAt: integer("updated_at").notNull(),
     /** Optional JSON-encoded metadata. */
     metadata: text("metadata"),
+    /** Title the user gave the conversation (chat sessions); null derives it from the first user message. */
+    title: text("title"),
     /** Running total: sum of input tokens across all assistant messages. */
     totalInputTokens: integer("total_input_tokens").notNull().default(0),
     /** Running total: sum of output tokens across all assistant messages. */

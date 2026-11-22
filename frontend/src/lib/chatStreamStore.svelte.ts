@@ -7,7 +7,8 @@
  */
 
 import type { ChatWebSocketEvent } from "../../../shared/chat";
-import type { ApprovalRequestEvent, PushMessageEvent } from "../../../shared/websocket";
+import { summarizeToolCall, type TranscriptMessage } from "../../../shared/chatTranscript";
+import type { ApprovalRequestEvent, PushMessageEvent, SessionChangedEvent } from "../../../shared/websocket";
 import { authFetch } from "./auth";
 import { chatSendSync, conflictCode, truncateQuery } from "./chatSessionSync";
 import {
@@ -17,11 +18,14 @@ import {
   deleteConversation,
   deleteMessage,
   deleteMessagesFrom,
+  ensureMirrorConversation,
   generateTitle,
   getConversations,
   getMessages,
   type Message,
   type MessageSegment,
+  patchConversation,
+  replaceMessages,
   setChatStoreUser,
   updateConversationSessionId,
   updateConversationTitle,
@@ -30,42 +34,6 @@ import {
 import { translateCore as t } from "./i18nCore";
 import { readState } from "./readState.svelte";
 import { uuid } from "./utils";
-
-function truncateString(str: string, limit: number) {
-  if (str.length > limit) {
-    return `${str.substring(0, limit - 3)}...`;
-  }
-  return str;
-}
-
-/**
- * Extracts a human-readable summary from tool call arguments.
- * @param name - Tool name (e.g. "exec", "read_file")
- * @param args - Raw tool arguments from the WebSocket event
- * @returns A short summary string, or the tool name as fallback
- */
-function summarizeToolCall(name: string, args?: Record<string, unknown>): string {
-  if (!args) return name;
-
-  // Shell commands - show the command itself
-  if (name === "exec" && typeof args.command === "string") {
-    return args.command;
-  }
-
-  // File tools - show the path
-  if (typeof args.path === "string") {
-    return `${name} ${args.path}`;
-  }
-
-  // Fallback: show first string arg value
-  for (const val of Object.values(args)) {
-    if (typeof val === "string" && val.length > 0) {
-      return val;
-    }
-  }
-
-  return name;
-}
 
 /** A segment of streaming content: either a block of text, a thinking block, or a group of tool calls. */
 export type StreamSegment =
@@ -98,6 +66,25 @@ interface InFlightStream {
   } | null;
   /** The server-side session ID used for this stream. */
   sessionId: string | null;
+}
+
+/** A server chat session as `GET /api/sessions?source=chat` lists it. */
+export interface ServerChatSession {
+  id: string;
+  /** The ID every client gives the conversation mirroring this session. */
+  conversationId: string;
+  /** The title (`""` while the session has no user message). */
+  title: string;
+  /** Whether the user gave the title (else it is derived from the first user message). */
+  titleSet: boolean;
+  createdAt: number;
+  updatedAt: number;
+  lastUserClientId: string | null;
+}
+
+/** Body of `GET /api/sessions/:id/chat`. */
+interface ServerChatTranscript extends ServerChatSession {
+  messages: TranscriptMessage[];
 }
 
 /**
@@ -136,6 +123,27 @@ class ChatStreamStore {
 
   /** The user whose conversations are loaded (null when logged out or unknown). */
   private userId: string | null = null;
+
+  /**
+   * IDs this tab sent with its own session changes (chat IDs, truncation request
+   * IDs). `session_changed` events carrying one of them are this tab's own.
+   */
+  private ownOrigins = new Set<string>();
+
+  /** The resync running for each conversation, so resyncs of one conversation run in order. */
+  private resyncs = new Map<string, Promise<boolean>>();
+
+  /** The list sync in progress, if any (see {@link syncConversations}). */
+  private syncing: Promise<void> | null = null;
+
+  /**
+   * A conversation removed because its session went away on the server (another
+   * tab or device deleted it). The chat view leaves it when it is the open one.
+   */
+  removedConversationId = $state<string | null>(null);
+
+  /** Conversations removed because their session is gone; they can no longer be selected. */
+  private removedIds = new Set<string>();
 
   // -------------------------------------------------------------------------
   // Derived state for the active conversation's stream
@@ -204,6 +212,8 @@ class ChatStreamStore {
     this.streams = new Map();
     this.convToChatId = new Map();
     this.currentSessionId = null;
+    this.removedIds = new Set();
+    this.removedConversationId = null;
     this.activeStreamContent = "";
     this.activeStreamTool = null;
     this.activeStreamSegments = [];
@@ -232,6 +242,8 @@ class ChatStreamStore {
     // remounting every message (a fresh comark/rangi parse of each code block)
     // — the visible multi-flicker.
     if (id === this.loadingConversationId) return;
+    // Its session was deleted (the chat view is about to leave it).
+    if (this.removedIds.has(id)) return;
     if (id === this.activeConversationId && this.messages.length > 0) return;
 
     this.loadingConversationId = id;
@@ -267,6 +279,7 @@ class ChatStreamStore {
       // Restore persisted server-side session ID
       const conv = this.conversations.find((c) => c.id === id);
       this.currentSessionId = conv?.sessionId ?? null;
+      if (conv?.sessionId) void this.resyncIfStale(id, conv.sessionId, loaded);
     } catch (err) {
       console.error("Failed to load messages:", err);
       if (this.loadingConversationId === id) {
@@ -297,6 +310,11 @@ class ChatStreamStore {
    * @param title - New title.
    */
   async handleRename(id: string, title: string): Promise<void> {
+    const sessionId = this.conversations.find((c) => c.id === id)?.sessionId;
+    if (sessionId && !(await this.renameServerSession(sessionId, title))) {
+      this.error = t("chat.renameFailed");
+      return;
+    }
     await updateConversationTitle(id, title);
     await this.loadConversations();
   }
@@ -325,6 +343,273 @@ class ChatStreamStore {
       return null;
     }
     return this.activeConversationId;
+  }
+
+  // -------------------------------------------------------------------------
+  // Server sessions: list sync and resync
+  // -------------------------------------------------------------------------
+
+  /**
+   * Brings the conversation list in line with the user's chat sessions on the
+   * server, which are the source of truth:
+   * - a session no conversation mirrors gets one, under the ID every client
+   *   gives it (`conversationId`), with the session's timestamps, marked read;
+   *   its messages load when it is opened,
+   * - several conversations mirroring one session (left by earlier versions)
+   *   shrink to one,
+   * - a conversation whose session is gone is removed,
+   * - titles follow the server; a title renamed only in this browser before
+   *   the server kept titles is sent to the server instead.
+   *
+   * Conversations without a session (approval requests, chats not sent yet)
+   * are left alone. Concurrent calls share one run; runs in other tabs write
+   * the same records, so they cannot duplicate conversations either.
+   * @returns Resolves when the list is in sync (or the server could not be reached).
+   */
+  syncConversations(): Promise<void> {
+    this.syncing ??= this.runSync().finally(() => {
+      this.syncing = null;
+    });
+    return this.syncing;
+  }
+
+  /** Performs one list sync (see {@link syncConversations}). */
+  private async runSync(): Promise<void> {
+    let sessions: ServerChatSession[];
+    try {
+      const res = await authFetch("/api/sessions?source=chat");
+      if (!res.ok) return;
+      sessions = ((await res.json()) as { sessions: ServerChatSession[] }).sessions;
+    } catch (err) {
+      console.error("Failed to list chat sessions:", err);
+      return;
+    }
+
+    try {
+      const local = await getConversations();
+      const bySession = new Map<string, Conversation[]>();
+      for (const c of local) if (c.sessionId) bySession.set(c.sessionId, [...(bySession.get(c.sessionId) ?? []), c]);
+
+      for (const session of sessions) {
+        const mirrors = bySession.get(session.id) ?? [];
+        let conv: Conversation;
+        if (mirrors.length === 0) {
+          const ensured = await ensureMirrorConversation({
+            id: session.conversationId,
+            sessionId: session.id,
+            title: session.title || t("chat.newChat"),
+            createdAt: session.createdAt,
+            updatedAt: session.updatedAt,
+          });
+          if (ensured.created) readState.markRead(ensured.conversation.id);
+          conv = ensured.conversation;
+        } else {
+          // Keep the open one, else the one under the shared ID, else the oldest.
+          conv =
+            mirrors.find((c) => c.id === this.activeConversationId) ??
+            mirrors.find((c) => c.id === session.conversationId) ??
+            mirrors.reduce((a, b) => (b.createdAt < a.createdAt ? b : a));
+          for (const extra of mirrors) if (extra !== conv) await this.removeLocalConversation(extra.id);
+        }
+        if (session.titleSet || !session.title) {
+          if (session.title && session.title !== conv.title) await patchConversation(conv.id, { title: session.title });
+        } else if (conv.title !== session.title && conv.title !== t("chat.newChat")) {
+          await this.renameServerSession(session.id, conv.title);
+        }
+      }
+      const listed = new Set(sessions.map((s) => s.id));
+      for (const conv of local) {
+        if (conv.sessionId && !listed.has(conv.sessionId)) await this.removeLocalConversation(conv.id);
+      }
+    } catch (err) {
+      console.error("Failed to sync conversations:", err);
+    }
+    await this.loadConversations();
+  }
+
+  /**
+   * Removes a conversation from this browser only, because its server session
+   * is gone. Keeps it while a response for it is in flight.
+   * @param conversationId - The conversation to remove.
+   */
+  private async removeLocalConversation(conversationId: string): Promise<void> {
+    if (this.convToChatId.has(conversationId)) return;
+    this.removedIds.add(conversationId);
+    await deleteConversation(conversationId);
+    if (this.activeConversationId === conversationId) {
+      this.activeConversationId = null;
+      this.messages = [];
+      this.currentSessionId = null;
+    }
+    this.removedConversationId = conversationId;
+  }
+
+  /**
+   * Stores a conversation's title on its server session.
+   * @param sessionId - The server session.
+   * @param title - The title.
+   * @returns Whether the server took it.
+   */
+  private async renameServerSession(sessionId: string, title: string): Promise<boolean> {
+    try {
+      const res = await authFetch(`/api/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+      });
+      return res.ok;
+    } catch (err) {
+      console.error("Failed to rename server session:", err);
+      return false;
+    }
+  }
+
+  /**
+   * Replaces a conversation's messages with its server session's.
+   *
+   * Does nothing while the conversation has a response in flight; its end
+   * brings the conversation up to date on its own.
+   * @param conversationId - The conversation to resync.
+   * @returns Whether the conversation now matches the session.
+   */
+  resyncConversation(conversationId: string): Promise<boolean> {
+    const previous = this.resyncs.get(conversationId) ?? Promise.resolve(true);
+    const next = previous.then(() => this.runResync(conversationId));
+    this.resyncs.set(conversationId, next);
+    next.finally(() => {
+      if (this.resyncs.get(conversationId) === next) this.resyncs.delete(conversationId);
+    });
+    return next;
+  }
+
+  /**
+   * Performs one resync (see {@link resyncConversation}).
+   * @param conversationId - The conversation to resync.
+   * @returns Whether the conversation now matches the session.
+   */
+  private async runResync(conversationId: string): Promise<boolean> {
+    const conv = this.conversations.find((c) => c.id === conversationId);
+    if (!conv?.sessionId || this.convToChatId.has(conversationId)) return false;
+    const transcript = await this.fetchTranscript(conv.sessionId);
+    if (!transcript || this.convToChatId.has(conversationId)) return false;
+    try {
+      const stored = await replaceMessages(conversationId, transcript.messages, transcript.updatedAt);
+      if (this.activeConversationId === conversationId) {
+        this.messages = stored;
+        // The user sees the new state, so the bumped updatedAt is not unread.
+        if (this.chatVisible) readState.markRead(conversationId);
+      }
+      await this.loadConversations();
+      return true;
+    } catch (err) {
+      console.error("Failed to resync conversation:", err);
+      return false;
+    }
+  }
+
+  /**
+   * Handles a `session_changed` event: another tab or device (or a push)
+   * changed a session this browser shows, so resync its conversation.
+   *
+   * Skips the tab's own changes, sessions no conversation mirrors, and new
+   * messages the conversation already holds.
+   * @param event - The event from the server.
+   */
+  async handleSessionChanged(event: SessionChangedEvent): Promise<void> {
+    if (event.origin && this.ownOrigins.has(event.origin)) return;
+    const conv = this.conversations.find((c) => c.sessionId === event.sessionId);
+    if (!conv) {
+      // A session this browser does not know yet (started on another device).
+      if (event.reason !== "deleted") await this.syncConversations();
+      return;
+    }
+    if (event.reason === "deleted") {
+      await this.removeLocalConversation(conv.id);
+      await this.loadConversations();
+      return;
+    }
+    if (event.reason === "rename") {
+      if (event.title && event.title !== conv.title) {
+        await patchConversation(conv.id, { title: event.title });
+        await this.loadConversations();
+      }
+      return;
+    }
+    if (event.reason === "message") {
+      try {
+        const local = conv.id === this.activeConversationId ? this.messages : await getMessages(conv.id);
+        if ((local.findLast((m) => m.role === "user")?.id ?? null) === event.lastUserClientId) return;
+      } catch (err) {
+        console.error("Failed to read conversation:", err);
+      }
+    }
+    await this.resyncConversation(conv.id);
+  }
+
+  /**
+   * Resyncs a conversation when its last user message differs from the server
+   * session's, or the session changed since the conversation was last resynced.
+   * @param conversationId - The conversation just opened.
+   * @param sessionId - Its server session.
+   * @param messages - Its messages as loaded from IndexedDB.
+   */
+  private async resyncIfStale(conversationId: string, sessionId: string, messages: Message[]): Promise<void> {
+    try {
+      const res = await authFetch(`/api/sessions/${sessionId}`);
+      if (res.status === 404) {
+        // The session is gone (deleted while this browser did not hear of it).
+        await this.removeLocalConversation(conversationId);
+        await this.loadConversations();
+        return;
+      }
+      if (!res.ok) return;
+      const session = (await res.json()) as ServerChatSession;
+      const localLast = messages.findLast((m) => m.role === "user")?.id ?? null;
+      const syncedAt = this.conversations.find((c) => c.id === conversationId)?.syncedAt;
+      // Also when the session changed since the last resync (e.g. an answer finished while no tab was open).
+      if (session.lastUserClientId !== localLast || session.updatedAt !== syncedAt) {
+        await this.resyncConversation(conversationId);
+      }
+    } catch (err) {
+      console.error("Failed to check conversation sync:", err);
+    }
+  }
+
+  /**
+   * Fetches a server session converted into chat messages.
+   * @param sessionId - The server session.
+   * @returns The transcript, or `null` when the request failed.
+   */
+  private async fetchTranscript(sessionId: string): Promise<ServerChatTranscript | null> {
+    try {
+      const res = await authFetch(`/api/sessions/${sessionId}/chat`);
+      if (!res.ok) return null;
+      return (await res.json()) as ServerChatTranscript;
+    } catch (err) {
+      console.error("Failed to fetch session:", err);
+      return null;
+    }
+  }
+
+  /**
+   * Shows the message for a failed chat or session request; on a divergence,
+   * replaces the active conversation with the server's version.
+   * @param body - The parsed error response body.
+   * @param fallback - The message for errors that are no known conflict.
+   */
+  private async handleRequestError(body: unknown, fallback: string): Promise<void> {
+    const code = conflictCode(body);
+    if (code === "session_busy") {
+      this.error = t("chat.sessionBusy");
+      return;
+    }
+    if (code !== "session_diverged") {
+      this.error = fallback;
+      return;
+    }
+    const convId = this.activeConversationId;
+    this.error =
+      convId && (await this.resyncConversation(convId)) ? t("chat.sessionResynced") : t("chat.sessionDiverged");
   }
 
   // -------------------------------------------------------------------------
@@ -383,7 +668,7 @@ class ChatStreamStore {
       case "tool_start": {
         stream.activeTool = event.toolName ?? null;
         const name = event.toolName ?? "unknown";
-        const summary = truncateString(summarizeToolCall(name, event.toolArgs), 80);
+        const summary = summarizeToolCall(name, event.toolArgs);
         const toolEntry = { name, summary, running: true };
         const lastToolSeg = stream.segments[stream.segments.length - 1];
         if (lastToolSeg && lastToolSeg.type === "tools") {
@@ -688,6 +973,8 @@ class ChatStreamStore {
   private async startStream(userMsg: Message): Promise<void> {
     const chatId = uuid();
     const convId = this.activeConversationId!;
+    // The server announces this message and its response with the chat ID.
+    this.ownOrigins.add(chatId);
 
     // Register the stream in the map
     const stream: InFlightStream = {
@@ -713,6 +1000,8 @@ class ChatStreamStore {
       const payload: Record<string, string | number | null> = {
         message: userMsg.content,
         chatId,
+        // Names a new session, so every client mirrors it under this conversation's ID.
+        conversationId: convId,
         ...chatSendSync(this.messages, userMsg),
       };
       if (this.currentSessionId) {
@@ -741,8 +1030,8 @@ class ChatStreamStore {
         }
       } else {
         const body = await res.json().catch(() => ({ error: t("chat.requestFailed") }));
-        this.error = this.conflictMessage(body) ?? (body.error || `HTTP ${res.status}`);
         this.removeStream(chatId);
+        await this.handleRequestError(body, body.error || `HTTP ${res.status}`);
       }
     } catch {
       this.error = t("chat.sendFailed");
@@ -880,30 +1169,21 @@ class ChatStreamStore {
    */
   private async truncateServerSession(query: Record<string, string>): Promise<boolean> {
     if (!this.currentSessionId) return true;
+    const origin = uuid();
+    this.ownOrigins.add(origin);
     try {
-      const res = await authFetch(`/api/sessions/${this.currentSessionId}/messages?${new URLSearchParams(query)}`, {
-        method: "DELETE",
-      });
+      const res = await authFetch(
+        `/api/sessions/${this.currentSessionId}/messages?${new URLSearchParams({ ...query, origin })}`,
+        { method: "DELETE" },
+      );
       if (res.ok) return true;
       const body = await res.json().catch(() => null);
-      this.error = this.conflictMessage(body) ?? t("chat.syncFailed");
+      await this.handleRequestError(body, t("chat.syncFailed"));
     } catch (err) {
       console.error("Failed to truncate server session:", err);
       this.error = t("chat.syncFailed");
     }
     return false;
-  }
-
-  /**
-   * Translates a 409 body from the chat or session routes.
-   * @param body - The parsed response body.
-   * @returns The message to show, or `undefined` when the body is no known conflict.
-   */
-  private conflictMessage(body: unknown): string | undefined {
-    const code = conflictCode(body);
-    if (code === "session_busy") return t("chat.sessionBusy");
-    if (code === "session_diverged") return t("chat.sessionDiverged");
-    return undefined;
   }
 
   /**

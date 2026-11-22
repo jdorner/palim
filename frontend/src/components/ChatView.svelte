@@ -35,6 +35,15 @@ onDestroy(() => {
   chatStream.chatVisible = false;
 });
 
+// Leave a conversation whose session was deleted elsewhere (another tab or device).
+$effect(() => {
+  const removed = chatStream.removedConversationId;
+  if (!removed || removed !== conversationId) return;
+  const next = chatStream.conversations[0];
+  if (next) navigate("/chat/:conversationId", { params: { conversationId: next.id } });
+  else navigate("/chat");
+});
+
 // Sync route param changes to the store
 $effect(() => {
   if (conversationId && conversationId !== chatStream.activeConversationId) {

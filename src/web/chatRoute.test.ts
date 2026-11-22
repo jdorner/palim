@@ -18,6 +18,8 @@ describe("chat route identity stamping", () => {
   let app: ReturnType<typeof buildApp>;
   let aliceId: string;
   let lastJob: ChatJob | null = null;
+  /** Session changes the route announced: [sessionId, reason, origin]. */
+  const notified: [string, string, string | undefined][] = [];
 
   /** Jobs the fake queue reports as active (to simulate a running chat job). */
   let activeJobs: ChatJob[] = [];
@@ -36,7 +38,11 @@ describe("chat route identity stamping", () => {
   function buildApp() {
     return new Elysia()
       .onBeforeHandle((c) => authCheck(c as never, auth))
-      .use(chatRoutes(fakeQueue, createChatSessionGuard(fakeQueue)));
+      .use(
+        chatRoutes(fakeQueue, createChatSessionGuard(fakeQueue), undefined, (id, reason, origin) =>
+          notified.push([id, reason, origin]),
+        ),
+      );
   }
 
   async function seed(username: string): Promise<string> {
@@ -86,6 +92,25 @@ describe("chat route identity stamping", () => {
     const captured = lastJob as ChatJob | null;
     expect(captured?.initiatorUserId).toBe(aliceId);
     expect(captured?.sessionId).toBe(sessionId);
+    // Other tabs learn about the message; the chat ID lets the sender skip it.
+    expect(notified.at(-1)).toEqual([sessionId, "message", "conv-alice-1"]);
+  });
+
+  test("names a new session after the client's conversation ID, and finds it again by that ID", async () => {
+    const token = await login("alice");
+    const send = (chatId: string) =>
+      app.handle(
+        new Request("http://localhost/api/chat", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ message: "hello", chatId, conversationId: "conv-uuid-1" }),
+        }),
+      );
+    const first = (await (await send("chat-a")).json()) as { sessionId: string };
+    expect(sessions.get(first.sessionId)?.sourceId).toBe("conv-uuid-1");
+    // A retry without the session ID (the first response never arrived) lands in the same session.
+    const second = (await (await send("chat-b")).json()) as { sessionId: string };
+    expect(second.sessionId).toBe(first.sessionId);
   });
 
   test("rejects posting into another user's session with 404", async () => {
@@ -225,34 +250,28 @@ describe("chat route identity stamping", () => {
       expect(res.status).toBe(409);
     });
 
-    test("skips the predecessor check when the last user message predates client IDs", async () => {
+    test("a user message stored without client ID is matched by legacy-<seq>", async () => {
       const sessionId = await start("conv-ids-5");
-      sessions.append(sessionId, { role: "user", content: "legacy", timestamp: Date.now() } as never);
+      sessions.append(sessionId, { role: "user", content: "no id", timestamp: Date.now() } as never);
+      const legacyId = `legacy-${sessions.getUserMessageMarkers(sessionId).at(-1)!.seq}`;
+
+      const wrong = await post({
+        message: "next",
+        chatId: "x",
+        sessionId,
+        clientMessageId: "m3",
+        expectedLastClientId: "m1",
+      });
+      expect(wrong.status).toBe(409);
+
       const res = await post({
         message: "next",
         chatId: "x",
         sessionId,
         clientMessageId: "m3",
-        expectedLastClientId: "ui-legacy",
+        expectedLastClientId: legacyId,
       });
       expect(res.status).toBe(201);
-    });
-
-    test("resending a legacy last message reruns it and stores its client ID", async () => {
-      const sessionId = await start("conv-ids-7");
-      sessions.append(sessionId, { role: "user", content: "legacy", timestamp: Date.now() } as never);
-      sessions.append(sessionId, { role: "assistant", content: [], timestamp: Date.now() } as never);
-      const res = await post({
-        message: "legacy",
-        chatId: "x",
-        sessionId,
-        clientMessageId: "ui-2",
-        expectedLastClientId: "m1",
-        userTurnIndex: 1,
-      });
-      expect(res.status).toBe(201);
-      expect(roles(sessionId)).toEqual(["user", "assistant", "user"]);
-      expect(sessions.getUserMessageMarkers(sessionId).map((m) => m.clientId)).toEqual(["m1", "ui-2"]);
     });
 
     test("returns 409 while a chat job for the session is pending", async () => {

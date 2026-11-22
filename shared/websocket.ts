@@ -40,6 +40,34 @@ export interface PushMessageEvent {
   contentType: "text/markdown" | "text/plain";
 }
 
+/** Why a chat session changed (see {@link SessionChangedEvent}). */
+export type SessionChangeReason = "message" | "response" | "truncate" | "push" | "rename" | "deleted";
+
+/**
+ * A chat session changed on the server. Sent to the session's owner only, so
+ * other tabs and devices showing the conversation can resync it.
+ */
+export interface SessionChangedEvent {
+  /** Discriminator for the WebSocket message union. */
+  type: "session_changed";
+  /** The session's owner; the event reaches only this user's connections. */
+  userId: string;
+  /** The changed session. */
+  sessionId: string;
+  /** UI ID of the session's last user message, or `null` when it has none. */
+  lastUserClientId: string | null;
+  /** The session's title (see `sessionTitle`); `""` when it has none yet. */
+  title: string;
+  /** What changed. */
+  reason: SessionChangeReason;
+  /**
+   * ID the client chose for the request that caused the change (the chat ID of
+   * a message or response, or the truncation request's ID), so the tab that made
+   * the change can skip it. Absent for changes no client asked for (push).
+   */
+  origin?: string;
+}
+
 /** Union of all WebSocket message types the server can broadcast to clients. */
 export type WebSocketMessage =
   | { type: "initial_state"; jobs: JobEntry[] }
@@ -56,4 +84,5 @@ export type WebSocketMessage =
   | ExtensionLifecycleEvent
   | ExtensionSchemasChangedEvent
   | ExtensionUiEvent
-  | PushMessageEvent;
+  | PushMessageEvent
+  | SessionChangedEvent;

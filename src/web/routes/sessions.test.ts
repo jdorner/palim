@@ -1,5 +1,5 @@
 /**
- * Tests for the session routes DELETE endpoint turn-based truncation logic.
+ * Tests for the session routes DELETE endpoints (truncation by client message ID, deletion).
  *
  * Exercises the Elysia route handler via `.handle()` using a fresh
  * in-memory SQLite database for each test.
@@ -53,6 +53,9 @@ function textOf(msg: AgentMessage): string {
 const busy = new Set<string>();
 const guard: ChatSessionGuard = { claim: async (id) => !busy.has(id), release: () => {} };
 
+/** Session changes the routes announced: [sessionId, reason, origin]. */
+const notified: [string, string, string | undefined][] = [];
+
 /** Builds the session routes with every request authenticated as an admin. */
 function buildAdminApp() {
   const adminId = "test-admin";
@@ -65,10 +68,10 @@ function buildAdminApp() {
         ability: buildAbility({ userId: adminId, isAdmin: true, permissions: [] }),
       }),
     )
-    .use(sessionRoutes(guard));
+    .use(sessionRoutes(guard, (id, reason, origin) => notified.push([id, reason, origin])));
 }
 
-describe("DELETE /api/sessions/:id/messages (turn-based truncation)", () => {
+describe("DELETE /api/sessions/:id/messages", () => {
   let store: SessionStore;
   let app: ReturnType<typeof buildAdminApp>;
 
@@ -109,209 +112,24 @@ describe("DELETE /api/sessions/:id/messages (turn-based truncation)", () => {
     return app.handle(new Request(url, { method: "DELETE" }));
   }
 
-  // ---------------------------------------------------------------------------
-  // keep=0 (clear all)
-  // ---------------------------------------------------------------------------
+  test("a truncation that deletes messages is announced with the request's origin", async () => {
+    const id = store.create({ source: "chat" }).id;
+    store.append(id, userMsg("a"), { clientId: "u1" });
+    store.append(id, assistantMsg("b"));
+    notified.length = 0;
 
-  test("keep=0 clears all messages", async () => {
+    expect((await deleteMessages(id, { after: "u1", origin: "req-1" })).status).toBe(200);
+    expect(notified).toEqual([[id, "truncate", "req-1"]]);
+
+    // Nothing left to delete: nothing changed, nothing announced.
+    expect((await deleteMessages(id, { after: "u1", origin: "req-2" })).status).toBe(200);
+    expect(notified).toHaveLength(1);
+  });
+
+  test("without from or after, every message goes", async () => {
     const id = createTestSession();
-    const res = await deleteMessages(id, { keep: "0" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(id);
-    expect(messages.length).toBe(0);
-  });
-
-  test("no keep param clears all messages", async () => {
-    const id = createTestSession();
-    const res = await deleteMessages(id, {});
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(id);
-    expect(messages.length).toBe(0);
-  });
-
-  // ---------------------------------------------------------------------------
-  // keep N complete turns (without includeTrailing)
-  // ---------------------------------------------------------------------------
-
-  test("keep=1 keeps first complete turn (user + all assistant/tool responses)", async () => {
-    const id = createTestSession();
-    const res = await deleteMessages(id, { keep: "1" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(id);
-    // Turn 1: user₁, assistant₁, toolResult₁, assistant₁b = 4 messages
-    expect(messages.length).toBe(4);
-    expect(messages[0]!.role).toBe("user");
-    expect(textOf(messages[0]!)).toBe("hello");
-    expect(textOf(messages[3]!)).toBe("here you go");
-  });
-
-  test("keep=2 keeps first two complete turns", async () => {
-    const id = createTestSession();
-    const res = await deleteMessages(id, { keep: "2" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(id);
-    // Turn 1: 4 messages + Turn 2: user₂ + assistant₂ = 6 messages
-    expect(messages.length).toBe(6);
-    expect(textOf(messages[4]!)).toBe("thanks, now do X");
-    expect(textOf(messages[5]!)).toBe("done");
-  });
-
-  test("keep=3 keeps all messages (only 3 turns exist)", async () => {
-    const id = createTestSession();
-    const res = await deleteMessages(id, { keep: "3" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(id);
-    expect(messages.length).toBe(10);
-  });
-
-  test("keep exceeding turn count keeps everything", async () => {
-    const id = createTestSession();
-    const res = await deleteMessages(id, { keep: "99" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(id);
-    expect(messages.length).toBe(10);
-  });
-
-  // ---------------------------------------------------------------------------
-  // keep N turns + includeTrailing (keeps user message of next turn)
-  // ---------------------------------------------------------------------------
-
-  test("keep=1 + includeTrailing keeps turn 1 + user₂ only", async () => {
-    const id = createTestSession();
-    const res = await deleteMessages(id, { keep: "1", includeTrailing: "true" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(id);
-    // Turn 1 (4 msgs) + user₂ (1 msg) = 5 messages
-    expect(messages.length).toBe(5);
-    expect(messages[4]!.role).toBe("user");
-    expect(textOf(messages[4]!)).toBe("thanks, now do X");
-  });
-
-  test("keep=2 + includeTrailing keeps turns 1-2 + user₃ only", async () => {
-    const id = createTestSession();
-    const res = await deleteMessages(id, { keep: "2", includeTrailing: "true" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(id);
-    // Turn 1 (4) + Turn 2 (2) + user₃ (1) = 7 messages
-    expect(messages.length).toBe(7);
-    expect(messages[6]!.role).toBe("user");
-    expect(textOf(messages[6]!)).toBe("one more thing");
-  });
-
-  test("keep=0 + includeTrailing keeps only the first user message", async () => {
-    const id = createTestSession();
-    const res = await deleteMessages(id, { keep: "0", includeTrailing: "true" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(id);
-    expect(messages.length).toBe(1);
-    expect(messages[0]!.role).toBe("user");
-    expect(textOf(messages[0]!)).toBe("hello");
-  });
-
-  test("keep=3 + includeTrailing keeps everything (no 4th user message)", async () => {
-    const id = createTestSession();
-    const res = await deleteMessages(id, { keep: "3", includeTrailing: "true" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(id);
-    expect(messages.length).toBe(10);
-  });
-
-  // ---------------------------------------------------------------------------
-  // Use case: regenerate (keep N-1 complete turns + trailing user message)
-  // ---------------------------------------------------------------------------
-
-  test("regenerate turn 3: keep=2 + includeTrailing preserves user₃ without response", async () => {
-    const id = createTestSession();
-    const res = await deleteMessages(id, { keep: "2", includeTrailing: "true" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(id);
-    // Turns 1-2 complete + user₃ without its assistant response
-    expect(messages.length).toBe(7);
-    const last = messages[messages.length - 1]!;
-    expect(last.role).toBe("user");
-    expect(textOf(last)).toBe("one more thing");
-  });
-
-  test("regenerate turn 1: keep=0 + includeTrailing preserves user₁ without response", async () => {
-    const id = createTestSession();
-    const res = await deleteMessages(id, { keep: "0", includeTrailing: "true" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(id);
-    expect(messages.length).toBe(1);
-    expect(messages[0]!.role).toBe("user");
-    expect(textOf(messages[0]!)).toBe("hello");
-  });
-
-  // ---------------------------------------------------------------------------
-  // Use case: edit user₂ (keep turns before edited message)
-  // ---------------------------------------------------------------------------
-
-  test("edit user₂: keep=1 removes everything from turn 2 onward", async () => {
-    const id = createTestSession();
-    const res = await deleteMessages(id, { keep: "1" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(id);
-    // Only turn 1 remains
-    expect(messages.length).toBe(4);
-    expect(textOf(messages[messages.length - 1]!)).toBe("here you go");
-  });
-
-  // ---------------------------------------------------------------------------
-  // Use case: delete assistant₂ (keep 1 complete turn + trailing user₂)
-  // ---------------------------------------------------------------------------
-
-  test("delete assistant₂: keep=1 + includeTrailing keeps turn 1 + user₂", async () => {
-    const id = createTestSession();
-    const res = await deleteMessages(id, { keep: "1", includeTrailing: "true" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(id);
-    expect(messages.length).toBe(5);
-    const last = messages[messages.length - 1]!;
-    expect(last.role).toBe("user");
-    expect(textOf(last)).toBe("thanks, now do X");
-  });
-
-  // ---------------------------------------------------------------------------
-  // Edge case: single-turn session
-  // ---------------------------------------------------------------------------
-
-  test("single turn: keep=1 keeps everything", async () => {
-    const session = store.create({ source: "chat" });
-    store.append(session.id, userMsg("only message"));
-    store.append(session.id, assistantMsg("only response"));
-
-    const res = await deleteMessages(session.id, { keep: "1" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(session.id);
-    expect(messages.length).toBe(2);
-  });
-
-  test("single turn: keep=0 + includeTrailing keeps just user message", async () => {
-    const session = store.create({ source: "chat" });
-    store.append(session.id, userMsg("only message"));
-    store.append(session.id, assistantMsg("only response"));
-
-    const res = await deleteMessages(session.id, { keep: "0", includeTrailing: "true" });
-    expect(res.status).toBe(200);
-
-    const messages = store.getMessages(session.id);
-    expect(messages.length).toBe(1);
-    expect(messages[0]!.role).toBe("user");
+    expect((await deleteMessages(id, {})).status).toBe(200);
+    expect(store.getMessages(id).length).toBe(0);
   });
 
   // ---------------------------------------------------------------------------
@@ -319,7 +137,7 @@ describe("DELETE /api/sessions/:id/messages (turn-based truncation)", () => {
   // ---------------------------------------------------------------------------
 
   test("returns 404 for non-existent session", async () => {
-    const res = await deleteMessages("nonexistent-id", { keep: "1" });
+    const res = await deleteMessages("nonexistent-id", {});
     expect(res.status).toBe(404);
   });
 
@@ -327,7 +145,7 @@ describe("DELETE /api/sessions/:id/messages (turn-based truncation)", () => {
     const id = createTestSession();
     busy.add(id);
     try {
-      const res = await deleteMessages(id, { keep: "1" });
+      const res = await deleteMessages(id, {});
       expect(res.status).toBe(409);
       expect(((await res.json()) as { code: string }).code).toBe("session_busy");
       expect(store.getMessages(id).length).toBe(10);
@@ -386,37 +204,19 @@ describe("DELETE /api/sessions/:id/messages (by client message ID)", () => {
     expect(texts(id)).toEqual([]);
   });
 
-  test("an unknown ID in a session with IDs returns 409 and changes nothing", async () => {
+  test("an unknown ID returns 409 and changes nothing", async () => {
     const id = createSession();
-    const res = await deleteMessages(id, { from: "nope", keep: "1" });
+    const res = await deleteMessages(id, { from: "nope" });
     expect(res.status).toBe(409);
     expect(((await res.json()) as { code: string }).code).toBe("session_diverged");
     expect(texts(id).length).toBe(8);
   });
 
-  test("an unknown ID in a session with legacy messages falls back to counting turns", async () => {
-    const id = createSession([false, false, true]);
-    expect((await deleteMessages(id, { from: "ui-2", keep: "1" })).status).toBe(200);
-    expect(texts(id)).toEqual(["u1", "a1", "out", "a1'"]);
-  });
-
-  test("after on a legacy message stores its client ID", async () => {
-    const id = createSession([false, false, false]);
-    expect((await deleteMessages(id, { after: "ui-2", keep: "1", includeTrailing: "true" })).status).toBe(200);
+  test("a user message stored without client ID is found by legacy-<seq>", async () => {
+    const id = createSession([true, false, true]);
+    const seq = store.getUserMessageMarkers(id)[1]!.seq;
+    expect((await deleteMessages(id, { after: `legacy-${seq}` })).status).toBe(200);
     expect(texts(id)).toEqual(["u1", "a1", "out", "a1'", "u2"]);
-    expect(store.getUserMessageMarkers(id).map((m) => m.clientId)).toEqual([null, "ui-2"]);
-  });
-
-  test("an unknown ID without a count fallback returns 409 even with legacy messages", async () => {
-    const id = createSession([false, false, false]);
-    expect((await deleteMessages(id, { from: "ui-2" })).status).toBe(409);
-    expect(texts(id).length).toBe(8);
-  });
-
-  test("an ID stored in a mixed session is found directly", async () => {
-    const id = createSession([false, false, true]);
-    expect((await deleteMessages(id, { after: "c3", keep: "0" })).status).toBe(200);
-    expect(texts(id)).toEqual(["u1", "a1", "out", "a1'", "u2", "a2", "u3"]);
   });
 });
 
@@ -449,6 +249,14 @@ describe("DELETE /api/sessions/:id (session deletion)", () => {
 
     expect(store.get(session.id)).toBeUndefined();
     expect(store.getMessages(session.id)).toEqual([]);
+  });
+
+  test("announces the deletion", async () => {
+    const id = store.create({ source: "chat" }).id;
+    notified.length = 0;
+    const res = await app.handle(new Request(`http://localhost/api/sessions/${id}`, { method: "DELETE" }));
+    expect(res.status).toBe(200);
+    expect(notified).toEqual([[id, "deleted", undefined]]);
   });
 
   test("returns 404 for a non-existent session", async () => {

@@ -48,6 +48,7 @@ import type { ManagedQueuePort, QueueJob } from "@src/queue";
 import { closeLogStore, startLogPurgeTimer } from "@src/queue";
 import { SecretVault } from "@src/secrets/vault";
 import { deleteNonChatSessions, getSessionStore, startSessionPurgeTimer, stopSessionPurgeTimer } from "@src/session";
+import { createSessionChangeNotifier } from "@src/session/sessionEvents";
 import { SANDBOX_TOOL_NAMES } from "@src/tools/file";
 import type { SkillEntry } from "@src/tools/sandbox";
 import { createShell } from "@src/tools/sandbox";
@@ -562,10 +563,15 @@ export class AppBootstrap {
       }
     });
 
+    // A finished chat job (done, failed, or cancelled) changed its session:
+    // tell the owner's other tabs and devices.
+    const notifySessionChanged = createSessionChangeNotifier((event) => this.monitor.broadcast(event));
+
     this.chatQueue.onEvent("completed", async ({ job }) => {
       const data = job?.data as ChatJob | undefined;
       if (data?.sessionId) {
         unregisterSessionChat(data.sessionId);
+        notifySessionChanged(data.sessionId, "response", data.context?.id);
       }
     });
 
@@ -573,6 +579,7 @@ export class AppBootstrap {
       const data = job?.data as ChatJob | undefined;
       if (data?.sessionId) {
         unregisterSessionChat(data.sessionId);
+        notifySessionChanged(data.sessionId, "response", data.context?.id);
       }
     });
 

@@ -2,6 +2,10 @@
  * Session routes - provides REST endpoints for session inspection.
  *
  * Handles:
+ * - `GET    /api/sessions` (the caller's own sessions of one source, for importing chats)
+ * - `GET    /api/sessions/:id` (summary: title and last user message ID)
+ * - `PATCH  /api/sessions/:id` (rename)
+ * - `GET    /api/sessions/:id/chat` (the session converted into chat UI messages)
  * - `GET    /api/sessions/:id/messages`
  * - `DELETE /api/sessions/:id/messages`
  * - `DELETE /api/sessions/:id`
@@ -9,10 +13,13 @@
  * Note: Skill request routes are defined in `src/jobs/skillRequestQueue.ts`.
  */
 
+import { sessionTitle, sessionToChatMessages, userMessageId } from "@shared/chatTranscript";
 import { Type } from "@sinclair/typebox";
 import { ownedSubject } from "@src/auth";
 import { getSessionStore } from "@src/session";
-import { cutSeqForClientId, cutSeqForTurns, hasLegacyUserMessages, legacySeqForTurn } from "@src/session/chatSync";
+import { cutSeqForClientId } from "@src/session/chatSync";
+import type { NotifySessionChanged } from "@src/session/sessionEvents";
+import type { SessionSummary } from "@src/session/types";
 import { mainLogger as log } from "@src/utils/logger";
 import { Elysia } from "elysia";
 import { getPrincipal } from "../auth";
@@ -55,13 +62,80 @@ function requireOwnedSession(
 }
 
 /**
+ * Describes a session for the chat UI: its derived title and the client ID of
+ * its last user message, which the UI compares with its own copy.
+ *
+ * @param summary - The session summary from the store
+ * @returns The response body
+ */
+function describeSession(summary: SessionSummary) {
+  return {
+    id: summary.id,
+    // The ID every client gives the conversation mirroring this session.
+    conversationId: summary.sourceId ?? summary.id,
+    title: sessionTitle(summary.title, summary.firstUserContent),
+    // Whether the user gave the title (else it is derived from the first user message).
+    titleSet: summary.title !== null,
+    createdAt: summary.createdAt,
+    updatedAt: summary.updatedAt,
+    // The ID the converted transcript gives that message, so the UI compares like with like.
+    lastUserClientId: summary.lastUserSeq > 0 ? userMessageId(summary.lastUserClientId, summary.lastUserSeq) : null,
+  };
+}
+
+/**
  * Creates the session route group.
  *
  * @param sessionGuard - Claims a session while a request changes it (shared with the chat route)
+ * @param notifySessionChanged - Announces truncations to the owner's other tabs and devices
  * @returns Elysia plugin with session routes
  */
-export function sessionRoutes(sessionGuard: ChatSessionGuard) {
+export function sessionRoutes(sessionGuard: ChatSessionGuard, notifySessionChanged?: NotifySessionChanged) {
   return new Elysia()
+    .get(
+      "/api/sessions",
+      ({ query, request, status }) => {
+        const principal = getPrincipal(request);
+        if (!principal) return status(401, { error: "Unauthorized" });
+        try {
+          const sessions = getSessionStore().listSessionSummaries(principal.user.id, query.source).map(describeSession);
+          return { sessions };
+        } catch (error) {
+          log.error("Failed to list sessions", { error });
+          return status(500, { error: "Failed to list sessions" });
+        }
+      },
+      {
+        query: Type.Object({
+          source: Type.String({ minLength: 1, description: "Session source to list (e.g. 'chat')" }),
+        }),
+      },
+    )
+    .get("/api/sessions/:id", ({ params, request, status }) => {
+      try {
+        const sessionStore = getSessionStore();
+        const denied = requireOwnedSession(sessionStore, params.id, request, "read", status);
+        if (denied) return denied;
+        return describeSession(sessionStore.getSessionSummary(params.id));
+      } catch (error) {
+        log.error("Failed to read session", { error, sessionId: params.id });
+        return status(500, { error: "Failed to read session" });
+      }
+    })
+    .get("/api/sessions/:id/chat", ({ params, request, status }) => {
+      try {
+        const sessionStore = getSessionStore();
+        const denied = requireOwnedSession(sessionStore, params.id, request, "read", status);
+        if (denied) return denied;
+        return {
+          ...describeSession(sessionStore.getSessionSummary(params.id)),
+          messages: sessionToChatMessages(params.id, sessionStore.getTranscriptRows(params.id)),
+        };
+      } catch (error) {
+        log.error("Failed to convert session", { error, sessionId: params.id });
+        return status(500, { error: "Failed to read session" });
+      }
+    })
     .get(
       "/api/sessions/:id/messages",
       ({ params, query, request, status }) => {
@@ -100,37 +174,22 @@ export function sessionRoutes(sessionGuard: ChatSessionGuard) {
             return status(409, { error: "A response is still being generated for this session", code: "session_busy" });
           }
           try {
-            const markers = sessionStore.getUserMessageMarkers(params.id);
-            const keepTurns = query.keep ?? 0;
-            const includeTrailing = query.includeTrailing === "true";
             const target = query.from
               ? { clientId: query.from, mode: "from" as const }
               : query.after
                 ? { clientId: query.after, mode: "after" as const }
                 : undefined;
-
-            let cutSeq: number | undefined;
-            if (target) {
-              cutSeq = cutSeqForClientId(markers, target.clientId, target.mode);
-              if (cutSeq === undefined) {
-                // A message the session has no ID for: count turns if it predates
-                // client IDs, otherwise the UI and the session have diverged.
-                if (query.keep === undefined || !hasLegacyUserMessages(markers)) {
-                  return status(409, {
-                    error: "The conversation does not match the session",
-                    code: "session_diverged",
-                  });
-                }
-                cutSeq = cutSeqForTurns(markers, keepTurns, includeTrailing);
-                // The kept user message is the one the UI named: store its ID.
-                const backfillSeq = target.mode === "after" ? legacySeqForTurn(markers, keepTurns) : undefined;
-                if (backfillSeq !== undefined) sessionStore.setClientId(params.id, backfillSeq, target.clientId);
-              }
-            } else {
-              cutSeq = cutSeqForTurns(markers, keepTurns, includeTrailing);
+            // Without a target, everything goes.
+            const cutSeq = target
+              ? cutSeqForClientId(sessionStore.getUserMessageMarkers(params.id), target.clientId, target.mode)
+              : 0;
+            if (cutSeq === undefined) {
+              return status(409, { error: "The conversation does not match the session", code: "session_diverged" });
             }
 
-            if (cutSeq !== undefined) sessionStore.truncateFrom(params.id, cutSeq);
+            if (sessionStore.truncateFrom(params.id, cutSeq) > 0) {
+              notifySessionChanged?.(params.id, "truncate", query.origin);
+            }
             return status(200, { sessionId: params.id, ok: true });
           } finally {
             sessionGuard.release(params.id);
@@ -154,18 +213,36 @@ export function sessionRoutes(sessionGuard: ChatSessionGuard) {
               description: "Client ID of a user message: keep it, delete everything after it",
             }),
           ),
-          keep: Type.Optional(
-            Type.Number({
-              minimum: 0,
-              description:
-                "Number of complete turns to keep (a turn = user message + all following assistant/tool messages until the next user message). With from/after: fallback for sessions stored before client IDs",
-            }),
-          ),
-          includeTrailing: Type.Optional(
+          origin: Type.Optional(
             Type.String({
-              description: "If 'true', also keep the user message starting the next turn (without its response)",
+              minLength: 1,
+              description: "Client-chosen request ID, echoed in the session_changed event so the caller can skip it",
             }),
           ),
+        }),
+      },
+    )
+    .patch(
+      "/api/sessions/:id",
+      ({ params, body, request, status }) => {
+        try {
+          const sessionStore = getSessionStore();
+          const denied = requireOwnedSession(sessionStore, params.id, request, "update", status);
+          if (denied) return denied;
+          const title = body.title?.trim() || null;
+          sessionStore.setTitle(params.id, title);
+          notifySessionChanged?.(params.id, "rename");
+          return describeSession(sessionStore.getSessionSummary(params.id));
+        } catch (error) {
+          log.error("Failed to rename session", { error, sessionId: params.id });
+          return status(500, { error: "Failed to rename session" });
+        }
+      },
+      {
+        body: Type.Object({
+          title: Type.Union([Type.String({ maxLength: 200 }), Type.Null()], {
+            description: "The new title; null or blank derives it from the first user message again",
+          }),
         }),
       },
     )
@@ -175,6 +252,7 @@ export function sessionRoutes(sessionGuard: ChatSessionGuard) {
         const denied = requireOwnedSession(sessionStore, params.id, request, "delete", status);
         if (denied) return denied;
 
+        notifySessionChanged?.(params.id, "deleted");
         sessionStore.delete(params.id);
 
         return status(200, { sessionId: params.id, ok: true });

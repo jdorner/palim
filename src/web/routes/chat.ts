@@ -17,6 +17,7 @@ import type { ChatJob } from "@src/jobs";
 import type { ManagedQueuePort } from "@src/queue";
 import { getSessionStore } from "@src/session";
 import { planChatSend } from "@src/session/chatSync";
+import type { NotifySessionChanged } from "@src/session/sessionEvents";
 import { isLLMConnectionError } from "@src/utils/error";
 import { mainLogger as log } from "@src/utils/logger";
 import { Elysia } from "elysia";
@@ -30,30 +31,33 @@ import type { ChatSessionGuard } from "../chatSessionGuard";
  * @param sessionGuard - Claims a session while a request changes it (shared with the session routes)
  * @param registerChatOwner - Records the chat's owner before enqueueing so streamed
  *   output is scoped to them from the first event
+ * @param notifySessionChanged - Announces the new message to the owner's other tabs and devices
  * @returns Elysia plugin with chat routes
  */
 export function chatRoutes(
   chatQueue: ManagedQueuePort<ChatJob>,
   sessionGuard: ChatSessionGuard,
   registerChatOwner?: (chatId: string, userId: string | null) => void,
+  notifySessionChanged?: NotifySessionChanged,
 ) {
   return new Elysia().post(
     "/api/chat",
     async ({ body, request, status }) => {
       try {
         const sessionStore = getSessionStore();
-        const { message, chatId, sessionId: requestedSessionId } = body;
+        const { message, chatId, sessionId: requestedSessionId, conversationId } = body;
 
         const principal = getPrincipal(request);
         const initiatorUserId = principal?.user.id;
 
-        // Resolve the target session: by explicit ID, or by chat ID (which may
-        // match an existing session, possibly owned by someone else).
+        // Resolve the target session: by explicit ID, or by the client's
+        // conversation ID (falling back to the chat ID), which may match an
+        // existing session, possibly owned by someone else.
         const session = requestedSessionId
           ? sessionStore.get(requestedSessionId)
           : sessionStore.getOrCreate({
               source: "chat",
-              sourceId: chatId,
+              sourceId: conversationId ?? chatId,
               ...(initiatorUserId ? { userId: initiatorUserId } : {}),
             });
         if (!session) {
@@ -78,7 +82,6 @@ export function chatRoutes(
                 sessionStore.getUserMessageMarkers(sessionId),
                 clientMessageId,
                 body.expectedLastClientId ?? null,
-                body.userTurnIndex,
               )
             : ({ kind: "append" } as const);
           if (plan.kind === "diverged") {
@@ -87,9 +90,6 @@ export function chatRoutes(
           if (plan.kind === "rerun") {
             // The message already arrived (retry or regenerate): drop whatever followed it.
             sessionStore.truncateFrom(sessionId, plan.cutSeq);
-            if (plan.backfillSeq !== undefined && clientMessageId) {
-              sessionStore.setClientId(sessionId, plan.backfillSeq, clientMessageId);
-            }
           } else {
             sessionStore.append(
               sessionId,
@@ -111,6 +111,7 @@ export function chatRoutes(
           sessionGuard.release(sessionId);
         }
 
+        notifySessionChanged?.(sessionId, "message", chatId);
         log.info("Chat job enqueued", { jobId, chatId, sessionId });
         return status(201, { jobId, sessionId });
       } catch (error) {
@@ -128,18 +129,18 @@ export function chatRoutes(
         message: Type.String({ minLength: 1, description: "The user message to send" }),
         chatId: Type.String({ minLength: 1, description: "Client-generated conversation correlation ID" }),
         sessionId: Type.Optional(Type.String({ description: "Existing session ID" })),
+        conversationId: Type.Optional(
+          Type.String({
+            minLength: 1,
+            description:
+              "Client-generated conversation ID; without sessionId it names the session (its sourceId), so every client mirrors the session under the same ID",
+          }),
+        ),
         clientMessageId: Type.Optional(
           Type.String({
             minLength: 1,
             description:
               "Client-generated ID of this user message. Resending the session's last user message reruns it instead of appending",
-          }),
-        ),
-        userTurnIndex: Type.Optional(
-          Type.Integer({
-            minimum: 0,
-            description:
-              "Zero-based position of this message among the client's user messages; identifies a resent message in sessions stored before client IDs",
           }),
         ),
         expectedLastClientId: Type.Optional(

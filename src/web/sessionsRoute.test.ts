@@ -113,4 +113,119 @@ describe("session routes ownership", () => {
     expect(res.status).toBe(200);
     expect(sessions.get(session.id)).toBeUndefined();
   });
+
+  /** Sends an authenticated GET and returns status and JSON body. */
+  async function get(path: string, username: string): Promise<{ status: number; body: any }> {
+    const token = await login(username);
+    const res = await app.handle(
+      new Request(`http://localhost${path}`, { headers: { Authorization: `Bearer ${token}` } }),
+    );
+    return { status: res.status, body: await res.json().catch(() => null) };
+  }
+
+  test("GET /api/sessions lists all the caller's sessions of the source, with a derived title", async () => {
+    const mine = sessions.create({ source: "chat", sourceId: "list-mine", userId: aliceId });
+    sessions.append(mine.id, { role: "user", content: "  Hello there  ", timestamp: 1 }, { clientId: "c1" });
+    sessions.append(mine.id, { role: "user", content: "second", timestamp: 2 }, { clientId: "c2" });
+    const empty = sessions.create({ source: "chat", sourceId: "list-empty", userId: aliceId });
+    const other = sessions.create({ source: "chat", sourceId: "list-bob", userId: bobId });
+    sessions.append(other.id, { role: "user", content: "bob's", timestamp: 1 }, { clientId: "b1" });
+    const telegram = sessions.create({ source: "telegram", sourceId: "list-tg", userId: aliceId });
+    sessions.append(telegram.id, { role: "user", content: "tg", timestamp: 1 });
+
+    const { status, body } = await get("/api/sessions?source=chat", "alice");
+    expect(status).toBe(200);
+    const ids = body.sessions.map((s: { id: string }) => s.id);
+    expect(ids).toContain(mine.id);
+    expect(body.sessions.find((s: { id: string }) => s.id === empty.id)).toMatchObject({
+      title: "",
+      lastUserClientId: null,
+    });
+    expect(ids).not.toContain(other.id);
+    expect(ids).not.toContain(telegram.id);
+    expect(body.sessions.find((s: { id: string }) => s.id === mine.id)).toMatchObject({
+      conversationId: "list-mine",
+      title: "Hello there",
+      lastUserClientId: "c2",
+    });
+  });
+
+  test("GET /api/sessions requires a source", async () => {
+    expect((await get("/api/sessions", "alice")).status).toBe(422);
+  });
+
+  test("GET /api/sessions/:id/chat converts the session for its owner only", async () => {
+    const session = sessions.create({ source: "chat", sourceId: "chat-convert", userId: aliceId });
+    sessions.append(session.id, { role: "user", content: "hi", timestamp: 1 }, { clientId: "u1" });
+    sessions.append(session.id, {
+      role: "assistant",
+      content: [{ type: "text", text: "hello" }],
+      timestamp: 2,
+      usage: { input: 3, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 4 },
+    } as never);
+
+    const own = await get(`/api/sessions/${session.id}/chat`, "alice");
+    expect(own.status).toBe(200);
+    expect(own.body).toMatchObject({ id: session.id, title: "hi", lastUserClientId: "u1" });
+    expect(own.body.messages).toEqual([
+      { id: "u1", role: "user", content: "hi", createdAt: 1 },
+      {
+        id: "u1:reply",
+        role: "assistant",
+        content: "hello",
+        createdAt: 2,
+        segments: [{ type: "text", content: "hello" }],
+        usage: { input: 3, output: 1, cacheRead: 0, cacheWrite: 0, totalTokens: 4 },
+      },
+    ]);
+
+    expect((await get(`/api/sessions/${session.id}/chat`, "bob")).status).toBe(404);
+  });
+
+  test("GET /api/sessions/:id returns the summary for its owner only", async () => {
+    const session = sessions.create({ source: "chat", sourceId: "summary", userId: aliceId });
+    const empty = await get(`/api/sessions/${session.id}`, "alice");
+    expect(empty.body).toMatchObject({ id: session.id, title: "", lastUserClientId: null });
+
+    sessions.append(session.id, { role: "user", content: "q", timestamp: 1 }, { clientId: "u9" });
+    expect((await get(`/api/sessions/${session.id}`, "alice")).body.lastUserClientId).toBe("u9");
+    expect((await get(`/api/sessions/${session.id}`, "bob")).status).toBe(404);
+  });
+
+  test("a user message stored without client ID is reported with the ID the transcript gives it", async () => {
+    const session = sessions.create({ source: "chat", sourceId: "summary-legacy", userId: aliceId });
+    sessions.append(session.id, { role: "user", content: "old", timestamp: 1 });
+    const summary = await get(`/api/sessions/${session.id}`, "alice");
+    const chat = await get(`/api/sessions/${session.id}/chat`, "alice");
+    expect(summary.body.lastUserClientId).toBe(chat.body.messages[0].id);
+    expect(summary.body.lastUserClientId).toMatch(/^legacy-\d+$/);
+  });
+
+  test("PATCH /api/sessions/:id renames the owner's session; null derives the title again", async () => {
+    const session = sessions.create({ source: "chat", sourceId: "rename", userId: aliceId });
+    sessions.append(session.id, { role: "user", content: "first words", timestamp: 1 }, { clientId: "u1" });
+    const patch = async (username: string, title: string | null) => {
+      const token = await login(username);
+      return app.handle(
+        new Request(`http://localhost/api/sessions/${session.id}`, {
+          method: "PATCH",
+          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ title }),
+        }),
+      );
+    };
+
+    const renamed = await patch("alice", "  My chat ");
+    expect(renamed.status).toBe(200);
+    expect(await renamed.json()).toMatchObject({ title: "My chat", titleSet: true });
+    expect((await get(`/api/sessions/${session.id}`, "alice")).body.title).toBe("My chat");
+
+    expect((await patch("bob", "hijack")).status).toBe(404);
+
+    await patch("alice", null);
+    expect((await get(`/api/sessions/${session.id}`, "alice")).body).toMatchObject({
+      title: "first words",
+      titleSet: false,
+    });
+  });
 });

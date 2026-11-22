@@ -122,6 +122,21 @@ describe("QueueMonitor chat stream scoping", () => {
     expect(admin.messages.length).toBe(0);
   });
 
+  test("session_changed is delivered only to the session owner, not to admins", () => {
+    const { monitor, alice, bob, admin } = setup();
+    monitor.broadcast({
+      type: "session_changed",
+      userId: "alice",
+      sessionId: "s1",
+      lastUserClientId: "u1",
+      title: "t",
+      reason: "response",
+    });
+    expect(alice.messages.length).toBe(1);
+    expect(bob.messages.length).toBe(0);
+    expect(admin.messages.length).toBe(0);
+  });
+
   test("chat events for unknown or ownerless chats reach no one", () => {
     const { monitor, alice, admin } = setup();
     monitor.registerChatOwner("chat-orphan", null);
