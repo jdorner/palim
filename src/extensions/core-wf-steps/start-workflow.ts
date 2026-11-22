@@ -214,6 +214,8 @@ export function createStartWorkflowHandler(dispatch: WorkflowDispatchFn, listNam
         payload = parsePayload(resolved);
       }
 
+      // A step cancelled while resolving its templates must not start the run.
+      ctx.signal?.throwIfAborted();
       await ctx.jobLog(`Starting workflow "${trimmedName}" (fire-and-forget)`);
 
       // Fire-and-forget: dispatch resolves once the run is created and its jobs

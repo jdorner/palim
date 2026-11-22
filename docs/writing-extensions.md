@@ -774,7 +774,7 @@ export default extension;
 
 ### Cancellation
 
-Cancelling a running job (the Job Queues page, the chat's stop button, or a failing workflow run) aborts `job.signal`. `ctx.agent.run` watches it: it aborts the LLM request, logs the reason (e.g. `Cancelled by alice`), and throws it, so the job ends `failed` and nothing is appended to the session. Let that error propagate. A processor that does other long work (`fetch`, subprocesses) should pass `job.signal` on or check it, and throw `job.signal.reason` once it is aborted.
+Cancelling a running job (the Job Queues page, the chat's stop button, or a failing workflow run) aborts `job.signal`. `ctx.agent.run` watches it: it aborts the LLM request, logs the reason (e.g. `Cancelled by alice`), and throws it, so the job ends `failed` and nothing is appended to the session. Let that error propagate. A processor that does other long work (`fetch`, subprocesses) should pass `job.signal` on or check it, and throw `job.signal.reason` once it is aborted. Code that waits for a job on another queue (as the `convert` step waits for its conversion job) should cancel that job with `cancelJob` when its own signal aborts; otherwise the other job keeps running.
 
 For fire-and-forget agent jobs, use `ctx.agent.enqueue()`:
 

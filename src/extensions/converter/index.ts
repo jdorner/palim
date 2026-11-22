@@ -184,7 +184,7 @@ function cleanupTempFiles(tempFiles: string[]): void {
 
 const manifest = {
   name: "converter",
-  version: "1.3.0",
+  version: "1.3.1",
   description: "Converts files (PDFs, images) to markdown via vision LLM",
   settingsSchema: Type.Object({
     resizeImagePx: Type.Number({
@@ -218,46 +218,74 @@ export function createExtension(): Extension {
   };
 
   /**
-   * Enqueues a conversion job and waits for its result.
+   * Enqueues a conversion job and waits for its result. A timeout or an abort
+   * of `signal` cancels the job, so its LLM request stops as well.
    *
    * @param inputs - Resolved inputs (temp files), converted as one document
    * @param prompt - Optional prompt replacing the default OCR instructions
    * @param timeoutMs - How long to wait for the job
+   * @param signal - Cancels the conversion when aborted
    * @returns The job result
-   * @throws When the job fails, times out, or the extension shuts down
+   * @throws When the job fails, times out, the extension shuts down, or `signal` aborts (its reason)
    */
   async function enqueueAndWait(
     inputs: ConvertInput[],
     prompt: string | undefined,
     timeoutMs: number,
+    signal?: AbortSignal,
   ): Promise<ConvertJobResult> {
+    signal?.throwIfAborted();
+    const queue = mutableState.queue!;
     const label =
       inputs.length === 1
         ? inputs[0]!.displayName
         : `${inputs.length} inputs (${inputs.map((input) => input.displayName).join(", ")})`;
     const jobData: ConvertJobData = { inputs };
     if (prompt) jobData.prompt = prompt;
-    const jobId = await mutableState.queue!.add(`Convert: ${label}`, jobData);
+    const jobId = await queue.add(`Convert: ${label}`, jobData);
 
     return new Promise<ConvertJobResult>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        mutableState.pending.delete(jobId);
-        reject(new Error("Conversion timed out"));
-      }, timeoutMs);
-      mutableState.pending.set(jobId, { resolve, reject, timer });
+      /** Stops waiting and cancels the job, so its work stops too. */
+      const abandon = (error: Error): void => {
+        if (!mutableState.pending.delete(jobId)) return;
+        clearTimeout(timer);
+        signal?.removeEventListener("abort", onAbort);
+        reject(error);
+        queue.cancelJob(jobId, error.message).catch((err: unknown) => {
+          logger.warn(`Could not cancel conversion job ${jobId}:`, err);
+        });
+      };
+      const onAbort = (): void => {
+        const reason: unknown = signal?.reason;
+        abandon(reason instanceof Error ? reason : new Error(String(reason ?? "Cancelled")));
+      };
+      const timer = setTimeout(() => abandon(new Error("Conversion timed out")), timeoutMs);
+      mutableState.pending.set(jobId, {
+        resolve: (result) => {
+          signal?.removeEventListener("abort", onAbort);
+          resolve(result);
+        },
+        reject: (error) => {
+          signal?.removeEventListener("abort", onAbort);
+          reject(error);
+        },
+        timer,
+      });
+      if (signal?.aborted) onAbort();
+      else signal?.addEventListener("abort", onAbort, { once: true });
     });
   }
 
   /** Bound in `initialize` (needs the extension config for the timeout). */
-  let runConversion: (inputs: ConvertInput[], prompt?: string) => Promise<ConvertJobResult>;
+  let runConversion: (inputs: ConvertInput[], prompt?: string, signal?: AbortSignal) => Promise<ConvertJobResult>;
 
   return {
     manifest,
 
     async initialize(ctx: ExtensionContext) {
       logger = ctx.log;
-      runConversion = (inputs, prompt) =>
-        enqueueAndWait(inputs, prompt, ctx.config.get<number>("CONVERSION_TIMEOUT_MS", 5 * 60 * 1000));
+      runConversion = (inputs, prompt, signal) =>
+        enqueueAndWait(inputs, prompt, ctx.config.get<number>("CONVERSION_TIMEOUT_MS", 5 * 60 * 1000), signal);
 
       // --- Conversion queue ---
       mutableState.queue = ctx.queues.create<ConvertJobData, ConvertJobResult>(
@@ -278,6 +306,7 @@ export function createExtension(): Extension {
           // A single input may itself yield multiple parts (e.g. multi-page PDF).
           const imageParts: Awaited<ReturnType<typeof buildImageParts>> = [];
           for (const input of inputs) {
+            job.signal?.throwIfAborted();
             const parts = await buildImageParts(input.filePath, resizeImagePx);
             imageParts.push(...parts);
           }
@@ -372,11 +401,11 @@ export function createExtension(): Extension {
       // --- `convert` workflow step: a work-dir file to markdown, no agent step needed ---
       ctx.stepTypes.register(
         "convert",
-        createConvertStepHandler(async (bytes, filename, prompt) => {
+        createConvertStepHandler(async (bytes, filename, prompt, signal) => {
           const resolved = await resolveBytesInput(bytes, filename);
           if (!resolved.ok) throw new Error(String(resolved.body.error));
           try {
-            return (await runConversion([resolved.input], prompt)).markdown;
+            return (await runConversion([resolved.input], prompt, signal)).markdown;
           } finally {
             cleanupTempFiles([resolved.tempFile]);
           }
@@ -427,7 +456,8 @@ export function createExtension(): Extension {
 
           let result: ConvertJobResult;
           try {
-            result = await runConversion(inputs, payload.prompt);
+            // A client that disconnects cancels its conversion.
+            result = await runConversion(inputs, payload.prompt, elysiaCtx.request.signal);
           } finally {
             cleanupTempFiles(tempFiles);
           }

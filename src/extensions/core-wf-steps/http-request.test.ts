@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { StepExecutionContext } from "@ext/types";
 import { createHttpRequestHandler } from "./http-request";
 
 /**
@@ -23,5 +24,25 @@ describe("createHttpRequestHandler", () => {
       expect(handler.outputSchema).toBeDefined();
       expect(outputSchemaKeys(handler.outputSchema)).toEqual(["body", "status"]);
     });
+  });
+});
+
+describe("http-request cancellation", () => {
+  test("cancelling the step aborts a hanging request with the cancel reason", async () => {
+    const server = Bun.serve({ port: 0, fetch: () => new Promise<Response>(() => {}) });
+    try {
+      const controller = new AbortController();
+      const ctx = {
+        resolveTemplate: async (template: string) => ({ resolved: template, warnings: [] }),
+        jobLog: async () => {},
+        signal: controller.signal,
+      } as unknown as StepExecutionContext;
+      const running = createHttpRequestHandler().execute({ url: server.url.href, method: "GET" }, ctx);
+      setTimeout(() => controller.abort(new Error("Cancelled by alice")), 20);
+
+      await expect(running).rejects.toThrow("Cancelled by alice");
+    } finally {
+      server.stop(true);
+    }
   });
 });

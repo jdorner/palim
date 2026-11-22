@@ -55,10 +55,16 @@ export interface ConvertStepResult {
  * @param bytes - The file content
  * @param filename - Display name of the file (for logs and job labels)
  * @param prompt - Optional prompt replacing the default OCR instructions
+ * @param signal - Cancels the conversion (its job is cancelled too) when aborted
  * @returns The markdown
- * @throws When the file type is unsupported or the conversion fails
+ * @throws When the file type is unsupported, the conversion fails, or `signal` aborts (its reason)
  */
-export type ConvertBytesFn = (bytes: Uint8Array, filename: string, prompt?: string) => Promise<string>;
+export type ConvertBytesFn = (
+  bytes: Uint8Array,
+  filename: string,
+  prompt?: string,
+  signal?: AbortSignal,
+) => Promise<string>;
 
 /**
  * Resolves a template field and logs its warnings to the job.
@@ -119,7 +125,7 @@ export function createConvertStepHandler(convertBytes: ConvertBytesFn): StepType
       }
 
       await ctx.jobLog(`Converting ${file} (${bytes.byteLength} bytes)`);
-      const markdown = await convertBytes(bytes, basename(file), prompt || undefined);
+      const markdown = await convertBytes(bytes, basename(file), prompt || undefined, ctx.signal);
 
       let output: string | null = null;
       if (config.output) {
