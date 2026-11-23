@@ -3,18 +3,18 @@ import ArrowsClockwiseIcon from "phosphor-svelte/lib/ArrowsClockwiseIcon";
 import ClipboardTextIcon from "phosphor-svelte/lib/ClipboardTextIcon";
 import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
-import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import NotificationBanner from "$lib/components/NotificationBanner.svelte";
 import ToggleSwitch from "$lib/components/ToggleSwitch.svelte";
-import { AlertDialog } from "$lib/components/ui/alert-dialog";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Card, CardContent, CardHeader } from "$lib/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { t } from "$lib/i18n.svelte";
 import { formatTimestamp } from "$lib/utils";
+import DeleteButton from "../components/DeleteButton.svelte";
+import IconAction from "../components/IconAction.svelte";
 
 interface McpServer {
   name: string;
@@ -49,7 +49,6 @@ let formError = $state<string | null>(null);
 let submitting = $state(false);
 
 // Delete confirmation state
-let confirmDeleteName = $state<string | null>(null);
 
 // Import form state
 let showImportForm = $state(false);
@@ -86,15 +85,10 @@ async function syncServer(name: string) {
   }
 }
 
-async function deleteServer(name: string) {
-  try {
-    const resp = await authFetch(`/ext/mcp/servers/${name}`, { method: "DELETE" });
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    if (editingName === name) resetForm();
-    await loadServers();
-  } catch (err) {
-    error = t("mcp.deleteFailed", { error: err instanceof Error ? err.message : String(err) });
-  }
+/** Reloads the list after a deletion (the DELETE itself is sent by DeleteButton). */
+async function handleDeleted(name: string) {
+  if (editingName === name) resetForm();
+  await loadServers();
 }
 
 async function toggleEnabled(server: McpServer) {
@@ -283,6 +277,28 @@ $effect(() => {
   loadServers();
 });
 </script>
+
+<!-- Row actions: Sync (outline), Edit, Delete rightmost -->
+{#snippet actions(server: McpServer)}
+  <Button
+    size="sm"
+    variant="outline"
+    class="whitespace-nowrap"
+    disabled={syncing === server.name}
+    onclick={() => syncServer(server.name)}
+  >
+    <ArrowsClockwiseIcon size={14} class="mr-1.5 {syncing === server.name ? "animate-spin" : ""}" aria-hidden="true" />
+    {t("mcp.sync")}
+  </Button>
+  <IconAction label={t("common.edit")} icon={PencilSimpleIcon} onclick={() => openEditForm(server)} />
+  <DeleteButton
+    url="/ext/mcp/servers/{server.name}"
+    confirmTitle={t("mcp.deleteTitle")}
+    confirmMessage={t("mcp.deleteConfirm", { name: server.name })}
+    iconOnly
+    onDeleted={() => handleDeleted(server.name)}
+  />
+{/snippet}
 
 {#snippet serverForm()}
   <Card class="bg-accent">
@@ -486,27 +502,7 @@ $effect(() => {
           <hr>
 
           <div class="flex flex-wrap items-center gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={syncing === server.name}
-              onclick={() => syncServer(server.name)}
-            >
-              <ArrowsClockwiseIcon
-                size={14}
-                class="mr-1.5 {syncing === server.name ? "animate-spin" : ""}"
-                aria-hidden="true"
-              />
-              {t("mcp.sync")}
-            </Button>
-            <Button size="sm" variant="outline" onclick={() => openEditForm(server)}>
-              <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-              {t("common.edit")}
-            </Button>
-            <Button size="sm" variant="destructive" onclick={() => (confirmDeleteName = server.name)}>
-              <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-              {t("common.delete")}
-            </Button>
+            {@render actions(server)}
           </div>
         </div>
       {/each}
@@ -521,7 +517,7 @@ $effect(() => {
             <TableHead>{t("mcp.type")}</TableHead>
             <TableHead>{t("mcp.colLastSynced")}</TableHead>
             <TableHead class="text-center">{t("webhooks.enabled")}</TableHead>
-            <TableHead class="text-center">{t("common.actions")}</TableHead>
+            <TableHead class="text-right">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -547,28 +543,8 @@ $effect(() => {
                 />
               </TableCell>
               <TableCell class="text-right w-1">
-                <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={syncing === server.name}
-                    onclick={() => syncServer(server.name)}
-                  >
-                    <ArrowsClockwiseIcon
-                      size={14}
-                      class="mr-1.5 {syncing === server.name ? "animate-spin" : ""}"
-                      aria-hidden="true"
-                    />
-                    {t("mcp.sync")}
-                  </Button>
-                  <Button size="sm" variant="outline" onclick={() => openEditForm(server)}>
-                    <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-                    {t("common.edit")}
-                  </Button>
-                  <Button size="sm" variant="destructive" onclick={() => (confirmDeleteName = server.name)}>
-                    <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                    {t("common.delete")}
-                  </Button>
+                <div class="inline-flex items-center justify-end gap-1 flex-nowrap">
+                  {@render actions(server)}
                 </div>
               </TableCell>
             </TableRow>
@@ -577,20 +553,4 @@ $effect(() => {
       </Table>
     </div>
   {/if}
-
-  <AlertDialog
-    open={confirmDeleteName !== null}
-    title={t("mcp.deleteTitle")}
-    description={t("mcp.deleteConfirm", { name: confirmDeleteName })}
-    confirmLabel={t("common.delete")}
-    cancelLabel={t("common.cancel")}
-    confirmVariant="destructive"
-    onConfirm={() => {
-      if (confirmDeleteName) deleteServer(confirmDeleteName);
-      confirmDeleteName = null;
-    }}
-    onCancel={() => {
-      confirmDeleteName = null;
-    }}
-  />
 </div>

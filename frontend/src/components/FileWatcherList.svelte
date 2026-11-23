@@ -1,7 +1,6 @@
 <script lang="ts">
 import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
-import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import { fileWatcherCount } from "$lib/appStore";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
@@ -11,6 +10,8 @@ import { Button } from "$lib/components/ui/button";
 import { Card, CardContent, CardHeader } from "$lib/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { t } from "$lib/i18n.svelte";
+import DeleteButton from "./DeleteButton.svelte";
+import IconAction from "./IconAction.svelte";
 import MultiSelect from "./MultiSelect.svelte";
 
 const ALL_EVENT_TYPES = ["new", "change", "delete"];
@@ -47,8 +48,6 @@ let formEnabled = $state(true);
 let formError = $state<string | null>(null);
 let submitting = $state(false);
 
-let confirmingDelete = $state<string | null>(null);
-
 async function fetchWatchers() {
   loading = true;
   error = null;
@@ -71,17 +70,11 @@ async function fetchWatchers() {
   }
 }
 
-async function deleteWatcher(slug: string) {
-  try {
-    const res = await authFetch(`/ext/filewatcher/${slug}`, { method: "DELETE" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    watchers = watchers.filter((w) => w.slug !== slug);
-    fileWatcherCount.set(watchers.length);
-    confirmingDelete = null;
-    if (editingSlug === slug) resetForm();
-  } catch (err) {
-    console.error("Failed to delete file watcher:", err);
-  }
+/** Drops a deleted watcher from the list (the DELETE itself is sent by DeleteButton). */
+function removeWatcher(slug: string) {
+  watchers = watchers.filter((w) => w.slug !== slug);
+  fileWatcherCount.set(watchers.length);
+  if (editingSlug === slug) resetForm();
 }
 
 function openCreateForm() {
@@ -224,6 +217,18 @@ $effect(() => {
   fetchWatchers();
 });
 </script>
+
+<!-- Row actions: Edit, Delete rightmost -->
+{#snippet actions(watcher: FileWatcher)}
+  <IconAction label={t("common.edit")} icon={PencilSimpleIcon} onclick={() => openEditForm(watcher)} />
+  <DeleteButton
+    url="/ext/filewatcher/{watcher.slug}"
+    confirmTitle={t("fileWatchers.deleteTitle")}
+    confirmMessage={t("fileWatchers.deleteConfirm", { name: watcher.name })}
+    iconOnly
+    onDeleted={() => removeWatcher(watcher.slug)}
+  />
+{/snippet}
 
 {#snippet watcherForm()}
   <Card class="bg-accent">
@@ -421,38 +426,9 @@ $effect(() => {
 
           <hr>
 
-          {#if confirmingDelete === watcher.slug}
-            <div class="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="destructive" onclick={() => deleteWatcher(watcher.slug)}
-                >{t("common.confirm")}</Button
-              >
-              <Button
-                size="sm"
-                variant="outline"
-                onclick={() => {
-                  confirmingDelete = null;
-                }}
-                >{t("common.cancel")}</Button
-              >
-            </div>
-          {:else}
-            <div class="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="outline" onclick={() => openEditForm(watcher)}>
-                <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-                {t("common.edit")}
-              </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                onclick={() => {
-                  confirmingDelete = watcher.slug;
-                }}
-              >
-                <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                {t("common.delete")}
-              </Button>
-            </div>
-          {/if}
+          <div class="flex flex-wrap items-center gap-2">
+            {@render actions(watcher)}
+          </div>
         </div>
       {/each}
     </div>
@@ -467,7 +443,7 @@ $effect(() => {
             <TableHead>{t("fileWatchers.colPatterns")}</TableHead>
             <TableHead>{t("fileWatchers.colEvents")}</TableHead>
             <TableHead class="text-center">{t("webhooks.enabled")}</TableHead>
-            <TableHead class="text-center">{t("common.actions")}</TableHead>
+            <TableHead class="text-right">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -507,39 +483,9 @@ $effect(() => {
                 />
               </TableCell>
               <TableCell class="text-right w-1">
-                {#if confirmingDelete === watcher.slug}
-                  <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                    <Button size="sm" variant="destructive" onclick={() => deleteWatcher(watcher.slug)}>
-                      {t("common.confirm")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onclick={() => {
-                        confirmingDelete = null;
-                      }}
-                    >
-                      {t("common.cancel")}
-                    </Button>
-                  </div>
-                {:else}
-                  <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                    <Button size="sm" variant="outline" onclick={() => openEditForm(watcher)}>
-                      <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      {t("common.edit")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onclick={() => {
-                        confirmingDelete = watcher.slug;
-                      }}
-                    >
-                      <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      {t("common.delete")}
-                    </Button>
-                  </div>
-                {/if}
+                <div class="inline-flex items-center justify-end gap-1 flex-nowrap">
+                  {@render actions(watcher)}
+                </div>
               </TableCell>
             </TableRow>
           {/each}

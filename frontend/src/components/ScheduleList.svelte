@@ -1,6 +1,5 @@
 <script lang="ts">
 import PlayIcon from "phosphor-svelte/lib/PlayIcon";
-import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import { onDestroy } from "svelte";
 import { schedules } from "$lib/appStore";
 import { authFetch } from "$lib/auth";
@@ -11,6 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$
 import { t } from "$lib/i18n.svelte";
 import { formatTimestamp } from "$lib/utils";
 import type { ScheduleEntry } from "../../../shared/schedules";
+import DeleteButton from "./DeleteButton.svelte";
 
 let items = $state<ScheduleEntry[]>([]);
 let sortedItems = $derived([...items].sort((a, b) => a.id.localeCompare(b.id)));
@@ -51,21 +51,13 @@ onDestroy(() => {
   unsubscribe();
 });
 
-async function deleteSchedule(id: string) {
-  try {
-    const res = await authFetch(`/ext/scheduler/schedules/${id}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    items = items.filter((s) => s.id !== id);
-    schedules.set(items);
-  } catch (err) {
-    console.error("Failed to delete schedule:", err);
-  }
+/** Drops a deleted schedule from the list (the DELETE itself is sent by DeleteButton). */
+function removeSchedule(id: string) {
+  items = items.filter((s) => s.id !== id);
+  schedules.set(items);
 }
 
 let triggeringId = $state<string | null>(null);
-let confirmingDelete = $state<string | null>(null);
 
 async function triggerSchedule(id: string) {
   triggeringId = id;
@@ -98,6 +90,27 @@ $effect(() => {
   fetchSchedules();
 });
 </script>
+
+<!-- Row actions: Run now (outline), Delete rightmost as a muted trash icon -->
+{#snippet actions(schedule: ScheduleEntry)}
+  <Button
+    size="sm"
+    variant="outline"
+    class="whitespace-nowrap"
+    disabled={triggeringId === schedule.id}
+    onclick={() => triggerSchedule(schedule.id)}
+  >
+    <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
+    {triggeringId === schedule.id ? t("schedules.triggering") : t("schedules.trigger")}
+  </Button>
+  <DeleteButton
+    url="/ext/scheduler/schedules/{schedule.id}"
+    confirmTitle={t("schedules.deleteTitle")}
+    confirmMessage={t("schedules.deleteConfirm", { name: schedule.name })}
+    iconOnly
+    onDeleted={() => removeSchedule(schedule.id)}
+  />
+{/snippet}
 
 <div class="space-y-4">
   {#if loading}
@@ -133,43 +146,9 @@ $effect(() => {
 
           <hr>
 
-          {#if confirmingDelete === schedule.id}
-            <div class="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="destructive" onclick={() => deleteSchedule(schedule.id)}
-                >{t("common.confirm")}</Button
-              >
-              <Button
-                size="sm"
-                variant="outline"
-                onclick={() => {
-                  confirmingDelete = null;
-                }}
-                >{t("common.cancel")}</Button
-              >
-            </div>
-          {:else}
-            <div class="flex flex-wrap items-center gap-2">
-              <Button
-                size="sm"
-                variant="default"
-                disabled={triggeringId === schedule.id}
-                onclick={() => triggerSchedule(schedule.id)}
-              >
-                <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-                {triggeringId === schedule.id ? t("schedules.triggering") : t("schedules.trigger")}
-              </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                onclick={() => {
-                  confirmingDelete = schedule.id;
-                }}
-              >
-                <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                {t("common.delete")}
-              </Button>
-            </div>
-          {/if}
+          <div class="flex flex-wrap items-center gap-2">
+            {@render actions(schedule)}
+          </div>
         </div>
       {/each}
     </div>
@@ -184,7 +163,7 @@ $effect(() => {
             <TableHead>{t("schedules.colRepeat")}</TableHead>
             <TableHead>{t("schedules.colRuns")}</TableHead>
             <TableHead>{t("schedules.colNextRun")}</TableHead>
-            <TableHead class="text-center">{t("common.actions")}</TableHead>
+            <TableHead class="text-right">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -208,45 +187,10 @@ $effect(() => {
               <TableCell class="text-sm text-muted-foreground">
                 {formatTimestamp(schedule.next, "-")}
               </TableCell>
-              <TableCell class="text-right">
-                {#if confirmingDelete === schedule.id}
-                  <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                    <Button size="sm" variant="destructive" onclick={() => deleteSchedule(schedule.id)}>
-                      {t("common.confirm")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onclick={() => {
-                        confirmingDelete = null;
-                      }}
-                    >
-                      {t("common.cancel")}
-                    </Button>
-                  </div>
-                {:else}
-                  <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                    <Button
-                      size="sm"
-                      variant="default"
-                      disabled={triggeringId === schedule.id}
-                      onclick={() => triggerSchedule(schedule.id)}
-                    >
-                      <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      {triggeringId === schedule.id ? t("schedules.triggering") : t("schedules.trigger")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onclick={() => {
-                        confirmingDelete = schedule.id;
-                      }}
-                    >
-                      <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      {t("common.delete")}
-                    </Button>
-                  </div>
-                {/if}
+              <TableCell class="text-right w-1">
+                <div class="inline-flex items-center justify-end gap-1 flex-nowrap">
+                  {@render actions(schedule)}
+                </div>
               </TableCell>
             </TableRow>
           {/each}

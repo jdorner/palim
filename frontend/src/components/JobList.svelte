@@ -27,6 +27,7 @@ import {
 import type { JobEntry } from "../../../shared/jobs";
 import CancelButton from "./CancelButton.svelte";
 import DeleteButton from "./DeleteButton.svelte";
+import IconAction from "./IconAction.svelte";
 import JobLogs from "./JobLogs.svelte";
 import RerunButton from "./RerunButton.svelte";
 import StatusDot from "./StatusDot.svelte";
@@ -299,16 +300,7 @@ function trackColumnWidths(container: HTMLElement) {
       {retryingJobId === job.id ? t("common.retrying") : t("common.retry")}
     </Button>
   {/if}
-  <Button
-    size="icon"
-    variant="ghost"
-    class="size-9 text-muted-foreground"
-    title={t("jobs.logs")}
-    aria-label={t("jobs.logs")}
-    onclick={() => (selectedJobId = job.id)}
-  >
-    <FileTextIcon size={16} aria-hidden="true" />
-  </Button>
+  <IconAction label={t("jobs.logs")} icon={FileTextIcon} onclick={() => (selectedJobId = job.id)} />
   {#if !isStep && isFinished(job.status)}
     <DeleteButton
       url="/api/jobs/{job.id}"

@@ -9,7 +9,6 @@ import FolderPlusIcon from "phosphor-svelte/lib/FolderPlusIcon";
 import LinkSimpleIcon from "phosphor-svelte/lib/LinkSimpleIcon";
 import PlayIcon from "phosphor-svelte/lib/PlayIcon";
 import TimerIcon from "phosphor-svelte/lib/TimerIcon";
-import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import WarningIcon from "phosphor-svelte/lib/WarningIcon";
 import { onDestroy } from "svelte";
 import { onReconnect } from "$lib/appStore";
@@ -40,6 +39,7 @@ import {
 import { listNeedsRefetch } from "$lib/workflowList";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import type { WorkflowLoadError } from "../../../shared/workflows";
+import DeleteButton from "../components/DeleteButton.svelte";
 import { navigate } from "../router";
 
 interface WorkflowSummary {
@@ -64,7 +64,6 @@ let loadErrors = $state<WorkflowLoadError[]>([]);
 let loading = $state(true);
 let error = $state<string | null>(null);
 let errorDetail = $state<string | null>(null);
-let confirmingDelete = $state<string | null>(null);
 let collapsedGroups = $state(readCollapsedGroups());
 let moveError = $state<string | null>(null);
 /** Workflow dropped on the "new group" zone, waiting for the group name. */
@@ -257,17 +256,6 @@ async function fetchWorkflows(showLoading = true) {
   }
 }
 
-async function deleteWorkflow(name: string) {
-  try {
-    const res = await authFetch(`/ext/workflows/${name}`, { method: "DELETE" });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    confirmingDelete = null;
-    await fetchWorkflows();
-  } catch (err) {
-    console.error("Failed to delete workflow:", err);
-  }
-}
-
 async function triggerRun(name: string) {
   try {
     const res = await authFetch(`/ext/workflows/run/${name}`, { method: "POST" });
@@ -323,6 +311,21 @@ $effect(() => {
   fetchWorkflows();
 });
 </script>
+
+<!-- Row actions: Run (outline), Delete rightmost as a muted trash icon -->
+{#snippet actions(wf: WorkflowSummary)}
+  <Button size="sm" variant="outline" class="whitespace-nowrap" onclick={() => triggerRun(wf.name)}>
+    <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
+    {t("workflows.run")}
+  </Button>
+  <DeleteButton
+    url="/ext/workflows/{wf.name}"
+    confirmTitle={t("workflows.deleteTitle")}
+    confirmMessage={t("workflows.deleteConfirm", { name: wf.name })}
+    iconOnly
+    onDeleted={fetchWorkflows}
+  />
+{/snippet}
 
 {#snippet groupHeader(group: string | null, count: number, hasWarnings: boolean)}
   <button
@@ -548,38 +551,9 @@ $effect(() => {
                 <hr>
 
                 <!-- Actions -->
-                {#if confirmingDelete === wf.name}
-                  <div class="flex flex-wrap items-center gap-2">
-                    <Button size="sm" variant="destructive" onclick={() => deleteWorkflow(wf.name)}
-                      >{t("common.confirm")}</Button
-                    >
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onclick={() => {
-                        confirmingDelete = null;
-                      }}
-                      >{t("common.cancel")}</Button
-                    >
-                  </div>
-                {:else}
-                  <div class="flex flex-wrap items-center gap-2">
-                    <Button size="sm" variant="default" onclick={() => triggerRun(wf.name)}>
-                      <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      {t("workflows.run")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="destructive"
-                      onclick={() => {
-                        confirmingDelete = wf.name;
-                      }}
-                    >
-                      <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      {t("common.delete")}
-                    </Button>
-                  </div>
-                {/if}
+                <div class="flex flex-wrap items-center gap-2">
+                  {@render actions(wf)}
+                </div>
               </div>
             {/each}
           {/if}
@@ -599,7 +573,7 @@ $effect(() => {
             <TableHead class="w-24 text-center">{t("workflows.colActive")}</TableHead>
             <TableHead class="w-24 text-center">{t("workflows.colFailed")}</TableHead>
             <TableHead class="w-24 text-center">{t("workflows.colCompleted")}</TableHead>
-            <TableHead class="w-36 text-center xl:w-64">{t("common.actions")}</TableHead>
+            <TableHead class="w-1 text-right">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         {#each sections as section, sectionIndex (sectionKey(section.group))}
@@ -704,39 +678,9 @@ $effect(() => {
                     <span class="text-sm text-muted-foreground">{wf.completedRuns}</span>
                   </TableCell>
                   <TableCell class="text-right">
-                    {#if confirmingDelete === wf.name}
-                      <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                        <Button size="sm" variant="destructive" onclick={() => deleteWorkflow(wf.name)}
-                          >{t("common.confirm")}</Button
-                        >
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onclick={() => {
-                            confirmingDelete = null;
-                          }}
-                        >
-                          {t("common.cancel")}
-                        </Button>
-                      </div>
-                    {:else}
-                      <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                        <Button size="sm" variant="default" onclick={() => triggerRun(wf.name)}>
-                          <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-                          {t("workflows.run")}
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onclick={() => {
-                            confirmingDelete = wf.name;
-                          }}
-                        >
-                          <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                          {t("common.delete")}
-                        </Button>
-                      </div>
-                    {/if}
+                    <div class="inline-flex items-center justify-end gap-1 flex-nowrap">
+                      {@render actions(wf)}
+                    </div>
                   </TableCell>
                 </TableRow>
               {/each}
