@@ -49,7 +49,7 @@ $effect(() => {
   </a>
 {/snippet}
 
-<!-- Cancel while in flight; Run again and Delete once failed; Delete once completed -->
+<!-- Cancel while in flight; Run again and Delete once failed; Delete once completed. Delete is always rightmost. -->
 {#snippet runActions(runId: string, status: string, size: "xs" | "sm")}
   {#if isRunCancellable(status)}
     <CancelButton url="/ext/workflows/runs/{runId}/cancel" {size} onCancelled={onRunChanged} />
@@ -63,8 +63,12 @@ $effect(() => {
       confirmTitle={t("runs.deleteTitle")}
       confirmMessage={t("runs.deleteConfirm", { id: runId.slice(0, 8) })}
       {size}
+      iconOnly
       onDeleted={onRunChanged}
     />
+  {:else if size === "sm"}
+    <!-- Keeps Delete's slot so the other actions stay aligned across rows -->
+    <span class="size-9 shrink-0" aria-hidden="true"></span>
   {/if}
 {/snippet}
 
@@ -107,7 +111,7 @@ $effect(() => {
           <TableHead>{t("jobs.colCompleted")}</TableHead>
           <TableHead class="min-w-[2em] text-center">{t("jobs.colStatus")}</TableHead>
           <TableHead class="min-w-[10em]"></TableHead>
-          <TableHead class="text-center min-w-[10em]">{t("common.actions")}</TableHead>
+          <TableHead class="text-right">{t("common.actions")}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>

@@ -6,6 +6,7 @@ import CaretRightIcon from "phosphor-svelte/lib/CaretRightIcon";
 import CheckIcon from "phosphor-svelte/lib/CheckIcon";
 import CopyIcon from "phosphor-svelte/lib/CopyIcon";
 import FileTextIcon from "phosphor-svelte/lib/FileTextIcon";
+import FlowArrowIcon from "phosphor-svelte/lib/FlowArrowIcon";
 import type { SlideParams, TransitionConfig } from "svelte/transition";
 import { slide } from "svelte/transition";
 import { authFetch } from "$lib/auth";
@@ -262,6 +263,17 @@ function trackColumnWidths(container: HTMLElement) {
 {/snippet}
 
 <!--
+  Row actions sit in fixed slots so they line up across rows:
+  [Cancel / Retry / Run again] [Logs or Open run] [Delete], Delete always
+  rightmost. In the table (not `compact`) an empty slot keeps its width.
+-->
+{#snippet emptySlot(compact: boolean)}
+  {#if !compact}
+    <span class="size-9 shrink-0" aria-hidden="true"></span>
+  {/if}
+{/snippet}
+
+<!--
   Actions for one job: Cancel while it has not finished; Retry and Delete once
   it failed, Delete once it completed (not for a workflow step: its run is the
   unit); always Logs.
@@ -276,38 +288,74 @@ function trackColumnWidths(container: HTMLElement) {
     {#if retryFailure?.jobId === job.id}
       <span class="text-xs text-destructive" title={retryFailure.message}>{t("common.retryFailed")}</span>
     {/if}
-    <Button size="sm" variant="default" disabled={retryingJobId === job.id} onclick={() => handleRetry(job.id)}>
+    <Button
+      size="sm"
+      variant="outline"
+      class="whitespace-nowrap"
+      disabled={retryingJobId === job.id}
+      onclick={() => handleRetry(job.id)}
+    >
       <ArrowCounterClockwiseIcon size={14} class={iconMargin} aria-hidden="true" />
       {retryingJobId === job.id ? t("common.retrying") : t("common.retry")}
     </Button>
   {/if}
+  <Button
+    size="icon"
+    variant="ghost"
+    class="size-9 text-muted-foreground"
+    title={t("jobs.logs")}
+    aria-label={t("jobs.logs")}
+    onclick={() => (selectedJobId = job.id)}
+  >
+    <FileTextIcon size={16} aria-hidden="true" />
+  </Button>
   {#if !isStep && isFinished(job.status)}
     <DeleteButton
       url="/api/jobs/{job.id}"
       confirmTitle={t("jobs.deleteTitle")}
       confirmMessage={t("jobs.deleteConfirm", { id: job.id.slice(0, 8) })}
+      iconOnly
     />
+  {:else}
+    {@render emptySlot(compact)}
   {/if}
-  <Button size="sm" variant="outline" onclick={() => (selectedJobId = job.id)}>
-    <FileTextIcon size={14} class={iconMargin} aria-hidden="true" />
-    {t("jobs.logs")}
-  </Button>
 {/snippet}
 
-<!-- Actions for a workflow run: Cancel while in flight; Run again and Delete once failed; Delete once completed -->
-{#snippet workflowRunAction(item: WorkflowItem)}
+<!--
+  Actions for a workflow run: Cancel while in flight; Run again and Delete once
+  failed; Delete once completed; always a link to the run page in the Logs slot.
+-->
+{#snippet workflowRunAction(item: WorkflowItem, compact: boolean)}
+  {@const definitionName = item.jobs[0].workflowName}
   {#if isRunCancellable(item.aggregateStatus)}
     <CancelButton url="/ext/workflows/runs/{item.workflowRunId}/cancel" />
   {/if}
   {#if item.aggregateStatus === "failed"}
     <RerunButton runId={item.workflowRunId} />
   {/if}
+  {#if definitionName}
+    <a
+      href="#/workflows/{encodeURIComponent(definitionName)}/runs/{item.workflowRunId}"
+      class="inline-flex size-9 shrink-0 items-center justify-center rounded-md {automationStyle("workflow")
+        .color} transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      title={t("jobs.openRun")}
+      onclick={(e) => e.stopPropagation()}
+    >
+      <FlowArrowIcon size={16} aria-hidden="true" />
+      <span class="sr-only">{t("jobs.openRun")}</span>
+    </a>
+  {:else}
+    {@render emptySlot(compact)}
+  {/if}
   {#if isFinished(item.aggregateStatus)}
     <DeleteButton
       url="/ext/workflows/runs/{item.workflowRunId}"
       confirmTitle={t("runs.deleteTitle")}
       confirmMessage={t("runs.deleteConfirm", { id: item.workflowRunId.slice(0, 8) })}
+      iconOnly
     />
+  {:else}
+    {@render emptySlot(compact)}
   {/if}
 {/snippet}
 
@@ -383,11 +431,9 @@ function trackColumnWidths(container: HTMLElement) {
         </div>
         {@render cardTimestamps(workflowCreatedAt(item.jobs), workflowCompletedAt(item.jobs), "px-4 pb-3 -mt-1")}
 
-        {#if isRunCancellable(item.aggregateStatus) || isFinished(item.aggregateStatus)}
-          <div class="flex flex-wrap items-center gap-2 px-4 pb-3">
-            {@render workflowRunAction(item)}
-          </div>
-        {/if}
+        <div class="flex flex-wrap items-center gap-2 px-4 pb-3">
+          {@render workflowRunAction(item, true)}
+        </div>
 
         {#if isExpanded}
           <!-- svelte-ignore a11y_no_static_element_interactions -->
@@ -438,7 +484,7 @@ function trackColumnWidths(container: HTMLElement) {
         <TableHead>{t("jobs.colDescription")}</TableHead>
         <TableHead class="hidden xl:table-cell">{t("jobs.colCreated")}</TableHead>
         <TableHead class="hidden xl:table-cell">{t("jobs.colCompleted")}</TableHead>
-        <TableHead class="text-center min-w-48">{t("common.actions")}</TableHead>
+        <TableHead class="text-right">{t("common.actions")}</TableHead>
       </TableRow>
     </TableHeader>
     <TableBody>
@@ -462,7 +508,7 @@ function trackColumnWidths(container: HTMLElement) {
               {formatTimestamp(job.completedAt, "\u2013")}
             </TableCell>
             <TableCell class="text-right w-1">
-              <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
+              <div class="inline-flex items-center justify-end gap-1 flex-wrap xl:flex-nowrap">
                 {@render jobActions(job, false)}
               </div>
             </TableCell>
@@ -499,8 +545,8 @@ function trackColumnWidths(container: HTMLElement) {
               {formatTimestamp(workflowCompletedAt(item.jobs), "\u2013")}
             </TableCell>
             <TableCell class="text-right w-1">
-              <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                {@render workflowRunAction(item)}
+              <div class="inline-flex items-center justify-end gap-1 flex-wrap xl:flex-nowrap">
+                {@render workflowRunAction(item, false)}
               </div>
             </TableCell>
           </TableRow>
@@ -541,7 +587,7 @@ function trackColumnWidths(container: HTMLElement) {
                         {formatTimestamp(job.completedAt, "\u2013")}
                       </div>
                       <div class="p-3 shrink-0 text-right" style="width: var(--col-6)">
-                        <div class="inline-flex justify-end gap-2 flex-wrap">
+                        <div class="inline-flex items-center justify-end gap-1 flex-wrap">
                           {@render jobActions(job, false)}
                         </div>
                       </div>

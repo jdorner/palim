@@ -440,6 +440,7 @@
     "logsFor": "Logs for Job {id}",
     "logsLabel": "Job logs",
     "noLogs": "No logs available for this job.",
+    "openRun": "Open run",
     "queueFilter": "Queue:",
     "statusFilter": "Status:",
     "workflow": "Workflow"

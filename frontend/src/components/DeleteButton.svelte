@@ -20,11 +20,16 @@ interface Props {
   confirmMessage: string;
   /** Button size. */
   size?: "xs" | "sm";
+  /**
+   * Show only a muted red trash icon (full red on hover) with the label as tooltip,
+   * for dense lists where a red button per row would dominate.
+   */
+  iconOnly?: boolean;
   /** Called after the deletion succeeded. */
   onDeleted?: () => void | Promise<void>;
 }
 
-let { url, confirmTitle, confirmMessage, size = "sm", onDeleted }: Props = $props();
+let { url, confirmTitle, confirmMessage, size = "sm", iconOnly = false, onDeleted }: Props = $props();
 
 let confirming = $state(false);
 let deleting = $state(false);
@@ -49,18 +54,37 @@ async function remove() {
 {#if failure}
   <span class="text-xs text-destructive" title={failure}>{t("common.deleteFailed")}</span>
 {/if}
-<Button
-  {size}
-  variant="destructive"
-  disabled={deleting}
-  onclick={(e: Event) => {
-    e.stopPropagation();
-    confirming = true;
-  }}
->
-  <TrashIcon size={size === "xs" ? 12 : 14} class="mr-1" aria-hidden="true" />
-  {deleting ? t("common.deleting") : t("common.delete")}
-</Button>
+{#if iconOnly}
+  <Button
+    size="icon"
+    variant="ghost"
+    class="{size === "xs"
+      ? "size-6"
+      : "size-9"} text-destructive/60 hover:bg-destructive/10 hover:text-destructive dark:text-red-400/80 dark:hover:bg-red-400/10 dark:hover:text-red-400"
+    disabled={deleting}
+    title={deleting ? t("common.deleting") : t("common.delete")}
+    aria-label={t("common.delete")}
+    onclick={(e: Event) => {
+      e.stopPropagation();
+      confirming = true;
+    }}
+  >
+    <TrashIcon size={size === "xs" ? 14 : 16} aria-hidden="true" />
+  </Button>
+{:else}
+  <Button
+    {size}
+    variant="destructive"
+    disabled={deleting}
+    onclick={(e: Event) => {
+      e.stopPropagation();
+      confirming = true;
+    }}
+  >
+    <TrashIcon size={size === "xs" ? 12 : 14} class="mr-1" aria-hidden="true" />
+    {deleting ? t("common.deleting") : t("common.delete")}
+  </Button>
+{/if}
 
 <AlertDialog
   open={confirming}
