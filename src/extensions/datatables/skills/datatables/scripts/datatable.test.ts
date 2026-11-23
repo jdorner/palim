@@ -5,7 +5,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import type { CommandContext } from "just-bash";
 import { EMPTY_BYTES, encodeUtf8ToBytes, InMemoryFs } from "just-bash";
-import { buildDatatableCommand, parseAssignments, parseWhere, renderTable } from "./datatable";
+import { buildDatatableCommand, parseAssignments, parseWhere, renderTable, withColumnLabels } from "./datatable";
 
 const requests: { method: string; path: string; body?: unknown }[] = [];
 let server: ReturnType<typeof Bun.serve>;
@@ -33,6 +33,12 @@ beforeAll(() => {
       const body = req.method === "GET" ? undefined : await req.json().catch(() => undefined);
       requests.push({ method: req.method, path: url.pathname + url.search, body });
       const p = url.pathname;
+      if (p === "/tables" && req.method === "POST") {
+        const def = body as { name: string; columns: unknown[]; keyColumn?: string };
+        if (def.name === "contacts")
+          return Response.json({ error: 'Table "contacts" already exists' }, { status: 409 });
+        return Response.json({ table: { ...TABLE, ...def } }, { status: 201 });
+      }
       if (p === "/tables") return Response.json({ tables: [TABLE] });
       if (p === "/tables/contacts") return Response.json({ table: TABLE });
       if (p === "/tables/contacts/rows" && req.method === "GET") {
@@ -87,6 +93,25 @@ describe("helpers", () => {
     expect(() => parseAssignments(["a"])).toThrow();
   });
 
+  test("withColumnLabels fills missing labels with the key", () => {
+    expect(
+      withColumnLabels({
+        name: "t",
+        columns: [
+          { key: "a", type: "text" },
+          { key: "b", label: "B" },
+        ],
+      }),
+    ).toEqual({
+      name: "t",
+      columns: [
+        { key: "a", type: "text", label: "a" },
+        { key: "b", label: "B" },
+      ],
+    });
+    expect(withColumnLabels({ name: "t" })).toEqual({ name: "t" });
+  });
+
   test("renderTable aligns columns", () => {
     expect(renderTable(["a", "bb"], [{ a: "xyz", bb: 1 }])).toBe("a    bb\n---  --\nxyz  1");
   });
@@ -103,6 +128,35 @@ describe("datatable command", () => {
     const r = await cmd(["schema", "contacts"], ctx());
     expect(r.stdout).toContain("Key column: name");
     expect(r.stdout).toMatch(/name\s+Name\s+text\s+required/);
+  });
+
+  test("create posts the definition", async () => {
+    const def = { name: "leads", columns: [{ key: "email", type: "text" }], keyColumn: "email" };
+    const r = await cmd(["create", JSON.stringify(def)], ctx());
+    expect(r.exitCode).toBe(0);
+    expect(r.stdout).toContain("Created table leads with 1 column(s), key column email");
+    expect(requests.at(-1)).toMatchObject({
+      method: "POST",
+      path: "/tables",
+      body: { ...def, columns: [{ key: "email", type: "text", label: "email" }] },
+    });
+  });
+
+  test("create reads stdin and a file", async () => {
+    const def = { name: "leads", columns: [{ key: "email", type: "text" }] };
+    expect((await cmd(["create"], ctx(JSON.stringify(def)))).stdout).toContain("Created table leads");
+    const c = ctx();
+    await c.fs.writeFile("/home/user/work/def.json", JSON.stringify(def));
+    expect((await cmd(["create", "--file", "def.json"], c)).stdout).toContain("Created table leads");
+  });
+
+  test("create rejects bad input and reports API errors", async () => {
+    expect((await cmd(["create"], ctx())).stderr).toContain("No table definition given");
+    expect((await cmd(["create", "[1]"], ctx())).stderr).toContain("must be a JSON object");
+    expect((await cmd(["create", "{oops"], ctx())).stderr).toContain("must be valid JSON");
+    const r = await cmd(["create", '{"name":"contacts","columns":[{"key":"a","type":"text"}]}'], ctx());
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("already exists");
   });
 
   test("query passes filters and renders rows", async () => {

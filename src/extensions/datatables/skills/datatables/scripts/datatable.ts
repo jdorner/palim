@@ -2,7 +2,7 @@
  * Registers the `datatable` shell command for reading and writing data tables
  * via the extension's REST API (so the calling user's permissions apply).
  *
- * Subcommands: list, schema, query, insert, update, upsert, delete, truncate
+ * Subcommands: list, schema, create, query, insert, update, upsert, delete, truncate
  */
 
 import { createCommand, formatFetchError, type ParsedArgs, registerProgram, type SkillScriptContext } from "@ext/sdk";
@@ -69,27 +69,59 @@ export function parseAssignments(assignments: string[]): Record<string, string> 
   return values;
 }
 
-/** Reads JSON rows from the positional argument, `--file`, or stdin. */
-async function readRows(ctx: CommandContext, args: ParsedArgs): Promise<Record<string, unknown>[]> {
+/**
+ * Reads the JSON text from the positional `json` argument, `--file`, or stdin.
+ *
+ * @param ctx - Command context
+ * @param args - Parsed arguments
+ * @param what - What the JSON holds, for the error messages
+ * @returns The parsed JSON value
+ * @throws {Error} when no input is given or it is not valid JSON
+ */
+async function readJsonInput(ctx: CommandContext, args: ParsedArgs, what: string): Promise<unknown> {
   let text = args.get("json");
   const file = args.option("file");
   if (file) text = await ctx.fs.readFile(ctx.fs.resolvePath(ctx.cwd, file));
   else if (!text || text === "-") {
     const hasStdin = ctx.stdin !== EMPTY_BYTES && (ctx.stdin as unknown) !== "";
-    if (!hasStdin) throw new Error("No rows given. Pass JSON as an argument, with --file, or via stdin.");
+    if (!hasStdin) throw new Error(`No ${what} given. Pass JSON as an argument, with --file, or via stdin.`);
     text = decodeBytesToUtf8(ctx.stdin);
   }
-  let parsed: unknown;
   try {
-    parsed = JSON.parse(text);
+    return JSON.parse(text);
   } catch {
-    throw new Error("Rows must be valid JSON (an object or an array of objects)");
+    throw new Error(`The ${what} must be valid JSON`);
   }
+}
+
+/** Reads JSON rows from the positional argument, `--file`, or stdin. */
+async function readRows(ctx: CommandContext, args: ParsedArgs): Promise<Record<string, unknown>[]> {
+  const parsed = await readJsonInput(ctx, args, "rows");
   const rows = Array.isArray(parsed) ? parsed : [parsed];
   if (!rows.every((r) => r && typeof r === "object" && !Array.isArray(r))) {
     throw new Error("Rows must be an object or an array of objects");
   }
   return rows as Record<string, unknown>[];
+}
+
+/**
+ * Fills a missing column `label` with the column key. The API requires a
+ * label; agents usually leave it out.
+ *
+ * @param def - The table definition as given
+ * @returns The definition with every column object labelled
+ */
+export function withColumnLabels(def: object): object {
+  const columns = (def as { columns?: unknown }).columns;
+  if (!Array.isArray(columns)) return def;
+  return {
+    ...def,
+    columns: columns.map((c) =>
+      c && typeof c === "object" && !Array.isArray(c) && (c as { label?: unknown }).label === undefined
+        ? { ...c, label: (c as { key?: unknown }).key }
+        : c,
+    ),
+  };
 }
 
 /** Formats a cell for text output. */
@@ -193,6 +225,23 @@ export function buildDatatableCommand(scriptCtx: SkillScriptContext) {
             default: c.default ?? "",
           }));
           return `${head.join("\n")}\n\n${renderTable(["key", "label", "type", "flags", "default"], cols)}`;
+        }),
+      },
+      {
+        name: "create",
+        description: "Create a table from a JSON definition { name, label, description, columns, keyColumn }",
+        args: [{ name: "json", required: false, description: "JSON definition, or '-' / omitted to read stdin" }],
+        options: [
+          { name: "file", short: "f", description: "Read the JSON definition from a file in the work directory" },
+        ],
+        handler: run(async (ctx, args) => {
+          const def = await readJsonInput(ctx, args, "table definition");
+          if (!def || typeof def !== "object" || Array.isArray(def)) {
+            throw new Error("The table definition must be a JSON object");
+          }
+          const { table } = await api<{ table: TableDef }>("/tables", { method: "POST", body: withColumnLabels(def) });
+          const key = table.keyColumn ? `, key column ${table.keyColumn}` : "";
+          return `Created table ${table.name} with ${table.columns.length} column(s)${key}`;
         }),
       },
       {

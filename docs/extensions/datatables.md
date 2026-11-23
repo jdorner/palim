@@ -7,7 +7,7 @@ You can:
 - define a table in the UI, or derive its columns from a CSV/Excel file;
 - import CSV/XLSX data, then inspect, filter, edit and export it in the UI;
 - change rows from workflows with six step types (insert, update, delete, truncate, upsert, query);
-- read and write rows from the agent with the `datatable` command.
+- create tables and read and write rows from the agent with the `datatable` command.
 
 ## The Data Tables page
 
@@ -139,6 +139,7 @@ The `datatables` skill gives the agent a `datatable` command. It calls the exten
 ```bash
 datatable list
 datatable schema <table>
+datatable create '<json>'                # or --file def.json, or stdin
 datatable query <table> [--where col:op:value]... [--sort col] [--desc] [--limit n] [--json]
 datatable insert <table> '<json>'        # or --file data/rows.json, or stdin
 datatable upsert <table> '<json>' [--key col]
@@ -147,7 +148,7 @@ datatable delete <table> --where ... | --id <id>
 datatable truncate <table>
 ```
 
-The agent can't create tables or change columns.
+`create` takes the same definition as `POST /tables`: `{ name, label?, description?, columns, keyColumn? }`. A column's `label` may be left out; it defaults to the key. The agent can't change columns or delete tables.
 
 ## HTTP API
 
