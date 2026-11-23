@@ -91,8 +91,6 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
     }
     this.queue.setDlqConfig({ autoRetry: false });
 
-    const logSeq = this.logSeq;
-
     this.worker = new Worker<T, R>(
       name,
       (job, processorCtx) => {
@@ -104,9 +102,7 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
         const store = getLogStore();
         job.log = (message: string) => {
           const ts = Date.now();
-          const seq = (logSeq.get(job.id) ?? 0) + 1;
-          logSeq.set(job.id, seq);
-          store.append(job.id, seq, message, ts);
+          store.append(job.id, this.nextLogSeq(job.id), message, ts);
           return origLog(`[ts:${ts}] ${message}`);
         };
         return runUntilCancelled(job as unknown as QueueJob<T>, processor);
@@ -313,11 +309,25 @@ export class ManagedQueue<T = unknown, R = unknown> implements ManagedQueuePort<
 
   /** @inheritdoc */
   async appendJobLog(jobId: string, message: string): Promise<void> {
-    const store = getLogStore();
-    // After a restart the in-memory counter is gone: continue after the stored entries.
-    const seq = Math.max(this.logSeq.get(jobId) ?? 0, store.getLastSeq(jobId)) + 1;
+    getLogStore().append(jobId, this.nextLogSeq(jobId), message, Date.now());
+  }
+
+  /**
+   * Reserve the next log sequence number for a job.
+   *
+   * The first entry of a job in this process continues after the entries
+   * already stored, so a job that runs again after a restart (startup
+   * recovery, stall or DLQ retry) does not reuse taken numbers, which the
+   * store would silently drop. After that the in-memory counter is
+   * authoritative, because this process writes all further entries.
+   *
+   * @param jobId - The job to log for
+   * @returns The sequence number for the new entry
+   */
+  private nextLogSeq(jobId: string): number {
+    const seq = (this.logSeq.get(jobId) ?? getLogStore().getLastSeq(jobId)) + 1;
     this.logSeq.set(jobId, seq);
-    store.append(jobId, seq, message, Date.now());
+    return seq;
   }
 
   /** @inheritdoc */
