@@ -23,7 +23,9 @@ $effect(() => {
     requestAnimationFrame(() => {
       // Fit without an animation on first paint so the graph appears already
       // at the correct zoom/position, then notify the parent to reveal it.
-      fitView({ duration: 0 }).then(() => onInitialFit?.());
+      // The padding keeps the margin of @xyflow/svelte 1.x (default 0.1; 2.x
+      // defaults to "5%").
+      fitView({ duration: 0, padding: "10%" }).then(() => onInitialFit?.());
     });
   }
 });

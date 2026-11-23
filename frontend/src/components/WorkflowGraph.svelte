@@ -2,7 +2,6 @@
 import {
   Background,
   BackgroundVariant,
-  type ColorMode,
   type Connection,
   Controls,
   type Edge,
@@ -14,7 +13,7 @@ import {
   SvelteFlow,
 } from "@xyflow/svelte";
 import "@xyflow/svelte/dist/style.css";
-import { onMount, type Snippet, untrack } from "svelte";
+import { type Snippet, untrack } from "svelte";
 import { visualForStepType } from "$lib/nodeVisuals";
 import { buildDagGraph, type DagEdge, type StepData } from "$lib/workflowGraph";
 import { computeLayout } from "$lib/workflowLayout";
@@ -160,7 +159,8 @@ let {
   onInsertStepOnEdge,
 }: Props = $props();
 
-let colorMode = $state<ColorMode>("light");
+// Dark mode needs no prop: the flow's stylesheet follows the `dark` class the
+// app sets on <html>, and app.css pins it to light otherwise.
 
 /** Node id the floating detail panel is anchored to, if any. */
 const panelNodeId = $derived(triggerSelected ? "__trigger__" : selectedStepId);
@@ -591,20 +591,6 @@ function handleNodeClick(ev: { event: MouseEvent | TouchEvent; node: Node }) {
     onNodeClick(steps[index], index);
   }
 }
-
-// ---------------------------------------------------------------------------
-// Dark mode sync
-// ---------------------------------------------------------------------------
-
-onMount(() => {
-  function sync() {
-    colorMode = document.documentElement.classList.contains("dark") ? "dark" : "light";
-  }
-  sync();
-  const observer = new MutationObserver(sync);
-  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
-  return () => observer.disconnect();
-});
 </script>
 
 <div class="w-full h-full border rounded-lg overflow-hidden bg-background">
@@ -614,7 +600,6 @@ onMount(() => {
     class="transition-opacity duration-150 {initialFitDone ? "opacity-100" : "opacity-0"}"
     {nodeTypes}
     {edgeTypes}
-    {colorMode}
     nodesDraggable={editMode}
     nodesConnectable={editMode}
     elementsSelectable={editMode}
