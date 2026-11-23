@@ -1,7 +1,8 @@
 <script lang="ts">
 /**
  * A colored dot indicator for job/step status.
- * Gray = waiting/delayed/unknown, amber = waiting-signal, blue (pulsing) = active, green = completed, red = failed.
+ * Gray = waiting/delayed/unknown, amber = waiting-signal, blue (pulsing) = active, green = completed,
+ * red = failed (a lighter red in dark mode, where the theme's destructive color is too dark for a small dot).
  */
 let {
   status,
@@ -30,5 +31,6 @@ const sizeClass = $derived(size === "md" ? "w-2.5 h-2.5" : "w-2 h-2");
   class:bg-amber-400={status === "waiting-signal"}
   class:bg-green-500={status === "completed"}
   class:bg-destructive={status === "failed"}
+  class:dark:bg-red-500={status === "failed"}
   title={title || undefined}
 ></span>

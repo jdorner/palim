@@ -438,7 +438,7 @@ function runCountItems(counts: WorkflowRunCounts): RunCountItem[] {
       ["failed", t("workflows.colFailed")],
       ["completed", t("workflows.colCompleted")],
     ] as [status, label] (status)}
-      <span class="inline-flex items-center py-2" title={label}><StatusDot {status} size="md" /></span>
+      <span class="inline-flex items-center py-2" title={label}><StatusDot {status} size="md" still /></span>
     {/each}
   </div>
 {/snippet}
