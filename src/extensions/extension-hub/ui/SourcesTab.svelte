@@ -5,7 +5,7 @@
  * New sources are added from the page's tab bar.
  */
 import type { PalimHost } from "@ext/ui";
-import { Button, LoadingIndicator, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@palim/ui";
+import { IconAction, LoadingIndicator, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@palim/ui";
 import ArrowsClockwiseIcon from "phosphor-svelte/lib/ArrowsClockwiseIcon";
 import KeyIcon from "phosphor-svelte/lib/KeyIcon";
 import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
@@ -97,17 +97,28 @@ function saved() {
   {/if}
 {/snippet}
 
+<!-- Row actions: Fetch now, Edit, Delete rightmost -->
 {#snippet actions(source: SourceInfo)}
-  <Button size="sm" variant="outline" disabled={busy !== null} onclick={() => refresh(source)}>
-    <ArrowsClockwiseIcon size={14} class="mr-1.5 {busy === source.id ? "animate-spin" : ""}" aria-hidden="true" />
-    {$i18n.t("sources.refresh")}
-  </Button>
-  <Button size="sm" variant="outline" disabled={busy !== null} onclick={() => (editing = source)}>
-    <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("common.edit")}
-  </Button>
-  <Button size="sm" variant="destructive" disabled={busy !== null} onclick={() => remove(source)}>
-    <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("common.delete")}
-  </Button>
+  <IconAction
+    label={$i18n.t("sources.refresh")}
+    icon={ArrowsClockwiseIcon}
+    iconClass={busy === source.id ? "animate-spin" : ""}
+    disabled={busy !== null}
+    onclick={() => refresh(source)}
+  />
+  <IconAction
+    label={$i18n.t("common.edit")}
+    icon={PencilSimpleIcon}
+    disabled={busy !== null}
+    onclick={() => (editing = source)}
+  />
+  <IconAction
+    label={$i18n.t("common.delete")}
+    icon={TrashIcon}
+    tone="destructive"
+    disabled={busy !== null}
+    onclick={() => remove(source)}
+  />
 {/snippet}
 
 {#if loading}
@@ -150,7 +161,7 @@ function saved() {
           <TableHead>{$i18n.t("sources.branch")}</TableHead>
           <TableHead>{$i18n.t("sources.lastFetch")}</TableHead>
           {#if canWrite}
-            <TableHead class="text-center">{$i18n.t("columns.actions")}</TableHead>
+            <TableHead class="text-right">{$i18n.t("columns.actions")}</TableHead>
           {/if}
         </TableRow>
       </TableHeader>
@@ -163,7 +174,7 @@ function saved() {
             <TableCell class="max-w-xs">{@render lastFetch(source)}</TableCell>
             {#if canWrite}
               <TableCell class="w-1 text-right">
-                <div class="inline-flex flex-wrap justify-end gap-2 xl:flex-nowrap">{@render actions(source)}</div>
+                <div class="inline-flex flex-nowrap items-center justify-end gap-1">{@render actions(source)}</div>
               </TableCell>
             {/if}
           </TableRow>

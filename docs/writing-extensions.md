@@ -1518,7 +1518,7 @@ Host state is exposed as stores rather than runes because runes do not cross Sve
 `@palim/ui` (`frontend/src/lib/extensionKit.ts`) exports the core components, compiled into the extension's bundle so pages look exactly like core pages:
 
 - Primitives: `Button`, `Badge`, `Card` (+ `CardHeader`, `CardTitle`, `CardDescription`, `CardContent`, `CardFooter`), `Checkbox`, `Label`, `Select` (+ parts), `Table` (+ parts), `Dialog`, `AlertDialog`
-- Components: `LoadingIndicator`, `ToggleSwitch`, `StatusDot`, `MultiSelect`, `InfoTip` (an (i) icon next to a field label that shows its explanation as a tooltip, used instead of a hint line under the field)
+- Components: `LoadingIndicator`, `ToggleSwitch`, `StatusDot`, `MultiSelect`, `InfoTip` (an (i) icon next to a field label that shows its explanation as a tooltip, used instead of a hint line under the field), `IconAction` (an icon-only ghost button for list row actions such as edit or delete, with its label as tooltip; `tone="destructive"` tints it muted red, `size="xs"` for compact lists. Rightmost goes the delete action; ask for confirmation with `palim.confirm` before deleting)
 - Helpers: `cn` (class merging)
 
 The kit is a public API. Only stateless components are exported. A stateful module (router, stores, WebSocket connection) would be instantiated a second time inside the bundle, so pages use the `palim` host instead.

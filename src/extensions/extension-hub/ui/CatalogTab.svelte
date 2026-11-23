@@ -9,6 +9,7 @@ import type { PalimHost } from "@ext/ui";
 import {
   Badge,
   Button,
+  IconAction,
   LoadingIndicator,
   Table,
   TableBody,
@@ -275,28 +276,61 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
 {/snippet}
 
 {#snippet uninstallButton(name: string)}
-  <Button size="sm" variant="destructive" disabled={busy !== null} onclick={() => uninstall(name)}>
-    <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("actions.uninstall")}
-  </Button>
+  <IconAction
+    label={$i18n.t("actions.uninstall")}
+    icon={TrashIcon}
+    tone="destructive"
+    disabled={busy !== null}
+    onclick={() => uninstall(name)}
+  />
 {/snippet}
 
-{#snippet actions(entry: CatalogEntry)}
+<!-- Keeps an unused icon slot's width in the table so the slots line up across rows. -->
+{#snippet emptySlot(compact: boolean)}
+  {#if !compact}
+    <span class="size-9 shrink-0" aria-hidden="true"></span>
+  {/if}
+{/snippet}
+
+<!--
+  Row actions sit in fixed slots: [Install / Update, labeled] [Change version] [Uninstall],
+  Uninstall always rightmost. While an action runs, its label slot reads "Working...".
+-->
+{#snippet actions(entry: CatalogEntry, compact: boolean)}
   {#if busy === entry.name}
-    <span class="text-xs text-muted-foreground">{$i18n.t("dialog.working")}</span>
-  {:else if entry.installed}
-    {#if entry.update}
-      <Button size="sm" disabled={busy !== null} onclick={() => quickUpdate(entry)}>
-        <ArrowCircleUpIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("actions.update")}
-      </Button>
-    {/if}
-    <Button size="sm" variant="outline" disabled={busy !== null} onclick={() => (dialog = { entry, mode: "update" })}>
-      <TagIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("actions.changeVersion")}
+    <span class="whitespace-nowrap px-2 text-xs text-muted-foreground">{$i18n.t("dialog.working")}</span>
+  {:else if entry.installed && entry.update}
+    <Button
+      size="sm"
+      variant="outline"
+      class="whitespace-nowrap"
+      disabled={busy !== null}
+      onclick={() => quickUpdate(entry)}
+    >
+      <ArrowCircleUpIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("actions.update")}
     </Button>
-    {@render uninstallButton(entry.name)}
-  {:else if !entry.blockedByLocal && isInstallable(entry)}
-    <Button size="sm" disabled={busy !== null} onclick={() => (dialog = { entry, mode: "install" })}>
+  {:else if !entry.installed && !entry.blockedByLocal && isInstallable(entry)}
+    <Button
+      size="sm"
+      variant="outline"
+      class="whitespace-nowrap"
+      disabled={busy !== null}
+      onclick={() => (dialog = { entry, mode: "install" })}
+    >
       <DownloadSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />{$i18n.t("actions.install")}
     </Button>
+  {/if}
+  {#if entry.installed}
+    <IconAction
+      label={$i18n.t("actions.changeVersion")}
+      icon={TagIcon}
+      disabled={busy !== null}
+      onclick={() => (dialog = { entry, mode: "update" })}
+    />
+    {@render uninstallButton(entry.name)}
+  {:else}
+    {@render emptySlot(compact)}
+    {@render emptySlot(compact)}
   {/if}
 {/snippet}
 
@@ -360,7 +394,7 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
                   {@render statusChips(entry, entry.installed)}
                 </div>
                 {#if canWrite}
-                  <div class="flex flex-wrap items-center gap-2">{@render actions(entry)}</div>
+                  <div class="flex flex-wrap items-center gap-2">{@render actions(entry, true)}</div>
                 {/if}
               </div>
             {/each}
@@ -377,7 +411,7 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
                   <TableHead class="text-center">{$i18n.t("columns.status")}</TableHead>
                   <TableHead class="text-center">{$i18n.t("columns.enabled")}</TableHead>
                   {#if canWrite}
-                    <TableHead class="text-center">{$i18n.t("columns.actions")}</TableHead>
+                    <TableHead class="text-right">{$i18n.t("columns.actions")}</TableHead>
                   {/if}
                 </TableRow>
               </TableHeader>
@@ -391,9 +425,8 @@ const extensionCount = $derived(view?.sources.reduce((n, s) => n + s.extensions.
                     <TableCell class="text-center">{@render enabledCell(entry.name, entry.installed)}</TableCell>
                     {#if canWrite}
                       <TableCell class="w-1 text-right">
-                        <!-- Min width: the column keeps its size while a row shows "Working..." instead of buttons. -->
-                        <div class="inline-flex min-w-64 flex-wrap justify-end gap-2 xl:flex-nowrap">
-                          {@render actions(entry)}
+                        <div class="inline-flex flex-nowrap items-center justify-end gap-1">
+                          {@render actions(entry, false)}
                         </div>
                       </TableCell>
                     {/if}
