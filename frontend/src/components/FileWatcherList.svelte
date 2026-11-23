@@ -443,7 +443,7 @@ $effect(() => {
             <TableHead>{t("fileWatchers.colPatterns")}</TableHead>
             <TableHead>{t("fileWatchers.colEvents")}</TableHead>
             <TableHead class="text-center">{t("webhooks.enabled")}</TableHead>
-            <TableHead class="text-right">{t("common.actions")}</TableHead>
+            <TableHead class="text-center">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

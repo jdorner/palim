@@ -260,7 +260,7 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
               <TableHead>{t("common.name")}</TableHead>
               <TableHead>{t("users.colRoles")}</TableHead>
               <TableHead class="hidden md:table-cell">{t("users.colLanguage")}</TableHead>
-              <TableHead class="text-right">{t("common.actions")}</TableHead>
+              <TableHead class="text-center">{t("common.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

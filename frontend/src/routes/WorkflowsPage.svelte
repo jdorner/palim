@@ -635,7 +635,7 @@ function runCountItems(counts: WorkflowRunCounts): RunCountItem[] {
               <span class="sr-only">{t("workflows.colRuns")}</span>
               {@render runLegend()}
             </TableHead>
-            <TableHead class="w-24 text-right">{t("common.actions")}</TableHead>
+            <TableHead class="w-24 text-center">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         {#each sections as section, sectionIndex (sectionKey(section.group))}
@@ -726,8 +726,8 @@ function runCountItems(counts: WorkflowRunCounts): RunCountItem[] {
                     {/if}
                   </TableCell>
                   <TableCell>{@render runCounts(wf)}</TableCell>
-                  <TableCell class="text-right">
-                    <div class="inline-flex items-center justify-end gap-1 flex-nowrap">
+                  <TableCell class="text-center">
+                    <div class="inline-flex items-center justify-center gap-1 flex-nowrap">
                       {@render actions(wf)}
                     </div>
                   </TableCell>

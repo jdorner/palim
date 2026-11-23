@@ -159,7 +159,7 @@ $effect(() => {
             <TableHead>{t("schedules.colRepeat")}</TableHead>
             <TableHead>{t("schedules.colRuns")}</TableHead>
             <TableHead>{t("schedules.colNextRun")}</TableHead>
-            <TableHead class="text-right">{t("common.actions")}</TableHead>
+            <TableHead class="text-center">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>

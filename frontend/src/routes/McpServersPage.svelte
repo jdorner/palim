@@ -514,7 +514,7 @@ $effect(() => {
             <TableHead>{t("mcp.type")}</TableHead>
             <TableHead>{t("mcp.colLastSynced")}</TableHead>
             <TableHead class="text-center">{t("webhooks.enabled")}</TableHead>
-            <TableHead class="text-right">{t("common.actions")}</TableHead>
+            <TableHead class="text-center">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
