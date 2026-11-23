@@ -85,6 +85,10 @@
     "includePrereleases": {
       "description": "Vorabversionen (z. B. 1.2.0-rc.1) als neueste Version anbieten",
       "title": "Vorabversionen einbeziehen"
+    },
+    "notifyWorkflow": {
+      "description": "Workflow, der startet, wenn eine Prüfung neue Updates findet. Erhält die Updates als Trigger-Payload. Leer lassen, um nicht benachrichtigt zu werden.",
+      "title": "Benachrichtigungs-Workflow"
     }
   },
   "sources": {

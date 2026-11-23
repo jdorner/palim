@@ -302,6 +302,9 @@ Every extension receives a scoped `ExtensionContext` during `initialize()`. The 
 | `ctx.paths.extensions` | `string`            | Absolute path to the extensions directory                                                                                                   |
 | `ctx.db`               | `BunSQLiteDatabase` | Shared Drizzle database instance                                                                                                            |
 | `ctx.fetch`            | `typeof fetch`      | Identity-bound fetch - authenticates internal calls as the initiating user, confined to this extension's routes; external URLs pass through |
+| `ctx.urls.origin`      | `string`            | Server origin (e.g. `http://localhost:3000`), for server-side requests                                                                      |
+| `ctx.urls.base`        | `string`            | This extension's route base, `<origin>/ext/<name>`                                                                                          |
+| `ctx.urls.public`      | `string`            | Base URL users open the UI at (`WEB_PUBLIC_URL`, else the origin), for links in notifications                                               |
 | `ctx.sessions`         | `SessionStorePort`  | Shared session store for conversation persistence                                                                                           |
 
 Use `ctx.fetch` instead of the global `fetch()` when calling your extension's own routes. It authenticates as the user who started the current job (or the built-in `system` account for background work) without exposing a token. Local requests are confined to `/ext/<name>/*` plus `/api/push`; any other local path returns `403`.

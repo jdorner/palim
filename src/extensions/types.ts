@@ -1036,6 +1036,12 @@ export interface ExtensionContext {
     readonly origin: string;
     /** This extension's base URL including the route prefix (e.g. "http://localhost:3000/ext/invoice-scanner"). */
     readonly base: string;
+    /**
+     * Base URL users open the operator UI at, without a trailing slash: `WEB_PUBLIC_URL`
+     * when set, otherwise {@link origin}. Use it for links in notifications; use
+     * {@link origin} and {@link base} for server-side requests.
+     */
+    readonly public: string;
   };
 
   // -------------------------------------------------------------------------

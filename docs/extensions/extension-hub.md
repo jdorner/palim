@@ -8,7 +8,7 @@ You can:
 - see the extensions each source offers, with their released versions;
 - install an extension by version, or from any tag, branch, or commit;
 - update (including downgrades) and uninstall what you installed;
-- let Palim check the sources periodically for new versions.
+- let Palim check the sources periodically for new versions, and start a workflow when it finds some.
 
 Installing, updating, and removing extensions and sources needs the `manage Extension` permission (admins). Everyone else can see the catalog.
 
@@ -106,12 +106,67 @@ The hub fetches all sources every **Update check interval** minutes (default 360
 
 Updates are never installed automatically.
 
+## Notifications
+
+To be notified of new versions, select a **Notification workflow**. When a check (periodic or **Check for updates**) finds updates it hasn't seen before, the hub starts that workflow once with all of them. What happens next is up to the workflow: a Telegram, ntfy, or Gotify message, an e-mail, a ticket.
+
+- No workflow selected means no notification. If the selected workflow doesn't exist (e.g. it was renamed or deleted), the extension shows a warning in the settings.
+- An update counts as new per extension and target commit. Each one is reported once; a later release of the same extension is reported again.
+- Updates already known at startup (from the local mirrors) are not reported, so a restart doesn't send anything again. Neither are updates that appear because of something you did yourself, such as installing an older version or turning on **Include prereleases**.
+- The workflow must be enabled and not a draft. If it can't be started, the server log says why; the check itself isn't affected.
+- The run has no initiating user, so it is visible to admins.
+
+The workflow receives this trigger payload:
+
+```json5
+{
+  updates: [
+    {
+      name: "imap-fetch",         // extension
+      source: "Palim extensions", // source it was installed from
+      installedVersion: "1.2.0",
+      installedRef: "imap-fetch@1.2.0",
+      latestRef: "imap-fetch@1.3.0",
+      latestVersion: "1.3.0",     // null when unknown (branch head with a broken package.json)
+      commit: "…",
+    },
+  ],
+  checkedAt: "2026-11-23T10:00:00.000Z",
+  hubUrl: "https://palim.example.com/ext-page/extension-hub/hub", // based on WEB_PUBLIC_URL
+}
+```
+
+Example with the [Telegram](telegram.md) notify step:
+
+```json5
+{
+  name: "extension-updates",
+  trigger: {
+    type: "manual",
+    outputSchema: {
+      updates: [{ name: "string", installedVersion: "string", latestRef: "string" }],
+      checkedAt: "string",
+      hubUrl: "string",
+    },
+  },
+  enabled: true,
+  steps: {
+    notify: {
+      type: "notify-telegram",
+      message: 'New extension versions: {{ join(pluck(trigger.payload.updates, "latestRef"), ", ") }}\n{{ trigger.payload.hubUrl }}',
+    },
+  },
+  edges: [],
+}
+```
+
 ## Settings
 
 | Setting                         | Default | Description                                                |
 | ------------------------------- | ------- | ---------------------------------------------------------- |
 | Include prereleases             | off     | Offer prerelease versions as the latest version            |
 | Update check interval (minutes) | 360     | How often sources are fetched; 0 turns periodic checks off |
+| Notification workflow           | (empty) | Workflow started when a check finds new updates            |
 
 ## Coexistence with hand-placed extensions
 

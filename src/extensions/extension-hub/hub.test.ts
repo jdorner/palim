@@ -360,6 +360,7 @@ describe("HubService updates", () => {
     expect(f.hub.updates()).toEqual([
       expect.objectContaining({
         name: "foo",
+        source: "Test",
         installedVersion: "1.0.0",
         update: expect.objectContaining({ version: "1.1.0" }),
       }),

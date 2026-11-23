@@ -85,6 +85,10 @@
     "includePrereleases": {
       "description": "Offer prerelease versions (e.g. 1.2.0-rc.1) as the latest version",
       "title": "Include prereleases"
+    },
+    "notifyWorkflow": {
+      "description": "Workflow started when a check finds new updates. Receives the updates as trigger payload. Leave empty for no notification.",
+      "title": "Notification workflow"
     }
   },
   "sources": {

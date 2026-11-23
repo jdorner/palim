@@ -151,6 +151,8 @@ export interface UpdateResult extends InstallResult {
 export interface UpdateSummary {
   /** Extension name. */
   name: string;
+  /** Name of the source the extension was installed from. */
+  source: string;
   /** Installed version. */
   installedVersion: string;
   /** Installed ref. */
@@ -551,7 +553,15 @@ export class HubService {
     const result: UpdateSummary[] = [];
     for (const install of this.deps.store.listInstalls()) {
       const update = findUpdate(install, this.snapshots.get(install.sourceId) ?? null, this.deps.includePrereleases());
-      if (update) result.push({ name: install.name, installedVersion: install.version, ref: install.ref, update });
+      if (update) {
+        result.push({
+          name: install.name,
+          source: this.deps.store.getSource(install.sourceId)?.name ?? install.sourceId,
+          installedVersion: install.version,
+          ref: install.ref,
+          update,
+        });
+      }
     }
     return result;
   }
