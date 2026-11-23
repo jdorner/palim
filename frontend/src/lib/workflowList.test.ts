@@ -13,10 +13,14 @@ describe("listNeedsRefetch", () => {
     expect(listNeedsRefetch("workflow_run_removed")).toBe(true);
   });
 
+  test("refetches when a step starts or stops waiting", () => {
+    expect(listNeedsRefetch("workflow_step_waiting")).toBe(true);
+    expect(listNeedsRefetch("workflow_step_resumed")).toBe(true);
+  });
+
   test("ignores step progress and run starts", () => {
     expect(listNeedsRefetch("workflow_started")).toBe(false);
     expect(listNeedsRefetch("workflow_step_started")).toBe(false);
     expect(listNeedsRefetch("workflow_step_completed")).toBe(false);
-    expect(listNeedsRefetch("workflow_step_waiting")).toBe(false);
   });
 });

@@ -21,9 +21,11 @@ interface Props {
   tone?: "muted" | "destructive";
   /** `sm` (36px, default) for tables and cards, `xs` (24px) for compact lists. */
   size?: "xs" | "sm";
+  /** Extra classes for the icon, e.g. `animate-spin` while busy. */
+  iconClass?: string;
 }
 
-let { label, icon: Icon, onclick, disabled = false, tone = "muted", size = "sm" }: Props = $props();
+let { label, icon: Icon, onclick, disabled = false, tone = "muted", size = "sm", iconClass = "" }: Props = $props();
 
 const toneClass = $derived(
   tone === "destructive"
@@ -44,5 +46,5 @@ const toneClass = $derived(
     onclick();
   }}
 >
-  <Icon size={size === "xs" ? 14 : 16} aria-hidden="true" />
+  <Icon size={size === "xs" ? 14 : 16} class={iconClass} aria-hidden="true" />
 </Button>

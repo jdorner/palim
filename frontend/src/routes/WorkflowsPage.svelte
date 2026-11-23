@@ -40,6 +40,8 @@ import { listNeedsRefetch } from "$lib/workflowList";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
 import type { WorkflowLoadError } from "../../../shared/workflows";
 import DeleteButton from "../components/DeleteButton.svelte";
+import IconAction from "../components/IconAction.svelte";
+import StatusDot from "../components/StatusDot.svelte";
 import { navigate } from "../router";
 
 interface WorkflowSummary {
@@ -53,6 +55,8 @@ interface WorkflowSummary {
   draft?: boolean;
   steps: Array<{ slug: string; type: string }>;
   activeRuns: number;
+  /** Runs paused on a signal, human task or wait step. */
+  waitingRuns: number;
   completedRuns: number;
   failedRuns: number;
   warnings: Array<{ stepSlug: string; field: string; message: string }>;
@@ -310,14 +314,54 @@ onDestroy(() => {
 $effect(() => {
   fetchWorkflows();
 });
+
+/** One run counter of a workflow or group: status for StatusDot, color, count, and tooltip text. */
+interface RunCountItem {
+  status: "active" | "waiting-signal" | "failed" | "completed";
+  color: string;
+  count: number;
+  label: string;
+}
+
+/**
+ * The four run counters in display order: active, waiting, failed, completed.
+ *
+ * @param counts - Counters of a workflow or a group subtotal
+ * @returns One entry per status
+ */
+function runCountItems(counts: WorkflowRunCounts): RunCountItem[] {
+  return [
+    {
+      status: "active",
+      color: "text-blue-500",
+      count: counts.activeRuns,
+      label: t("workflows.runsActive", { count: counts.activeRuns }),
+    },
+    {
+      status: "waiting-signal",
+      color: "text-amber-500",
+      count: counts.waitingRuns,
+      label: t("workflows.runsWaiting", { count: counts.waitingRuns }),
+    },
+    {
+      status: "failed",
+      color: "text-red-500",
+      count: counts.failedRuns,
+      label: t("workflows.runsFailed", { count: counts.failedRuns }),
+    },
+    {
+      status: "completed",
+      color: "text-green-600 dark:text-green-500",
+      count: counts.completedRuns,
+      label: t("workflows.runsCompleted", { count: counts.completedRuns }),
+    },
+  ];
+}
 </script>
 
-<!-- Row actions: Run (outline), Delete rightmost as a muted trash icon -->
+<!-- Row actions: Run, Delete rightmost as a muted trash icon -->
 {#snippet actions(wf: WorkflowSummary)}
-  <Button size="sm" variant="outline" class="whitespace-nowrap" onclick={() => triggerRun(wf.name)}>
-    <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-    {t("workflows.run")}
-  </Button>
+  <IconAction label={t("workflows.run")} icon={PlayIcon} onclick={() => triggerRun(wf.name)} />
   <DeleteButton
     url="/ext/workflows/{wf.name}"
     confirmTitle={t("workflows.deleteTitle")}
@@ -350,12 +394,53 @@ $effect(() => {
   </button>
 {/snippet}
 
-{#snippet runCount(value: number, color: string)}
-  {#if value > 0 && color}
-    <span class="font-medium {color}">{value}</span>
-  {:else}
-    <span class="text-muted-foreground">{value}</span>
-  {/if}
+<!--
+  Run counters of the table in fixed slots, so they line up across rows and under the
+  header dots: active, waiting, failed, completed. A number above zero has its status
+  color, a zero is grey; the tooltip names the status.
+-->
+{#snippet runCounts(counts: WorkflowRunCounts)}
+  <div class="grid w-44 grid-cols-4 justify-items-center text-sm tabular-nums">
+    {#each runCountItems(counts) as item (item.status)}
+      <span class={item.count > 0 ? item.color : "text-muted-foreground"} title={item.label}>
+        <span aria-hidden="true">{item.count}</span>
+        <span class="sr-only">{item.label}</span>
+      </span>
+    {/each}
+  </div>
+{/snippet}
+
+<!--
+  Run counters of a card (no column header there to explain them): status dot plus
+  number. The dot always has its status color; a zero count is grey. The tooltip and screen-reader text name the status.
+-->
+{#snippet cardRunCounts(counts: WorkflowRunCounts, textClass: string)}
+  <div class="flex flex-wrap items-center gap-x-4 gap-y-1 tabular-nums {textClass}">
+    {#each runCountItems(counts) as item (item.status)}
+      <span
+        class="inline-flex items-center gap-1.5 {item.count > 0 ? item.color : "text-muted-foreground"}"
+        title={item.label}
+      >
+        <StatusDot status={item.status} still={item.count === 0} />
+        <span aria-hidden="true">{item.count}</span>
+        <span class="sr-only">{item.label}</span>
+      </span>
+    {/each}
+  </div>
+{/snippet}
+
+<!-- Column header for runCounts: the four status dots, named by their tooltips. -->
+{#snippet runLegend()}
+  <div class="grid w-44 grid-cols-4 justify-items-center" aria-hidden="true">
+    {#each [
+      ["active", t("workflows.colActive")],
+      ["waiting-signal", t("workflows.colWaiting")],
+      ["failed", t("workflows.colFailed")],
+      ["completed", t("workflows.colCompleted")],
+    ] as [status, label] (status)}
+      <span class="inline-flex items-center py-2" title={label}><StatusDot {status} size="md" /></span>
+    {/each}
+  </div>
 {/snippet}
 
 {#snippet grip(wf: WorkflowSummary)}
@@ -380,11 +465,7 @@ $effect(() => {
 {/snippet}
 
 {#snippet cardSubtotals(totals: WorkflowRunCounts)}
-  <div class="flex flex-wrap items-center gap-x-4 gap-y-1 pl-5 text-xs text-muted-foreground">
-    <span>{t("workflows.activeLabel")} {@render runCount(totals.activeRuns, "text-blue-500")}</span>
-    <span>{t("workflows.failedLabel")} {@render runCount(totals.failedRuns, "text-red-500")}</span>
-    <span>{t("workflows.completedLabel", { count: totals.completedRuns })}</span>
-  </div>
+  {@render cardRunCounts(totals, "pl-5 text-xs")}
 {/snippet}
 
 <div class="space-y-4">
@@ -525,28 +606,8 @@ $effect(() => {
                   </div>
                 </div>
 
-                <!-- Stats row -->
-                <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                  <span class="text-muted-foreground"
-                    >{t("workflows.activeLabel")}
-                    {#if wf.activeRuns > 0}
-                      <span class="font-medium text-blue-500">{wf.activeRuns}</span>
-                    {:else}
-                      <span>0</span>
-                    {/if}
-                  </span>
-                  <span class="text-muted-foreground"
-                    >{t("workflows.failedLabel")}
-                    {#if wf.failedRuns > 0}
-                      <span class="font-medium text-red-500">{wf.failedRuns}</span>
-                    {:else}
-                      <span>0</span>
-                    {/if}
-                  </span>
-                  <span class="text-muted-foreground"
-                    >{t("workflows.completedLabel", { count: wf.completedRuns })}</span
-                  >
-                </div>
+                <!-- Stats row, indented to the name: grip (16px icon + 6px padding net of its negative margin) + gap-2 -->
+                {@render cardRunCounts(wf, "pl-7.5 text-sm")}
 
                 <hr>
 
@@ -570,10 +631,11 @@ $effect(() => {
           <TableRow>
             <TableHead>{t("common.name")}</TableHead>
             <TableHead class="w-44">{t("workflows.colTrigger")}</TableHead>
-            <TableHead class="w-24 text-center">{t("workflows.colActive")}</TableHead>
-            <TableHead class="w-24 text-center">{t("workflows.colFailed")}</TableHead>
-            <TableHead class="w-24 text-center">{t("workflows.colCompleted")}</TableHead>
-            <TableHead class="w-1 text-right">{t("common.actions")}</TableHead>
+            <TableHead class="w-44">
+              <span class="sr-only">{t("workflows.colRuns")}</span>
+              {@render runLegend()}
+            </TableHead>
+            <TableHead class="w-24 text-right">{t("common.actions")}</TableHead>
           </TableRow>
         </TableHeader>
         {#each sections as section, sectionIndex (sectionKey(section.group))}
@@ -591,18 +653,15 @@ $effect(() => {
                     section.items.some((wf) => wf.warnings.length > 0),
                   )}</TableCell
                 >
-                <TableCell class="text-center text-sm"
-                  >{@render runCount(totals.activeRuns, "text-blue-500")}</TableCell
-                >
-                <TableCell class="text-center text-sm">{@render runCount(totals.failedRuns, "text-red-500")}</TableCell>
-                <TableCell class="text-center text-sm">{@render runCount(totals.completedRuns, "")}</TableCell>
+                <TableCell>{@render runCounts(totals)}</TableCell>
                 <TableCell></TableCell>
               </TableRow>
             {/if}
             {#if !isCollapsed(section.group)}
               {#each section.items as wf (wf.name)}
                 <TableRow class={draggedName === wf.name ? "opacity-50" : ""}>
-                  <TableCell>
+                  <!-- max-w-0 + w-full: the name column takes the remaining width and truncates instead of growing -->
+                  <TableCell class="w-full max-w-0">
                     <div class="flex items-start gap-1.5">
                       {@render grip(wf)}
                       <div class="min-w-0 flex-1">
@@ -613,7 +672,9 @@ $effect(() => {
                           {/if}
                         </div>
                         {#if wf.description}
-                          <p class="text-xs text-muted-foreground mt-0.5">{wf.description}</p>
+                          <p class="text-xs text-muted-foreground mt-0.5 truncate" title={wf.description}>
+                            {wf.description}
+                          </p>
                         {/if}
                         {#if wf.warnings.length > 0}
                           <span
@@ -650,33 +711,21 @@ $effect(() => {
                     </span>
                     {#if wf.trigger.ref && triggerRoute(wf.trigger.type)}
                       <a href="#/{triggerRoute(wf.trigger.type)}" class="text-left">
-                        <span class="block text-muted-foreground text-xs font-mono mt-0.5 break-all"
+                        <span
+                          class="block max-w-44 truncate text-muted-foreground text-xs font-mono mt-0.5"
+                          title={wf.trigger.ref}
                           >{wf.trigger.ref}</span
                         >
                       </a>
                     {:else if wf.trigger.ref}
-                      <span class="block text-muted-foreground text-xs font-mono mt-0.5 break-all"
+                      <span
+                        class="block max-w-44 truncate text-muted-foreground text-xs font-mono mt-0.5"
+                        title={wf.trigger.ref}
                         >{wf.trigger.ref}</span
                       >
                     {/if}
                   </TableCell>
-                  <TableCell class="text-center">
-                    {#if wf.activeRuns > 0}
-                      <span class="text-sm font-medium text-blue-500">{wf.activeRuns}</span>
-                    {:else}
-                      <span class="text-sm text-muted-foreground">0</span>
-                    {/if}
-                  </TableCell>
-                  <TableCell class="text-center">
-                    {#if wf.failedRuns > 0}
-                      <span class="text-sm font-medium text-red-500">{wf.failedRuns}</span>
-                    {:else}
-                      <span class="text-sm text-muted-foreground">0</span>
-                    {/if}
-                  </TableCell>
-                  <TableCell class="text-center">
-                    <span class="text-sm text-muted-foreground">{wf.completedRuns}</span>
-                  </TableCell>
+                  <TableCell>{@render runCounts(wf)}</TableCell>
                   <TableCell class="text-right">
                     <div class="inline-flex items-center justify-end gap-1 flex-nowrap">
                       {@render actions(wf)}

@@ -278,18 +278,15 @@ $effect(() => {
 });
 </script>
 
-<!-- Row actions: Sync (outline), Edit, Delete rightmost -->
+<!-- Row actions: Sync, Edit, Delete rightmost -->
 {#snippet actions(server: McpServer)}
-  <Button
-    size="sm"
-    variant="outline"
-    class="whitespace-nowrap"
+  <IconAction
+    label={t("mcp.sync")}
+    icon={ArrowsClockwiseIcon}
+    iconClass={syncing === server.name ? "animate-spin" : ""}
     disabled={syncing === server.name}
     onclick={() => syncServer(server.name)}
-  >
-    <ArrowsClockwiseIcon size={14} class="mr-1.5 {syncing === server.name ? "animate-spin" : ""}" aria-hidden="true" />
-    {t("mcp.sync")}
-  </Button>
+  />
   <IconAction label={t("common.edit")} icon={PencilSimpleIcon} onclick={() => openEditForm(server)} />
   <DeleteButton
     url="/ext/mcp/servers/{server.name}"

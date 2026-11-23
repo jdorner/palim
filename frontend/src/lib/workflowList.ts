@@ -8,7 +8,8 @@ import type { WorkflowWebSocketEvent } from "../../../shared/workflows";
 
 /**
  * Events after which the list refetches definitions, run counts and load
- * errors: a run ended or was removed (its counts changed), or a workflow file
+ * errors: a run ended or was removed, or a step started or stopped waiting
+ * (the run may have moved between active and waiting), or a workflow file
  * was reloaded or deleted (a workflow appeared, changed, vanished, or a file
  * failed to load).
  */
@@ -16,6 +17,8 @@ const REFETCH_EVENTS: ReadonlySet<WorkflowWebSocketEvent["type"]> = new Set([
   "workflow_completed",
   "workflow_failed",
   "workflow_run_removed",
+  "workflow_step_waiting",
+  "workflow_step_resumed",
   "workflow_reload",
   "workflow_deleted",
 ]);

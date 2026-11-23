@@ -5,12 +5,12 @@ import { schedules } from "$lib/appStore";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
-import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { t } from "$lib/i18n.svelte";
 import { formatTimestamp } from "$lib/utils";
 import type { ScheduleEntry } from "../../../shared/schedules";
 import DeleteButton from "./DeleteButton.svelte";
+import IconAction from "./IconAction.svelte";
 
 let items = $state<ScheduleEntry[]>([]);
 let sortedItems = $derived([...items].sort((a, b) => a.id.localeCompare(b.id)));
@@ -91,18 +91,14 @@ $effect(() => {
 });
 </script>
 
-<!-- Row actions: Run now (outline), Delete rightmost as a muted trash icon -->
+<!-- Row actions: Run now, Delete rightmost as a muted trash icon -->
 {#snippet actions(schedule: ScheduleEntry)}
-  <Button
-    size="sm"
-    variant="outline"
-    class="whitespace-nowrap"
+  <IconAction
+    label={triggeringId === schedule.id ? t("schedules.triggering") : t("schedules.trigger")}
+    icon={PlayIcon}
     disabled={triggeringId === schedule.id}
     onclick={() => triggerSchedule(schedule.id)}
-  >
-    <PlayIcon size={14} class="mr-1.5" aria-hidden="true" />
-    {triggeringId === schedule.id ? t("schedules.triggering") : t("schedules.trigger")}
-  </Button>
+  />
   <DeleteButton
     url="/ext/scheduler/schedules/{schedule.id}"
     confirmTitle={t("schedules.deleteTitle")}

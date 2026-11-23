@@ -114,6 +114,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
       [...store.values()].map(async (w) => {
         const allRuns = dagRunStore.getByWorkflowName(w.name);
         let activeRuns = 0;
+        let waitingRuns = 0;
         let completedRuns = 0;
         let failedRuns = 0;
         for (const run of allRuns) {
@@ -125,8 +126,10 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
               failedRuns++;
               break;
             case "running":
-            case "waiting-signal":
               activeRuns++;
+              break;
+            case "waiting-signal":
+              waitingRuns++;
               break;
             default:
               break;
@@ -148,6 +151,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
           steps: Object.entries(w.steps).map(([slug, s]) => ({ slug, type: s.type })),
           edges: w.edges,
           activeRuns,
+          waitingRuns,
           completedRuns,
           failedRuns,
           warnings,
