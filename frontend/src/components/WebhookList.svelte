@@ -4,7 +4,6 @@ import CopyIcon from "phosphor-svelte/lib/CopyIcon";
 import CopySimpleIcon from "phosphor-svelte/lib/CopySimpleIcon";
 import PencilSimpleIcon from "phosphor-svelte/lib/PencilSimpleIcon";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
-import TrashIcon from "phosphor-svelte/lib/TrashIcon";
 import WarningIcon from "phosphor-svelte/lib/WarningIcon";
 import { webhookCount } from "$lib/appStore";
 import { authFetch } from "$lib/auth";
@@ -15,6 +14,8 @@ import { Button } from "$lib/components/ui/button";
 import { Card, CardContent, CardHeader } from "$lib/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { t } from "$lib/i18n.svelte";
+import DeleteButton from "./DeleteButton.svelte";
+import IconAction from "./IconAction.svelte";
 
 interface Webhook {
   slug: string;
@@ -44,8 +45,6 @@ let formEnabled = $state(true);
 let formError = $state<string | null>(null);
 let submitting = $state(false);
 
-let confirmingDelete = $state<string | null>(null);
-
 const NO_AUTH_WARNING = $derived(t("webhooks.noAuthWarning"));
 
 async function fetchWebhooks() {
@@ -70,19 +69,11 @@ async function fetchWebhooks() {
   }
 }
 
-async function deleteWebhook(slug: string) {
-  try {
-    const res = await authFetch(`/ext/webhooks/${slug}`, {
-      method: "DELETE",
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    webhooks = webhooks.filter((w) => w.slug !== slug);
-    webhookCount.set(webhooks.length);
-    confirmingDelete = null;
-    if (editingSlug === slug) resetForm();
-  } catch (err) {
-    console.error("Failed to delete webhook:", err);
-  }
+/** Drops a deleted webhook from the list (the DELETE itself is sent by DeleteButton). */
+function removeWebhook(slug: string) {
+  webhooks = webhooks.filter((w) => w.slug !== slug);
+  webhookCount.set(webhooks.length);
+  if (editingSlug === slug) resetForm();
 }
 
 function openCreateForm() {
@@ -255,6 +246,19 @@ $effect(() => {
   fetchWebhooks();
 });
 </script>
+
+<!-- Row actions: Duplicate, Edit, Delete rightmost -->
+{#snippet actions(webhook: Webhook)}
+  <IconAction label={t("common.duplicate")} icon={CopySimpleIcon} onclick={() => duplicateWebhook(webhook)} />
+  <IconAction label={t("common.edit")} icon={PencilSimpleIcon} onclick={() => openEditForm(webhook)} />
+  <DeleteButton
+    url="/ext/webhooks/{webhook.slug}"
+    confirmTitle={t("webhooks.deleteTitle")}
+    confirmMessage={t("webhooks.deleteConfirm", { name: webhook.name })}
+    iconOnly
+    onDeleted={() => removeWebhook(webhook.slug)}
+  />
+{/snippet}
 
 {#snippet webhookForm()}
   <Card class="bg-accent">
@@ -454,42 +458,9 @@ $effect(() => {
 
           <hr>
 
-          {#if confirmingDelete === webhook.slug}
-            <div class="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="destructive" onclick={() => deleteWebhook(webhook.slug)}
-                >{t("common.confirm")}</Button
-              >
-              <Button
-                size="sm"
-                variant="outline"
-                onclick={() => {
-                  confirmingDelete = null;
-                }}
-                >{t("common.cancel")}</Button
-              >
-            </div>
-          {:else}
-            <div class="flex flex-wrap items-center gap-2">
-              <Button size="sm" variant="outline" onclick={() => duplicateWebhook(webhook)}>
-                <CopySimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-                {t("common.duplicate")}
-              </Button>
-              <Button size="sm" variant="outline" onclick={() => openEditForm(webhook)}>
-                <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-                {t("common.edit")}
-              </Button>
-              <Button
-                size="sm"
-                variant="destructive"
-                onclick={() => {
-                  confirmingDelete = webhook.slug;
-                }}
-              >
-                <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                {t("common.delete")}
-              </Button>
-            </div>
-          {/if}
+          <div class="flex flex-wrap items-center gap-2">
+            {@render actions(webhook)}
+          </div>
         </div>
       {/each}
     </div>
@@ -565,43 +536,9 @@ $effect(() => {
                   aria-label={webhook.enabled ? t("webhooks.disable") : t("webhooks.enable")}
                 />
               </TableCell>
-              <TableCell class="w-1">
-                <div class="inline-flex justify-end gap-2 flex-wrap xl:flex-nowrap">
-                  {#if confirmingDelete === webhook.slug}
-                    <Button size="sm" variant="destructive" onclick={() => deleteWebhook(webhook.slug)}>
-                      {t("common.confirm")}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onclick={() => {
-                        confirmingDelete = null;
-                      }}
-                    >
-                      {t("common.cancel")}
-                    </Button>
-                  {:else}
-                    <Button size="sm" variant="outline" onclick={() => duplicateWebhook(webhook)}>
-                      <CopySimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      {t("common.duplicate")}
-                    </Button>
-                    <Button size="sm" variant="outline" onclick={() => openEditForm(webhook)}>
-                      <PencilSimpleIcon size={14} class="mr-1.5" aria-hidden="true" />
-                      {t("common.edit")}
-                    </Button>
-                    <div>
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        onclick={() => {
-                          confirmingDelete = webhook.slug;
-                        }}
-                      >
-                        <TrashIcon size={14} class="mr-1.5" aria-hidden="true" />
-                        {t("common.delete")}
-                      </Button>
-                    </div>
-                  {/if}
+              <TableCell class="text-right w-1">
+                <div class="inline-flex items-center justify-end gap-1 flex-nowrap">
+                  {@render actions(webhook)}
                 </div>
               </TableCell>
             </TableRow>

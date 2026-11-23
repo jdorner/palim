@@ -11,6 +11,7 @@ import ProhibitIcon from "phosphor-svelte/lib/ProhibitIcon";
 import WarningIcon from "phosphor-svelte/lib/WarningIcon";
 import XIcon from "phosphor-svelte/lib/XIcon";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
+import { AlertDialog } from "$lib/components/ui/alert-dialog";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
@@ -18,6 +19,7 @@ import { t } from "$lib/i18n.svelte";
 import { identity } from "$lib/identity.svelte";
 import { ROLE_ADMIN, ROLE_SYSTEM } from "$shared/auth";
 import { isLocale, LOCALE_NAMES } from "$shared/i18n";
+import IconAction from "../components/IconAction.svelte";
 import { loadUsersAndRoles, updateUser } from "../components/users/api";
 import PasswordDialog from "../components/users/PasswordDialog.svelte";
 import RoleDialog from "../components/users/RoleDialog.svelte";
@@ -74,7 +76,8 @@ let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 let userDialog = $state<{ user: UserRow | null } | null>(null);
 let passwordUser = $state<UserRow | null>(null);
 let roleDialog = $state<{ role: RoleRow | null } | null>(null);
-let confirmDisableId = $state<string | null>(null);
+/** User waiting for the Disable confirmation dialog. */
+let confirmDisable = $state<UserRow | null>(null);
 let busyUserId = $state<string | null>(null);
 let search = $state("");
 
@@ -138,7 +141,7 @@ async function handleSaved(message: string) {
 }
 
 async function setDisabled(user: UserRow, disabled: boolean) {
-  confirmDisableId = null;
+  confirmDisable = null;
   busyUserId = user.id;
   try {
     await updateUser(user.id, { disabled });
@@ -257,7 +260,7 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
               <TableHead>{t("common.name")}</TableHead>
               <TableHead>{t("users.colRoles")}</TableHead>
               <TableHead class="hidden md:table-cell">{t("users.colLanguage")}</TableHead>
-              <TableHead class="text-right">{t("common.actions")}</TableHead>
+              <TableHead class="text-center">{t("common.actions")}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -322,23 +325,9 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
                   <div class="grid grid-cols-[auto_1fr] items-center gap-1 whitespace-nowrap">
                     {#if system}
                       <span class="col-start-2 pl-2 text-xs text-muted-foreground">{t("users.readOnly")}</span>
-                    {:else if confirmDisableId === user.id}
-                      <Button
-                        size="sm"
-                        variant="destructive"
-                        title={t("users.confirmDisable")}
-                        onclick={() => setDisabled(user, true)}
-                        >{t("users.disable")}</Button
-                      >
-                      <Button size="sm" variant="ghost" onclick={() => (confirmDisableId = null)}
-                        >{t("common.cancel")}</Button
-                      >
                     {:else}
                       {@const lock = shortDisableLock(user)}
-                      <Button size="sm" variant="ghost" onclick={() => (passwordUser = user)}>
-                        <KeyIcon size={14} class="mr-1.5" aria-hidden="true" />
-                        {t("users.password")}
-                      </Button>
+                      <IconAction label={t("users.password")} icon={KeyIcon} onclick={() => (passwordUser = user)} />
                       {#if user.disabled}
                         <Button
                           size="sm"
@@ -362,9 +351,9 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
                         <Button
                           size="sm"
                           variant="ghost"
-                          class="justify-start text-destructive hover:text-destructive"
+                          class="justify-start text-destructive/70 hover:bg-destructive/10 hover:text-destructive dark:text-red-400/80 dark:hover:bg-red-400/10 dark:hover:text-red-400"
                           disabled={busyUserId === user.id}
-                          onclick={() => (confirmDisableId = user.id)}
+                          onclick={() => (confirmDisable = user)}
                         >
                           <ProhibitIcon size={14} class="mr-1.5 shrink-0" aria-hidden="true" />
                           {t("users.disable")}
@@ -456,6 +445,21 @@ function permissionSummary(role: RoleRow): { resource: string; actions: string }
     onSaved={handleSaved}
   />
 {/if}
+
+<AlertDialog
+  open={confirmDisable !== null}
+  title={t("users.confirmDisable")}
+  description={confirmDisable ? t("users.disableConfirm", { username: confirmDisable.username }) : ""}
+  confirmLabel={t("users.disable")}
+  cancelLabel={t("common.cancel")}
+  confirmVariant="destructive"
+  onConfirm={() => {
+    if (confirmDisable) setDisabled(confirmDisable, true);
+  }}
+  onCancel={() => {
+    confirmDisable = null;
+  }}
+/>
 
 {#if passwordUser}
   <PasswordDialog user={passwordUser} onClose={() => (passwordUser = null)} onSaved={handleSaved} />

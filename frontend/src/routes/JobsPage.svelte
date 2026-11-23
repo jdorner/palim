@@ -84,9 +84,11 @@ let filteredJobs = $derived(
     <CheckCircleIcon size={14} class="mr-1.5" aria-hidden="true" />
     {$cleaning ? t("common.deleting") : t("jobs.cleanCompleted")}
   </Button>
+  <!-- Outline like its neighbour; red text marks it as destructive, the dialog confirms it -->
   <Button
     size="sm"
-    variant="destructive"
+    variant="outline"
+    class="text-destructive hover:bg-destructive/10 hover:text-destructive dark:text-red-400 dark:hover:bg-red-400/10 dark:hover:text-red-400"
     disabled={$cleaning || !$jobs.some((j) => j.status === "failed")}
     onclick={() => (pendingClean = "failed")}
   >

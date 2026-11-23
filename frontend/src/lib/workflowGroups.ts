@@ -43,6 +43,8 @@ export function groupWorkflows<T extends { group?: string }>(workflows: T[]): Wo
 /** Run counters of a workflow, summed per section for the group subtotals. */
 export interface WorkflowRunCounts {
   activeRuns: number;
+  /** Runs paused on a signal, human task or wait step. */
+  waitingRuns: number;
   failedRuns: number;
   completedRuns: number;
 }
@@ -54,9 +56,10 @@ export interface WorkflowRunCounts {
  * @returns The subtotals
  */
 export function sumRunCounts(items: WorkflowRunCounts[]): WorkflowRunCounts {
-  const totals: WorkflowRunCounts = { activeRuns: 0, failedRuns: 0, completedRuns: 0 };
+  const totals: WorkflowRunCounts = { activeRuns: 0, waitingRuns: 0, failedRuns: 0, completedRuns: 0 };
   for (const wf of items) {
     totals.activeRuns += wf.activeRuns;
+    totals.waitingRuns += wf.waitingRuns;
     totals.failedRuns += wf.failedRuns;
     totals.completedRuns += wf.completedRuns;
   }

@@ -5,14 +5,15 @@ import { AlertDialog } from "$lib/components/ui/alert-dialog";
 import { Button } from "$lib/components/ui/button";
 import { t } from "$lib/i18n.svelte";
 import { responseError } from "$lib/utils";
+import IconAction from "./IconAction.svelte";
 
 /**
- * Delete action for a finished job or workflow run: asks for confirmation,
- * then sends DELETE to its endpoint. A refusal is shown next to the button,
+ * Delete action for a list row (job, run, workflow, schedule, ...): asks for
+ * confirmation, then sends DELETE to its endpoint. A refusal is shown next to the button,
  * with the server's reason as tooltip.
  */
 interface Props {
-  /** Delete endpoint (`/api/jobs/:id` or `/ext/workflows/runs/:id`). */
+  /** Delete endpoint, e.g. `/api/jobs/:id` or `/ext/workflows/runs/:id`. */
   url: string;
   /** Confirmation dialog title. */
   confirmTitle: string;
@@ -55,22 +56,16 @@ async function remove() {
   <span class="text-xs text-destructive" title={failure}>{t("common.deleteFailed")}</span>
 {/if}
 {#if iconOnly}
-  <Button
-    size="icon"
-    variant="ghost"
-    class="{size === "xs"
-      ? "size-6"
-      : "size-9"} text-destructive/60 hover:bg-destructive/10 hover:text-destructive dark:text-red-400/80 dark:hover:bg-red-400/10 dark:hover:text-red-400"
+  <IconAction
+    label={deleting ? t("common.deleting") : t("common.delete")}
+    icon={TrashIcon}
+    tone="destructive"
+    {size}
     disabled={deleting}
-    title={deleting ? t("common.deleting") : t("common.delete")}
-    aria-label={t("common.delete")}
-    onclick={(e: Event) => {
-      e.stopPropagation();
+    onclick={() => {
       confirming = true;
     }}
-  >
-    <TrashIcon size={size === "xs" ? 14 : 16} aria-hidden="true" />
-  </Button>
+  />
 {:else}
   <Button
     {size}

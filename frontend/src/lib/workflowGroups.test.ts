@@ -34,14 +34,14 @@ describe("sumRunCounts", () => {
   test("sums the run counters", () => {
     expect(
       sumRunCounts([
-        { activeRuns: 1, failedRuns: 0, completedRuns: 5 },
-        { activeRuns: 2, failedRuns: 3, completedRuns: 7 },
+        { activeRuns: 1, waitingRuns: 2, failedRuns: 0, completedRuns: 5 },
+        { activeRuns: 2, waitingRuns: 0, failedRuns: 3, completedRuns: 7 },
       ]),
-    ).toEqual({ activeRuns: 3, failedRuns: 3, completedRuns: 12 });
+    ).toEqual({ activeRuns: 3, waitingRuns: 2, failedRuns: 3, completedRuns: 12 });
   });
 
   test("returns zeros for an empty section", () => {
-    expect(sumRunCounts([])).toEqual({ activeRuns: 0, failedRuns: 0, completedRuns: 0 });
+    expect(sumRunCounts([])).toEqual({ activeRuns: 0, waitingRuns: 0, failedRuns: 0, completedRuns: 0 });
   });
 });
 
