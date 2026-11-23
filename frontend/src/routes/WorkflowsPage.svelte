@@ -367,7 +367,7 @@ function runCountItems(counts: WorkflowRunCounts): RunCountItem[] {
     confirmTitle={t("workflows.deleteTitle")}
     confirmMessage={t("workflows.deleteConfirm", { name: wf.name })}
     iconOnly
-    onDeleted={fetchWorkflows}
+    onDeleted={() => fetchWorkflows(false)}
   />
 {/snippet}
 
