@@ -297,3 +297,38 @@ describe("ManagedQueue.appendJobLog", () => {
     await mq.close();
   });
 });
+
+describe("ManagedQueue job.log", () => {
+  test("keeps the logs of a job that runs again after a restart", async () => {
+    const queueName = `test-log-rerun-${Date.now()}`;
+    // The queue of the earlier process only enqueues; its job has stored logs from an earlier attempt.
+    const earlier = new ManagedQueue(queueName, async () => {}, { autorun: false, dataPath: null });
+    const jobId = await earlier.add("rerun-job", {});
+    getLogStore().append(jobId, 1, "first attempt", 1000);
+    getLogStore().append(jobId, 2, "first attempt failed", 2000);
+    await earlier.close();
+
+    // A fresh queue (empty in-memory counters) runs the job again.
+    let done!: () => void;
+    const ran = new Promise<void>((resolve) => {
+      done = resolve;
+    });
+    const fresh = new ManagedQueue(
+      queueName,
+      async (job) => {
+        await job.log("second attempt");
+        done();
+      },
+      { dataPath: null },
+    );
+    await ran;
+
+    expect(
+      getLogStore()
+        .getLogs(jobId)
+        .map((e) => e.message),
+    ).toEqual(["first attempt", "first attempt failed", "second attempt"]);
+    getLogStore().deleteLogs(jobId);
+    await fresh.close();
+  });
+});
