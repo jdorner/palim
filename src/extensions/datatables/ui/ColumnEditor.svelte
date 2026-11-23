@@ -4,7 +4,7 @@ import { useI18n } from "@ext/ui";
  * Editable column list: label, key, type, flags, default, key column, order.
  * With `headers`, each column also picks its source column from an imported file.
  */
-import { Button, Checkbox, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@palim/ui";
+import { Button, Checkbox, IconAction, Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@palim/ui";
 import ArrowDownIcon from "phosphor-svelte/lib/ArrowDownIcon";
 import ArrowUpIcon from "phosphor-svelte/lib/ArrowUpIcon";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
@@ -173,33 +173,31 @@ const duplicateKeys = $derived(new Set(columns.map((c) => c.key).filter((key, i,
               oninput={(e) => (col.default = e.currentTarget.value === "" ? undefined : e.currentTarget.value)}
             >
           </TableCell>
+          <!-- Row actions: Move up, Move down, Remove rightmost -->
           <TableCell class="whitespace-nowrap px-2 py-2 text-right">
-            <button
-              type="button"
-              class="rounded p-1 text-muted-foreground hover:bg-accent disabled:opacity-30"
-              aria-label={$i18n.t("columns.moveUp")}
-              disabled={i === 0}
-              onclick={() => move(i, -1)}
-            >
-              <ArrowUpIcon size={14} />
-            </button>
-            <button
-              type="button"
-              class="rounded p-1 text-muted-foreground hover:bg-accent disabled:opacity-30"
-              aria-label={$i18n.t("columns.moveDown")}
-              disabled={i === columns.length - 1}
-              onclick={() => move(i, 1)}
-            >
-              <ArrowDownIcon size={14} />
-            </button>
-            <button
-              type="button"
-              class="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-              aria-label={$i18n.t("columns.removeColumn")}
-              onclick={() => remove(i)}
-            >
-              <TrashIcon size={14} />
-            </button>
+            <div class="inline-flex items-center justify-end gap-1">
+              <IconAction
+                label={$i18n.t("columns.moveUp")}
+                icon={ArrowUpIcon}
+                size="xs"
+                disabled={i === 0}
+                onclick={() => move(i, -1)}
+              />
+              <IconAction
+                label={$i18n.t("columns.moveDown")}
+                icon={ArrowDownIcon}
+                size="xs"
+                disabled={i === columns.length - 1}
+                onclick={() => move(i, 1)}
+              />
+              <IconAction
+                label={$i18n.t("columns.removeColumn")}
+                icon={TrashIcon}
+                size="xs"
+                tone="destructive"
+                onclick={() => remove(i)}
+              />
+            </div>
           </TableCell>
         </TableRow>
       {/each}
