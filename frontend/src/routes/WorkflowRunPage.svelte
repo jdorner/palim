@@ -2,7 +2,7 @@
 import HourglassIcon from "phosphor-svelte/lib/HourglassIcon";
 import InfoIcon from "phosphor-svelte/lib/InfoIcon";
 import PauseCircleIcon from "phosphor-svelte/lib/PauseCircleIcon";
-import { onDestroy, onMount, untrack } from "svelte";
+import { onDestroy, untrack } from "svelte";
 import { onReconnect } from "$lib/appStore";
 import { authFetch } from "$lib/auth";
 import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
@@ -125,36 +125,44 @@ const statusMap = $derived.by((): Record<string, StepStatus> => {
  * Loads the run detail and workflow definition.
  * @param silent - Refresh in place (after a reconnect) without the loading state.
  */
+let runRequest = 0;
 async function fetchRun(silent = false) {
   if (!runId) return;
+  const id = runId;
+  const name = workflowName;
+  const request = ++runRequest;
   if (!silent) {
     loading = true;
     error = null;
   }
   // Buffer live events until the snapshot is tracked, so none are lost in between.
-  workflowStore.prepare(runId);
+  workflowStore.prepare(id);
   try {
     // Fetch both run data and workflow definition in parallel
     const [runRes, defRes] = await Promise.all([
-      authFetch(`/ext/workflows/runs/${runId}`),
-      authFetch(`/ext/workflows/${workflowName}`),
+      authFetch(`/ext/workflows/runs/${id}`),
+      authFetch(`/ext/workflows/${name}`),
     ]);
+    // A newer request (another run opened, or a reconnect) supersedes this one.
+    if (request !== runRequest) return;
     if (!runRes.ok) throw new Error(`HTTP ${runRes.status}`);
     const detail = await runRes.json();
-    workflowStore.track(runId, detail);
+    if (request !== runRequest) return;
+    workflowStore.track(id, detail);
 
     // Load definition steps (best-effort; fall back to run steps if unavailable).
     // DAG format: steps is a map keyed by slug, edges is an array.
     if (defRes.ok) {
       const def = await defRes.json();
+      if (request !== runRequest) return;
       const stepsMap = (def.steps ?? {}) as Record<string, Record<string, unknown>>;
       definitionSteps = Object.entries(stepsMap).map(([slug, s]) => ({ slug, ...s }));
       definitionEdges = def.edges ?? [];
     }
   } catch (err) {
-    if (!silent) error = err instanceof Error ? err.message : t("runs.loadFailed");
+    if (request === runRequest && !silent) error = err instanceof Error ? err.message : t("runs.loadFailed");
   } finally {
-    loading = false;
+    if (request === runRequest) loading = false;
   }
 }
 
@@ -207,8 +215,19 @@ function handleKeydown(e: KeyboardEvent) {
   }
 }
 
-onMount(() => {
-  fetchRun();
+// Hash navigation between runs keeps this component mounted: reload whenever the run changes.
+$effect(() => {
+  // Track only the route params; everything fetchRun reads otherwise must not retrigger it.
+  void runId;
+  void workflowName;
+  untrack(() => {
+    sidebarOpen = false;
+    inspected = null;
+    stepLogs = [];
+    definitionSteps = [];
+    definitionEdges = [];
+    fetchRun();
+  });
 });
 // Events sent while the WebSocket was down are lost: reload the run once it is back.
 const unsubReconnect = onReconnect(() => fetchRun(true));
