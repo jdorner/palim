@@ -7,6 +7,13 @@ import { FileWatcher } from "./fileWatcher";
 /** Short stabilization so events arrive quickly; the timings below are relative to it. */
 const STABILITY_THRESHOLD_MS = 300;
 const STABILITY_POLL_INTERVAL_MS = 50;
+/**
+ * Threshold for tests that act while a file is still settling. They act every
+ * `ACTION_GAP_MS`, and a gap longer than the threshold (a stalled CI runner) lets the
+ * file settle early, so the threshold leaves a wide margin above the gap.
+ */
+const SETTLING_THRESHOLD_MS = 1000;
+const ACTION_GAP_MS = 100;
 const TEST_TIMEOUT_MS = 10_000;
 
 type EventName = "new" | "change" | "delete";
@@ -94,20 +101,20 @@ describe("FileWatcher", () => {
   test(
     "waits until a growing file stops changing and reports it once",
     async () => {
-      await watch();
+      await watch({ stabilityThreshold: SETTLING_THRESHOLD_MS });
 
       const file = path.join(dir, "upload.bin");
       await Bun.write(file, "chunk");
       for (let i = 0; i < 5; i++) {
-        await Bun.sleep(STABILITY_THRESHOLD_MS / 3);
+        await Bun.sleep(ACTION_GAP_MS);
         await appendFile(file, "chunk");
       }
       const lastWrite = Date.now();
-      await waitFor(["new upload.bin"]);
-      await Bun.sleep(STABILITY_THRESHOLD_MS);
+      await waitFor(["new upload.bin"], SETTLING_THRESHOLD_MS * 3);
+      await Bun.sleep(SETTLING_THRESHOLD_MS);
 
       expect(seen()).toEqual(["new upload.bin"]);
-      expect(events[0]!.at - lastWrite).toBeGreaterThanOrEqual(STABILITY_THRESHOLD_MS - STABILITY_POLL_INTERVAL_MS);
+      expect(events[0]!.at - lastWrite).toBeGreaterThanOrEqual(SETTLING_THRESHOLD_MS - STABILITY_POLL_INTERVAL_MS);
     },
     TEST_TIMEOUT_MS,
   );
@@ -115,13 +122,13 @@ describe("FileWatcher", () => {
   test(
     "reports only the deletion of a file removed while still settling",
     async () => {
-      await watch();
+      await watch({ stabilityThreshold: SETTLING_THRESHOLD_MS });
 
       await Bun.write(path.join(dir, "short.txt"), "x");
-      await Bun.sleep(STABILITY_THRESHOLD_MS / 3);
+      await Bun.sleep(ACTION_GAP_MS);
       await unlink(path.join(dir, "short.txt"));
       await waitFor(["delete short.txt"]);
-      await Bun.sleep(STABILITY_THRESHOLD_MS * 3);
+      await Bun.sleep(SETTLING_THRESHOLD_MS * 1.5);
 
       expect(seen()).toEqual(["delete short.txt"]);
     },
@@ -185,13 +192,13 @@ describe("FileWatcher", () => {
   test(
     "emits nothing after close, not even for files still settling",
     async () => {
-      await watch();
+      await watch({ stabilityThreshold: SETTLING_THRESHOLD_MS });
 
       await Bun.write(path.join(dir, "pending.txt"), "x");
-      await Bun.sleep(STABILITY_THRESHOLD_MS / 3);
+      await Bun.sleep(ACTION_GAP_MS);
       await watcher?.close();
       await Bun.write(path.join(dir, "late.txt"), "x");
-      await Bun.sleep(STABILITY_THRESHOLD_MS * 3);
+      await Bun.sleep(SETTLING_THRESHOLD_MS * 1.5);
 
       expect(seen()).toEqual([]);
     },
