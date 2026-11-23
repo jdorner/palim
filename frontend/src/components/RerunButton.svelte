@@ -42,7 +42,8 @@ async function rerun() {
 {/if}
 <Button
   {size}
-  variant="default"
+  variant="outline"
+  class="whitespace-nowrap"
   disabled={rerunning}
   title={t("runs.rerunHint")}
   onclick={(e: Event) => {

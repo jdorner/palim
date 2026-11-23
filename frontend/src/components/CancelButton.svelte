@@ -44,7 +44,8 @@ async function cancel() {
 {/if}
 <Button
   {size}
-  variant="destructive"
+  variant="outline"
+  class="whitespace-nowrap text-destructive hover:bg-destructive/10 hover:text-destructive dark:text-red-400 dark:hover:bg-red-400/10 dark:hover:text-red-400"
   disabled={cancelling}
   onclick={(e: Event) => {
     e.stopPropagation();
