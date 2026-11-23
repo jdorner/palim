@@ -1,3 +1,11 @@
+/*
+ * Pin the position of the workflow graph library's `xyflow` layer: above
+ * Tailwind's preflight (`base`), so its resets don't strip the graph's own
+ * styles, and below `components`/`utilities`, so utility classes on graph
+ * elements win. Without this the layer's rank depends on when the graph chunk
+ * loads its stylesheet.
+ */
+@layer theme, base, xyflow, components, utilities;
 @import "tailwindcss";
 @import "./theme.css";
 
@@ -137,6 +145,16 @@
   .warning-banner {
     @apply flex items-center gap-2 rounded-md bg-yellow-500/10 px-3 py-1.5 text-yellow-600 dark:text-yellow-400;
   }
+}
+
+/*
+ * Workflow graph color scheme. The flow's stylesheet picks its colors with
+ * `light-dark()`: it switches to dark for `.dark` on <html> but otherwise follows
+ * the OS preference. The app's light theme has no class of its own, so pin the
+ * graph to light whenever the app is not dark.
+ */
+:root:not(.dark) .svelte-flow {
+  color-scheme: light;
 }
 
 /*

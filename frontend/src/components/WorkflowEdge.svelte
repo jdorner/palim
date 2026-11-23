@@ -1,6 +1,5 @@
 <script lang="ts">
-import { BaseEdge, type Position, portal, useStore } from "@xyflow/svelte";
-import { getSmoothStepPath } from "@xyflow/system";
+import { BaseEdge, getSmoothStepPath, type Position, portal, useSvelteFlowStore } from "@xyflow/svelte";
 import PlusIcon from "phosphor-svelte/lib/PlusIcon";
 /**
  * Workflow graph edge. Edges spanning several layout columns follow the route
@@ -53,7 +52,7 @@ let {
   data,
 }: Props = $props();
 
-const store = useStore();
+const store = useSvelteFlowStore();
 
 // Mirrors EdgeLabel: the label is painted at the edge's zIndex inside the
 // `edge-labels` overlay, so the button uses zIndex + 1 to sit just above it.
