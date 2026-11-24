@@ -127,9 +127,9 @@ export function compileOutputSchema(shorthand: OutputSchemaShorthand, sink?: (me
  * Resolves a trigger's effective output schema as canonical JSON Schema.
  *
  * Precedence: an explicit user-defined shorthand wins over the built-in default
- * for the trigger type. The chosen shorthand is then compiled to JSON Schema. If
- * neither an explicit shorthand nor a built-in default is available, returns
- * `null`.
+ * for the trigger type, which wins over the schema an extension registered for
+ * its trigger type. A shorthand is compiled to JSON Schema; the registered
+ * schema already is one. If none is available, returns `null`.
  *
  * Never throws: compilation is delegated to {@link compileOutputSchema}, which is
  * itself non-throwing and reports unrecognized hints via the sink.
@@ -137,16 +137,18 @@ export function compileOutputSchema(shorthand: OutputSchemaShorthand, sink?: (me
  * @param triggerType - The trigger type (e.g. "filewatcher", "schedule", "webhook", "manual")
  * @param explicitShorthand - User-defined shorthand from the workflow definition, if any
  * @param sink - Optional best-effort warning sink forwarded to the compiler
- * @returns The resolved canonical JSON Schema, or `null` when no shorthand is available
+ * @param registeredSchema - JSON Schema an extension registered for the trigger type, if any
+ * @returns The resolved canonical JSON Schema, or `null` when no schema is available
  */
 export function resolveTriggerOutputSchemaJson(
   triggerType: string,
   explicitShorthand: OutputSchemaShorthand | undefined,
   sink?: (message: string) => void,
+  registeredSchema?: OutputSchema,
 ): OutputSchema | null {
   const chosen = explicitShorthand ?? BUILTIN_TRIGGER_SCHEMAS[triggerType];
   if (!chosen) {
-    return null;
+    return registeredSchema ?? null;
   }
   return compileOutputSchema(chosen, sink);
 }

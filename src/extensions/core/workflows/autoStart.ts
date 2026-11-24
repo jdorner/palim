@@ -1,6 +1,6 @@
 /**
  * Selection of the workflows that start without a person asking for them:
- * event triggers (webhook, schedule, file watcher) and dispatch from other
+ * event triggers (webhook, schedule, file watcher, extension trigger types) and dispatch from other
  * workflows (`start-workflow`, `ctx.workflows.dispatch`). Both defer to
  * {@link isAutoStartable}.
  *
@@ -19,18 +19,20 @@ const START_WORKFLOW_STEP = "start-workflow";
  * Returns the workflows an event trigger starts.
  *
  * @param workflows - The loaded workflow definitions
- * @param triggerType - The trigger type of the event (`webhook`, `schedule`, `filewatcher`)
- * @param ref - The event's slug, matched against `trigger.ref`
+ * @param triggerType - The trigger type of the event (`webhook`, `schedule`, `filewatcher`, or an extension's type)
+ * @param ref - The event's slug, matched against `trigger.ref`; undefined for a
+ *   trigger type without refs, which matches every workflow of the type
  * @returns The matching workflows that may start automatically
  */
 export function workflowsForTrigger(
   workflows: Iterable<DagWorkflowDefinition>,
   triggerType: string,
-  ref: string,
+  ref: string | undefined,
 ): DagWorkflowDefinition[] {
   const matches: DagWorkflowDefinition[] = [];
   for (const wf of workflows) {
-    if (wf.trigger.type === triggerType && wf.trigger.ref === ref && isAutoStartable(wf)) matches.push(wf);
+    if (wf.trigger.type !== triggerType || !isAutoStartable(wf)) continue;
+    if (ref === undefined || wf.trigger.ref === ref) matches.push(wf);
   }
   return matches;
 }

@@ -122,6 +122,9 @@ function aggregatorOutputSchema(
  *   config-derived (function-form) `outputSchema` against the instance's config.
  *   Because the resolution happens in the injected resolver,
  *   {@link buildOutputSchemas} stays agnostic of the static-vs-function distinction.
+ * @param getTriggerTypeSchema - Returns the payload schema an extension registered
+ *   for a trigger type (`ctx.triggerTypes.get(type)?.outputSchema`); omit when
+ *   extension trigger types are not resolved.
  * @returns The resolved `outputSchemas` payload and any accumulated warnings
  */
 export function buildOutputSchemas(
@@ -131,6 +134,7 @@ export function buildOutputSchemas(
     stepDef: Record<string, unknown>,
     schemaCtx: OutputSchemaContext,
   ) => TSchema | undefined,
+  getTriggerTypeSchema?: (type: string) => TSchema | undefined,
 ): BuildOutputSchemasResult {
   const warnings: TemplateWarning[] = [];
 
@@ -142,6 +146,10 @@ export function buildOutputSchemas(
       (message) => {
         warnings.push({ stepSlug: "trigger", field: "outputSchema", message });
       },
+      (() => {
+        const registered = getTriggerTypeSchema?.(definition.trigger.type);
+        return registered ? serializeHandlerSchema(registered) : undefined;
+      })(),
     );
   } catch {
     // Trigger resolution is best-effort: fall back to null on any failure.
@@ -388,8 +396,12 @@ export function createWorkflowAnalyzer(
   return async function analyzeWorkflow(def, triggerRefs) {
     // Schemas are resolved BEFORE template validation so the validator and
     // the editor share one resolution.
-    const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(def, (type, stepDef, schemaCtx) =>
-      resolveHandlerOutputSchema(ctx.stepTypes.get(type)?.outputSchema, stepDef, schemaCtx),
+    const getTriggerType = (type: string) => ctx.triggerTypes.get(type);
+    const { outputSchemas, warnings: schemaWarnings } = buildOutputSchemas(
+      def,
+      (type, stepDef, schemaCtx) =>
+        resolveHandlerOutputSchema(ctx.stepTypes.get(type)?.outputSchema, stepDef, schemaCtx),
+      (type) => getTriggerType(type)?.outputSchema,
     );
     const templateWarnings = await validateDagWorkflowTemplates(def, {
       workflowName: def.name,
@@ -411,7 +423,7 @@ export function createWorkflowAnalyzer(
     return {
       outputSchemas,
       warnings: [
-        ...getTriggerRefWarnings(def, triggerRefs, describeRunAs),
+        ...getTriggerRefWarnings(def, triggerRefs, describeRunAs, getTriggerType),
         ...templateWarnings,
         ...getDependencyWarnings(def, ctx),
         ...getUndeclaredConfigKeyWarnings(def, (type) => ctx.stepTypes.get(type)?.schema),

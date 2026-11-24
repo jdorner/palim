@@ -30,6 +30,7 @@ Extensions are self-contained modules that hook into the agent system. Each exte
   - [Secrets (`ctx.secrets`)](#secrets-ctxsecrets)
   - [Skills (`ctx.skills`)](#skills-ctxskills)
   - [Step Types (`ctx.stepTypes`)](#step-types-ctxsteptypes)
+  - [Trigger Types (`ctx.triggerTypes`)](#trigger-types-ctxtriggertypes)
   - [Dynamic Items (`ctx.dynamicItems`)](#dynamic-items-ctxdynamicitems)
   - [Status (`ctx.status`)](#status-ctxstatus)
   - [State](#state)
@@ -53,6 +54,7 @@ Extensions are self-contained modules that hook into the agent system. Each exte
   - [Template Expressions Available](#template-expressions-available)
   - [Using Custom Steps in Workflows](#using-custom-steps-in-workflows)
   - [Frontend Rendering](#frontend-rendering)
+- [Custom Workflow Trigger Types](#custom-workflow-trigger-types)
   - [Step Type Error Handling](#step-type-error-handling)
   - [Constraints](#constraints)
 - [Extension UI](#extension-ui)
@@ -480,6 +482,15 @@ Secret descriptions from `secretsSchema` are translated through `secrets.<KEY>.d
 | --------------------------------------- | ---------------------------------------------------------------------------------------------------- |
 | `ctx.stepTypes.register(type, handler)` | Register a custom workflow step type (see [Custom Workflow Step Types](#custom-workflow-step-types)) |
 | `ctx.stepTypes.get(type)`               | Look up a registered step type handler by name                                                       |
+
+### Trigger Types (`ctx.triggerTypes`)
+
+| Method                                           | Description                                                                                                     |
+| ------------------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
+| `ctx.triggerTypes.register(type, definition)`    | Register a workflow trigger type (see [Custom Workflow Trigger Types](#custom-workflow-trigger-types))          |
+| `ctx.triggerTypes.fire(type, payload, options?)` | Start every active workflow with this trigger type (only for types this extension registered); returns the runs |
+| `ctx.triggerTypes.get(type)`                     | Look up a registered trigger type by name (any extension's)                                                     |
+| `ctx.triggerTypes.list()`                        | Serialized metadata of all registered trigger types (payload schemas as JSON Schema)                            |
 
 ### Dynamic Items (`ctx.dynamicItems`)
 
@@ -1047,7 +1058,7 @@ Filewatcher and scheduler triggers have built-in output schemas derived from the
 - **filewatcher**: `{ source, id, slug, filename, event }` (all strings)
 - **schedule**: `{ source, id, slug, description, label }` (all strings)
 
-Webhook and manual triggers have no built-in schema since their payload is user-defined.
+Webhook and manual triggers have no built-in schema since their payload is user-defined. Trigger types registered by extensions bring their own schema (see [Custom Workflow Trigger Types](#custom-workflow-trigger-types)).
 
 #### Hand-authored output schemas in workflow definitions
 
@@ -1392,6 +1403,58 @@ Step type "excel" is not available. The extension providing this step type may b
 - Step type names follow the same pattern as extension names: `^[a-z][a-z0-9-]*$`
 - Disabling the providing extension makes the step type unavailable at runtime (workflows fail explicitly)
 
+## Custom Workflow Trigger Types
+
+An extension that detects events of its own (a new extension version, a new feed item, ...) can offer them as a workflow trigger. Workflows pick the type as `trigger.type`; the extension starts them with `ctx.triggerTypes.fire()`. No setting in the extension is needed to connect a workflow, and any number of workflows can use the same trigger type.
+
+### Registering and Firing
+
+```typescript
+import { Type } from "@sinclair/typebox";
+
+async initialize(ctx) {
+  ctx.triggerTypes.register("extension-update", {
+    label: "Extension update",
+    description: "Fires when the hub finds new extension versions.",
+    icon: "PlugIcon", // one of STEP_ICON_NAMES
+    outputSchema: Type.Object({
+      updates: Type.Array(Type.Object({ name: Type.String(), version: Type.String() })),
+    }),
+    docs: "Fires once per check that finds new versions. `updates` lists them.",
+  });
+
+  // later, when the event happens:
+  const runs = await ctx.triggerTypes.fire("extension-update", { updates });
+  ctx.log.info(`Started ${runs.length} workflow run(s)`);
+}
+```
+
+- **Names** use lowercase letters, digits, and dashes, and are global: `register()` throws on a name another extension registered or on a built-in type (`manual`, `webhook`, `schedule`, `filewatcher`, `portal`).
+- **`fire()`** starts every enabled, non-draft workflow with this trigger type. A workflow that fails to start is logged and skipped; the others still start. It throws when the type is not registered by the calling extension or the workflows extension is not running. Runs are attributed to `options.initiatorUserId`, else to the user of the job or request `fire()` runs in, else they are unowned.
+- **`outputSchema`** describes `{{trigger.payload}}`: the editor completes and checks `{{trigger.payload.<field>}}` against it. A workflow may still declare its own `trigger.outputSchema`, which then wins.
+- **`docs`** (Markdown, English only) is shown by the sandbox `workflow trigger-types <type>` command, so the agent learns when the trigger fires and what the payload holds.
+- **Lifecycle:** the registration is removed when the extension is disabled. Its workflows stay loaded and editable, show a warning ("not registered by any active extension"), and do not start until the extension is enabled again.
+
+### Refs
+
+By default a trigger type takes no `trigger.ref`: every workflow of the type starts. When the events belong to named sources (feeds, accounts, ...), declare `refs`. A workflow must then name one, and `fire()` needs a `ref` and starts only the matching workflows:
+
+```typescript
+ctx.triggerTypes.register("feed-item", {
+  label: "Feed item",
+  outputSchema: Type.Object({ title: Type.String(), link: Type.String() }),
+  refs: () => listFeeds().map((f) => f.slug),
+});
+
+await ctx.triggerTypes.fire("feed-item", item, { ref: feed.slug });
+```
+
+`refs()` (sync or async) feeds the ref dropdown in the trigger panel and the save-time check. When it throws, refs of the type are treated as unknown and not checked.
+
+### Frontend Rendering
+
+Registered trigger types appear in the trigger type picker of the workflow editor (with label, description, and icon), on the trigger node, and in the workflow list. Translate the label and description through `triggers.<type>.label` / `.description` in the extension's catalogs (see [Translations](#manifest-and-schema-metadata)).
+
 ## Extension UI
 
 Extensions can add pages to the web UI: full Svelte 5 pages that render inside the app shell, use the same components and theme as core pages, and talk to the extension's own routes. Extensions ship plain `.svelte` sources; Palim compiles them when the extension activates, so no frontend toolchain is needed (this also works for extensions written by the agent).
@@ -1602,6 +1665,7 @@ Manifest and schema metadata stays English in the code. The host translates it t
 | `steps.<type>.label`                                | A workflow step type label                                                       |
 | `steps.<type>.description`                          | A workflow step type description (step picker)                                   |
 | `steps.<type>.config.<prop>.title` / `.description` | A step config field; nested fields extend the path (`config.where.column.title`) |
+| `triggers.<type>.label` / `.description`            | A workflow trigger type (trigger panel, trigger node, workflow list)             |
 
 See `src/extensions/datatables/locales/` for a complete example.
 

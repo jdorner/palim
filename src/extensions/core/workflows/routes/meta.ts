@@ -120,8 +120,11 @@ export function registerMetaRoutes(deps: WorkflowRouteDeps): void {
       const steps = (body as { steps?: unknown } | null)?.steps;
       if (steps !== null && typeof steps === "object") {
         try {
-          outputSchemas = buildOutputSchemas(body as DagWorkflowDefinition, (type, stepDef, schemaCtx) =>
-            resolveHandlerOutputSchema(ctx.stepTypes.get(type)?.outputSchema, stepDef, schemaCtx),
+          outputSchemas = buildOutputSchemas(
+            body as DagWorkflowDefinition,
+            (type, stepDef, schemaCtx) =>
+              resolveHandlerOutputSchema(ctx.stepTypes.get(type)?.outputSchema, stepDef, schemaCtx),
+            (type) => ctx.triggerTypes.get(type)?.outputSchema,
           ).outputSchemas;
         } catch {
           // Best effort only: keep the empty schemas.
@@ -129,7 +132,7 @@ export function registerMetaRoutes(deps: WorkflowRouteDeps): void {
       }
       return Response.json({ valid: false, outputSchemas, warnings: [], errors });
     }
-    const triggerRefs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin);
+    const triggerRefs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin, ctx.triggerTypes);
     return Response.json({
       valid: true,
       ...(await analyzeWorkflow(body as DagWorkflowDefinition, triggerRefs)),
@@ -141,12 +144,22 @@ export function registerMetaRoutes(deps: WorkflowRouteDeps): void {
    * Returns available trigger refs grouped by trigger type.
    */
   ctx.routes.register("GET", "/meta/triggers", async (reqCtx) => {
-    const refs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin);
-    return Response.json({
-      webhook: refs.webhook ?? [],
-      schedule: refs.schedule ?? [],
-      filewatcher: refs.filewatcher ?? [],
-    });
+    const refs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin, ctx.triggerTypes);
+    return Response.json(Object.fromEntries(Object.entries(refs).map(([type, list]) => [type, list ?? []])));
+  });
+
+  /**
+   * Returns read-only metadata, including docs and payload schema, for every
+   * trigger type registered by an extension, sorted by type. Backs the
+   * `workflow trigger-types` command; the built-in trigger types are
+   * documented in the workflow-writing skill.
+   */
+  ctx.routes.register("GET", "/meta/trigger-types", async () => {
+    const registered = ctx.triggerTypes
+      .list()
+      .slice()
+      .sort((a, b) => a.type.localeCompare(b.type));
+    return Response.json(registered);
   });
 
   /**

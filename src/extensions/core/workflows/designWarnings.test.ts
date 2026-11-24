@@ -317,6 +317,7 @@ describe("createWorkflowAnalyzer", () => {
       tools: { names: () => [] },
       skills: { names: () => [] },
       stepTypes: { get: (type: string) => (type === "imap-fetch" ? handler : undefined) },
+      triggerTypes: { get: () => undefined },
       internal: {},
     } as unknown as ExtensionContext;
     const def = withStep(TAGGING, "fetch-mails", { type: "imap-fetch", search: { Seen: false } });

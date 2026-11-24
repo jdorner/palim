@@ -898,7 +898,8 @@
     "refLabel": "Ref:",
     "selectRef": "-- Ref auswählen --",
     "type": "Typ",
-    "typeLabel": "Auslösertyp"
+    "typeLabel": "Auslösertyp",
+    "unknownType": "Keine aktive Erweiterung stellt den Auslösertyp „{type}“ bereit, daher startet der Workflow nicht."
   },
   "triggerTypes": {
     "filewatcher": "Dateiwächter",
@@ -1012,7 +1013,7 @@
     "groupTooLong": "Gruppe darf höchstens {max} Zeichen lang sein",
     "itemsRequired": "Elementausdruck ist erforderlich",
     "iteratorRequired": "Iterator-Referenz ist erforderlich",
-    "manualNoRef": "Manuelle Auslöser unterstützen keinen Ref-Wert",
+    "manualNoRef": "Dieser Auslösertyp unterstützt keinen Ref-Wert",
     "matchRequired": "Vergleichsausdruck ist erforderlich",
     "maxLength": "{label} darf höchstens {max} Zeichen lang sein",
     "maxValue": "{label} darf höchstens {max} sein",
@@ -1029,7 +1030,7 @@
     "slugTooLong": "Slug darf höchstens {max} Zeichen lang sein",
     "stepRequired": "Mindestens ein Schritt ist erforderlich",
     "triggerNeedsRef": "Auslösertyp „{type}“ erfordert einen Ref",
-    "triggerType": "Auslösertyp muss einer der folgenden sein: webhook, schedule, manual, filewatcher",
+    "triggerType": "Wähle einen Auslösertyp",
     "unnamed": "(unbenannt)",
     "titleRequired": "Ein Titel ist erforderlich",
     "assigneeRequired": "Mindestens ein Benutzer oder eine Rolle ist erforderlich"

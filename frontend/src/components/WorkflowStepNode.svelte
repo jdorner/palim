@@ -1,9 +1,11 @@
 <script lang="ts">
 import { Handle, Position } from "@xyflow/svelte";
 import WarningCircleIcon from "phosphor-svelte/lib/WarningCircleIcon";
+import { extensions } from "$lib/extensionStore";
 import { t } from "$lib/i18n.svelte";
 import { type NodeStatus, statusVisual, visualForStepType } from "$lib/nodeVisuals";
 import { labelForStepType } from "$lib/stepTypes";
+import { extensionTriggerType } from "$lib/triggerTypes";
 
 interface Props {
   data: {
@@ -29,9 +31,12 @@ let isTerminal = $derived(data.terminal === true);
 let status = $derived<NodeStatus>(data.status ?? "waiting");
 let isSkipped = $derived(status === "skipped");
 
-let visual = $derived(
-  visualForStepType(data.type, { triggerType: data.triggerType, iconId: data.iconId, category: data.category }),
+// An extension trigger type's icon comes from its registration.
+let iconId = $derived(
+  data.iconId ??
+    (isTrigger && data.triggerType ? extensionTriggerType(data.triggerType, $extensions)?.icon : undefined),
 );
+let visual = $derived(visualForStepType(data.type, { triggerType: data.triggerType, iconId, category: data.category }));
 let statusInfo = $derived(statusVisual(status));
 
 // Plain-text type label for the card subtitle; the icon tile conveys the

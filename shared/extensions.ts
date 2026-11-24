@@ -50,6 +50,8 @@ export interface ExtensionUiContribution {
   pages?: ExtensionUiPage[];
   /** Custom workflow step types registered by this extension. */
   stepTypes?: StepTypeInfo[];
+  /** Workflow trigger types registered by this extension. */
+  triggerTypes?: TriggerTypeInfo[];
 }
 
 /**
@@ -192,6 +194,38 @@ export interface StepTypeInfo {
    * section. When omitted, the step type appears in the default action group.
    */
   category?: StepTypeCategory;
+}
+
+/**
+ * Metadata about a workflow trigger type registered by an extension
+ * (`ctx.triggerTypes.register`). Surfaced to the workflow editor's trigger
+ * panel and to the sandbox `workflow trigger-types` command.
+ */
+export interface TriggerTypeInfo {
+  /** The trigger type identifier, used as `trigger.type` (e.g. "extension-update"). */
+  type: string;
+  /** Human-readable label (e.g. "Extension update"). */
+  label: string;
+  /** Optional explanation of when the trigger fires (shown in the editor's trigger panel). */
+  description?: string;
+  /**
+   * Optional Markdown usage reference for workflow authors: when the trigger
+   * fires and what its payload holds. Shown by the sandbox
+   * `workflow trigger-types <type>` command; not translated.
+   */
+  docs?: string;
+  /** Optional icon identifier, a key into the frontend icon registry (like {@link StepTypeInfo.icon}). */
+  icon?: StepIconName;
+  /** Name of the extension that registered this trigger type. */
+  extensionName: string;
+  /**
+   * Whether workflows of this type must pick a `trigger.ref` (one of the refs
+   * the extension lists). When false, `trigger.ref` is not allowed and every
+   * workflow with this trigger type starts when it fires.
+   */
+  hasRefs: boolean;
+  /** JSON Schema of `trigger.payload` (derived from the registered TypeBox schema), when declared. */
+  outputSchema?: Record<string, unknown>;
 }
 
 /**

@@ -32,6 +32,54 @@ export type OutputSchemaShorthandValue = string | OutputSchemaShorthand | [Outpu
 export type OutputSchemaShorthand = { [key: string]: OutputSchemaShorthandValue };
 
 /**
+ * The trigger types built into the workflow engine. Extensions add further
+ * types (`ctx.triggerTypes.register`), which may not reuse these names.
+ */
+export const BUILTIN_TRIGGER_TYPES = ["manual", "webhook", "schedule", "filewatcher", "portal"] as const;
+
+/** A built-in trigger type. */
+export type BuiltinTriggerType = (typeof BUILTIN_TRIGGER_TYPES)[number];
+
+/** Built-in trigger types whose `trigger.ref` names a webhook, schedule, or file watcher. */
+export const BUILTIN_REF_TRIGGER_TYPES = ["webhook", "schedule", "filewatcher"] as const;
+
+/**
+ * Whether a trigger type is built into the engine (as opposed to registered by an extension).
+ *
+ * @param type - The trigger type
+ * @returns True for the built-in types
+ */
+export function isBuiltinTriggerType(type: string): type is BuiltinTriggerType {
+  return (BUILTIN_TRIGGER_TYPES as readonly string[]).includes(type);
+}
+
+/**
+ * How a trigger type takes a `ref`: `required` (built-in webhook, schedule,
+ * and file watcher triggers, and extension types with refs), `none` (manual,
+ * portal, and extension types without refs), or `unknown` (a type no active
+ * extension registers, so the rule cannot be checked). The one place this
+ * rule lives; backend save checks and frontend validation both call it.
+ *
+ * @param type - The trigger type
+ * @param lookup - Looks up an extension trigger type; undefined when none is registered
+ * @returns The ref rule of the type
+ */
+export function triggerRefMode(
+  type: string,
+  lookup: (type: string) => { hasRefs: boolean } | undefined,
+): "required" | "none" | "unknown" {
+  if (isBuiltinTriggerType(type)) {
+    return (BUILTIN_REF_TRIGGER_TYPES as readonly string[]).includes(type) ? "required" : "none";
+  }
+  const registered = lookup(type);
+  if (!registered) return "unknown";
+  return registered.hasRefs ? "required" : "none";
+}
+
+/** Pattern a trigger type name must match: lowercase letters, digits, and dashes, starting with a letter. */
+export const TRIGGER_TYPE_PATTERN = "^[a-z][a-z0-9-]{0,63}$";
+
+/**
  * Configuration of a `portal` trigger (`trigger.portal`): how the workflow is
  * offered in the portal and who may start it. Mirrors the backend schema
  * `PortalTriggerConfigSchema`.

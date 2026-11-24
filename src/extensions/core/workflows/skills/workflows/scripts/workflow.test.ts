@@ -195,6 +195,28 @@ describe("workflow command", () => {
           return Response.json({ valid: true, warnings, errors: [] });
         }
 
+        // GET /meta/trigger-types - extension trigger type metadata
+        if (reqPath === "/meta/trigger-types" && req.method === "GET") {
+          return Response.json([
+            {
+              type: "extension-update",
+              label: "Extension update",
+              description: "Fires when the hub finds new extension versions.",
+              docs: "One run per check.",
+              extensionName: "extension-hub",
+              hasRefs: false,
+              outputSchema: {
+                type: "object",
+                properties: { updates: { type: "array", items: { type: "object" }, description: "New versions" } },
+              },
+            },
+            { type: "feed-item", label: "Feed item", extensionName: "feeds", hasRefs: true },
+          ]);
+        }
+        if (reqPath === "/meta/triggers" && req.method === "GET") {
+          return Response.json({ webhook: [], schedule: [], filewatcher: [], "feed-item": ["news", "blog"] });
+        }
+
         // GET /meta/step-types - engine and extension step type metadata
         if (reqPath === "/meta/step-types" && req.method === "GET") {
           return Response.json([
@@ -531,6 +553,44 @@ describe("workflow command", () => {
       const result = await command(["list"], ctx);
       expect(result.exitCode).toBe(0);
       expect(result.stdout).toContain("broken.json5");
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // trigger-types
+  // ---------------------------------------------------------------------------
+
+  describe("trigger-types", () => {
+    test("lists the extension trigger types and names the built-in ones", async () => {
+      const result = await command(["trigger-types"], makeCtx());
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Trigger types added by extensions (2):");
+      expect(result.stdout).toMatch(/extension-update\s+Fires when the hub finds new extension versions\./);
+      expect(result.stdout).toMatch(/feed-item\s+Feed item \[needs ref\]/);
+      expect(result.stdout).toContain("Built-in: manual, webhook, schedule, filewatcher, portal.");
+    });
+
+    test("shows a type without refs: payload fields and docs", async () => {
+      const result = await command(["trigger-types", "extension-update"], makeCtx());
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("extension-update - Extension update (from extension-hub)");
+      expect(result.stdout).toContain("No ref:");
+      expect(result.stdout).toContain("Payload fields ({{trigger.payload.<field>}}):");
+      expect(result.stdout).toContain("- updates (array of object): New versions");
+      expect(result.stdout).toContain("One run per check.");
+    });
+
+    test("shows a ref type with the refs available now", async () => {
+      const result = await command(["trigger-types", "feed-item"], makeCtx());
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toContain("Needs a ref:");
+      expect(result.stdout).toContain("Available refs: news, blog");
+    });
+
+    test("rejects an unknown type", async () => {
+      const result = await command(["trigger-types", "nope"], makeCtx());
+      expect(result.exitCode).toBe(1);
+      expect(result.stderr).toContain('Unknown trigger type "nope"');
     });
   });
 

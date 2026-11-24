@@ -7,7 +7,14 @@ import type { AgentTool } from "@mariozechner/pi-agent-core";
 import type { ExtensionUiPage } from "@shared/extensions";
 import type { Locale, Messages } from "@shared/i18n";
 import type { ManagedQueuePort } from "@src/queue";
-import type { Extension, HttpMethod, RouteHandler, RouteOptions, StepTypeHandler } from "./types";
+import type {
+  Extension,
+  HttpMethod,
+  RouteHandler,
+  RouteOptions,
+  StepTypeHandler,
+  TriggerTypeDefinition,
+} from "./types";
 
 /** A route registered by an extension (includes the fully-qualified path). */
 export interface RegisteredRoute {
@@ -29,6 +36,16 @@ export interface RegisteredStepType {
   extensionName: string;
 }
 
+/** A workflow trigger type registered by an extension. */
+export interface RegisteredTriggerType {
+  /** The trigger type identifier (e.g. "extension-update"). */
+  type: string;
+  /** Label, payload schema, docs, and refs of the trigger type. */
+  definition: TriggerTypeDefinition;
+  /** Name of the extension that registered this trigger type. */
+  extensionName: string;
+}
+
 /** Runtime lifecycle state of a loaded extension. */
 export type ExtensionState = "active" | "suspended";
 
@@ -40,6 +57,8 @@ export interface LoadedExtension {
   queues: ManagedQueuePort[];
   /** Custom workflow step types registered by this extension. */
   stepTypes: RegisteredStepType[];
+  /** Workflow trigger types registered by this extension. */
+  triggerTypes: RegisteredTriggerType[];
   /** Absolute path to the extension's index.ts module (used for reload). */
   modulePath?: string;
   /** Current lifecycle state. Active extensions have live registrations; suspended ones do not. */

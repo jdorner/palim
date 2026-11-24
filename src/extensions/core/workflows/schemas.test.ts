@@ -329,6 +329,26 @@ describe("OutputSchemaSchema", () => {
   });
 });
 
+describe("trigger type", () => {
+  const wf = (type: string) => ({
+    name: "wf",
+    trigger: { type },
+    steps: { a: { type: "agent", prompt: "Go" } },
+    edges: [],
+  });
+
+  test("accepts built-in and extension trigger type names", () => {
+    expect(Value.Check(DagWorkflowDefinitionSchema, wf("manual"))).toBe(true);
+    expect(Value.Check(DagWorkflowDefinitionSchema, wf("extension-update"))).toBe(true);
+  });
+
+  test("rejects names that no extension could register", () => {
+    expect(Value.Check(DagWorkflowDefinitionSchema, wf(""))).toBe(false);
+    expect(Value.Check(DagWorkflowDefinitionSchema, wf("Extension Update"))).toBe(false);
+    expect(Value.Check(DagWorkflowDefinitionSchema, wf("1st"))).toBe(false);
+  });
+});
+
 describe("draft flag", () => {
   const base = { name: "wf", trigger: { type: "manual" }, steps: { a: { type: "agent", prompt: "Go" } }, edges: [] };
 

@@ -898,7 +898,8 @@
     "refLabel": "Ref:",
     "selectRef": "-- Select a ref --",
     "type": "Type",
-    "typeLabel": "Trigger type"
+    "typeLabel": "Trigger type",
+    "unknownType": "No enabled extension provides trigger type \"{type}\", so the workflow does not start."
   },
   "triggerTypes": {
     "filewatcher": "filewatcher",
@@ -1012,7 +1013,7 @@
     "groupTooLong": "Group must not exceed {max} characters",
     "itemsRequired": "Items expression is required",
     "iteratorRequired": "Iterator reference is required",
-    "manualNoRef": "Manual triggers do not support a ref value",
+    "manualNoRef": "This trigger type does not support a ref value",
     "matchRequired": "Match expression is required",
     "maxLength": "{label} must not exceed {max} characters",
     "maxValue": "{label} must not exceed {max}",
@@ -1029,7 +1030,7 @@
     "slugTooLong": "Slug must not exceed {max} characters",
     "stepRequired": "At least one step is required",
     "triggerNeedsRef": "Trigger type \"{type}\" requires a ref",
-    "triggerType": "Trigger type must be one of: webhook, schedule, manual, filewatcher",
+    "triggerType": "Choose a trigger type",
     "unnamed": "(unnamed)",
     "titleRequired": "A title is required",
     "assigneeRequired": "At least one user or role is required"

@@ -26,11 +26,11 @@
 
 import { mkdir } from "node:fs/promises";
 import path from "node:path";
-import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ext/types";
+import type { Extension, ExtensionContext, ExtensionManifest, Logger, WorkflowDispatchResult } from "@ext/types";
 import type { AgentEvent } from "@mariozechner/pi-agent-core";
 import type { WorkflowLoadError } from "@shared/workflows";
 import { WORKFLOW_TIMEZONE } from "@src/config";
-import { setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
+import { setTriggerFireFn, setWorkflowDispatchFn, setWorkflowNamesFn } from "@src/extensions/engine/extensionContext";
 import { resolveAmbientUserId } from "@src/utils/fetch";
 import { registerTriggerOwnerCounter } from "@src/web/triggerOwnership";
 import { registerWorkflowRunHooks } from "@src/web/workflowRunHooks";
@@ -59,7 +59,7 @@ import { createWorkflowRuns, type WorkflowRuns } from "./workflowRuns";
 
 const manifest = {
   name: "workflows",
-  version: "4.0.0",
+  version: "4.1.0",
   description: "DAG job pipelines defined in JSON5",
   dependencies: [],
   core: true,
@@ -265,26 +265,45 @@ export function createExtension(): Extension {
        * any matching workflows.
        *
        * @param triggerType - The workflow trigger type to match
-       * @param slug - The event slug to match against workflow `trigger.ref`
+       * @param slug - The event slug to match against workflow `trigger.ref` (undefined: every workflow of the type)
        * @param payload - The trigger payload
        * @param sourceLabel - Human-readable label for log messages
+       * @param initiatorUserId - User the runs are attributed to
+       * @returns The started runs
        */
       async function matchAndDispatch(
         triggerType: string,
-        slug: string,
+        slug: string | undefined,
         payload: unknown,
         sourceLabel: string,
         initiatorUserId?: string,
-      ): Promise<void> {
+      ): Promise<WorkflowDispatchResult[]> {
+        const source = slug === undefined ? sourceLabel : `${sourceLabel} "${slug}"`;
+        const started: WorkflowDispatchResult[] = [];
         for (const wf of workflowsForTrigger(store.values(), triggerType, slug)) {
           try {
             const result = await runs.start(wf, payload, initiatorUserId);
-            logger.info(`${sourceLabel} "${slug}" triggered workflow "${wf.name}" -> run ${result.workflowRunId}`);
+            started.push(result);
+            logger.info(`${source} triggered workflow "${wf.name}" -> run ${result.workflowRunId}`);
           } catch (err) {
-            logger.error(`Failed to dispatch workflow "${wf.name}" for ${sourceLabel.toLowerCase()} "${slug}":`, err);
+            logger.error(`Failed to dispatch workflow "${wf.name}" for ${source}:`, err);
           }
         }
+        return started;
       }
+
+      // Trigger types registered by extensions start their workflows here
+      // (`ctx.triggerTypes.fire`). Runs started from within a user's job or
+      // request inherit that user unless the extension names one.
+      setTriggerFireFn((type, payload, options) =>
+        matchAndDispatch(
+          type,
+          options.hasRefs ? options.ref : undefined,
+          payload,
+          `Trigger "${type}"`,
+          options.initiatorUserId ?? resolveAmbientUserId(),
+        ),
+      );
 
       ctx.events.on("webhook:received", async (event) => {
         const slug = event.context?.slug as string | undefined;
@@ -323,6 +342,7 @@ export function createExtension(): Extension {
     },
 
     async shutdown() {
+      setTriggerFireFn(undefined);
       if (state.watcher) {
         await state.watcher.close();
         state.watcher = null;

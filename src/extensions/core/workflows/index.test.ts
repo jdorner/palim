@@ -3,12 +3,12 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import type { ExtensionContext, StepTypeHandler } from "@ext/types";
+import type { ExtensionContext, StepTypeHandler, TriggerTypeDefinition } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 import { getDraftTargetWarnings, resolveDispatchTarget, workflowsForTrigger } from "./autoStart";
 import type { DagWorkflowDefinition } from "./schemas";
 import { buildStepJobIdMap } from "./stepJobs";
-import { getTriggerRefWarnings, type TriggerRefLookup } from "./triggerRefs";
+import { fetchExtensionTriggerRefs, getTriggerRefWarnings, type TriggerRefLookup, triggerRefMode } from "./triggerRefs";
 import { getDependencyWarnings } from "./workflowAnalysis";
 
 // ---------------------------------------------------------------------------
@@ -281,6 +281,87 @@ describe("getTriggerRefWarnings", () => {
       'Run-as account "joe" is disabled or not an operator account',
     );
   });
+
+  describe("extension trigger types", () => {
+    const feeds: TriggerTypeDefinition = { label: "Feed item", refs: () => ["news"] };
+    const updates: TriggerTypeDefinition = { label: "Extension update" };
+    const lookup = (type: string) => ({ "feed-item": feeds, "extension-update": updates })[type];
+    const extRefs: TriggerRefLookup = { ...refs, "feed-item": ["news"] };
+
+    test("warns when no active extension registers the type", () => {
+      expect(getTriggerRefWarnings(wf({ type: "gone-away" }), extRefs, undefined, lookup)).toEqual([
+        {
+          stepSlug: "__trigger__",
+          field: "type",
+          message: 'Trigger type "gone-away" is not registered by any active extension: the workflow does not start',
+        },
+      ]);
+    });
+
+    test("skips the registration check without a lookup", () => {
+      expect(getTriggerRefWarnings(wf({ type: "gone-away" }), extRefs)).toEqual([]);
+    });
+
+    test("a type without refs needs no ref", () => {
+      expect(getTriggerRefWarnings(wf({ type: "extension-update" }), extRefs, undefined, lookup)).toEqual([]);
+    });
+
+    test("a type with refs checks the ref against its list", () => {
+      expect(getTriggerRefWarnings(wf({ type: "feed-item", ref: "news" }), extRefs, undefined, lookup)).toEqual([]);
+      expect(getTriggerRefWarnings(wf({ type: "feed-item", ref: "old" }), extRefs, undefined, lookup)).toEqual([
+        { stepSlug: "__trigger__", field: "ref", message: 'Feed item "old" does not exist' },
+      ]);
+      expect(getTriggerRefWarnings(wf({ type: "feed-item" }), extRefs, undefined, lookup)).toEqual([
+        { stepSlug: "__trigger__", field: "ref", message: "Feed item trigger has no ref" },
+      ]);
+    });
+
+    test("does not check a ref whose list is unknown", () => {
+      expect(getTriggerRefWarnings(wf({ type: "feed-item", ref: "old" }), refs, undefined, lookup)).toEqual([]);
+    });
+  });
+});
+
+describe("triggerRefMode", () => {
+  const lookup = (type: string): TriggerTypeDefinition | undefined =>
+    type === "with-refs" ? { label: "A", refs: () => [] } : type === "no-refs" ? { label: "B" } : undefined;
+
+  test("classifies built-in and extension trigger types", () => {
+    expect(triggerRefMode("webhook", lookup)).toBe("required");
+    expect(triggerRefMode("schedule", lookup)).toBe("required");
+    expect(triggerRefMode("filewatcher", lookup)).toBe("required");
+    expect(triggerRefMode("manual", lookup)).toBe("none");
+    expect(triggerRefMode("portal", lookup)).toBe("none");
+    expect(triggerRefMode("with-refs", lookup)).toBe("required");
+    expect(triggerRefMode("no-refs", lookup)).toBe("none");
+    expect(triggerRefMode("unknown", lookup)).toBe("unknown");
+  });
+});
+
+describe("fetchExtensionTriggerRefs", () => {
+  test("lists the sorted refs of types that declare them; a failing list is unknown", async () => {
+    const defs: Record<string, TriggerTypeDefinition> = {
+      sorted: { label: "S", refs: async () => ["b", "a"] },
+      broken: {
+        label: "X",
+        refs: () => {
+          throw new Error("down");
+        },
+      },
+      plain: { label: "P" },
+    };
+    const registry = {
+      get: (type: string) => defs[type],
+      list: () =>
+        Object.entries(defs).map(([type, d]) => ({
+          type,
+          label: d.label,
+          extensionName: "ext",
+          hasRefs: typeof d.refs === "function",
+        })),
+    };
+    expect(await fetchExtensionTriggerRefs(registry)).toEqual({ sorted: ["a", "b"], broken: null });
+  });
 });
 
 describe("getDependencyWarnings (humanTask)", () => {
@@ -343,6 +424,19 @@ describe("automatic starts skip drafts and disabled workflows", () => {
 
   test("an event of another trigger type starts nothing", () => {
     expect(workflowsForTrigger([live], "schedule", "hook")).toEqual([]);
+  });
+
+  test("a trigger type without refs starts every live workflow of the type", () => {
+    const ext = (name: string, extra: Partial<DagWorkflowDefinition> = {}) => ({
+      ...hooked(name, extra),
+      trigger: { type: "extension-update" },
+    });
+    const started = workflowsForTrigger(
+      [ext("a"), ext("b"), ext("c", { draft: true }), live],
+      "extension-update",
+      undefined,
+    );
+    expect(started.map((w) => w.name)).toEqual(["a", "b"]);
   });
 
   test("dispatch from another workflow returns a live workflow", () => {

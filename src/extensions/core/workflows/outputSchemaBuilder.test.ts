@@ -82,6 +82,41 @@ function noHandler(): TSchema | undefined {
 // ---------------------------------------------------------------------------
 
 describe("buildOutputSchemas", () => {
+  describe("extension trigger types", () => {
+    const registered = Type.Object({ updates: Type.Array(Type.Object({ name: Type.String() })) });
+    const withTrigger = (trigger: DagWorkflowDefinition["trigger"]): DagWorkflowDefinition => ({
+      ...makeDefinition({}),
+      trigger,
+    });
+
+    test("the registered payload schema describes trigger.payload", () => {
+      const { outputSchemas } = buildOutputSchemas(
+        withTrigger({ type: "extension-update" }),
+        () => undefined,
+        (type) => (type === "extension-update" ? registered : undefined),
+      );
+      expect(outputSchemas.trigger).toEqual(JSON.parse(JSON.stringify(registered)));
+    });
+
+    test("a workflow's own outputSchema wins over the registered one", () => {
+      const { outputSchemas } = buildOutputSchemas(
+        withTrigger({ type: "extension-update", outputSchema: { count: "number" } }),
+        () => undefined,
+        () => registered,
+      );
+      expect(outputSchemas.trigger).toEqual(compileOutputSchema({ count: "number" }));
+    });
+
+    test("an unregistered type has no trigger schema", () => {
+      const { outputSchemas } = buildOutputSchemas(
+        withTrigger({ type: "gone-away" }),
+        () => undefined,
+        () => undefined,
+      );
+      expect(outputSchemas.trigger).toBeNull();
+    });
+  });
+
   describe("source precedence", () => {
     test("Output-schema source precedence", () => {
       fc.assert(

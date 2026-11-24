@@ -46,6 +46,8 @@ workflow list                          # list all workflow definitions
 workflow step-types                    # list all step types (engine + extension-registered), one line each
 workflow step-types "<type>"           # full reference of one step type: fields, result, examples, behavior
 workflow step-types --search "<terms>" # find step types by keyword (e.g. "email", "loop", "notify")
+workflow trigger-types                 # list the trigger types extensions add (beyond the built-in ones)
+workflow trigger-types "<type>"        # payload fields, refs, and docs of one extension trigger type
 ```
 
 Whenever the result is user-facing, present it as a table.

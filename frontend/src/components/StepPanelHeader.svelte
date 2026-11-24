@@ -14,6 +14,7 @@ import type { Snippet } from "svelte";
 import { t } from "$lib/i18n.svelte";
 import { visualForStepType } from "$lib/nodeVisuals";
 import { categoryForType, iconIdForType, labelForStepType } from "$lib/stepTypes";
+import { extensionTriggerType } from "$lib/triggerTypes";
 
 interface Props {
   /** Step type identifier ("trigger" for the trigger node). */
@@ -50,7 +51,10 @@ let {
 
 let visual = $derived(
   type === "trigger"
-    ? visualForStepType("trigger", { triggerType })
+    ? visualForStepType("trigger", {
+        triggerType,
+        iconId: triggerType ? extensionTriggerType(triggerType)?.icon : undefined,
+      })
     : visualForStepType(type, { iconId: iconIdForType(type), category: categoryForType(type) }),
 );
 let title = $derived(labelForStepType(type, triggerType));

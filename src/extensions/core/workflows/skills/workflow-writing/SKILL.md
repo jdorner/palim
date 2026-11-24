@@ -19,7 +19,7 @@ Follow these steps in order when you create or change a workflow.
 3. **Missing capability.** If no step type can do an action the user asked for, say so and ask how to proceed. The same holds for a filter: if no step's config field can select what the user asked for (for example only mails with a certain label), say so instead of dropping the filter or leaving it to an `agent` prompt. Never write an `agent` step that is told to use a tool, API or CLI you have not seen in `workflow step-types` or in a skill.
 4. **One item at a time.** If a step returns a list and each item needs its own work, write the steps for one item, then wrap them in a loop with `workflow add-loop` (see "Loops" below). Do not put the whole list into one `agent` prompt, unless the step must see all items at once (for example one summary of all).
 5. **Structured hand-offs.** Every `agent` step whose result another step uses gets an `outputSchema`. The engine tells the agent the answer shape from it, so the prompt states only the task (what to decide or extract). Never ask for JSON, list the result keys, or show an example answer in the prompt: a second description can contradict the schema. A field that may be empty (no category, no invoice number) gets the hint `"any"`, and the prompt does not say how to write "empty".
-6. **Trigger ref first.** A `webhook`, `schedule` or `filewatcher` trigger needs its webhook, schedule or watcher to exist before the workflow: `webhook create ...`, `schedule create "<id>" "<name>" -p "0 9 * * *" --tz "Europe/Berlin"`, or the `filewatcher` skill.
+6. **Trigger ref first.** A `webhook`, `schedule` or `filewatcher` trigger needs its webhook, schedule or watcher to exist before the workflow: `webhook create ...`, `schedule create "<id>" "<name>" -p "0 9 * * *" --tz "Europe/Berlin"`, or the `filewatcher` skill. For an event an extension reports (a new extension version, ...), check `workflow trigger-types` for a matching trigger type before building a schedule that polls for it.
 7. **Approval.** Ask for permission before you change the system. Show the plan first.
 8. **Write as a draft.** A new workflow is always written with `--draft`: `workflow write --draft "<name>" '<json5>'`. If validation fails, fix the reported problem and write again.
 9. **Validate.** Run `workflow validate "<name>"` and resolve every warning.
@@ -44,8 +44,8 @@ Counting and adding up are not open-ended work either. A report like "3 invoices
   "group": "Finance",
   // required
   "trigger": {
-    "type": "manual", // "manual", "webhook", "schedule", "filewatcher", or "portal"
-    "ref": "my-webhook-slug", // required for webhook/schedule/filewatcher
+    "type": "manual", // "manual", "webhook", "schedule", "filewatcher", "portal", or a type from `workflow trigger-types`
+    "ref": "my-webhook-slug", // required for webhook/schedule/filewatcher and extension types marked [needs ref]
   },
   // optional, defaults to true
   "enabled": true,
@@ -349,6 +349,16 @@ Started by a person in the portal (`portal:start` permission), usually by upload
 ```
 
 The payload: `{{trigger.payload.file.path}}` (uploaded file, relative to WORK_DIR, e.g. for `convert --file`), `file.name`, `file.mimeType`, `file.size`, `{{trigger.payload.data.<field>}}` (empty optional fields are null), and `{{trigger.payload.submittedBy.username}}`. The run executes as the operator who last saved the workflow in the editor, so a workflow written as a file must be saved once in the editor before the portal can start it.
+
+### Extension trigger types
+
+Extensions can add their own trigger types for events they detect. `workflow trigger-types` lists them; `workflow trigger-types <type>` shows when the type fires, its payload fields, and whether it needs a ref (with the refs available now). Use the type name as `trigger.type`:
+
+```json5
+"trigger": { "type": "extension-update" }
+```
+
+Several workflows may use the same trigger type; each one starts when it fires. A type marked `[needs ref]` takes a `ref` and starts only the workflows with that ref. A workflow whose trigger type no active extension registers (the extension is disabled or removed) does not start; `workflow validate` warns about it.
 
 ## Full examples
 

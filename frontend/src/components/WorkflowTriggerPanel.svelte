@@ -2,14 +2,15 @@
 import { authFetch } from "$lib/auth";
 import { Badge } from "$lib/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger } from "$lib/components/ui/select";
-import { t } from "$lib/i18n.svelte";
 /**
  * Detail panel for the workflow trigger node: shows the trigger type/ref in
  * view mode, and type/ref pickers when editing.
  */
-import { type CoreKey, translateCore } from "$lib/i18nCore";
+import { extensions } from "$lib/extensionStore";
+import { t } from "$lib/i18n.svelte";
 import { identity } from "$lib/identity.svelte";
 import { visualForStepType } from "$lib/nodeVisuals";
+import { extensionTriggerType, triggerRefMode, triggerTypeLabel, triggerTypeOptions } from "$lib/triggerTypes";
 import type { WorkflowTrigger } from "$lib/workflowDetail";
 import type { TriggerRefs } from "$lib/workflowEditorMeta";
 import type { DraftTrigger } from "$lib/workflowValidation";
@@ -62,11 +63,15 @@ let {
 /** Whether the portal description is open in the large editor dialog. */
 let descriptionExpanded = $state(false);
 
-/** Selectable workflow trigger types (subtypes of the built-in "trigger" node). */
-const TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher", "portal"] as const;
+/** Selectable workflow trigger types: the built-in ones and those enabled extensions register. */
+const triggerTypes = $derived(triggerTypeOptions($extensions));
 
-/** Trigger types without a ref. */
-const REFLESS = ["manual", "portal"];
+/** The trigger type shown in the panel (the draft's while editing). */
+const shownType = $derived(draftTrigger?.type ?? trigger.type);
+/** The extension trigger type shown, if it is one. */
+const shownExtensionType = $derived(extensionTriggerType(shownType, $extensions));
+/** How the shown trigger type takes a ref (`unknown`: no enabled extension registers it). */
+const shownRefMode = $derived(triggerRefMode(shownType, $extensions));
 
 /** Accept presets for portal uploads (value "" = any file). */
 const ACCEPT_PRESETS = [
@@ -120,15 +125,26 @@ function updatePortal(patch: Partial<PortalTriggerConfig>, extra: Partial<DraftT
 
 <!--
   Renders a trigger's icon tile (colored by category) followed by its type text.
-  The icon is resolved by trigger subtype (manual/webhook/schedule/filewatcher)
-  via visualForStepType, matching the graph trigger node.
+  The icon is resolved by trigger subtype (built-in types, or the icon an
+  extension registered) via visualForStepType, matching the graph trigger node.
 -->
 {#snippet triggerChip(triggerType: string)}
-  {@const v = visualForStepType("trigger", { triggerType })}
+  {@const v = visualForStepType("trigger", {
+    triggerType,
+    iconId: extensionTriggerType(triggerType, $extensions)?.icon,
+  })}
   <span class="flex h-4 w-4 shrink-0 items-center justify-center rounded text-white {v.tileClass}">
     <v.icon size={11} weight="bold" aria-hidden="true" />
   </span>
-  {translateCore(`triggerTypes.${triggerType}` as CoreKey, { default: triggerType })}
+  {triggerTypeLabel(triggerType, $extensions)}
+{/snippet}
+
+{#snippet triggerTypeInfo()}
+  {#if shownExtensionType?.description}
+    <p class="text-xs text-muted-foreground">{shownExtensionType.description}</p>
+  {:else if shownRefMode === "unknown"}
+    <p class="text-xs text-destructive">{t("triggerPanel.unknownType", { type: shownType })}</p>
+  {/if}
 {/snippet}
 
 {#snippet runAsInfo(editing: boolean)}
@@ -325,7 +341,7 @@ function updatePortal(patch: Partial<PortalTriggerConfig>, extra: Partial<DraftT
             onTriggerChange({
               ...rest,
               type: newType,
-              ref: REFLESS.includes(newType) || newType !== oldType ? "" : draftTrigger.ref,
+              ref: triggerRefMode(newType, $extensions) === "none" || newType !== oldType ? "" : draftTrigger.ref,
               ...(newType === "portal" ? { portal: portal ?? {} } : {}),
             });
           }}
@@ -334,12 +350,8 @@ function updatePortal(patch: Partial<PortalTriggerConfig>, extra: Partial<DraftT
             {@render triggerChip(draftTrigger.type)}
           </SelectTrigger>
           <SelectContent>
-            {#each TRIGGER_TYPES as triggerType (triggerType)}
-              <SelectItem
-                value={triggerType}
-                label={translateCore(`triggerTypes.${triggerType}` as CoreKey, { default: triggerType })}
-                class="text-xs"
-              >
+            {#each triggerTypes as triggerType (triggerType)}
+              <SelectItem value={triggerType} label={triggerTypeLabel(triggerType, $extensions)} class="text-xs">
                 {@render triggerChip(triggerType)}
               </SelectItem>
             {/each}
@@ -348,10 +360,11 @@ function updatePortal(patch: Partial<PortalTriggerConfig>, extra: Partial<DraftT
         {#if validationErrors.get("trigger.type")}
           <span class="text-xs text-destructive">{validationErrors.get("trigger.type")}</span>
         {/if}
+        {@render triggerTypeInfo()}
       </div>
       {#if draftTrigger.type === "portal"}
         {@render portalEditor()}
-      {:else if draftTrigger.type !== "manual"}
+      {:else if shownRefMode === "required"}
         {@const refOptions = availableTriggerRefs[draftTrigger.type] ?? []}
         <div class="flex flex-col gap-1">
           <label for="sidebar-trigger-ref" class="text-xs font-medium text-muted-foreground"
@@ -402,6 +415,7 @@ function updatePortal(patch: Partial<PortalTriggerConfig>, extra: Partial<DraftT
         }}
       />
     {:else}
+      {@render triggerTypeInfo()}
       {#if trigger.type === "portal"}
         {@render portalSummary()}
       {/if}

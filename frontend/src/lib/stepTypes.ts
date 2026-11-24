@@ -11,6 +11,7 @@ import { get } from "svelte/store";
 import type { SelfReferenceOrder, StepTypeInfo } from "$shared/extensions";
 import { extensions } from "./extensionStore";
 import { translateCore as t, translateExtension } from "./i18nCore";
+import { extensionTriggerType } from "./triggerTypes";
 
 /**
  * Returns a step type with its label and description translated through the
@@ -115,7 +116,7 @@ export function allowsSelfReference(type: string): boolean {
  * extension types. Icons are rendered separately via the icon registry.
  *
  * @param type - The step type identifier
- * @param triggerType - Optional trigger subtype (webhook, schedule, manual, filewatcher, portal)
+ * @param triggerType - Optional trigger subtype (webhook, schedule, manual, filewatcher, portal, or an extension type)
  * @returns Plain-text label string (no icon prefix)
  */
 export function labelForStepType(type: string, triggerType?: string): string {
@@ -133,7 +134,7 @@ export function labelForStepType(type: string, triggerType?: string): string {
         case "portal":
           return t("stepType.portalTrigger");
         default:
-          return t("stepType.trigger");
+          return (triggerType && extensionTriggerType(triggerType)?.label) || t("stepType.trigger");
       }
     case "agent":
       return t("stepType.agent");

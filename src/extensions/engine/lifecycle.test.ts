@@ -52,6 +52,7 @@ export default {
       parameters: {},
       execute: async () => ({ content: [{ type: "text", text: "ok" }], details: {} }),
     });
+    ctx.triggerTypes.register("${name}-fired", { label: "${name} fired" });
   },
   async shutdown() {},
 };
@@ -213,6 +214,25 @@ describe("Extension Lifecycle", () => {
       const ext = info.find((e) => e.name === "test-ext");
       expect(ext).not.toBeUndefined();
       expect(ext!.toolCount).toBe(0);
+    });
+
+    test("deactivate removes the trigger types, activate registers them again", async () => {
+      const triggerTypes = () => registry.getRegisteredTriggerTypes().map((tt) => tt.type);
+      const uiTriggerTypes = () =>
+        registry
+          .getLoadedExtensionInfo()
+          .find((e) => e.name === "test-ext")
+          ?.ui?.triggerTypes?.map((t) => t.type);
+      expect(triggerTypes()).toEqual(["test-ext-fired"]);
+      expect(uiTriggerTypes()).toEqual(["test-ext-fired"]);
+
+      await registry.deactivate("test-ext");
+      expect(triggerTypes()).toEqual([]);
+      expect(uiTriggerTypes()).toBeUndefined();
+
+      // The name was released, so registering it again does not conflict.
+      await registry.activate("test-ext");
+      expect(triggerTypes()).toEqual(["test-ext-fired"]);
     });
 
     test("deactivate broadcasts lifecycle event", async () => {
