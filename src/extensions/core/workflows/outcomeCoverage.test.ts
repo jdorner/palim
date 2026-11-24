@@ -169,6 +169,7 @@ describe("createWorkflowAnalyzer", () => {
       tools: { names: () => [] },
       skills: { names: () => [] },
       stepTypes: { get: () => undefined },
+      triggerTypes: { get: () => undefined },
       internal: { hitl: {} },
     } as unknown as ExtensionContext;
     const analyze = createWorkflowAnalyzer(ctx);

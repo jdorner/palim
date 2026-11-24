@@ -36,6 +36,7 @@ import type {
   StepIconName,
   StepTypeCategory,
   StepTypeInfo,
+  TriggerTypeInfo,
   WebSocketMessage,
 } from "./publicTypes";
 
@@ -597,6 +598,58 @@ export interface StepTypeHandler {
 // re-exported below via ./publicTypes.
 
 // ---------------------------------------------------------------------------
+// Workflow trigger types
+// ---------------------------------------------------------------------------
+
+/**
+ * A workflow trigger type registered by an extension via
+ * {@link ExtensionContext.triggerTypes}. Workflows pick it as `trigger.type`;
+ * the extension starts them with `ctx.triggerTypes.fire()`.
+ */
+export interface TriggerTypeDefinition {
+  /** Human-readable label (shown in the trigger panel and on the trigger node). Translatable via `triggers.<type>.label`. */
+  label: string;
+  /** Optional one-line explanation of when the trigger fires. Translatable via `triggers.<type>.description`. */
+  description?: string;
+  /**
+   * Optional Markdown reference for workflow authors (when it fires, what the
+   * payload holds, an example). Shown by `workflow trigger-types <type>`.
+   */
+  docs?: string;
+  /** Optional icon identifier from the shared icon registry (as for step types). */
+  icon?: StepIconName;
+  /**
+   * TypeBox schema of the payload passed to `fire()`, available to workflows as
+   * `{{trigger.payload}}`. Drives editor autocomplete and template validation.
+   * A workflow may still override it with its own `trigger.outputSchema`.
+   */
+  outputSchema?: TSchema;
+  /**
+   * Lists the refs a workflow may pick as `trigger.ref` (e.g. the names of the
+   * extension's feeds). When given, every workflow of this type must name one,
+   * and `fire()` starts only the workflows whose ref matches. When absent,
+   * `trigger.ref` is not allowed and `fire()` starts every workflow of the type.
+   *
+   * Called for editor dropdowns and save-time checks; a throw counts as
+   * "refs unknown" (the ref is then not checked).
+   *
+   * @returns The available refs
+   */
+  refs?: () => string[] | Promise<string[]>;
+}
+
+/** Options for {@link ExtensionContext.triggerTypes}`.fire()`. */
+export interface TriggerFireOptions {
+  /** Only start workflows whose `trigger.ref` equals this (required for trigger types with `refs`). */
+  ref?: string;
+  /**
+   * User the started runs are attributed to. Defaults to the user of the job
+   * or request `fire()` is called from, if any; otherwise the runs are unowned.
+   */
+  initiatorUserId?: string;
+}
+
+// ---------------------------------------------------------------------------
 // Workflow dispatch
 // ---------------------------------------------------------------------------
 
@@ -1106,6 +1159,55 @@ export interface ExtensionContext {
   };
 
   // -------------------------------------------------------------------------
+  // Trigger types (workflow integration)
+  // -------------------------------------------------------------------------
+
+  /** Workflow trigger types: register your own, start the workflows that use them. */
+  readonly triggerTypes: {
+    /**
+     * Register a workflow trigger type. Names must be globally unique and must
+     * not collide with the built-in types (`manual`, `webhook`, `schedule`,
+     * `filewatcher`, `portal`). The registration is removed when the extension
+     * is disabled; workflows using the type then never start until it returns.
+     *
+     * @param type - The trigger type identifier (lowercase letters, digits, dashes; e.g. "extension-update")
+     * @param definition - Label, payload schema, docs, and optional refs
+     * @throws If the name is invalid, built-in, or already registered
+     */
+    register(type: string, definition: TriggerTypeDefinition): void;
+
+    /**
+     * Look up a registered trigger type by name (any extension's).
+     *
+     * @param type - The trigger type identifier
+     * @returns The definition, or `undefined` if none is registered
+     */
+    get(type: string): TriggerTypeDefinition | undefined;
+
+    /**
+     * List serialized metadata for every trigger type registered by an active
+     * extension. Does not include the built-in trigger types.
+     *
+     * @returns Plain {@link TriggerTypeInfo} objects (payload schemas as JSON Schema)
+     */
+    list(): TriggerTypeInfo[];
+
+    /**
+     * Start every enabled, non-draft workflow whose trigger is this type (and,
+     * for types with `refs`, whose `trigger.ref` equals `options.ref`). Each
+     * workflow gets `payload` as `{{trigger.payload}}`. A workflow that fails
+     * to start is logged and skipped.
+     *
+     * @param type - A trigger type registered by THIS extension
+     * @param payload - The trigger payload (should match the registered `outputSchema`)
+     * @param options - Ref to match and run attribution
+     * @returns The started runs (empty when no workflow uses the trigger)
+     * @throws If the type is not registered by this extension, a ref type is fired without `ref`, or the workflows extension is not running
+     */
+    fire(type: string, payload: unknown, options?: TriggerFireOptions): Promise<WorkflowDispatchResult[]>;
+  };
+
+  // -------------------------------------------------------------------------
   // Dynamic items (settings UI)
   // -------------------------------------------------------------------------
 
@@ -1343,6 +1445,7 @@ export type {
   SchedulerInfo,
   StepTypeCategory,
   StepTypeInfo,
+  TriggerTypeInfo,
 };
 
 // ---------------------------------------------------------------------------

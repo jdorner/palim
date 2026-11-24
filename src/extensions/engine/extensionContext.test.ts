@@ -21,6 +21,7 @@ function createMinimalDeps() {
     toolNameSet: new Set<string>(),
     routeKeySet: new Set<string>(),
     stepTypeNameSet: new Set<string>(),
+    triggerTypeNameSet: new Set<string>(),
     eventBus: new EventBus(),
     flowProducer: { addChain: async () => ({ jobs: [] }) } as any,
     runAgentFn: async () => ({ answer: "", state: null, timestamp: Date.now() }),

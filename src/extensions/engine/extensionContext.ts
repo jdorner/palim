@@ -7,9 +7,10 @@
 
 import type { RouteRegistry } from "@ext/types";
 import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { StepTypeInfo } from "@shared/extensions";
+import type { StepTypeInfo, TriggerTypeInfo } from "@shared/extensions";
 import type { ModelIntent } from "@shared/models";
 import type { WebSocketMessage } from "@shared/websocket";
+import { isBuiltinTriggerType, TRIGGER_TYPE_PATTERN } from "@shared/workflows";
 import type { IdentityApi } from "@src/auth/identityTypes";
 import { serverOrigin } from "@src/config";
 import type { HitlService } from "@src/hitl";
@@ -31,7 +32,7 @@ import { requestUserId, requestUsername } from "@src/web/triggerOwnership";
 import type { FlowProducer } from "bunqueue/client";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";
-import type { LoadedExtension, RegisteredRoute, RegisteredStepType } from "../internalTypes";
+import type { LoadedExtension, RegisteredRoute, RegisteredStepType, RegisteredTriggerType } from "../internalTypes";
 import type {
   AgentEventContext,
   AgentProcessorResult,
@@ -47,6 +48,8 @@ import type {
   RouteOptions,
   RunAgentOptions,
   StepTypeHandler,
+  TriggerFireOptions,
+  TriggerTypeDefinition,
   WorkflowDispatchResult,
 } from "../types";
 import { createConfigResolver } from "./configResolver";
@@ -90,6 +93,29 @@ export function setWorkflowNamesFn(fn: () => string[]): void {
   workflowNamesFn = fn;
 }
 
+/** Starts the workflows of a trigger type (set by the workflows core extension). */
+export type TriggerFireFn = (
+  type: string,
+  payload: unknown,
+  options: TriggerFireOptions & { hasRefs: boolean },
+) => Promise<WorkflowDispatchResult[]>;
+
+/**
+ * Module-level trigger fire function set by the workflows core extension
+ * during its initialization, cleared on its shutdown.
+ */
+let triggerFireFn: TriggerFireFn | undefined;
+
+/**
+ * Registers (or, with `undefined`, removes) the implementation behind
+ * `ctx.triggerTypes.fire()`. Called by the workflows core extension.
+ *
+ * @param fn - Starts the matching workflows of a trigger type, or undefined when the workflows extension stops
+ */
+export function setTriggerFireFn(fn: TriggerFireFn | undefined): void {
+  triggerFireFn = fn;
+}
+
 /**
  * Dependencies injected from the registry so the context can wire into
  * the core system without owning those resources directly.
@@ -118,6 +144,8 @@ export interface ExtContextRegistration {
   routeKeySet: Set<string>;
   /** Global set of step type names already claimed (for duplicate detection). */
   stepTypeNameSet: Set<string>;
+  /** Global set of trigger type names already claimed (for duplicate detection). */
+  triggerTypeNameSet: Set<string>;
   /** Route registry for wiring routes directly into the HTTP server. */
   routeRegistry?: RouteRegistry;
 }
@@ -173,6 +201,10 @@ export interface ExtContextLifecycle {
   getStepHandlerFn?: (type: string) => StepTypeHandler | undefined;
   /** List read-only serialized metadata for all registered step types. */
   listStepTypesFn?: () => StepTypeInfo[];
+  /** Look up a registered trigger type by name. */
+  getTriggerTypeFn?: (type: string) => TriggerTypeDefinition | undefined;
+  /** List serialized metadata for all registered trigger types. */
+  listTriggerTypesFn?: () => TriggerTypeInfo[];
   /** Replaces the runtime warnings of the given extension. */
   setWarningsFn?: (name: string, warnings: string[]) => void;
 }
@@ -248,6 +280,9 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     stepTypeNameSet,
     getStepHandlerFn,
     listStepTypesFn,
+    triggerTypeNameSet,
+    getTriggerTypeFn,
+    listTriggerTypesFn,
     setWarningsFn,
   } = deps;
 
@@ -255,6 +290,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
   const routes: RegisteredRoute[] = [];
   const queues: ManagedQueuePort[] = [];
   const stepTypes: RegisteredStepType[] = [];
+  const triggerTypes: RegisteredTriggerType[] = [];
 
   // -------------------------------------------------------------------------
   // Config resolution - delegated to the focused configResolver module.
@@ -403,6 +439,53 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
    */
   function listStepTypes(): StepTypeInfo[] {
     return listStepTypesFn?.() ?? [];
+  }
+
+  /**
+   * Register a workflow trigger type. Names must be valid, globally unique,
+   * and must not reuse a built-in trigger type.
+   *
+   * @param type The trigger type identifier
+   * @param definition Label, payload schema, docs, and optional refs
+   * @throws If the name is invalid, built-in, or already registered
+   */
+  function registerTriggerType(type: string, definition: TriggerTypeDefinition): void {
+    const fail = (reason: string): never => {
+      const msg = `Extension "${extensionName}": trigger type "${type}" ${reason}`;
+      logger.error(msg);
+      throw new Error(msg);
+    };
+    if (!new RegExp(TRIGGER_TYPE_PATTERN).test(type)) {
+      fail("is not a valid name (lowercase letters, digits, and dashes, starting with a letter)");
+    }
+    if (isBuiltinTriggerType(type)) fail("is a built-in type and cannot be overridden");
+    if (triggerTypeNameSet.has(type)) fail("conflicts with an already-registered type");
+    if (typeof definition?.label !== "string" || definition.label.trim() === "") fail("needs a label");
+    triggerTypeNameSet.add(type);
+    triggerTypes.push({ type, definition, extensionName });
+    logger.debug(`Extension "${extensionName}" registered trigger type "${type}"`);
+  }
+
+  /**
+   * Start the workflows of a trigger type this extension registered.
+   *
+   * @param type The trigger type identifier
+   * @param payload The trigger payload
+   * @param options Ref to match and run attribution
+   * @returns The started runs
+   * @throws If the type is not this extension's, a ref type is fired without a ref, or workflows are not running
+   */
+  async function fireTriggerType(
+    type: string,
+    payload: unknown,
+    options: TriggerFireOptions = {},
+  ): Promise<WorkflowDispatchResult[]> {
+    const own = triggerTypes.find((tt) => tt.type === type);
+    if (!own) throw new Error(`Extension "${extensionName}" has not registered trigger type "${type}"`);
+    const hasRefs = typeof own.definition.refs === "function";
+    if (hasRefs && !options.ref) throw new Error(`Trigger type "${type}" needs a ref to fire`);
+    if (!triggerFireFn) throw new Error("Workflows extension not initialized");
+    return triggerFireFn(type, payload, { ...options, hasRefs });
   }
 
   /**
@@ -769,6 +852,12 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
       get: getStepHandler,
       list: listStepTypes,
     },
+    triggerTypes: {
+      register: registerTriggerType,
+      get: (type) => getTriggerTypeFn?.(type),
+      list: () => listTriggerTypesFn?.() ?? [],
+      fire: fireTriggerType,
+    },
     dynamicItems: {
       register: registerProviderFn,
       registerDefault: registerDefaultProviderFn,
@@ -810,5 +899,5 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     },
   };
 
-  return { context, loaded: { tools, routes, queues, stepTypes, state: "active" as const } };
+  return { context, loaded: { tools, routes, queues, stepTypes, triggerTypes, state: "active" as const } };
 }

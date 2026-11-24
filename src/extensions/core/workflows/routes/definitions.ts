@@ -19,7 +19,7 @@ import {
   formatWorkflowDefinitionErrors,
   WorkflowGroupSchema,
 } from "../schemas";
-import { fetchTriggerRefs, isRefTriggerType } from "../triggerRefs";
+import { fetchTriggerRefs, triggerRefMode } from "../triggerRefs";
 import { missingWorkflowMessage } from "../workflowFileIndex";
 import type { WorkflowRouteDeps } from "./types";
 
@@ -109,7 +109,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
   }
 
   ctx.routes.register("GET", "/", async (reqCtx) => {
-    const triggerRefs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin);
+    const triggerRefs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin, ctx.triggerTypes);
     const list = await Promise.all(
       [...store.values()].map(async (w) => {
         const allRuns = dagRunStore.getByWorkflowName(w.name);
@@ -186,7 +186,7 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
       .sort((a, b) => b.startedAt - a.startedAt)
       .slice(0, 20);
 
-    const triggerRefs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin);
+    const triggerRefs = await fetchTriggerRefs(reqCtx.request, ctx.urls.origin, ctx.triggerTypes);
     const { outputSchemas, warnings } = await analyzeWorkflow(wf, triggerRefs);
 
     // The account portal-started runs execute as (shown read-only in the editor).
@@ -244,11 +244,15 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
 
     const triggerType = def.trigger.type;
 
-    // Manual and portal triggers must not include a ref; the others require one.
-    if (!isRefTriggerType(triggerType) && def.trigger.ref) {
+    // Manual, portal, and ref-less extension triggers must not include a ref;
+    // webhook, schedule, file watcher, and extension triggers with refs require
+    // one. A type no active extension registers is saved as is (its extension
+    // may be disabled for now) and reported as a warning.
+    const refMode = triggerRefMode(triggerType, (type) => ctx.triggerTypes.get(type));
+    if (refMode === "none" && def.trigger.ref) {
       return Response.json({ error: `Trigger type "${triggerType}" does not support a ref value` }, { status: 400 });
     }
-    if (isRefTriggerType(triggerType) && !def.trigger.ref) {
+    if (refMode === "required" && !def.trigger.ref) {
       return Response.json({ error: `Trigger type "${triggerType}" requires a ref value` }, { status: 400 });
     }
     if (triggerType !== "portal" && def.trigger.portal) {
@@ -258,8 +262,8 @@ export function registerDefinitionsRoutes(deps: WorkflowRouteDeps): void {
     // Reject a trigger ref that does not exist. A failed lookup (owning
     // extension disabled, unreachable, or access denied) cannot verify the ref,
     // so the save goes through, as the list and detail warnings treat it.
-    if (isRefTriggerType(triggerType) && def.trigger.ref) {
-      const known = (await fetchTriggerRefs(reqCtx.request, ctx.urls.origin))[triggerType];
+    if (refMode === "required" && def.trigger.ref) {
+      const known = (await fetchTriggerRefs(reqCtx.request, ctx.urls.origin, ctx.triggerTypes))[triggerType];
       if (known && !known.includes(def.trigger.ref)) {
         return Response.json(
           { error: `Trigger ref "${def.trigger.ref}" does not exist for type "${def.trigger.type}"` },

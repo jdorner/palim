@@ -79,7 +79,8 @@ const TRIGGER_ICONS: Record<string, Component> = {
  *
  * @param type - The step type identifier (e.g. "agent", "if", "http-request").
  * @param opts - Optional extras: `triggerType` for trigger subtype icons,
- *   `iconId` for a custom extension icon registry lookup.
+ *   `iconId` for a custom extension icon registry lookup (step types and
+ *   extension trigger types).
  * @returns The resolved node visual descriptor.
  */
 export function visualForStepType(
@@ -87,7 +88,11 @@ export function visualForStepType(
   opts: { triggerType?: string; iconId?: string; category?: string } = {},
 ): NodeVisual {
   if (type === "trigger") {
-    const icon = (opts.triggerType && TRIGGER_ICONS[opts.triggerType]) || LightningIcon;
+    // Built-in trigger types have fixed icons; an extension trigger type may register one.
+    const icon =
+      (opts.triggerType && Object.hasOwn(TRIGGER_ICONS, opts.triggerType) && TRIGGER_ICONS[opts.triggerType]) ||
+      (opts.iconId && resolveIcon(opts.iconId)) ||
+      LightningIcon;
     return { icon, tileClass: CATEGORY_TILE_CLASS.trigger, category: "trigger" };
   }
 

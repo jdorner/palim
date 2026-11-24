@@ -11,6 +11,7 @@ import { detailPanelMode } from "$lib/detailPanelMode.svelte";
 import { extensions } from "$lib/extensionStore";
 import { t } from "$lib/i18n.svelte";
 import { localizeStepType } from "$lib/stepTypes";
+import { extensionTriggerTypes } from "$lib/triggerTypes";
 import { UndoHistory } from "$lib/undoHistory";
 import {
   applyWorkflowEvent,
@@ -106,6 +107,9 @@ let customStepTypes = $derived(
     .filter((ext) => ext.enabled && ext.ui?.stepTypes?.length)
     .flatMap((ext) => ext.ui!.stepTypes!.map(localizeStepType)),
 );
+
+/** Trigger types registered by enabled extensions (for the trigger ref rule). */
+let customTriggerTypes = $derived(extensionTriggerTypes($extensions));
 
 /** WorkflowBuilder instance, recreated when extension step types change. */
 let workflowBuilder = $derived(
@@ -636,7 +640,7 @@ async function saveWorkflow() {
   if (!editDraft || !workflow) return;
 
   // Run full validation (edges are explicit in the draft — no reordering needed)
-  const errors = validateWorkflowDraft(editDraft, customStepTypes);
+  const errors = validateWorkflowDraft(editDraft, customStepTypes, customTriggerTypes);
   if (errors.size > 0) {
     validationErrors = errors;
     return;
@@ -647,7 +651,7 @@ async function saveWorkflow() {
   saveErrorDetails = [];
 
   try {
-    const definition = serializeWorkflowDraft(editDraft);
+    const definition = serializeWorkflowDraft(editDraft, customTriggerTypes);
     // Analyze exactly what is saved: the live draft analysis is debounced and
     // may lag behind the latest edit.
     const analysis = await fetchWorkflowAnalysis(definition);
@@ -699,7 +703,7 @@ $effect(() => {
     draftAnalysis = null;
     return;
   }
-  const definition = serializeWorkflowDraft(editDraft);
+  const definition = serializeWorkflowDraft(editDraft, customTriggerTypes);
   const controller = new AbortController();
   const timer = setTimeout(async () => {
     const analysis = await fetchWorkflowAnalysis(definition, controller.signal);

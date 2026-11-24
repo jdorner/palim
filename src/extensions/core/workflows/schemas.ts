@@ -6,7 +6,12 @@
  */
 
 import { PORTAL_UPLOAD_MAX_MB } from "@shared/portal";
-import { EMIT_EVENT_PATTERN, EVENT_NAME_PATTERN, type OutputSchemaShorthand } from "@shared/workflows";
+import {
+  EMIT_EVENT_PATTERN,
+  EVENT_NAME_PATTERN,
+  type OutputSchemaShorthand,
+  TRIGGER_TYPE_PATTERN,
+} from "@shared/workflows";
 import { type Static, type TSchema, Type } from "@sinclair/typebox";
 import { Value } from "@sinclair/typebox/value";
 
@@ -73,16 +78,16 @@ const PortalTriggerConfigSchema = Type.Object(
 // The TypeScript shape of a portal trigger is the shared `PortalTriggerConfig`
 // (`@shared/workflows`); schemas.test.ts asserts it matches this schema.
 
-/** Trigger configuration - how a workflow is started. */
+/**
+ * Trigger configuration - how a workflow is started. `type` is a built-in
+ * type (`BUILTIN_TRIGGER_TYPES`) or one an extension registers
+ * (`ctx.triggerTypes`); whether a non-built-in type is registered is checked
+ * by the analysis (a warning), not here, so a workflow stays loadable while
+ * its extension is disabled.
+ */
 const TriggerSchema = Type.Object(
   {
-    type: Type.Union([
-      Type.Literal("webhook"),
-      Type.Literal("schedule"),
-      Type.Literal("manual"),
-      Type.Literal("filewatcher"),
-      Type.Literal("portal"),
-    ]),
+    type: Type.String({ pattern: TRIGGER_TYPE_PATTERN }),
     ref: Type.Optional(Type.String({ minLength: 1 })),
     /** Only for `type: "portal"`. */
     portal: Type.Optional(PortalTriggerConfigSchema),

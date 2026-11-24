@@ -17,8 +17,9 @@ import LoadingIndicator from "$lib/components/LoadingIndicator.svelte";
 import { Badge } from "$lib/components/ui/badge";
 import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
+import { extensions } from "$lib/extensionStore";
 import { t } from "$lib/i18n.svelte";
-import { type CoreKey, translateCore } from "$lib/i18nCore";
+import { triggerTypeLabel } from "$lib/triggerTypes";
 import { automationStyle } from "$lib/utils";
 import { warningLocation } from "$lib/workflowDetail";
 import {
@@ -587,9 +588,7 @@ function runCountItems(counts: WorkflowRunCounts): RunCountItem[] {
                         <CameraIcon size={14} class={style.color} aria-hidden="true" />
                       {/if}
                       <span class="text-sm {style.color} font-medium"
-                        >{translateCore(`triggerTypes.${wf.trigger.type}` as CoreKey, {
-                          default: wf.trigger.type,
-                        })}</span
+                        >{triggerTypeLabel(wf.trigger.type, $extensions)}</span
                       >
                     </span>
                     {#if wf.trigger.ref && triggerRoute(wf.trigger.type)}
@@ -704,9 +703,7 @@ function runCountItems(counts: WorkflowRunCounts): RunCountItem[] {
                         <CameraIcon size={14} class={style.color} aria-hidden="true" />
                       {/if}
                       <span class="text-sm {style.color} font-medium"
-                        >{translateCore(`triggerTypes.${wf.trigger.type}` as CoreKey, {
-                          default: wf.trigger.type,
-                        })}</span
+                        >{triggerTypeLabel(wf.trigger.type, $extensions)}</span
                       >
                     </span>
                     {#if wf.trigger.ref && triggerRoute(wf.trigger.type)}

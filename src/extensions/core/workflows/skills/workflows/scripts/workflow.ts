@@ -1,7 +1,7 @@
 /**
  * Registers the `workflow` shell command for managing workflow JSON5 definitions.
  *
- * Subcommands: list, step-types, read, outline, write (`--draft`, `--file`), set-step, remove-step,
+ * Subcommands: list, step-types, trigger-types, read, outline, write (`--draft`, `--file`), set-step, remove-step,
  * add-edge, remove-edge, set-meta, add-loop, validate, delete, trigger, runs, logs, wait, cancel
  */
 
@@ -102,6 +102,13 @@ export function buildWorkflowCommand(scriptCtx: SkillScriptContext, waitOptions:
           },
         ],
         handler: buildStepTypesHandler(scriptCtx),
+      },
+      {
+        name: "trigger-types",
+        description:
+          "List the trigger types extensions add (beyond manual, webhook, schedule, filewatcher, portal), or show one type's payload, refs, and docs",
+        args: [{ name: "type", required: false, description: "Trigger type to show in full (e.g. extension-update)" }],
+        handler: buildTriggerTypesHandler(scriptCtx),
       },
       {
         name: "read",
@@ -1279,6 +1286,95 @@ function buildStepTypesHandler(scriptCtx: SkillScriptContext) {
       "Run 'workflow step-types <type>' for fields, examples, and behavior.",
       "Run 'workflow step-types --search <terms>' to find step types by keyword.",
     );
+    return { exitCode: 0, stdout: lines.join("\n"), stderr: "" };
+  };
+}
+
+/** Response shape for a single entry from GET /ext/workflows/meta/trigger-types */
+interface TriggerTypeMetaEntry {
+  type: string;
+  label: string;
+  description?: string;
+  docs?: string;
+  extensionName: string;
+  hasRefs: boolean;
+  outputSchema?: ObjectSchema;
+}
+
+/**
+ * Renders the full reference of one extension trigger type: summary, ref
+ * rule (with the refs available now), payload fields, and the Markdown docs.
+ *
+ * @param entry - The trigger type
+ * @param refs - The refs a workflow may pick now (ref types only; undefined when unknown)
+ * @returns The rendered reference
+ */
+function formatTriggerTypeDetail(entry: TriggerTypeMetaEntry, refs: string[] | undefined): string {
+  const lines = [`${entry.type} - ${entry.label} (from ${entry.extensionName})`];
+  if (entry.description) lines.push(entry.description);
+  lines.push("");
+  if (!entry.hasRefs) {
+    lines.push(`No ref: every workflow with "trigger": { "type": "${entry.type}" } starts when it fires.`);
+  } else {
+    lines.push(`Needs a ref: "trigger": { "type": "${entry.type}", "ref": "<ref>" } starts on that ref only.`);
+    if (refs) lines.push(refs.length > 0 ? `Available refs: ${refs.join(", ")}` : "No refs exist yet.");
+  }
+  const payloadLines = formatSchemaFields(entry.outputSchema, "  ");
+  if (payloadLines.length > 0) lines.push("", "Payload fields ({{trigger.payload.<field>}}):", ...payloadLines);
+  if (entry.docs?.trim()) lines.push("", entry.docs.trim());
+  return lines.join("\n");
+}
+
+function buildTriggerTypesHandler(scriptCtx: SkillScriptContext) {
+  return async (_ctx: CommandContext, args: ParsedArgs): Promise<ExecResult> => {
+    let entries: TriggerTypeMetaEntry[];
+    try {
+      const resp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/meta/trigger-types`);
+      if (!resp.ok) {
+        return { exitCode: 1, stdout: "", stderr: `Error: HTTP ${resp.status} fetching trigger types` };
+      }
+      entries = (await resp.json()) as TriggerTypeMetaEntry[];
+    } catch (err) {
+      return { exitCode: 1, stdout: "", stderr: formatFetchError(err as Error) };
+    }
+
+    const type = args.get("type");
+    if (type) {
+      const entry = entries.find((e) => e.type === type);
+      if (!entry) {
+        return {
+          exitCode: 1,
+          stdout: "",
+          stderr: `Error: Unknown trigger type "${type}". Run 'workflow trigger-types' for the list (built-in types are described in the workflow-writing skill).`,
+        };
+      }
+      let refs: string[] | undefined;
+      if (entry.hasRefs) {
+        try {
+          const resp = await scriptCtx.fetch(`${scriptCtx.baseUrl}/meta/triggers`);
+          if (resp.ok) refs = ((await resp.json()) as Record<string, string[]>)[entry.type];
+        } catch {
+          // The refs are a hint only.
+        }
+      }
+      return { exitCode: 0, stdout: formatTriggerTypeDetail(entry, refs), stderr: "" };
+    }
+
+    if (entries.length === 0) {
+      return {
+        exitCode: 0,
+        stdout: "No extension adds trigger types. Built-in: manual, webhook, schedule, filewatcher, portal.",
+        stderr: "",
+      };
+    }
+    const width = Math.max(...entries.map((e) => e.type.length)) + 2;
+    const lines = [
+      `Trigger types added by extensions (${entries.length}):`,
+      ...entries.map((e) => `  ${e.type.padEnd(width)}${e.description ?? e.label}${e.hasRefs ? " [needs ref]" : ""}`),
+      "",
+      "Built-in: manual, webhook, schedule, filewatcher, portal.",
+      "Run 'workflow trigger-types <type>' for the payload, refs, and docs.",
+    ];
     return { exitCode: 0, stdout: lines.join("\n"), stderr: "" };
   };
 }

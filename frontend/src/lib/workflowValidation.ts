@@ -3,8 +3,14 @@
  * Pure TypeScript module with no Svelte dependencies.
  */
 
+import type { TriggerTypeInfo } from "$shared/extensions";
 import type { StepDraft as BuilderStepDraft, EdgeDraft } from "$shared/workflowBuilder";
-import type { OutputSchemaShorthand, PortalTriggerConfig } from "$shared/workflows";
+import {
+  type OutputSchemaShorthand,
+  type PortalTriggerConfig,
+  TRIGGER_TYPE_PATTERN,
+  triggerRefMode,
+} from "$shared/workflows";
 import { translateCore as t } from "./i18nCore";
 import type { SlugEdge } from "./templateScope";
 
@@ -119,9 +125,22 @@ const MAX_SLUG_LENGTH = 64;
 const MAX_DESCRIPTION_LENGTH = 256;
 /** Mirrors `WORKFLOW_GROUP_MAX_LENGTH` in the workflows extension schema. */
 export const MAX_GROUP_LENGTH = 64;
-const VALID_TRIGGER_TYPES = ["webhook", "schedule", "manual", "filewatcher", "portal"];
-/** Trigger types that take no ref. */
-const REFLESS_TRIGGER_TYPES = ["manual", "portal"];
+/** Mirrors the trigger type name rule of the workflows extension schema. */
+const TRIGGER_TYPE_REGEX = new RegExp(TRIGGER_TYPE_PATTERN);
+
+/** The part of a registered extension trigger type the ref rule needs. */
+export type TriggerTypeRef = Pick<TriggerTypeInfo, "type" | "hasRefs">;
+
+/**
+ * How a trigger type takes a ref, given the registered extension trigger types.
+ *
+ * @param type - The trigger type
+ * @param triggerTypes - The extension trigger types
+ * @returns `required`, `none`, or `unknown`
+ */
+function refModeOf(type: string, triggerTypes: readonly TriggerTypeRef[]): "required" | "none" | "unknown" {
+  return triggerRefMode(type, (name) => triggerTypes.find((info) => info.type === name));
+}
 
 /**
  * Validates a slug value against the required pattern, length, and presence rules.
@@ -306,9 +325,14 @@ export interface StepTypeSchema {
  * An empty map indicates the draft is valid.
  * @param draft - The workflow draft to validate
  * @param stepTypeSchemas - Optional array of custom step type schemas for config validation
+ * @param triggerTypes - Trigger types registered by enabled extensions (for their ref rule)
  * @returns Map where keys are field paths (e.g. "name", "steps[0].slug") and values are error messages
  */
-export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: StepTypeSchema[]): Map<string, string> {
+export function validateWorkflowDraft(
+  draft: WorkflowDraft,
+  stepTypeSchemas?: StepTypeSchema[],
+  triggerTypes: readonly TriggerTypeRef[] = [],
+): Map<string, string> {
   const errors = new Map<string, string>();
 
   // Validate name
@@ -327,19 +351,20 @@ export function validateWorkflowDraft(draft: WorkflowDraft, stepTypeSchemas?: St
     errors.set("group", t("validation.groupTooLong", { max: MAX_GROUP_LENGTH }));
   }
 
-  // Validate trigger type
-  if (!draft.trigger.type || !VALID_TRIGGER_TYPES.includes(draft.trigger.type)) {
+  // Validate trigger type. A well-formed type no enabled extension registers
+  // stays savable (its extension may be disabled for now); the backend warns.
+  if (!draft.trigger.type || !TRIGGER_TYPE_REGEX.test(draft.trigger.type)) {
     errors.set("trigger.type", t("validation.triggerType"));
   }
 
-  // Manual and portal triggers must not have a ref
-  const refless = REFLESS_TRIGGER_TYPES.includes(draft.trigger.type);
-  if (refless && draft.trigger.ref && draft.trigger.ref.trim().length > 0) {
+  // Manual, portal, and ref-less extension triggers must not have a ref;
+  // webhook, schedule, file watcher, and extension triggers with refs need one.
+  const refMode = refModeOf(draft.trigger.type, triggerTypes);
+  const hasRef = !!draft.trigger.ref && draft.trigger.ref.trim().length > 0;
+  if (refMode === "none" && hasRef) {
     errors.set("trigger.ref", t("validation.manualNoRef"));
   }
-
-  // All other triggers require a ref
-  if (!refless && (!draft.trigger.ref || draft.trigger.ref.trim().length === 0)) {
+  if (refMode === "required" && !hasRef) {
     errors.set("trigger.ref", t("validation.triggerNeedsRef", { type: draft.trigger.type }));
   }
 
@@ -661,9 +686,13 @@ export function serializeStep(step: StepDraft): Record<string, unknown> {
  * endpoints no longer resolve to a step are dropped.
  *
  * @param draft - The workflow draft to serialize
+ * @param triggerTypes - Trigger types registered by enabled extensions (a ref-less one drops a stray ref)
  * @returns A plain object matching the backend's DagWorkflowDefinitionSchema
  */
-export function serializeWorkflowDraft(draft: WorkflowDraft): Record<string, unknown> {
+export function serializeWorkflowDraft(
+  draft: WorkflowDraft,
+  triggerTypes: readonly TriggerTypeRef[] = [],
+): Record<string, unknown> {
   const steps: Record<string, unknown> = {};
   for (const step of draft.steps) {
     steps[step.slug] = serializeStep(step);
@@ -685,7 +714,9 @@ export function serializeWorkflowDraft(draft: WorkflowDraft): Record<string, unk
     name: draft.name,
     trigger: {
       type: draft.trigger.type,
-      ...(draft.trigger.ref && !REFLESS_TRIGGER_TYPES.includes(draft.trigger.type) ? { ref: draft.trigger.ref } : {}),
+      ...(draft.trigger.ref && refModeOf(draft.trigger.type, triggerTypes) !== "none"
+        ? { ref: draft.trigger.ref }
+        : {}),
       ...(draft.trigger.type === "portal" && draft.trigger.portal ? { portal: draft.trigger.portal } : {}),
       ...(draft.trigger.outputSchema ? { outputSchema: draft.trigger.outputSchema } : {}),
     },

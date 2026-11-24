@@ -31,7 +31,7 @@ import { FlowProducer } from "bunqueue/client";
 import { eq } from "drizzle-orm";
 import type { BunSQLiteDatabase } from "drizzle-orm/bun-sqlite";
 import createLogger from "logging";
-import type { LoadedExtension, RegisteredStepType } from "../internalTypes";
+import type { LoadedExtension, RegisteredStepType, RegisteredTriggerType } from "../internalTypes";
 import type {
   AgentProcessorResult,
   CoreQueueName,
@@ -60,6 +60,7 @@ import {
 } from "./lifecycle";
 import { type ExtensionLocales, loadExtensionLocales } from "./localeLoader";
 import { serializeStepTypes } from "./stepTypeSerialization";
+import { serializeTriggerTypes } from "./triggerTypeSerialization";
 import { buildExtensionUi, removeExtensionUi } from "./uiBuilder";
 
 const logger = createLogger("ExtensionRegistry");
@@ -137,6 +138,7 @@ export class ExtensionRegistry {
 
   /** Global step type name set - prevents duplicates across extensions. */
   private readonly stepTypeNameSet = new Set<string>();
+  private readonly triggerTypeNameSet = new Set<string>();
 
   /** Skill name -> SkillEntry map, populated during discovery. */
   private readonly skillMap = new Map<string, SkillEntry>();
@@ -432,6 +434,7 @@ export class ExtensionRegistry {
           routes: [],
           queues: [],
           stepTypes: [],
+          triggerTypes: [],
           state: "suspended",
         });
         logger.debug(`Extension "${name}" is disabled - loaded as suspended`);
@@ -515,6 +518,7 @@ export class ExtensionRegistry {
       routes: [],
       queues: [],
       stepTypes: [],
+      triggerTypes: [],
       state: "suspended",
     };
     this.loaded.push(entry);
@@ -562,6 +566,15 @@ export class ExtensionRegistry {
    */
   getRegisteredStepTypes(): RegisteredStepType[] {
     return this.loaded.filter((l) => l.state === "active").flatMap((l) => l.stepTypes);
+  }
+
+  /**
+   * Aggregate workflow trigger types from all active extensions.
+   *
+   * @returns Flat array of all registered trigger type entries
+   */
+  getRegisteredTriggerTypes(): RegisteredTriggerType[] {
+    return this.loaded.filter((l) => l.state === "active").flatMap((l) => l.triggerTypes);
   }
 
   /**
@@ -661,13 +674,15 @@ export class ExtensionRegistry {
         ui: (() => {
           const manifestUi = l.extension.manifest.ui ?? null;
           const registeredStepTypes = serializeStepTypes(l.stepTypes);
-          if (!manifestUi && registeredStepTypes.length === 0) return null;
+          const registeredTriggerTypes = serializeTriggerTypes(l.triggerTypes);
+          if (!manifestUi && registeredStepTypes.length === 0 && registeredTriggerTypes.length === 0) return null;
           // Before the first build (suspended extensions) pages are listed without modules.
           const pages = l.uiPages ?? manifestUi?.pages?.map((p) => ({ id: p.id, title: p.title }));
           return {
             navigation: manifestUi?.navigation ?? [],
             ...(pages && pages.length > 0 ? { pages } : {}),
             stepTypes: registeredStepTypes.length > 0 ? registeredStepTypes : undefined,
+            triggerTypes: registeredTriggerTypes.length > 0 ? registeredTriggerTypes : undefined,
           };
         })(),
       };
@@ -756,6 +771,7 @@ export class ExtensionRegistry {
       routes: [],
       queues: [],
       stepTypes: [],
+      triggerTypes: [],
       state: "suspended",
     });
 
@@ -948,6 +964,7 @@ export class ExtensionRegistry {
       toolNameSet: this.toolNameSet,
       routeKeySet: this.routeKeySet,
       stepTypeNameSet: this.stepTypeNameSet,
+      triggerTypeNameSet: this.triggerTypeNameSet,
       routeRegistry: this.initDeps?.routeRegistry,
       eventBus: this.eventBus,
     };
@@ -965,6 +982,7 @@ export class ExtensionRegistry {
         toolNameSet: this.toolNameSet,
         routeKeySet: this.routeKeySet,
         stepTypeNameSet: this.stepTypeNameSet,
+        triggerTypeNameSet: this.triggerTypeNameSet,
         eventBus: this.eventBus,
         broadcastFn: deps.broadcastFn,
         flowProducer: this.flowProducer,
@@ -989,6 +1007,8 @@ export class ExtensionRegistry {
         getSkillNamesFn: () => this.getSkillNames(),
         getStepHandlerFn: (type) => this.getRegisteredStepTypes().find((st) => st.type === type)?.handler,
         listStepTypesFn: () => this.listStepTypes(),
+        getTriggerTypeFn: (type) => this.getRegisteredTriggerTypes().find((tt) => tt.type === type)?.definition,
+        listTriggerTypesFn: () => serializeTriggerTypes(this.getRegisteredTriggerTypes()),
         setWarningsFn: (n, warnings) => this.setExtensionWarnings(n, warnings),
         settingsSchema: ext.manifest.settingsSchema as Record<string, unknown> | undefined,
       }),

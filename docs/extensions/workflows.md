@@ -49,6 +49,8 @@ Describe a process that does not exist yet ("I need an approval process for expe
 
 For webhook, schedule, and file watcher triggers, the `ref` field must match the slug/ID of the corresponding webhook, schedule, or file watcher. Manual and portal triggers take no ref; a portal trigger has a `portal` object instead (title, accepted files, roles, form fields).
 
+Extensions can add further trigger types for events they detect (see [Custom Workflow Trigger Types](../writing-extensions.md#custom-workflow-trigger-types)). They appear in the editor's trigger type picker, come with their own payload schema, and are listed by `workflow trigger-types`. Several workflows can use the same type; each starts when the extension fires it. A type that names sources (refs) needs a `ref`, otherwise none is allowed. A workflow whose trigger type no active extension registers (the extension is disabled or removed) stays loaded and editable, gets a warning, and does not start.
+
 ## Step Types
 
 Steps are entries in the `steps` map (keyed by slug — the slug is the key, not a field inside the object).
@@ -184,6 +186,14 @@ Analyze an unsaved workflow definition (the JSON body) without storing it. Retur
 
 Warnings include references to unknown fields on an iterator's loop variable (`{{item.<field>}}`) when the iterated array's element schema is known.
 
+### GET /ext/workflows/meta/trigger-types
+
+List the trigger types registered by extensions, sorted by type: `{ type, label, description, docs, extensionName, hasRefs, outputSchema }` each. The built-in types are not included. Backs `workflow trigger-types`.
+
+### GET /ext/workflows/meta/triggers
+
+The refs a trigger can pick, per trigger type: `webhook`, `schedule`, `filewatcher`, and every extension trigger type with refs. A lookup that failed yields an empty list.
+
 ### GET /ext/workflows/meta/infer-schema/:name
 
 Infer an `outputSchema` shorthand from the newest run of a saved workflow. Query: `source=trigger`, or `source=step&slug=<slug>`. Runs whose sample is missing or not a JSON object (a text payload, an agent's string result) are skipped. Returns `{ runId, runCreatedAt, shorthand }` with the inferred types only, never the sample values. Returns 404 when no run has a usable sample and 400 for an invalid source. The editor's **Infer from last run** button uses this.
@@ -243,6 +253,7 @@ A run is the unit for deleting and retrying: its step jobs cannot be deleted or 
 The extension provides a `workflows` skill with sandbox commands (plus the `workflow-writing`, `workflow-crystallize`, and `workflow-design` skills on authoring, on turning a chat task into a workflow, and on designing a new workflow with the user):
 
 - `workflow list` - List all workflow definitions
+- `workflow trigger-types ["<type>"]` - List the trigger types extensions add, or show one type's payload fields, refs, and docs
 - `workflow read "<name>"` - Read a workflow's JSON5 definition
 - `workflow write [--draft] "<name>" "<json5>"` - Validate and write a definition; `--draft` saves it as a draft (an existing draft stays a draft either way); `--file "<path>"` reads the JSON5 from a file in the work directory
 - `workflow outline "<name>"` - Show the steps in execution order, where each leads (per branch for `if` and `case`), human task details, and the warnings

@@ -27,7 +27,13 @@
  */
 
 // Shared (backend + frontend) types.
-export type { SelfReferenceOrder, StepIconName, StepTypeCategory, StepTypeInfo } from "../../shared/extensions";
+export type {
+  SelfReferenceOrder,
+  StepIconName,
+  StepTypeCategory,
+  StepTypeInfo,
+  TriggerTypeInfo,
+} from "../../shared/extensions";
 export type { ModelIntent } from "../../shared/models";
 export type { WebSocketMessage } from "../../shared/websocket";
 // Identity contract for acting as a configured operator account (self-contained module).

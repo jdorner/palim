@@ -7,6 +7,7 @@ import {
   type StepTypeSchema,
   serializeStep,
   serializeWorkflowDraft,
+  type TriggerTypeRef,
   validateSlug,
   validateStepConfig,
   validateStepSlugsUnique,
@@ -162,9 +163,10 @@ describe("workflowValidation", () => {
     });
 
     test("catches invalid trigger type", () => {
-      const draft: WorkflowDraft = { ...validDraft, trigger: { type: "invalid", ref: "" } };
-      const errors = validateWorkflowDraft(draft);
-      expect(errors.has("trigger.type")).toBe(true);
+      for (const type of ["", "Not Valid", "1st"]) {
+        const draft: WorkflowDraft = { ...validDraft, trigger: { type, ref: "" } };
+        expect(validateWorkflowDraft(draft).has("trigger.type")).toBe(true);
+      }
     });
 
     test("catches empty steps array", () => {
@@ -218,7 +220,7 @@ describe("workflowValidation", () => {
       };
       const errors = validateWorkflowDraft(draft);
       expect(errors.has("trigger.ref")).toBe(true);
-      expect(errors.get("trigger.ref")).toContain("Manual triggers");
+      expect(errors.get("trigger.ref")).toContain("does not support a ref");
     });
 
     test("allows empty ref on manual trigger type", () => {
@@ -248,6 +250,42 @@ describe("workflowValidation", () => {
       expect(validateWorkflowDraft(draft).size).toBe(0);
       const broken = { ...draft, trigger: { ...draft.trigger, portalFieldsError: "Not a valid JSON object" } };
       expect(validateWorkflowDraft(broken).get("trigger.portal.fields")).toBe("Not a valid JSON object");
+    });
+
+    describe("extension trigger types", () => {
+      const draft = (type: string, ref = ""): WorkflowDraft => ({ ...validDraft, trigger: { type, ref } });
+      const registered: TriggerTypeRef[] = [
+        { type: "extension-update", hasRefs: false },
+        { type: "feed-item", hasRefs: true },
+      ];
+      const validate = (d: WorkflowDraft) => validateWorkflowDraft(d, undefined, registered);
+
+      test("a type without refs takes no ref and is serialized without one", () => {
+        expect(validate(draft("extension-update")).has("trigger.ref")).toBe(false);
+        expect(validate(draft("extension-update", "x")).has("trigger.ref")).toBe(true);
+        expect(serializeWorkflowDraft(draft("extension-update", "x"), registered).trigger).toEqual({
+          type: "extension-update",
+        });
+      });
+
+      test("a type with refs needs one", () => {
+        expect(validate(draft("feed-item")).get("trigger.ref")).toContain("requires a ref");
+        expect(validate(draft("feed-item", "news")).has("trigger.ref")).toBe(false);
+        expect(serializeWorkflowDraft(draft("feed-item", "news"), registered).trigger).toEqual({
+          type: "feed-item",
+          ref: "news",
+        });
+      });
+
+      test("an unregistered type stays savable and keeps its ref", () => {
+        const errors = validate(draft("gone-away", "kept"));
+        expect(errors.has("trigger.type")).toBe(false);
+        expect(errors.has("trigger.ref")).toBe(false);
+        expect(serializeWorkflowDraft(draft("gone-away", "kept"), registered).trigger).toEqual({
+          type: "gone-away",
+          ref: "kept",
+        });
+      });
     });
 
     test("allows ref on non-manual trigger types", () => {

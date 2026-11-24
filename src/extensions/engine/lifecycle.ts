@@ -36,6 +36,8 @@ export interface LifecycleState {
   routeKeySet: Set<string>;
   /** Global step type name set — prevents duplicates across extensions. */
   stepTypeNameSet: Set<string>;
+  /** Global trigger type name set — prevents duplicates across extensions. */
+  triggerTypeNameSet: Set<string>;
   /** HTTP route table; routes are removed from it on teardown. */
   routeRegistry?: RouteRegistry;
   /** The shared event bus instance. */
@@ -66,7 +68,7 @@ export interface ActivationDeps {
 /**
  * Tears down all registrations for a loaded extension entry.
  *
- * Removes tools, step types, and route keys from the global sets, unmounts routes,
+ * Removes tools, step types, trigger types, and route keys from the global sets, unmounts routes,
  * unsubscribes events, and closes queues. Does NOT call `shutdown()`
  * on the extension itself — callers handle that separately.
  *
@@ -79,6 +81,9 @@ export async function cleanupRegistrations(entry: LoadedEntry, state: LifecycleS
   }
   for (const st of entry.stepTypes) {
     state.stepTypeNameSet.delete(st.type);
+  }
+  for (const tt of entry.triggerTypes) {
+    state.triggerTypeNameSet.delete(tt.type);
   }
   for (const route of entry.routes) {
     state.routeKeySet.delete(`${route.method}:${route.fullPath}`);
@@ -140,6 +145,7 @@ export async function activateExtension(
   entry.routes = loaded.routes;
   entry.queues = loaded.queues;
   entry.stepTypes = loaded.stepTypes;
+  entry.triggerTypes = loaded.triggerTypes;
   entry.state = "active";
   entry.error = null;
 
@@ -211,6 +217,7 @@ export async function deactivateExtension(
   entry.routes = [];
   entry.queues = [];
   entry.stepTypes = [];
+  entry.triggerTypes = [];
   entry.state = "suspended";
   entry.warnings = [];
 
@@ -245,6 +252,9 @@ async function cleanupPartialRegistrations(
   }
   for (const st of loaded.stepTypes) {
     state.stepTypeNameSet.delete(st.type);
+  }
+  for (const tt of loaded.triggerTypes) {
+    state.triggerTypeNameSet.delete(tt.type);
   }
   for (const route of loaded.routes) {
     state.routeKeySet.delete(`${route.method}:${route.fullPath}`);
