@@ -330,7 +330,7 @@ class GraphRules {
     const { t } = this;
     switch (event.type) {
       case "stepCompleted":
-        this.resolveSuccessors(this.complete(event.slug, event.result));
+        this.stepCompleted(event.slug, event.result);
         break;
       case "signalReceived": {
         const out = this.complete(event.slug, event.payload);
@@ -415,6 +415,20 @@ class GraphRules {
     const out = this.topology.outgoing(slug);
     for (const edge of out) t.setEdge(edge, !taken || taken(edge) ? "satisfied" : "dead");
     return out;
+  }
+
+  /**
+   * Completes a dispatched step from its job's result. Ignored unless the step
+   * is running: a duplicate delivery (e.g. a stall retry), a step swept dead
+   * meanwhile, or an unknown slug must not change the run.
+   */
+  private stepCompleted(slug: string, result: unknown): void {
+    const { t } = this;
+    if (!this.definition.steps[slug] || t.statuses[slug] !== "running") {
+      t.log("warn", `DAG coordinator: step "${slug}" in run ${t.runId} is "${t.statuses[slug]}", ignoring its result`);
+      return;
+    }
+    this.resolveSuccessors(this.complete(slug, result));
   }
 
   /**

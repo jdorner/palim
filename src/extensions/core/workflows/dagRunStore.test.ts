@@ -108,6 +108,24 @@ describe("dagRunStore", () => {
       expect(Object.values(get(run.id)!.stepStatuses).every((st) => st === "dead")).toBe(true);
     });
 
+    test("writes edge states whose branch contains JSON path syntax as flat keys", () => {
+      const branches = ["v1.0", "a[1]", 'say "hi"', "back\\slash", "x.y[0].z", "ü€"];
+      const ids = branches.map((b) => edgeId("route", "next", b));
+      const run = makeRun({ edgeStates: Object.fromEntries(ids.map((id) => [id, "pending"])) });
+      applyPatch(run.id, {
+        stepStatuses: {},
+        edgeStates: Object.fromEntries(ids.map((id) => [id, "satisfied"])),
+        stepResults: {},
+      });
+      expect(get(run.id)!.edgeStates).toEqual(Object.fromEntries(ids.map((id) => [id, "satisfied"])));
+    });
+
+    test("writes step statuses with updateStepStatus by the exact slug", () => {
+      const run = makeRun({ stepStatuses: { "a-b": "pending" } });
+      updateStepStatus(run.id, "a-b", "running");
+      expect(get(run.id)!.stepStatuses).toEqual({ "a-b": "running" });
+    });
+
     test("stores an undefined result as null", () => {
       const run = makeRun();
       applyPatch(run.id, { stepStatuses: {}, edgeStates: {}, stepResults: { a: undefined } });

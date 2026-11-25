@@ -190,6 +190,40 @@ describe("handleDagStepCompletion", () => {
     expect(deps.dispatched).toEqual(["done"]);
   });
 
+  test("join: releases after a case branch whose key contains JSON path syntax", async () => {
+    const def: DagWorkflowDefinition = {
+      name: "case-dotted-wf",
+      trigger: { type: "manual" },
+      steps: {
+        classify: { type: "agent", prompt: "classify input" },
+        route: { type: "case", match: "{{steps.classify.result}}", paths: ["v1.0", "a[1]"] },
+        old: { type: "agent", prompt: "v1.0 path" },
+        other: { type: "agent", prompt: "a[1] path" },
+        done: { type: "agent", prompt: "finish" },
+      },
+      edges: [
+        { from: "classify", to: "route" },
+        { from: "route", to: "old", branch: "v1.0" },
+        { from: "route", to: "other", branch: "a[1]" },
+        { from: "old", to: "done" },
+        { from: "other", to: "done" },
+      ],
+    };
+    const run = initRun(def);
+    dagRunStore.updateStepStatus(run.id, "classify", "running");
+    const deps = createTestDeps(def);
+
+    await handleDagStepCompletion(run.id, "classify", "v1.0", "job-classify", deps);
+    const afterRoute = dagRunStore.get(run.id)!;
+    expect(afterRoute.edgeStates["route:old:v1.0"]).toBe("satisfied");
+    expect(afterRoute.edgeStates["route:other:a[1]"]).toBe("dead");
+    expect(deps.dispatched).toEqual(["old"]);
+
+    deps.dispatched.length = 0;
+    await handleDagStepCompletion(run.id, "old", "done-old", "job-old", deps);
+    expect(deps.dispatched).toEqual(["done"]);
+  });
+
   describe("case default", () => {
     /** A case node whose match never hits a path, with the given default and fallback edge branch. */
     function caseDef(defaultKey: string | undefined, fallbackBranch: string): DagWorkflowDefinition {
