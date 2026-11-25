@@ -217,6 +217,21 @@ export function toRunTemplateInfo(
 }
 
 /**
+ * Builds a SQLite JSON path from object keys, quoting every label.
+ *
+ * Unquoted, a key is parsed as path syntax: an edge id with branch `v1.0`
+ * would write nested objects and one with `a[1]` would be dropped. SQLite
+ * reads a quoted label as a JSON string body, so `JSON.stringify` escapes
+ * quotes, backslashes and control characters correctly.
+ *
+ * @param keys - Object keys from the root down
+ * @returns The JSON path, e.g. `$."__edges"."a:b:v1.0"`
+ */
+export function jsonPathOf(...keys: string[]): string {
+  return `$${keys.map((k) => `.${JSON.stringify(k)}`).join("")}`;
+}
+
+/**
  * Updates a single step's status.
  *
  * Writes outside the run kernel; production code changes run state only
@@ -227,7 +242,7 @@ export function toRunTemplateInfo(
  * @param status - The new step status
  */
 export function updateStepStatus(runId: string, slug: string, status: StepStatus): void {
-  const jsonPath = `$.__statuses.${slug}`;
+  const jsonPath = jsonPathOf("__statuses", slug);
   const jsonValue = JSON.stringify(status);
 
   db.update(workflowRuns)
@@ -252,9 +267,12 @@ const PATCH_BATCH = 40;
  */
 export function applyPatch(runId: string, patch: RunPatch): void {
   const writes: [string, unknown][] = [
-    ...Object.entries(patch.stepResults).map(([slug, value]): [string, unknown] => [`$.${slug}`, value]),
-    ...Object.entries(patch.stepStatuses).map(([slug, value]): [string, unknown] => [`$.__statuses.${slug}`, value]),
-    ...Object.entries(patch.edgeStates).map(([key, value]): [string, unknown] => [`$.__edges.${key}`, value]),
+    ...Object.entries(patch.stepResults).map(([slug, value]): [string, unknown] => [jsonPathOf(slug), value]),
+    ...Object.entries(patch.stepStatuses).map(([slug, value]): [string, unknown] => [
+      jsonPathOf("__statuses", slug),
+      value,
+    ]),
+    ...Object.entries(patch.edgeStates).map(([key, value]): [string, unknown] => [jsonPathOf("__edges", key), value]),
   ];
   if (writes.length === 0 && patch.status === undefined) return;
 

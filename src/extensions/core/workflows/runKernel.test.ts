@@ -421,6 +421,18 @@ describe("run guards", () => {
     expect(effects.map((e) => e.type)).toEqual(["log"]);
   });
 
+  test.each([
+    ["a duplicate result of a completed step", "a", "completed"],
+    ["the result of a step swept dead", "a", "dead"],
+    ["the result of a step that never started", "a", "pending"],
+    ["the result of an unknown step", "zzz", undefined],
+  ] as const)("%s changes nothing", (_label, slug, status) => {
+    const run = runOf(def, { steps: status ? { a: status } : {}, edges: { "a:b": "pending" } });
+    const { patch, effects } = advance(run, def, { type: "stepCompleted", slug, result: "late" });
+    expect(patch).toEqual({ stepStatuses: {}, edgeStates: {}, stepResults: {} });
+    expect(effects.map((e) => e.type)).toEqual(["log"]);
+  });
+
   test("a run whose definition is gone fails", () => {
     const { patch } = advance(runOf(def, { steps: { a: "running" } }), undefined, {
       type: "stepCompleted",
