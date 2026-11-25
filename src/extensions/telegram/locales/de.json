@@ -6,8 +6,12 @@
     }
   },
   "settings": {
+    "allowedChatIds": {
+      "title": "Erlaubte Chat-IDs",
+      "description": "Chats, deren Nachrichten der Bot annimmt, zusätzlich zum Standard-Chat. Die ID eines privaten Chats ist die des Users; eine Gruppen-ID erlaubt alle Mitglieder. Nachrichten aus anderen Chats werden ignoriert und ihre Chat-ID wird geloggt."
+    },
     "chatId": {
-      "description": "Standard-Chat-ID für ausgehende Nachrichten",
+      "description": "Standard-Chat-ID für ausgehende Nachrichten. Der Bot nimmt auch Nachrichten aus diesem Chat an.",
       "title": "Standard-Telegram-Chat-ID"
     },
     "format": {

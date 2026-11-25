@@ -16,9 +16,22 @@ A Telegram bot token is required. Create one via [@BotFather](https://t.me/BotFa
 
 The extension will not start without this secret set.
 
+## Who Can Talk to the Bot
+
+Anyone who knows a bot's username can message it, and every accepted message starts an agent with write access to the work directory, web access and skills. The bot therefore only answers chats you allow:
+
+- the chats in **Allowed chat IDs**, and
+- the **Default Telegram chat ID**.
+
+With neither set, the bot ignores every message. Messages from other chats are dropped without a reply, and the extension log shows the chat ID once (`Ignoring messages from chat <id> …`). To allow yourself, message the bot, copy the ID from the log, and add it to **Allowed chat IDs**.
+
+A private chat's ID is your user ID. A group's ID (negative, e.g. `-1001234567890`) allows every member of that group.
+
+The agent's `send_telegram_message` tool can only reach these chats too. The `notify-telegram` workflow step is not limited, since a person writes the workflow.
+
 ## How It Works
 
-1. The bot polls Telegram for incoming messages
+1. The bot polls Telegram for incoming messages and drops those from chats it does not allow (see [Who Can Talk to the Bot](#who-can-talk-to-the-bot))
 2. Each message is appended to a per-chat session (persistent conversation history)
 3. A job is enqueued on the agents queue
 4. When the agent finishes, the response is sent back to the originating chat
@@ -47,9 +60,15 @@ All settings are configurable in the web UI under **Settings > Extensions > Tele
 
 ### Default Telegram Chat ID
 
-The default chat ID used by the `send_telegram_message` tool when no explicit `chat_id` is provided. Useful for proactive notifications (e.g. from scheduled tasks).
+The default chat ID used by the `send_telegram_message` tool and the `notify-telegram` step when no explicit chat ID is provided. Useful for proactive notifications (e.g. from scheduled tasks). The bot also accepts messages from this chat.
 
 Default: none (must be provided per-call if not configured)
+
+### Allowed Chat IDs
+
+Chats the bot accepts messages from, besides the default chat. See [Who Can Talk to the Bot](#who-can-talk-to-the-bot).
+
+Default: none (only the default chat is allowed)
 
 ### Max Image Size (MB)
 
@@ -68,8 +87,11 @@ Default: `markdown`
 | Setting             | Environment Variable             |
 | ------------------- | -------------------------------- |
 | Default Chat ID     | `EXT_TELEGRAM_CHAT_ID`           |
+| Allowed Chat IDs    | `EXT_TELEGRAM_ALLOWED_CHAT_IDS`  |
 | Max Image Size (MB) | `EXT_TELEGRAM_MAX_IMAGE_SIZE_MB` |
 | Message Format      | `EXT_TELEGRAM_FORMAT`            |
+
+`EXT_TELEGRAM_ALLOWED_CHAT_IDS` takes a comma-separated list (`123456789,-1001234567890`) or a JSON array.
 
 ## Agent Tool
 
@@ -78,7 +100,7 @@ The extension registers a `send_telegram_message` tool that the agent can use to
 **Parameters:**
 
 - `message` (required) - The text to send (Markdown supported)
-- `chat_id` (optional) - Target chat ID. Falls back to the configured default.
+- `chat_id` (optional) - Target chat ID. Falls back to the configured default. Must be the default chat or one of the allowed chats.
 
 ## Workflow Step
 
