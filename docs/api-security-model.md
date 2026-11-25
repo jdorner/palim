@@ -174,7 +174,7 @@ Built-in role permissions are defined in code and re-applied on every boot, so t
 
 1. **Authentication**: the token must resolve to an enabled user (otherwise `401`).
 2. **Route rules**: a central table (`src/web/authorize.ts`) maps write routes to required permissions, for example user and role administration, secret and variable writes, job control, model selection, and extension settings (otherwise `403`). `GET` and `HEAD` requests are allowed unless a rule says otherwise (only user and role administration does). Extension writes (`/ext/*`) fail closed: each first-party route is listed explicitly (for example, MCP server changes need `extensions:write`, workflow definition edits need `workflows:manage`, data table writes need `datatables:write`), and any `/ext/*` write not in the table needs `extensions:write`, which only admins have by default. An extension write route meant for regular users has to be added to the table.
-3. **Chat ownership**: chat sessions belong to the user who created them. Non-admins can read and post only in their own sessions. A non-owner gets `404`, so the response doesn't reveal that the session exists.
+3. **Chat ownership**: chat sessions belong to the user who created them. Non-admins can read and post only in their own sessions. The same holds for push messages (`/api/push`): a sandbox script can push only into a session of the user its job runs as, and sessions without an owner (Telegram chats, workflow runs nobody started) accept pushes only from the `system` account. A non-owner gets `404`, so the response doesn't reveal that the session exists.
 
 ### Portal accounts
 
