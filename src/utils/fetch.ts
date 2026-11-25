@@ -47,22 +47,49 @@ export interface InternalFetchOptions {
 /** Default local paths a confined fetch may reach beyond its own extension prefix. */
 const DEFAULT_EXTRA_PREFIXES = ["/api/push"];
 
+/** How a request input relates to the local server origin. */
+type LocalTarget =
+  /** Not the local origin (or not a parseable absolute URL): pass through without a token. */
+  | { kind: "external" }
+  /** The local origin, but with userinfo in the URL: refused. */
+  | { kind: "userinfo" }
+  /** The local origin: confine and authenticate. */
+  | { kind: "local"; pathname: string };
+
 /**
- * Extracts the pathname of a request input, or null when it is not a
- * local-origin URL we should confine/authenticate.
+ * Classifies a request input against the local origin.
+ *
+ * Compares the parsed URL's origin, never a string prefix: `http://localhost:3000@evil.com`
+ * (userinfo) and `http://localhost:30001` (port prefix) start with the local origin but
+ * point elsewhere, and must never receive the token.
  *
  * @param input - The fetch input.
- * @param origin - The local server origin.
- * @returns The pathname when the URL targets the local origin, else null.
+ * @param origin - The normalized local server origin.
+ * @returns The classification, with the pathname for local-origin URLs.
  */
-function localPathname(input: string | URL | Request, origin: string): string | null {
-  const url = input instanceof Request ? input.url : input instanceof URL ? input.href : String(input);
-  if (!url.startsWith(origin)) return null;
+function classifyTarget(input: string | URL | Request, origin: string): LocalTarget {
+  const raw = input instanceof Request ? input.url : input instanceof URL ? input.href : String(input);
+  let url: URL;
   try {
-    return new URL(url).pathname;
+    url = new URL(raw);
   } catch {
-    return null;
+    return { kind: "external" };
   }
+  if (url.origin !== origin) return { kind: "external" };
+  if (url.username || url.password) return { kind: "userinfo" };
+  return { kind: "local", pathname: url.pathname };
+}
+
+/**
+ * Builds a JSON 403 response for a refused internal request.
+ *
+ * @param error - The error message.
+ * @returns The response.
+ */
+function forbidden(error: string): Promise<Response> {
+  return Promise.resolve(
+    new Response(JSON.stringify({ error }), { status: 403, headers: { "Content-Type": "application/json" } }),
+  );
 }
 
 /**
@@ -81,8 +108,8 @@ function isWithinPrefix(pathname: string, prefix: string, extra: string[]): bool
 /**
  * Creates an internal fetch wrapper bound to a principal's token.
  *
- * For local-origin requests it injects `Authorization: Bearer <token>` from the
- * provider. When `prefix` is set, local-origin requests outside the confined
+ * For local-origin requests (same parsed origin; URLs with userinfo are refused
+ * with a 403) it injects `Authorization: Bearer <token>` from the provider. When `prefix` is set, local-origin requests outside the confined
  * prefixes are refused with a 403 Response (never reaching the network), which
  * closes the confused-deputy path: a skill/extension cannot call arbitrary
  * privileged endpoints even if it holds the handle. External requests pass
@@ -92,25 +119,24 @@ function isWithinPrefix(pathname: string, prefix: string, extra: string[]): bool
  * @returns A `fetch`-compatible function.
  */
 export function createInternalFetch(opts: InternalFetchOptions): typeof globalThis.fetch {
-  const origin = serverOrigin();
+  const origin = new URL(serverOrigin()).origin;
   const extra = opts.allowExtraPrefixes ?? DEFAULT_EXTRA_PREFIXES;
 
   const wrapper = (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
-    const pathname = localPathname(input, origin);
+    const target = classifyTarget(input, origin);
 
     // External request: pass through untouched, no token.
-    if (pathname === null) {
+    if (target.kind === "external") {
       return globalThis.fetch(input, init);
     }
 
+    if (target.kind === "userinfo") {
+      return forbidden("Forbidden: internal fetch URLs must not contain credentials");
+    }
+
     // Confinement: refuse local-origin calls outside the allowed prefixes.
-    if (opts.prefix && !isWithinPrefix(pathname, opts.prefix, extra)) {
-      return Promise.resolve(
-        new Response(JSON.stringify({ error: "Forbidden: internal fetch confined to extension routes" }), {
-          status: 403,
-          headers: { "Content-Type": "application/json" },
-        }),
-      );
+    if (opts.prefix && !isWithinPrefix(target.pathname, opts.prefix, extra)) {
+      return forbidden("Forbidden: internal fetch confined to extension routes");
     }
 
     const token = opts.tokenProvider();
