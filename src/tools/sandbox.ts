@@ -222,6 +222,14 @@ function registerCorePrograms(sh: Bash): void {
   );
 }
 
+/** Where the `push` program sends its messages, fixed at shell creation. */
+export interface PushTarget {
+  /** Absolute URL of the push endpoint on this server. */
+  pushUrl: string;
+  /** The session the pushed messages are appended to. */
+  sessionId: string;
+}
+
 /**
  * Builds the `push` program handler for sending content to the chat UI
  * via the push endpoint.
@@ -232,22 +240,18 @@ function registerCorePrograms(sh: Bash): void {
  * push --type text/plain "Raw output"
  * ```
  *
- * Reads `PALIM_PUSH_URL` and `PALIM_SESSION_ID` from the shell environment.
- * Attaches an `Authorization: Bearer` header carrying the ambient per-job
- * identity token (falling back to the system token) so the push call authorizes
- * as the initiating user rather than a shared privileged identity.
+ * The push URL and session ID are bound when the shell is created and never
+ * read from the shell environment: the agent controls that environment, and
+ * the request carries an `Authorization: Bearer` header with the ambient
+ * per-job identity token (falling back to the system token). Reading the URL
+ * from the environment would let the agent send that token anywhere.
  *
+ * @param target - The push endpoint and the session the shell belongs to
  * @returns A command handler suitable for `defineCommand()`
  */
-export function buildPushCommand(): (args: string[], ctx: CommandContext) => Promise<ExecResult> {
-  return async (args: string[], ctx: CommandContext): Promise<ExecResult> => {
-    const pushUrl = ctx.env.get("PALIM_PUSH_URL");
-    const sessionId = ctx.env.get("PALIM_SESSION_ID");
-
-    if (!pushUrl || !sessionId) {
-      return { exitCode: 1, stdout: "", stderr: "Error: PALIM_PUSH_URL and PALIM_SESSION_ID must be set" };
-    }
-
+export function buildPushCommand(target: PushTarget): (args: string[], ctx: CommandContext) => Promise<ExecResult> {
+  const { pushUrl, sessionId } = target;
+  return async (args: string[], _ctx: CommandContext): Promise<ExecResult> => {
     // Parse args: optional --type <contentType>, then content string
     let contentType = "text/markdown";
     let content: string | undefined;
@@ -352,22 +356,15 @@ export async function createShell(options: CreateShellOptions): Promise<Bash> {
   const sh = new Bash({
     fs,
     cwd: agentWorkDir,
-    env: {
-      HOME: SANDBOX_HOME_DIR,
-      ...(options.sessionId
-        ? {
-            PALIM_SESSION_ID: options.sessionId,
-            PALIM_PUSH_URL: `${serverOrigin()}/api/push`,
-          }
-        : {}),
-    },
+    env: { HOME: SANDBOX_HOME_DIR },
   });
 
   registerCorePrograms(sh);
 
   // Register the `push` built-in program when a session ID is configured
   if (options.sessionId) {
-    sh.registerCommand(defineCommand("push", buildPushCommand()));
+    const target = { pushUrl: `${serverOrigin()}/api/push`, sessionId: options.sessionId };
+    sh.registerCommand(defineCommand("push", buildPushCommand(target)));
   }
 
   // Register programs belonging to the requested skills

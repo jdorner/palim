@@ -3,10 +3,14 @@
  */
 
 import { beforeEach, describe, expect, test } from "bun:test";
+import { ROLE_ADMIN, ROLE_SYSTEM } from "@shared/auth";
 import type { WebSocketMessage } from "@shared/websocket";
+import type { ResolvedPrincipal } from "@src/auth";
+import { buildAbility } from "@src/auth/ability";
 import { getDb } from "@src/db";
 import { createPushService } from "@src/push";
 import { getSessionStore } from "@src/session";
+import { setPrincipal } from "@src/web/auth";
 import { registerSessionChat, unregisterSessionChat } from "@src/web/sessionChatMap";
 import { Elysia } from "elysia";
 import fc from "fast-check";
@@ -28,9 +32,55 @@ const pushService = createPushService({
   },
 });
 
-/** Create a test app with the push route. */
-function createTestApp() {
-  return new Elysia().use(pushRoutes(pushService.pushMessage));
+/**
+ * Builds a principal for a test caller.
+ *
+ * @param id - The user id
+ * @param roles - Role names; `admin` makes the principal a superuser
+ * @returns The resolved principal
+ */
+function principalFor(id: string, roles: string[]): ResolvedPrincipal {
+  const isAdmin = roles.includes(ROLE_ADMIN);
+  return {
+    user: { id, username: id, roles, kind: "operator" },
+    isAdmin,
+    permissions: [],
+    ability: buildAbility({ userId: id, isAdmin, permissions: [] }),
+  };
+}
+
+/** The background principal that owns sessions without a user. */
+const SYSTEM_PRINCIPAL = principalFor("system-id", [ROLE_SYSTEM]);
+
+/**
+ * Create a test app with the push route, called as the given principal.
+ *
+ * @param principal - The caller, or null for an unauthenticated request
+ */
+function createTestApp(principal: ResolvedPrincipal | null = SYSTEM_PRINCIPAL) {
+  return new Elysia()
+    .onRequest(({ request }) => {
+      if (principal) setPrincipal(request, principal);
+    })
+    .use(pushRoutes(pushService.pushMessage));
+}
+
+/**
+ * Pushes a message into a session.
+ *
+ * @param principal - The caller, or null for an unauthenticated request
+ * @param sessionId - The target session
+ * @returns The response status
+ */
+async function pushAs(principal: ResolvedPrincipal | null, sessionId: string): Promise<number> {
+  const res = await createTestApp(principal).handle(
+    new Request("http://localhost/api/push", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId, content: "hello" }),
+    }),
+  );
+  return res.status;
 }
 
 describe("pushRoutes", () => {
@@ -120,6 +170,49 @@ describe("pushRoutes", () => {
       expect(res.status).toBe(404);
       const body = (await res.json()) as { error: string };
       expect(body.error).toContain("Session not found");
+    });
+  });
+
+  describe("POST /api/push - ownership", () => {
+    const alice = principalFor("alice-id", ["user"]);
+    const bob = principalFor("bob-id", ["user"]);
+    const admin = principalFor("admin-id", [ROLE_ADMIN]);
+
+    /** Creates a session owned by the given user id. */
+    function sessionOf(userId: string): string {
+      return getSessionStore().create({ source: "test", sourceId: `push-own-${++testCounter}`, userId }).id;
+    }
+
+    test("returns 401 without a principal", async () => {
+      expect(await pushAs(null, sessionId)).toBe(401);
+    });
+
+    test("the owner may push into their own session", async () => {
+      expect(await pushAs(alice, sessionOf("alice-id"))).toBe(200);
+    });
+
+    test("another user gets 404 and nothing is stored", async () => {
+      const own = sessionOf("alice-id");
+      expect(await pushAs(bob, own)).toBe(404);
+      expect(
+        getSessionStore()
+          .getMessages(own)
+          .filter((m) => m.role === "push"),
+      ).toHaveLength(0);
+    });
+
+    test("an admin may push into any session", async () => {
+      expect(await pushAs(admin, sessionOf("alice-id"))).toBe(200);
+      expect(await pushAs(admin, sessionId)).toBe(200);
+    });
+
+    test("only the system account may push into a session without an owner", async () => {
+      expect(await pushAs(alice, sessionId)).toBe(404);
+      expect(await pushAs(SYSTEM_PRINCIPAL, sessionId)).toBe(200);
+    });
+
+    test("the system account may not push into a user's session", async () => {
+      expect(await pushAs(SYSTEM_PRINCIPAL, sessionOf("alice-id"))).toBe(404);
     });
   });
 
