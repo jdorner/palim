@@ -10,7 +10,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import type { ExternalExtensionsApi } from "@ext/types";
 import { DATA_DIR } from "@src/config";
-import { closeDb } from "@src/db";
+import { closeDb, getDb, schema } from "@src/db";
 import { createTestDb } from "@src/test/db";
 import createLogger from "logging";
 import { HubService } from "../extension-hub/hub";
@@ -148,6 +148,12 @@ describe("hub with the real watcher", () => {
     const result = await hub.install({ sourceId, name: "greeter", version: "1.0.0", userId: null });
     expect(result.outcome).toEqual({ status: "loaded", version: "1.0.0" });
     expect(result.warnings).toEqual([]);
+    // A new extension waits to be enabled, as at boot.
+    expect(api.list().find((e) => e.name === "greeter")).toMatchObject({ state: "suspended", enabled: false });
+
+    // The operator enables it: updates keep it active from here on.
+    getDb().insert(schema.extensionSettings).values({ name: "greeter", enabled: true, updatedAt: Date.now() }).run();
+    await registry.activate("greeter");
     expect(api.list().find((e) => e.name === "greeter")?.state).toBe("active");
 
     const view = await hub.catalog();
@@ -161,6 +167,7 @@ describe("hub with the real watcher", () => {
     const updated = await hub.update({ name: "greeter", version: "1.1.0", userId: null });
     expect(updated.outcome).toEqual({ status: "loaded", version: "1.1.0" });
     expect(loadedVersion()).toBe("1.1.0");
+    expect(api.list().find((e) => e.name === "greeter")?.state).toBe("active");
 
     const downgraded = await hub.update({ name: "greeter", version: "1.0.0", userId: null });
     expect(downgraded.outcome).toEqual({ status: "loaded", version: "1.0.0" });

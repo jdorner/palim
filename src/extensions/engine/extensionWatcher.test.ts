@@ -425,6 +425,7 @@ export default {
         await watcher.start();
 
         // Create and load the extension
+        enableExtension("reload-ext");
         const extDir = join(externalDir, "reload-ext");
         mkdirSync(extDir, { recursive: true });
         const manifestV1 = { name: "reload-ext", version: "1.0.0", description: "v1" };
@@ -592,6 +593,7 @@ export default {
       registry.setExternalSync((folder) => watcher.requestSync(folder));
       const api = (registry as unknown as { externalExtensionsApi: ExternalExtensionsApi }).externalExtensionsApi;
 
+      enableExtension("awaited-ext");
       await createTempExtension(externalDir, "awaited-ext");
       expect(await api.sync("awaited-ext")).toEqual({ status: "active", name: "awaited-ext", version: "1.0.0" });
       // Already loaded: nothing queued, the state is reported as is.
@@ -600,6 +602,7 @@ export default {
       rmSync(join(externalDir, "awaited-ext"), { recursive: true, force: true });
       expect(await api.sync("awaited-ext")).toEqual({ status: "unloaded" });
 
+      enableExtension("throwing-ext");
       mkdirSync(join(externalDir, "throwing-ext"));
       await Bun.write(
         join(externalDir, "throwing-ext", "index.ts"),

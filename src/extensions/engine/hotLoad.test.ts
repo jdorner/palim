@@ -5,6 +5,7 @@ import { join } from "node:path";
 import type { WebSocketMessage } from "@shared/websocket";
 import { DATA_DIR } from "@src/config";
 import { closeDb, getDb, schema } from "@src/db";
+import { eq } from "drizzle-orm";
 import type { ExternalExtensionsApi } from "../types";
 import type { RegistryInitDeps } from "./registry";
 import { ExtensionRegistry } from "./registry";
@@ -108,10 +109,20 @@ function enableExtension(name: string): void {
     .run();
 }
 
+/** Sets an extension's settings row to enabled=false, as the operator's toggle does. */
+function disableExtension(name: string): void {
+  getDb()
+    .update(schema.extensionSettings)
+    .set({ enabled: false, updatedAt: Date.now() })
+    .where(eq(schema.extensionSettings.name, name))
+    .run();
+}
+
 describe("ExtensionRegistry.loadOne", () => {
   let tempDir: string;
   let registry: ExtensionRegistry;
   let broadcasts: WebSocketMessage[];
+  let routes: Set<string>;
 
   beforeEach(async () => {
     tempDir = join(tmpdir(), `ext-test-${Date.now()}-${Math.random().toString(36).slice(2)}`);
@@ -131,6 +142,7 @@ describe("ExtensionRegistry.loadOne", () => {
 
     const fakes = createFakeDeps();
     broadcasts = fakes.broadcasts;
+    routes = fakes.routes;
 
     // Initialize with no extensions discovered (empty dirs)
     await registry.initializeAll(fakes.deps);
@@ -143,13 +155,11 @@ describe("ExtensionRegistry.loadOne", () => {
   test("valid extension loads successfully and returns true", async () => {
     const extDir = await createTempExtension(join(tempDir, "external"), "test-ext");
     const modulePath = join(extDir, "index.ts");
+    enableExtension("test-ext");
 
     const result = await registry.loadOne(modulePath);
 
     expect(result).toBe(true);
-
-    // Enable the extension so it appears in tool/info queries
-    enableExtension("test-ext");
 
     // Tool should be registered
     const tools = registry.getRegisteredTools();
@@ -158,6 +168,38 @@ describe("ExtensionRegistry.loadOne", () => {
     // Extension should appear in loaded info
     const info = registry.getLoadedExtensionInfo();
     expect(info.some((i) => i.name === "test-ext")).toBe(true);
+  });
+
+  test("an extension without a settings row loads suspended and is not initialized", async () => {
+    const extDir = await createTempExtension(join(tempDir, "external"), "new-ext", { withRoute: true });
+
+    expect(await registry.loadOne(join(extDir, "index.ts"))).toBe(true);
+
+    expect(registry.getLoadedExtensionInfo().find((i) => i.name === "new-ext")).toMatchObject({
+      enabled: false,
+      toolCount: 0,
+      routeCount: 0,
+    });
+    expect(routes.has("GET /ext/new-ext/ping")).toBe(false);
+  });
+
+  test("reloading an extension the operator disabled keeps it suspended", async () => {
+    const extDir = await createTempExtension(join(tempDir, "external"), "off-ext", { withRoute: true });
+    enableExtension("off-ext");
+    await registry.loadOne(join(extDir, "index.ts"));
+    expect(routes.has("GET /ext/off-ext/ping")).toBe(true);
+
+    await registry.deactivate("off-ext");
+    disableExtension("off-ext");
+    await registry.unloadOne("off-ext");
+    expect(await registry.loadOne(join(extDir, "index.ts"))).toBe(true);
+
+    expect(registry.getLoadedExtensionInfo().find((i) => i.name === "off-ext")).toMatchObject({
+      enabled: false,
+      toolCount: 0,
+      routeCount: 0,
+    });
+    expect(routes.has("GET /ext/off-ext/ping")).toBe(false);
   });
 
   test("exposes loaded extensions and load failures via ctx.internal.extensions", async () => {
@@ -172,6 +214,7 @@ describe("ExtensionRegistry.loadOne", () => {
   async shutdown() {},
 };`,
     );
+    enableExtension("probe-ext");
     expect(await registry.loadOne(join(probeDir, "index.ts"))).toBe(true);
     const api = (globalThis as Record<string, unknown>).__probeApi as ExternalExtensionsApi;
     expect(api.externalDir).toBe(externalDir);
@@ -179,7 +222,7 @@ describe("ExtensionRegistry.loadOne", () => {
       dir: probeDir,
       source: "external",
       state: "active",
-      enabled: false,
+      enabled: true,
     });
 
     const brokenDir = join(externalDir, "broken-ext");
@@ -281,8 +324,8 @@ describe("ExtensionRegistry.unloadOne", () => {
 
   test("unloads extension, removes tools, and returns true", async () => {
     const extDir = await createTempExtension(join(tempDir, "external"), "unload-ext");
-    await registry.loadOne(join(extDir, "index.ts"));
     enableExtension("unload-ext");
+    await registry.loadOne(join(extDir, "index.ts"));
 
     // Verify it's loaded
     expect(registry.getRegisteredTools().some((t) => t.name === "unload-ext_tool")).toBe(true);
@@ -313,8 +356,8 @@ describe("ExtensionRegistry.unloadOne", () => {
 
   test("removes skills on unload", async () => {
     const extDir = await createTempExtension(join(tempDir, "external"), "skill-unload-ext", { withSkill: true });
-    await registry.loadOne(join(extDir, "index.ts"));
     enableExtension("skill-unload-ext");
+    await registry.loadOne(join(extDir, "index.ts"));
 
     // Verify skill exists
     expect(registry.resolveSkill("skill-unload-ext-skill")).not.toBeUndefined();
@@ -327,6 +370,7 @@ describe("ExtensionRegistry.unloadOne", () => {
 
   test("unregisters the extension's routes", async () => {
     const extDir = await createTempExtension(join(tempDir, "external"), "route-ext", { withRoute: true });
+    enableExtension("route-ext");
     await registry.loadOne(join(extDir, "index.ts"));
     expect(routes.has("GET /ext/route-ext/ping")).toBe(true);
 
@@ -337,6 +381,7 @@ describe("ExtensionRegistry.unloadOne", () => {
 
   test("re-loading after unload registers the routes again", async () => {
     const extDir = await createTempExtension(join(tempDir, "external"), "reload-ext", { withRoute: true });
+    enableExtension("reload-ext");
     await registry.loadOne(join(extDir, "index.ts"));
     await registry.unloadOne("reload-ext");
     expect(routes.has("GET /ext/reload-ext/ping")).toBe(false);

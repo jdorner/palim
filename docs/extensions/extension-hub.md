@@ -87,13 +87,13 @@ Below the sources, **Installed from removed sources** lists installs whose sourc
 
 The hub extracts the extension into the external extensions directory (`<DATA_DIR>/extensions/<name>`), where Palim loads it, installing its dependencies first. If it fails to load, the hub removes it again and shows the error.
 
-A freshly installed extension runs right away but is **disabled** in the settings, like any new extension. Enable it on the catalog row or in the settings so it stays active after a restart.
+A freshly installed extension is loaded but stays **disabled**, like any new extension: it starts only once you enable it on the catalog row or in the settings. Errors in its start-up code therefore show up when you enable it, not during the install.
 
 ## Updating and uninstalling
 
 - **Update** installs the available update. **Version…** switches to any other version, branch, or commit, including downgrades.
 - An update is refused while the installed files were changed locally (**Modified**). The version dialog offers to replace them; the local changes are then lost.
-- If the new version fails to load, the previous version is restored automatically. To go back to an older version later, pick it in **Version…**.
+- An update keeps the extension enabled or disabled as it was. If the new version of an enabled extension fails to load, the previous version is restored automatically. To go back to an older version later, pick it in **Version…**.
 - **Uninstall** unloads the extension and deletes its files. Its settings and secrets are kept, so a later reinstall picks them up.
 
 Each update briefly unloads the extension (usually about a second) before the new version loads.

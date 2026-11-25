@@ -278,6 +278,7 @@ External extensions are discovered at boot by scanning `EXTERNAL_EXTENSIONS_DIR`
 
 - A new folder with an `index.ts` is loaded; a removed folder (or removed `index.ts`) is unloaded.
 - A changed `index.ts` reloads the extension (unload, then load).
+- As at boot, only an extension enabled in the settings is started. A new one, or one the operator disabled, is loaded as suspended.
 - Changes below `<extension>/ui/` only rebuild the extension's [UI pages](#extension-ui), and open pages remount with the new code.
 
 Other files (helpers imported by `index.ts`) do not trigger a reload; touch `index.ts` to reload after editing them. A reload re-reads all of the extension's files, including those helpers and `package.json`. Exception: under `bun run dev` (Bun's watch mode), Bun keeps the helpers cached across reloads. Editing a helper there restarts the whole server anyway, but folders replaced by the [Extension Hub](extensions/extension-hub.md) need a manual restart.
