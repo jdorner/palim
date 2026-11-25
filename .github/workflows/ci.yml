@@ -44,7 +44,7 @@ jobs:
         run: bunx tsc --noEmit
 
       - name: Run tests
-        run: AGENT=1 bun test src/ shared/
+        run: AGENT=1 bun test ./src ./shared
         env:
           OPENAI_API_KEY: sk-test
           OPENAI_API_BASE_URL: http://localhost:11434/v1
@@ -83,3 +83,41 @@ jobs:
       - name: Build frontend
         run: bun run build
         working-directory: frontend
+
+  portal:
+    name: Portal Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.5
+
+      - uses: actions/cache@v5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-portal-${{ runner.os }}-${{ hashFiles('frontend/bun.lock', 'portal/bun.lock') }}
+          restore-keys: bun-portal-${{ runner.os }}-
+
+      # The portal reuses the frontend's UI kit ($lib), whose sources import
+      # their packages from frontend/node_modules.
+      - name: Install frontend dependencies
+        run: bun install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Install portal dependencies
+        run: bun install --frozen-lockfile
+        working-directory: portal
+
+      - name: Svelte type-check
+        run: bun run check
+        working-directory: portal
+
+      - name: Run portal tests
+        run: bun test
+        working-directory: portal
+
+      - name: Build portal
+        run: bun run build
+        working-directory: portal
