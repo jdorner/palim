@@ -86,9 +86,9 @@
       "description": "Offer prerelease versions (e.g. 1.2.0-rc.1) as the latest version",
       "title": "Include prereleases"
     },
-    "notifyWorkflow": {
-      "description": "Workflow started when a check finds new updates. Receives the updates as trigger payload. Leave empty for no notification.",
-      "title": "Notification workflow"
+    "notifyUpdates": {
+      "description": "Start workflows with the \"Extension update\" trigger when a check finds new versions. Turn off to pause them without deleting the workflows.",
+      "title": "Update notifications"
     }
   },
   "sources": {
@@ -139,5 +139,11 @@
     "catalog": "Catalog",
     "label": "Extension Hub sections",
     "sources": "Sources"
+  },
+  "triggers": {
+    "extension-update": {
+      "description": "Fires when an update check finds new versions of installed extensions.",
+      "label": "Extension update"
+    }
   }
 }

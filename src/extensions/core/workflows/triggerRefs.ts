@@ -145,7 +145,8 @@ export async function fetchTriggerRefs(
  *
  * Extension trigger types are checked against their registration (when
  * `getTriggerType` is given): an unregistered type is reported, since the
- * workflow never starts until an extension registers it again.
+ * workflow never starts until an extension registers it again, and so is a
+ * type its extension reports as paused (`pausedReason`).
  *
  * @param definition - The DAG workflow definition to check
  * @param refs - Known trigger refs per trigger type
@@ -180,11 +181,29 @@ export function getTriggerRefWarnings(
         },
       ];
     }
-    if (typeof registered.refs !== "function") return [];
-    return refWarnings(registered.label, ref, refs[type]);
+    const paused = pausedWarnings(registered);
+    if (typeof registered.refs !== "function") return paused;
+    return [...paused, ...refWarnings(registered.label, ref, refs[type])];
   }
   const label = TRIGGER_REF_LABELS[type as BuiltinRefTriggerType];
   return label ? refWarnings(label, ref, refs[type]) : [];
+}
+
+/**
+ * Warns when the extension reports its trigger type as paused. A throwing
+ * `pausedReason` counts as active, like a throwing `refs` counts as unknown.
+ *
+ * @param registered - The registered trigger type
+ * @returns Zero or one warning
+ */
+function pausedWarnings(registered: TriggerTypeDefinition): TemplateWarning[] {
+  let reason: string | null = null;
+  try {
+    reason = registered.pausedReason?.() ?? null;
+  } catch {
+    reason = null;
+  }
+  return reason ? [{ stepSlug: "__trigger__", field: "type", message: reason }] : [];
 }
 
 /**

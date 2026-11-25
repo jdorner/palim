@@ -1,5 +1,6 @@
 import { type ClassValue, clsx } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { isBuiltinTriggerType } from "$shared/workflows";
 import { activeFormat, translateCore } from "./i18nCore";
 
 export function cn(...inputs: ClassValue[]) {
@@ -63,7 +64,7 @@ export interface AutomationStyle {
   /** Tailwind border color class for indicators. */
   border: string;
   /** Phosphor icon component name hint (for reference). */
-  icon: "timer" | "eye" | "link" | "flow" | "chat" | "cursor" | "camera" | "default";
+  icon: "timer" | "eye" | "link" | "flow" | "chat" | "cursor" | "camera" | "bell" | "default";
 }
 
 const DEFAULT_AUTOMATION_STYLE: AutomationStyle = {
@@ -127,6 +128,24 @@ const AUTOMATION_STYLES: Record<string, AutomationStyle> = {
     icon: "cursor",
   },
 };
+
+/** Style of trigger types registered by extensions (icon: the registered one, else a bell). */
+const EXTENSION_TRIGGER_STYLE: AutomationStyle = {
+  color: "text-orange-500 dark:text-orange-300",
+  bg: "bg-orange-500 dark:bg-orange-300",
+  border: "border-orange-500 dark:border-orange-300",
+  icon: "bell",
+};
+
+/**
+ * Returns color and icon metadata for a workflow trigger type: the built-in
+ * types have their own style, every other type is an extension's.
+ * @param type - Trigger type (e.g. "schedule", "extension-update")
+ * @returns Style metadata for rendering the trigger type
+ */
+export function triggerStyle(type: string): AutomationStyle {
+  return isBuiltinTriggerType(type) ? automationStyle(type) : EXTENSION_TRIGGER_STYLE;
+}
 
 /**
  * Returns color and icon metadata for an automation type.

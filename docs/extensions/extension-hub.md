@@ -8,7 +8,7 @@ You can:
 - see the extensions each source offers, with their released versions;
 - install an extension by version, or from any tag, branch, or commit;
 - update (including downgrades) and uninstall what you installed;
-- let Palim check the sources periodically for new versions, and start a workflow when it finds some.
+- let Palim check the sources periodically for new versions, and start workflows when it finds some.
 
 Installing, updating, and removing extensions and sources needs the `manage Extension` permission (admins). Everyone else can see the catalog.
 
@@ -108,15 +108,15 @@ Updates are never installed automatically.
 
 ## Notifications
 
-To be notified of new versions, select a **Notification workflow**. When a check (periodic or **Check for updates**) finds updates it hasn't seen before, the hub starts that workflow once with all of them. What happens next is up to the workflow: a Telegram, ntfy, or Gotify message, an e-mail, a ticket.
+To be notified of new versions, create a workflow with the trigger type **Extension update** (`extension-update`). When a check (periodic or **Check for updates**) finds updates it hasn't seen before, the hub starts every enabled workflow with this trigger once, with all of them. What happens next is up to the workflow: a Telegram, ntfy, or Gotify message, an e-mail, a ticket.
 
-- No workflow selected means no notification. If the selected workflow doesn't exist (e.g. it was renamed or deleted), the extension shows a warning in the settings.
-- An update counts as new per extension and target commit. Each one is reported once; a later release of the same extension is reported again.
+- No workflow with this trigger means no notification. To pause notifications without deleting the workflows, turn off **Update notifications** in the hub settings; the workflows then show a warning. Updates found while it is off are not reported later.
+- An update counts as new per extension, target version (tag or branch), and commit. Each one is reported once; a later release of the same extension is reported again, even when its tag points at the same commit.
 - Updates already known at startup (from the local mirrors) are not reported, so a restart doesn't send anything again. Neither are updates that appear because of something you did yourself, such as installing an older version or turning on **Include prereleases**.
-- The workflow must be enabled and not a draft. If it can't be started, the server log says why; the check itself isn't affected.
-- The run has no initiating user, so it is visible to admins.
+- Drafts and disabled workflows don't start. If a workflow can't be started, the server log says why; the check itself isn't affected.
+- Runs started by the periodic check have no initiating user, so they are visible to admins. A check you start with **Check for updates** attributes the runs to you.
 
-The workflow receives this trigger payload:
+The workflow receives this trigger payload; the editor knows its fields, so you don't declare an output schema:
 
 ```json5
 {
@@ -141,14 +141,7 @@ Example with the [Telegram](telegram.md) notify step:
 ```json5
 {
   name: "extension-updates",
-  trigger: {
-    type: "manual",
-    outputSchema: {
-      updates: [{ name: "string", installedVersion: "string", latestRef: "string" }],
-      checkedAt: "string",
-      hubUrl: "string",
-    },
-  },
+  trigger: { type: "extension-update" },
   enabled: true,
   steps: {
     notify: {
@@ -166,7 +159,7 @@ Example with the [Telegram](telegram.md) notify step:
 | ------------------------------- | ------- | ---------------------------------------------------------- |
 | Include prereleases             | off     | Offer prerelease versions as the latest version            |
 | Update check interval (minutes) | 360     | How often sources are fetched; 0 turns periodic checks off |
-| Notification workflow           | (empty) | Workflow started when a check finds new updates            |
+| Update notifications            | on      | Start workflows with the Extension update trigger          |
 
 ## Coexistence with hand-placed extensions
 

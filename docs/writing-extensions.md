@@ -1454,9 +1454,23 @@ await ctx.triggerTypes.fire("feed-item", item, { ref: feed.slug });
 
 `refs()` (sync or async) feeds the ref dropdown in the trigger panel and the save-time check. When it throws, refs of the type are treated as unknown and not checked.
 
+### Pausing
+
+Workflows can't be switched off in the editor, so an extension that lets users pause its trigger (e.g. a setting) should tell them: `pausedReason()` returns why the trigger is currently not fired, or `null`. The reason is shown as a warning on every workflow of the type. It is informational only; the extension pauses by not calling `fire()`.
+
+```typescript
+ctx.triggerTypes.register("extension-update", {
+  label: "Extension update",
+  pausedReason: () =>
+    ctx.config.get<boolean>("NOTIFY_UPDATES", true)
+      ? null
+      : "Update notifications are off in the Extension Hub settings",
+});
+```
+
 ### Frontend Rendering
 
-Registered trigger types appear in the trigger type picker of the workflow editor (with label, description, and icon), on the trigger node, and in the workflow list. Translate the label and description through `triggers.<type>.label` / `.description` in the extension's catalogs (see [Translations](#manifest-and-schema-metadata)).
+Registered trigger types appear in the trigger type picker of the workflow editor (with label, description, and icon), on the trigger node, and in the workflow list. A type without a registered icon gets a generic bell, and the workflow list colors it like the extension's navigation icon (`iconColor`). Translate the label and description through `triggers.<type>.label` / `.description` in the extension's catalogs (see [Translations](#manifest-and-schema-metadata)).
 
 ## Extension UI
 

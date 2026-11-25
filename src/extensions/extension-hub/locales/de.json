@@ -86,9 +86,9 @@
       "description": "Vorabversionen (z. B. 1.2.0-rc.1) als neueste Version anbieten",
       "title": "Vorabversionen einbeziehen"
     },
-    "notifyWorkflow": {
-      "description": "Workflow, der startet, wenn eine Prüfung neue Updates findet. Erhält die Updates als Trigger-Payload. Leer lassen, um nicht benachrichtigt zu werden.",
-      "title": "Benachrichtigungs-Workflow"
+    "notifyUpdates": {
+      "description": "Workflows mit dem Trigger „Extension-Update“ starten, wenn eine Prüfung neue Versionen findet. Ausschalten, um sie zu pausieren, ohne die Workflows zu löschen.",
+      "title": "Update-Benachrichtigungen"
     }
   },
   "sources": {
@@ -139,5 +139,11 @@
     "catalog": "Katalog",
     "label": "Bereiche des Erweiterungs-Hubs",
     "sources": "Quellen"
+  },
+  "triggers": {
+    "extension-update": {
+      "description": "Startet, wenn eine Update-Prüfung neue Versionen installierter Extensions findet.",
+      "label": "Extension-Update"
+    }
   }
 }

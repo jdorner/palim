@@ -14,7 +14,7 @@
  * `<DATA_DIR>/extension-hub/`, so listing never needs the network. Sources
  * are fetched periodically; when the set of available updates changes, open
  * hub pages receive an `updates_changed` event. Updates that a check finds
- * for the first time start the configured notification workflow, if any.
+ * for the first time fire the `extension-update` workflow trigger.
  * Updating stays a manual action. Requires `git` and `tar` on the host.
  */
 
@@ -23,7 +23,14 @@ import type { Extension, ExtensionContext, ExtensionManifest } from "@ext/types"
 import { Type } from "@sinclair/typebox";
 import { PAGE_ROUTE, UPDATES_CHANGED_EVENT } from "./events";
 import { HubService, type UpdateSummary } from "./hub";
-import { missingWorkflowWarning, newUpdates, notificationPayload, updateKey } from "./notify";
+import {
+  newUpdates,
+  notificationPayload,
+  UPDATE_TRIGGER,
+  UPDATE_TRIGGER_DOCS,
+  UpdateNotificationPayloadSchema,
+  updateKey,
+} from "./notify";
 import { registerRoutes } from "./routes";
 import { HubStore } from "./store";
 import { createTokenAccess, pruneTokens } from "./tokens";
@@ -33,12 +40,6 @@ const DEFAULT_CHECK_INTERVAL_MINUTES = 360;
 
 /** Delay of the first check after start (lets the server finish booting). */
 const FIRST_CHECK_DELAY_MS = 30_000;
-
-/** Interval for re-checking that the notification workflow exists (workflow changes are not published to extensions). */
-const WORKFLOW_CHECK_INTERVAL_MS = 30_000;
-
-/** Dynamic item provider for workflow names (registered by core-wf-steps). */
-const WORKFLOW_NAMES_PROVIDER = "workflow-names";
 
 const manifest = {
   name: "extension-hub",
@@ -70,12 +71,11 @@ const manifest = {
       minimum: 0,
       maximum: 10080,
     }),
-    notifyWorkflow: Type.String({
-      title: "Notification workflow",
+    notifyUpdates: Type.Boolean({
+      title: "Update notifications",
       description:
-        "Workflow started when a check finds new updates. Receives the updates as trigger payload. Leave empty for no notification.",
-      default: "",
-      dynamicItems: WORKFLOW_NAMES_PROVIDER,
+        'Start workflows with the "Extension update" trigger when a check finds new versions. Turn off to pause them without deleting the workflows.',
+      default: true,
     }),
   }),
 } satisfies ExtensionManifest;
@@ -87,7 +87,6 @@ const manifest = {
  */
 export function createExtension(): Extension {
   const timers: { first?: ReturnType<typeof setTimeout>; interval?: ReturnType<typeof setInterval> } = {};
-  let workflowCheck: ReturnType<typeof setInterval> | undefined;
   const clearTimers = () => {
     clearTimeout(timers.first);
     clearInterval(timers.interval);
@@ -126,50 +125,54 @@ export function createExtension(): Extension {
         ctx.log.warn(`[extension-hub] Could not clean up source tokens: ${(err as Error).message}`);
       }
 
+      const notifyEnabled = () => ctx.config.get<boolean>("NOTIFY_UPDATES", true);
+      ctx.triggerTypes.register(UPDATE_TRIGGER, {
+        label: "Extension update",
+        description: "Fires when an update check finds new versions of installed extensions.",
+        outputSchema: UpdateNotificationPayloadSchema,
+        docs: UPDATE_TRIGGER_DOCS,
+        pausedReason: () =>
+          notifyEnabled()
+            ? null
+            : "Update notifications are off in the Extension Hub settings: the workflow does not start",
+      });
+
       /**
-       * Starts the notification workflow for updates a check found for the
-       * first time. No workflow configured means no notification; dispatch
-       * errors are logged and never fail the check.
+       * Fires the update trigger for updates a check found for the first time.
+       * Errors (e.g. the workflows extension is not running) are logged and
+       * never fail the check.
        */
-      const notifyWorkflow = () => (ctx.config.get<string>("NOTIFY_WORKFLOW", "") ?? "").trim();
       const notify = async (updates: UpdateSummary[]) => {
-        const workflowName = notifyWorkflow();
-        if (!workflowName) return;
         try {
           const payload = notificationPayload(updates, new Date(), `${ctx.urls.public}${PAGE_ROUTE}`);
-          const { workflowRunId } = await ctx.workflows.dispatch(workflowName, payload);
-          ctx.log.info(`[extension-hub] Started notification workflow "${workflowName}" (run ${workflowRunId})`);
+          const runs = await ctx.triggerTypes.fire(UPDATE_TRIGGER, payload);
+          if (runs.length > 0) ctx.log.info(`[extension-hub] Started ${runs.length} workflow run(s) for new updates`);
         } catch (err) {
-          ctx.log.warn(
-            `[extension-hub] Could not start notification workflow "${workflowName}": ${(err as Error).message}`,
-          );
+          ctx.log.warn(`[extension-hub] Could not fire the ${UPDATE_TRIGGER} trigger: ${(err as Error).message}`);
         }
       };
 
-      // Shows fetch errors and a missing notification workflow as extension warnings.
-      const refreshWarnings = () => {
-        const warnings = hub
-          .listSources()
-          .filter((s) => s.lastError)
-          .map((s) => `Source "${s.name}" could not be fetched: ${s.lastError}`);
-        const missing = missingWorkflowWarning(notifyWorkflow(), ctx.workflows.names());
-        ctx.status.setWarnings(missing ? [...warnings, missing] : warnings);
-      };
-
-      // Publishes warnings and update-set changes to open pages. The known updates start from the local mirrors, so a restart
-      // reports nothing; only checks notify, so installing an older version by
-      // hand does not.
+      // Publishes fetch errors as extension warnings and update-set changes to
+      // open pages. The known updates start from the local mirrors, so a
+      // restart reports nothing; only checks fire the trigger, so installing an
+      // older version by hand does not. Updates found while notifications are
+      // off still become known, so turning them on again reports none of them.
       let lastSignature: string | null = null;
       let known: Set<string> | null = null;
       const publish = (fromCheck = false) => {
-        refreshWarnings();
+        ctx.status.setWarnings(
+          hub
+            .listSources()
+            .filter((s) => s.lastError)
+            .map((s) => `Source "${s.name}" could not be fetched: ${s.lastError}`),
+        );
         const updates = hub.updates();
         const fresh = known ? newUpdates(known, updates) : [];
         known = new Set(updates.map(updateKey));
         for (const u of fresh) {
           ctx.log.info(`[extension-hub] Update available: ${u.name} ${u.installedVersion} -> ${u.update.ref}`);
         }
-        if (fromCheck && fresh.length > 0) void notify(fresh);
+        if (fromCheck && fresh.length > 0 && notifyEnabled()) void notify(fresh);
         const signature = JSON.stringify(updates.map(updateKey));
         if (signature === lastSignature) return;
         lastSignature = signature;
@@ -204,14 +207,11 @@ export function createExtension(): Extension {
       });
       publish();
       schedule();
-      workflowCheck = setInterval(refreshWarnings, WORKFLOW_CHECK_INTERVAL_MS);
       ctx.log.info(`[extension-hub] Ready (${hub.listSources().length} source(s))`);
     },
 
     async shutdown() {
       clearTimers();
-      clearInterval(workflowCheck);
-      workflowCheck = undefined;
     },
   };
 }

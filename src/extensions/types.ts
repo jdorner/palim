@@ -636,6 +636,16 @@ export interface TriggerTypeDefinition {
    * @returns The available refs
    */
   refs?: () => string[] | Promise<string[]>;
+  /**
+   * Tells why the extension currently does not fire this trigger (e.g. it is
+   * switched off in the extension's settings), or returns null while it fires
+   * normally. A reason is shown as a warning on every workflow of the type.
+   * It is only informational: pausing is up to the extension, which simply
+   * does not call `fire()`.
+   *
+   * @returns The reason (English), or null when the trigger is active
+   */
+  pausedReason?: () => string | null;
 }
 
 /** Options for {@link ExtensionContext.triggerTypes}`.fire()`. */
