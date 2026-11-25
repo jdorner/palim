@@ -7,6 +7,7 @@ import { ApiError } from "$app/api";
 import FormFields from "$app/FormFields.svelte";
 import { collectData, formFields, initialValues } from "$app/form";
 import { i18n, t } from "$app/i18n.svelte";
+import { createMarkdownPlugins, MARKDOWN_PARSER_OPTIONS } from "$lib/markdownPlugins";
 import type { HumanTaskDetail, HumanTaskOutcome } from "$shared/portal";
 import { dueText, isUrgent, outcomeLabel, userName } from "./labels";
 import { tasks } from "./store.svelte";
@@ -20,6 +21,9 @@ let fieldErrors = $state<Record<string, string>>({});
 let comment = $state("");
 let submitting = $state(false);
 let message = $state<{ kind: "error" | "info"; text: string } | null>(null);
+
+// Task bodies come from workflow definitions and runs: no raw HTML, `security` last.
+const plugins = createMarkdownPlugins();
 
 const fields = $derived(formFields(task?.formSchema ?? null));
 
@@ -143,7 +147,7 @@ const outcomeVariant = (o: HumanTaskOutcome) =>
     </header>
 
     {#if task.body}
-      <div class="task-markdown"><Markdown value={task.body} /></div>
+      <div class="task-markdown"><Markdown value={task.body} options={MARKDOWN_PARSER_OPTIONS} {plugins} /></div>
     {/if}
 
     {#if task.context && Object.keys(task.context).length > 0}

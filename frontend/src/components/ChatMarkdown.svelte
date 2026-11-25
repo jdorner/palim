@@ -7,24 +7,14 @@ every chat render site so plugin/component wiring lives in one place.
 <script lang="ts">
 import { Markdown } from "@comark/svelte";
 import rangi from "@comark/svelte/plugins/rangi";
-import type { ComarkPlugin, ComponentManifest } from "comark";
-// Default Comark plugins, re-registered explicitly (see `registerDefaultPlugins:
-// false` below). We deliberately OMIT the `attributes` plugin: it treats `{...}`
-// after any token as an inline attribute block and silently drops the braces and
-// their contents. Job logs contain raw tool-call JSON (e.g. `exec {"command":...}`),
-// which the attributes plugin would eat, truncating the rendered log entry.
-import alert from "comark/plugins/alert";
-import componentsPlugin from "comark/plugins/components";
-import frontmatter from "comark/plugins/frontmatter";
-import html from "comark/plugins/html";
-import linkify from "comark/plugins/linkify";
+import type { ComponentManifest } from "comark";
 // Import the mermaid PARSER plugin from the core package (light, no renderer).
 // Importing from `@comark/svelte/plugins/mermaid` would statically pull in the
 // heavy `beautiful-mermaid` renderer and defeat the lazy load below, since that
 // module re-exports both the plugin and the component.
 import mermaid from "comark/plugins/mermaid";
-import taskList from "comark/plugins/task-list";
 import { githubDark, githubLight } from "rangi/themes";
+import { createMarkdownPlugins, MARKDOWN_PARSER_OPTIONS } from "../lib/markdownPlugins";
 import CodeBlock from "./CodeBlock.svelte";
 import ProseLink from "./ProseLink.svelte";
 
@@ -44,26 +34,9 @@ const rangiPlugin = rangi({
   preStyles: true,
 });
 
-// We turn off Comark's built-in default plugins via `registerDefaultPlugins:
-// false` (passed as `options` to <Markdown> below) so we can re-register every
-// default EXCEPT `attributes`. Keep this list in sync with Comark's defaults
-// (linkify, frontmatter, alert, html, task-list, components) minus attributes.
-// linkify keeps its strict defaults: only URLs with a scheme and emails are
-// linked, so file names like `README.md` (a valid TLD) stay plain text.
-const plugins: ComarkPlugin[] = [
-  linkify(),
-  frontmatter(),
-  alert(),
-  html(),
-  taskList(),
-  componentsPlugin(),
-  rangiPlugin,
-  mermaid(),
-];
-
-// Disable Comark's default plugin set; the explicit `plugins` list above
-// supplies the ones we want (notably without `attributes`).
-const parserOptions = { registerDefaultPlugins: false };
+// The shared list (no raw HTML, `security` last) plus this site's highlighting
+// and Mermaid parsing; see markdownPlugins.ts.
+const plugins = createMarkdownPlugins([rangiPlugin, mermaid()]);
 
 // Prose overrides via Comark's `Prose{Tag}` convention:
 // - `ProsePre` wraps Rangi's `<pre>` in CodeBlock (language label, copy button,
@@ -83,7 +56,7 @@ const componentsManifest: ComponentManifest = (name: string) => {
 </script>
 
 <div class="markdown chat-markdown">
-  <Markdown value={content} options={parserOptions} {plugins} {components} {componentsManifest} {streaming} />
+  <Markdown value={content} options={MARKDOWN_PARSER_OPTIONS} {plugins} {components} {componentsManifest} {streaming} />
 </div>
 
 <style>
