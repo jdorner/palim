@@ -3,4 +3,8 @@
 # (CI, a dev, or a cached workflow) never walks into frontend/, whose tests
 # depend on frontend-only packages (@dagrejs/dagre, clsx) that are not
 # installed in the backend dependency tree.
+#
+# A bare path argument (`bun test shared/`) only filters inside this root and
+# finds nothing outside it. `bun run test` therefore passes `./src ./shared`:
+# paths starting with `./` are scanned even outside the root.
 root = "src"
