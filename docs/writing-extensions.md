@@ -161,7 +161,7 @@ At boot (before extension initialization), the system runs an `ExternalDependenc
 
 1. **Generates `tsconfig.json`** in each external extension directory with path aliases (`@ext/types`, `@ext/sdk`, `@src/*`, `@shared/*`) pointing back to the core project's source files, and `typeRoots` pointing to the core project's `node_modules`. This gives your IDE full type checking and autocompletion.
 
-2. **Installs dependencies** declared in the extension's `package.json` by running `bun install` in the extension directory.
+2. **Installs dependencies** declared in the extension's `package.json` by running `bun install --frozen-lockfile --ignore-scripts` in the extension directory. A shipped `bun.lock` is used as is: when it no longer matches `package.json`, the install fails (run `bun install` in the folder and ship the updated lockfile). Without a lockfile, Bun resolves the version ranges and writes none. Lifecycle scripts (`preinstall`, `postinstall`, ...) never run, and `bun install` sees only a minimal environment (paths, proxies, certificates, `BUN_*` and `npm_config_*`), not the server's secrets.
 
 3. **Validates peer dependencies** against the core project's installed packages and logs warnings for any missing ones.
 

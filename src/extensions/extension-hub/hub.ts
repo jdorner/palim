@@ -32,6 +32,7 @@ import {
   assertExtensionName,
   hashTree,
   type LoadOutcome,
+  legacyHashTree,
   loadOutcome,
   moveAside,
   placeTree,
@@ -194,6 +195,7 @@ export class HubService {
    * available right after start.
    */
   async init(): Promise<void> {
+    await this.migrateLegacyHashes();
     for (const source of this.deps.store.listSources()) {
       const repo = this.repo(source);
       if (!repo.exists()) continue;
@@ -201,6 +203,27 @@ export class HubService {
         this.snapshots.set(source.id, await scanSource(repo, source.branch));
       } catch (err) {
         this.deps.log.warn(`[extension-hub] Could not scan mirror of "${source.name}": ${(err as Error).message}`);
+      }
+    }
+  }
+
+  /**
+   * Re-records content hashes taken before the lockfile counted: an install
+   * whose files still match its recorded hash without the lockfile is
+   * unmodified and gets its current hash, so it isn't reported as modified.
+   * Installs whose files changed keep their hash and stay modified.
+   */
+  private async migrateLegacyHashes(): Promise<void> {
+    for (const install of this.deps.store.listInstalls()) {
+      const dir = path.join(this.externalDir, install.name);
+      if (!existsSync(dir)) continue;
+      try {
+        const hash = await hashTree(dir);
+        if (hash === install.contentHash || (await legacyHashTree(dir)) !== install.contentHash) continue;
+        this.deps.store.saveInstall({ ...install, contentHash: hash });
+        this.deps.log.info(`[extension-hub] Re-recorded the content hash of "${install.name}" (lockfile now counts)`);
+      } catch (err) {
+        this.deps.log.debug(`[extension-hub] Hashing "${install.name}" failed: ${(err as Error).message}`);
       }
     }
   }

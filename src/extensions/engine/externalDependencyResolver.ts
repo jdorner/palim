@@ -18,6 +18,56 @@ import createLogger from "logging";
 
 const logger = createLogger("ExtDeps");
 
+/**
+ * `bun install` arguments for an extension. A shipped `bun.lock` is used as is
+ * and never rewritten (without one, Bun resolves the ranges and writes none),
+ * and no lifecycle scripts run: installing must not execute the extension's code.
+ */
+export const INSTALL_ARGS = ["bun", "install", "--frozen-lockfile", "--ignore-scripts"] as const;
+
+/** Environment variables `bun install` may see: paths, locale, proxies, certificates. */
+const INSTALL_ENV_NAMES = new Set([
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LC_ALL",
+  "XDG_CACHE_HOME",
+  "XDG_CONFIG_HOME",
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "NO_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "no_proxy",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  "NODE_EXTRA_CA_CERTS",
+]);
+
+/** Prefixes of variables that configure Bun or the npm registry (e.g. `BUN_INSTALL_CACHE_DIR`, `npm_config_registry`). */
+const INSTALL_ENV_PREFIXES = ["BUN_", "NPM_CONFIG_", "npm_config_"];
+
+/**
+ * Builds the environment for `bun install`: only what installing needs, never
+ * the server's secrets (master key, API keys, extension config).
+ *
+ * @param env - The server's environment
+ * @returns The allowed subset
+ */
+export function installEnv(env: Record<string, string | undefined>): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const [name, value] of Object.entries(env)) {
+    if (value === undefined) continue;
+    if (INSTALL_ENV_NAMES.has(name) || INSTALL_ENV_PREFIXES.some((p) => name.startsWith(p))) out[name] = value;
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------------------
 // Interfaces
 // ---------------------------------------------------------------------------
@@ -568,7 +618,8 @@ export class ExternalDependencyResolver {
   /**
    * Install extension-specific npm dependencies via `bun install`.
    *
-   * Spawns `bun install` in the extension directory and enforces a per-install timeout.
+   * Spawns `bun install` ({@link INSTALL_ARGS}: frozen lockfile, no scripts) in the
+   * extension directory with the reduced {@link installEnv} and enforces a per-install timeout.
    * If the `depsToInstall` map is empty (no dependencies needed), skips installation
    * and returns `null`. On failure (non-zero exit or timeout), returns `false` with
    * error details. On success, returns `true`.
@@ -594,8 +645,9 @@ export class ExternalDependencyResolver {
     let timedOut = false;
 
     try {
-      proc = Bun.spawn(["bun", "install"], {
+      proc = Bun.spawn([...INSTALL_ARGS], {
         cwd: extensionDir,
+        env: installEnv(process.env),
         stdout: "ignore",
         stderr: "pipe",
       });
