@@ -762,7 +762,9 @@ export class ExtensionRegistry {
       return fail(`Missing dependencies: ${missingDeps.join(", ")}`);
     }
 
-    // Add to loaded list as suspended, then activate
+    // Add to loaded list as suspended, then activate unless the operator disabled
+    // it: a reload, hub update or rollback must not restart a disabled extension,
+    // and a new one waits to be enabled, as at boot.
     this.loaded.push({
       name,
       extension: ext,
@@ -776,7 +778,11 @@ export class ExtensionRegistry {
     });
 
     try {
-      await this.activate(name);
+      if (this.isExtensionEnabled(name)) {
+        await this.activate(name);
+      } else {
+        logger.debug(`Extension "${name}" is disabled - loaded as suspended`);
+      }
     } catch (err) {
       logger.error(`Failed to activate extension "${name}":`, err);
       // Remove the entry from the loaded list so it doesn't block future load attempts.
