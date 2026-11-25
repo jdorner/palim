@@ -6,8 +6,12 @@
     }
   },
   "settings": {
+    "allowedChatIds": {
+      "title": "Allowed chat IDs",
+      "description": "Chats the bot accepts messages from, besides the default chat. A private chat's ID is the user's ID; a group ID allows all its members. Messages from other chats are ignored and their chat ID is logged."
+    },
     "chatId": {
-      "description": "Default Telegram chat ID for outgoing messages",
+      "description": "Default Telegram chat ID for outgoing messages. The bot also accepts messages from this chat.",
       "title": "Default Telegram chat ID"
     },
     "format": {

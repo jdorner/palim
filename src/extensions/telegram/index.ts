@@ -11,6 +11,7 @@ import type { Extension, ExtensionContext, ExtensionManifest, Logger } from "@ex
 import type { ImageContent } from "@mariozechner/pi-ai";
 import { Type } from "@sinclair/typebox";
 import { Bot, type Message } from "node-telegram-bot-api";
+import { isChatAllowed, parseChatIdList } from "./allowlist";
 import { DEFAULT_MESSAGE_FORMAT, deliverMessage, type MessageFormat, parseMessageFormat } from "./delivery";
 import {
   buildUserContent,
@@ -30,14 +31,22 @@ const TELEGRAM_BOT_TOKEN = "TELEGRAM_BOT_TOKEN" as const;
 
 const manifest = {
   name: "telegram",
-  version: "1.4.0",
+  version: "2.0.0",
   description: "Telegram bot integration with message queuing and persistent conversation history",
   dependencies: ["workflows"],
   settingsSchema: Type.Object({
     chatId: Type.Optional(
       Type.String({
         title: "Default Telegram chat ID",
-        description: "Default Telegram chat ID for outgoing messages",
+        description: "Default Telegram chat ID for outgoing messages. The bot also accepts messages from this chat.",
+      }),
+    ),
+    allowedChatIds: Type.Optional(
+      Type.Array(Type.String(), {
+        title: "Allowed chat IDs",
+        description:
+          "Chats the bot accepts messages from, besides the default chat. A private chat's ID is the user's ID; a group ID allows all its members. Messages from other chats are ignored and their chat ID is logged.",
+        default: [],
       }),
     ),
     maxImageSizeMb: Type.Optional(
@@ -61,11 +70,6 @@ const manifest = {
   secretsSchema: [{ key: TELEGRAM_BOT_TOKEN, description: "Telegram bot token from @BotFather", required: true }],
 } satisfies ExtensionManifest;
 
-/**
- * Creates a fresh Telegram extension instance with its own encapsulated state.
- *
- * @returns An {@link Extension} object ready to be loaded by the registry
- */
 /** Album items collected until the media group's debounce timer fires. */
 interface PendingMediaGroup {
   chatId: number;
@@ -74,11 +78,27 @@ interface PendingMediaGroup {
   timer: ReturnType<typeof setTimeout>;
 }
 
-export function createExtension(): Extension {
+/** Test seams for {@link createExtension}. */
+export interface TelegramExtensionOptions {
+  /** Creates the bot client for a token; defaults to the real Bot API client. */
+  createBot?: (token: string) => Bot;
+}
+
+/**
+ * Creates a fresh Telegram extension instance with its own encapsulated state.
+ *
+ * @param options - Test seams; production uses the defaults
+ * @returns An {@link Extension} object ready to be loaded by the registry
+ */
+export function createExtension(options: TelegramExtensionOptions = {}): Extension {
+  const createBot = options.createBot ?? ((token: string) => new Bot(token));
   let logger: Logger;
   let bot: Bot | null = null;
   let botToken: string | null = null;
   let defaultChatId: string | undefined;
+  let allowedChatIds: string[] = [];
+  // Rejected chats already logged, so a stranger cannot flood the log.
+  const loggedRejections = new Set<string>();
   let maxImageSizeMb = MAX_IMAGE_SIZE_MB;
   let messageFormat: MessageFormat = DEFAULT_MESSAGE_FORMAT;
 
@@ -120,6 +140,7 @@ export function createExtension(): Extension {
       const chatIdCfg = ctx.config.get("CHAT_ID");
       defaultChatId =
         typeof chatIdCfg === "string" ? chatIdCfg : chatIdCfg !== undefined ? String(chatIdCfg) : undefined;
+      allowedChatIds = parseChatIdList(ctx.config.get("ALLOWED_CHAT_IDS"));
       maxImageSizeMb = parseMaxImageSizeMb(ctx.config.get("MAX_IMAGE_SIZE_MB"));
       messageFormat = parseMessageFormat(ctx.config.get("FORMAT"));
 
@@ -207,6 +228,17 @@ export function createExtension(): Extension {
         if (!msg) return;
 
         const chatId = msg.chat.id;
+        if (!isChatAllowed(chatId, allowedChatIds, defaultChatId)) {
+          const key = String(chatId);
+          if (!loggedRejections.has(key)) {
+            loggedRejections.add(key);
+            logger.warn(
+              `Ignoring messages from chat ${chatId} (${msg.chat.type}): not in allowedChatIds. Add it there to allow it.`,
+            );
+          }
+          return;
+        }
+
         const text = msg.text ?? msg.caption ?? "";
         const refs = getImageRefs(msg);
         if (!text && refs.length === 0) return;
@@ -226,7 +258,7 @@ export function createExtension(): Extension {
       /** Creates a bot, wires the error boundary and message handler, and starts polling. */
       function connectBot(token: string): void {
         botToken = token;
-        bot = new Bot(token);
+        bot = createBot(token);
 
         // v2 routes all handler/polling errors to the error boundary instead of a
         // `polling_error` event. The default boundary logs and continues; we keep
@@ -356,10 +388,23 @@ export function createExtension(): Extension {
       ctx.tools.register({
         name: "send_telegram_message",
         label: "Send Telegram Message",
-        description: "Send a message to a Telegram chat",
+        description: "Send a message to a Telegram chat. Only the default chat and the allowed chats can be reached.",
         parameters: SendTelegramMessageParams,
         execute: async (_toolCallId, paramsRaw: unknown) => {
           const params = paramsRaw as { message: string; chat_id?: string };
+          // The agent can be steered by what it reads, so it may only write to
+          // chats the bot talks to anyway.
+          if (params.chat_id && !isChatAllowed(params.chat_id, allowedChatIds, defaultChatId)) {
+            return {
+              content: [
+                {
+                  type: "text" as const,
+                  text: `Error sending message: chat ${params.chat_id} is not in the Telegram extension's allowed chats.`,
+                },
+              ],
+              details: {},
+            };
+          }
           try {
             const deliveredTo = await sendTelegramMessage(params.message, params.chat_id);
             return {
@@ -388,6 +433,8 @@ export function createExtension(): Extension {
         const values = (event as { values?: Record<string, unknown> }).values;
         maxImageSizeMb = parseMaxImageSizeMb(values?.maxImageSizeMb);
         messageFormat = parseMessageFormat(values?.format);
+        allowedChatIds = parseChatIdList(values?.allowedChatIds);
+        loggedRejections.clear();
 
         const raw = values?.chatId;
         const newChatId = raw != null ? String(raw) : undefined;
