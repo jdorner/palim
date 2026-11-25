@@ -50,6 +50,44 @@ describe("createInternalFetch", () => {
     expect(captured?.authorization).toBeNull();
   });
 
+  test("does not attach a token when userinfo makes the origin a prefix of another host", async () => {
+    const f = createInternalFetch({ tokenProvider: () => "tok-123" });
+    const host = new URL(origin).host;
+    await f(`${new URL(origin).protocol}//${host}@evil.example/api/chat`);
+    expect(captured?.authorization).toBeNull();
+  });
+
+  test("does not attach a token when the local port is only a prefix of the target port", async () => {
+    const f = createInternalFetch({ tokenProvider: () => "tok-123" });
+    await f(`${origin}1/api/chat`);
+    expect(captured?.authorization).toBeNull();
+  });
+
+  test("does not attach a token to a URL object whose host extends the local host name", async () => {
+    const f = createInternalFetch({ tokenProvider: () => "tok-123" });
+    const url = new URL(`${origin}/api/chat`);
+    url.hostname = `${url.hostname}.evil.example`;
+    await f(url);
+    expect(captured?.authorization).toBeNull();
+  });
+
+  test("refuses local-origin URLs that carry userinfo and never calls fetch", async () => {
+    const f = createInternalFetch({ tokenProvider: () => "tok-123" });
+    const url = new URL(origin);
+    url.username = "user";
+    url.password = "pw";
+    url.pathname = "/api/chat";
+    const res = await f(url.href);
+    expect(res.status).toBe(403);
+    expect(captured).toBeNull();
+  });
+
+  test("injects the token for a Request object on the local origin", async () => {
+    const f = createInternalFetch({ tokenProvider: () => "tok-123" });
+    await f(new Request(`${origin}/api/chat`));
+    expect(captured?.authorization).toBe("Bearer tok-123");
+  });
+
   test("omits auth when the provider yields an empty token", async () => {
     const f = createInternalFetch({ tokenProvider: () => "" });
     await f(`${origin}/api/chat`);
