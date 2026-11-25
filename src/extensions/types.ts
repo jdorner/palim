@@ -636,6 +636,16 @@ export interface TriggerTypeDefinition {
    * @returns The available refs
    */
   refs?: () => string[] | Promise<string[]>;
+  /**
+   * Tells why the extension currently does not fire this trigger (e.g. it is
+   * switched off in the extension's settings), or returns null while it fires
+   * normally. A reason is shown as a warning on every workflow of the type.
+   * It is only informational: pausing is up to the extension, which simply
+   * does not call `fire()`.
+   *
+   * @returns The reason (English), or null when the trigger is active
+   */
+  pausedReason?: () => string | null;
 }
 
 /** Options for {@link ExtensionContext.triggerTypes}`.fire()`. */
@@ -1036,6 +1046,12 @@ export interface ExtensionContext {
     readonly origin: string;
     /** This extension's base URL including the route prefix (e.g. "http://localhost:3000/ext/invoice-scanner"). */
     readonly base: string;
+    /**
+     * Base URL users open the operator UI at, without a trailing slash: `WEB_PUBLIC_URL`
+     * when set, otherwise {@link origin}. Use it for links in notifications; use
+     * {@link origin} and {@link base} for server-side requests.
+     */
+    readonly public: string;
   };
 
   // -------------------------------------------------------------------------

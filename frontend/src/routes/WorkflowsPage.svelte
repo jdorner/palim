@@ -19,8 +19,8 @@ import { Button } from "$lib/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "$lib/components/ui/table";
 import { extensions } from "$lib/extensionStore";
 import { t } from "$lib/i18n.svelte";
-import { triggerTypeLabel } from "$lib/triggerTypes";
-import { automationStyle } from "$lib/utils";
+import { extensionTriggerColor, extensionTriggerIcon, extensionTriggerType, triggerTypeLabel } from "$lib/triggerTypes";
+import { type AutomationStyle, triggerStyle } from "$lib/utils";
 import { warningLocation } from "$lib/workflowDetail";
 import {
   containerGroup,
@@ -39,6 +39,7 @@ import {
 } from "$lib/workflowGroups";
 import { listNeedsRefetch } from "$lib/workflowList";
 import { type WorkflowEvent, workflowStore } from "$lib/workflowRunStore.svelte";
+import type { ExtensionInfo } from "$shared/extensions";
 import type { WorkflowLoadError } from "../../../shared/workflows";
 import DeleteButton from "../components/DeleteButton.svelte";
 import IconAction from "../components/IconAction.svelte";
@@ -272,6 +273,16 @@ async function triggerRun(name: string) {
   } catch (err) {
     console.error("Failed to trigger workflow:", err);
   }
+}
+
+/**
+ * Color and icon of a workflow's trigger type; an extension's trigger type
+ * takes the color of the extension's navigation icon.
+ */
+function workflowTriggerStyle(type: string, list: ExtensionInfo[]): AutomationStyle {
+  const style = triggerStyle(type);
+  const color = style.icon === "bell" ? extensionTriggerColor(type, list) : undefined;
+  return color ? { ...style, color } : style;
 }
 
 function triggerRoute(type: string): string {
@@ -544,7 +555,7 @@ function runCountItems(counts: WorkflowRunCounts): RunCountItem[] {
           {/if}
           {#if !isCollapsed(section.group)}
             {#each section.items as wf (wf.name)}
-              {@const style = automationStyle(wf.trigger.type)}
+              {@const style = workflowTriggerStyle(wf.trigger.type, $extensions)}
               <div
                 class="rounded-md border border-border bg-background p-4 space-y-3 {draggedName === wf.name
                   ? "opacity-50"
@@ -586,6 +597,11 @@ function runCountItems(counts: WorkflowRunCounts): RunCountItem[] {
                         <CursorClickIcon size={14} class={style.color} aria-hidden="true" />
                       {:else if style.icon === "camera"}
                         <CameraIcon size={14} class={style.color} aria-hidden="true" />
+                      {:else if style.icon === "bell"}
+                        {@const ExtensionIcon = extensionTriggerIcon(
+                          extensionTriggerType(wf.trigger.type, $extensions)?.icon,
+                        )}
+                        <ExtensionIcon size={14} class={style.color} aria-hidden="true" />
                       {/if}
                       <span class="text-sm {style.color} font-medium"
                         >{triggerTypeLabel(wf.trigger.type, $extensions)}</span
@@ -688,7 +704,7 @@ function runCountItems(counts: WorkflowRunCounts): RunCountItem[] {
                     </div>
                   </TableCell>
                   <TableCell>
-                    {@const style = automationStyle(wf.trigger.type)}
+                    {@const style = workflowTriggerStyle(wf.trigger.type, $extensions)}
 
                     <span class="inline-flex items-center gap-1.5">
                       {#if style.icon === "timer"}
@@ -701,6 +717,11 @@ function runCountItems(counts: WorkflowRunCounts): RunCountItem[] {
                         <CursorClickIcon size={14} class={style.color} aria-hidden="true" />
                       {:else if style.icon === "camera"}
                         <CameraIcon size={14} class={style.color} aria-hidden="true" />
+                      {:else if style.icon === "bell"}
+                        {@const ExtensionIcon = extensionTriggerIcon(
+                          extensionTriggerType(wf.trigger.type, $extensions)?.icon,
+                        )}
+                        <ExtensionIcon size={14} class={style.color} aria-hidden="true" />
                       {/if}
                       <span class="text-sm {style.color} font-medium"
                         >{triggerTypeLabel(wf.trigger.type, $extensions)}</span

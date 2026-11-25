@@ -302,6 +302,9 @@ Every extension receives a scoped `ExtensionContext` during `initialize()`. The 
 | `ctx.paths.extensions` | `string`            | Absolute path to the extensions directory                                                                                                   |
 | `ctx.db`               | `BunSQLiteDatabase` | Shared Drizzle database instance                                                                                                            |
 | `ctx.fetch`            | `typeof fetch`      | Identity-bound fetch - authenticates internal calls as the initiating user, confined to this extension's routes; external URLs pass through |
+| `ctx.urls.origin`      | `string`            | Server origin (e.g. `http://localhost:3000`), for server-side requests                                                                      |
+| `ctx.urls.base`        | `string`            | This extension's route base, `<origin>/ext/<name>`                                                                                          |
+| `ctx.urls.public`      | `string`            | Base URL users open the UI at (`WEB_PUBLIC_URL`, else the origin), for links in notifications                                               |
 | `ctx.sessions`         | `SessionStorePort`  | Shared session store for conversation persistence                                                                                           |
 
 Use `ctx.fetch` instead of the global `fetch()` when calling your extension's own routes. It authenticates as the user who started the current job (or the built-in `system` account for background work) without exposing a token. Local requests are confined to `/ext/<name>/*` plus `/api/push`; any other local path returns `403`.
@@ -1451,9 +1454,23 @@ await ctx.triggerTypes.fire("feed-item", item, { ref: feed.slug });
 
 `refs()` (sync or async) feeds the ref dropdown in the trigger panel and the save-time check. When it throws, refs of the type are treated as unknown and not checked.
 
+### Pausing
+
+Workflows can't be switched off in the editor, so an extension that lets users pause its trigger (e.g. a setting) should tell them: `pausedReason()` returns why the trigger is currently not fired, or `null`. The reason is shown as a warning on every workflow of the type. It is informational only; the extension pauses by not calling `fire()`.
+
+```typescript
+ctx.triggerTypes.register("extension-update", {
+  label: "Extension update",
+  pausedReason: () =>
+    ctx.config.get<boolean>("NOTIFY_UPDATES", true)
+      ? null
+      : "Update notifications are off in the Extension Hub settings",
+});
+```
+
 ### Frontend Rendering
 
-Registered trigger types appear in the trigger type picker of the workflow editor (with label, description, and icon), on the trigger node, and in the workflow list. Translate the label and description through `triggers.<type>.label` / `.description` in the extension's catalogs (see [Translations](#manifest-and-schema-metadata)).
+Registered trigger types appear in the trigger type picker of the workflow editor (with label, description, and icon), on the trigger node, and in the workflow list. A type without a registered icon gets a generic bell, and the workflow list colors it like the extension's navigation icon (`iconColor`). Translate the label and description through `triggers.<type>.label` / `.description` in the extension's catalogs (see [Translations](#manifest-and-schema-metadata)).
 
 ## Extension UI
 

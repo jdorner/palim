@@ -302,6 +302,22 @@ describe("getTriggerRefWarnings", () => {
       expect(getTriggerRefWarnings(wf({ type: "gone-away" }), extRefs)).toEqual([]);
     });
 
+    test("warns while the extension reports the type as paused", () => {
+      const paused: TriggerTypeDefinition = { label: "Extension update", pausedReason: () => "Switched off" };
+      expect(getTriggerRefWarnings(wf({ type: "extension-update" }), extRefs, undefined, () => paused)).toEqual([
+        { stepSlug: "__trigger__", field: "type", message: "Switched off" },
+      ]);
+      const active: TriggerTypeDefinition = { label: "Extension update", pausedReason: () => null };
+      expect(getTriggerRefWarnings(wf({ type: "extension-update" }), extRefs, undefined, () => active)).toEqual([]);
+      const broken: TriggerTypeDefinition = {
+        label: "Extension update",
+        pausedReason: () => {
+          throw new Error("boom");
+        },
+      };
+      expect(getTriggerRefWarnings(wf({ type: "extension-update" }), extRefs, undefined, () => broken)).toEqual([]);
+    });
+
     test("a type without refs needs no ref", () => {
       expect(getTriggerRefWarnings(wf({ type: "extension-update" }), extRefs, undefined, lookup)).toEqual([]);
     });

@@ -13,15 +13,24 @@
  * Each source is mirrored locally (bare clone) below
  * `<DATA_DIR>/extension-hub/`, so listing never needs the network. Sources
  * are fetched periodically; when the set of available updates changes, open
- * hub pages receive an `updates_changed` event. Updating stays a manual
- * action. Requires `git` and `tar` on the host.
+ * hub pages receive an `updates_changed` event. Updates that a check finds
+ * for the first time fire the `extension-update` workflow trigger.
+ * Updating stays a manual action. Requires `git` and `tar` on the host.
  */
 
 import path from "node:path";
 import type { Extension, ExtensionContext, ExtensionManifest } from "@ext/types";
 import { Type } from "@sinclair/typebox";
 import { PAGE_ROUTE, UPDATES_CHANGED_EVENT } from "./events";
-import { HubService } from "./hub";
+import { HubService, type UpdateSummary } from "./hub";
+import {
+  newUpdates,
+  notificationPayload,
+  UPDATE_TRIGGER,
+  UPDATE_TRIGGER_DOCS,
+  UpdateNotificationPayloadSchema,
+  updateKey,
+} from "./notify";
 import { registerRoutes } from "./routes";
 import { HubStore } from "./store";
 import { createTokenAccess, pruneTokens } from "./tokens";
@@ -34,7 +43,7 @@ const FIRST_CHECK_DELAY_MS = 30_000;
 
 const manifest = {
   name: "extension-hub",
-  version: "0.2.0",
+  version: "0.3.0",
   description: "Install, update, and remove external extensions from git repositories",
   ui: {
     pages: [{ id: "hub", title: "Extension Hub", entry: "ui/ExtensionHubPage.svelte" }],
@@ -61,6 +70,12 @@ const manifest = {
       default: DEFAULT_CHECK_INTERVAL_MINUTES,
       minimum: 0,
       maximum: 10080,
+    }),
+    notifyUpdates: Type.Boolean({
+      title: "Update notifications",
+      description:
+        'Start workflows with the "Extension update" trigger when a check finds new versions. Turn off to pause them without deleting the workflows.',
+      default: true,
     }),
   }),
 } satisfies ExtensionManifest;
@@ -110,9 +125,41 @@ export function createExtension(): Extension {
         ctx.log.warn(`[extension-hub] Could not clean up source tokens: ${(err as Error).message}`);
       }
 
-      // Publishes fetch errors as extension warnings and update-set changes to open pages.
+      const notifyEnabled = () => ctx.config.get<boolean>("NOTIFY_UPDATES", true);
+      ctx.triggerTypes.register(UPDATE_TRIGGER, {
+        label: "Extension update",
+        description: "Fires when an update check finds new versions of installed extensions.",
+        outputSchema: UpdateNotificationPayloadSchema,
+        docs: UPDATE_TRIGGER_DOCS,
+        pausedReason: () =>
+          notifyEnabled()
+            ? null
+            : "Update notifications are off in the Extension Hub settings: the workflow does not start",
+      });
+
+      /**
+       * Fires the update trigger for updates a check found for the first time.
+       * Errors (e.g. the workflows extension is not running) are logged and
+       * never fail the check.
+       */
+      const notify = async (updates: UpdateSummary[]) => {
+        try {
+          const payload = notificationPayload(updates, new Date(), `${ctx.urls.public}${PAGE_ROUTE}`);
+          const runs = await ctx.triggerTypes.fire(UPDATE_TRIGGER, payload);
+          if (runs.length > 0) ctx.log.info(`[extension-hub] Started ${runs.length} workflow run(s) for new updates`);
+        } catch (err) {
+          ctx.log.warn(`[extension-hub] Could not fire the ${UPDATE_TRIGGER} trigger: ${(err as Error).message}`);
+        }
+      };
+
+      // Publishes fetch errors as extension warnings and update-set changes to
+      // open pages. The known updates start from the local mirrors, so a
+      // restart reports nothing; only checks fire the trigger, so installing an
+      // older version by hand does not. Updates found while notifications are
+      // off still become known, so turning them on again reports none of them.
       let lastSignature: string | null = null;
-      const publish = () => {
+      let known: Set<string> | null = null;
+      const publish = (fromCheck = false) => {
         ctx.status.setWarnings(
           hub
             .listSources()
@@ -120,19 +167,20 @@ export function createExtension(): Extension {
             .map((s) => `Source "${s.name}" could not be fetched: ${s.lastError}`),
         );
         const updates = hub.updates();
-        const signature = JSON.stringify(updates.map((u) => [u.name, u.update.commit]));
-        if (signature === lastSignature) return;
-        if (lastSignature !== null) {
-          for (const u of updates) {
-            ctx.log.info(`[extension-hub] Update available: ${u.name} ${u.installedVersion} -> ${u.update.ref}`);
-          }
+        const fresh = known ? newUpdates(known, updates) : [];
+        known = new Set(updates.map(updateKey));
+        for (const u of fresh) {
+          ctx.log.info(`[extension-hub] Update available: ${u.name} ${u.installedVersion} -> ${u.update.ref}`);
         }
+        if (fromCheck && fresh.length > 0 && notifyEnabled()) void notify(fresh);
+        const signature = JSON.stringify(updates.map(updateKey));
+        if (signature === lastSignature) return;
         lastSignature = signature;
         ctx.ui.emit(UPDATES_CHANGED_EVENT, { count: updates.length, names: updates.map((u) => u.name) });
       };
       const runCheck = async () => {
         const result = await hub.check();
-        publish();
+        publish(true);
         return result;
       };
       const schedule = () => {
@@ -155,7 +203,7 @@ export function createExtension(): Extension {
       registerRoutes(ctx, hub, ctx.auth.requestUserId, {
         hasToken: async (id) => (await getToken(id)) !== null,
         runCheck,
-        afterChange: publish,
+        afterChange: () => publish(),
       });
       publish();
       schedule();

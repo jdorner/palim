@@ -12,7 +12,7 @@ import type { ModelIntent } from "@shared/models";
 import type { WebSocketMessage } from "@shared/websocket";
 import { isBuiltinTriggerType, TRIGGER_TYPE_PATTERN } from "@shared/workflows";
 import type { IdentityApi } from "@src/auth/identityTypes";
-import { serverOrigin } from "@src/config";
+import { publicBaseUrl, serverOrigin } from "@src/config";
 import type { HitlService } from "@src/hitl";
 import type { PortalLauncherRegistry } from "@src/portal";
 import type { PushMessageFn } from "@src/push";
@@ -845,6 +845,7 @@ export function createExtensionContext(deps: ExtensionContextDeps): {
     urls: {
       origin: serverOrigin(),
       base: `${serverOrigin()}/ext/${extensionName}`,
+      public: publicBaseUrl(),
     },
     isEnabled,
     stepTypes: {

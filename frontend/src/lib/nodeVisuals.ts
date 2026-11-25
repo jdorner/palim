@@ -23,6 +23,7 @@ import TrayIcon from "phosphor-svelte/lib/TrayIcon";
 import UserCheckIcon from "phosphor-svelte/lib/UserCheckIcon";
 import type { Component } from "svelte";
 import { resolveIcon } from "./iconRegistry";
+import { extensionTriggerIcon } from "./triggerTypes";
 
 /**
  * Node visual categories. Each maps to an accent color used for the icon tile
@@ -88,11 +89,13 @@ export function visualForStepType(
   opts: { triggerType?: string; iconId?: string; category?: string } = {},
 ): NodeVisual {
   if (type === "trigger") {
-    // Built-in trigger types have fixed icons; an extension trigger type may register one.
-    const icon =
-      (opts.triggerType && Object.hasOwn(TRIGGER_ICONS, opts.triggerType) && TRIGGER_ICONS[opts.triggerType]) ||
-      (opts.iconId && resolveIcon(opts.iconId)) ||
-      LightningIcon;
+    // Built-in trigger types have fixed icons; an extension trigger type may
+    // register one and otherwise gets the generic bell.
+    const icon = !opts.triggerType
+      ? LightningIcon
+      : Object.hasOwn(TRIGGER_ICONS, opts.triggerType)
+        ? TRIGGER_ICONS[opts.triggerType]
+        : extensionTriggerIcon(opts.iconId);
     return { icon, tileClass: CATEGORY_TILE_CLASS.trigger, category: "trigger" };
   }
 
