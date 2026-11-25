@@ -8,7 +8,7 @@ import { createTestDb } from "@src/test/db";
 import createLogger from "logging";
 import { HubError } from "./errors";
 import { HubService, WATCH_MODE_WARNING } from "./hub";
-import { hashTree, loadOutcome, SOURCE_MARKER, treeFingerprint } from "./installer";
+import { hashTree, legacyHashTree, loadOutcome, SOURCE_MARKER, treeFingerprint } from "./installer";
 import { assertContainedLinks } from "./sources";
 import { HubStore } from "./store";
 
@@ -220,6 +220,30 @@ describe("HubService", () => {
     expect(JSON.parse(await Bun.file(path.join(dir, "package.json")).text()).version).toBe("1.1.0");
     expect(JSON.parse(await Bun.file(path.join(dir, SOURCE_MARKER)).text())).toMatchObject({ ref: "foo@1.1.0" });
     expect(f.store.getInstall("foo")?.contentHash).toBe(await hashTree(dir));
+  });
+
+  test("init re-records hashes recorded before the lockfile counted, unless the files changed", async () => {
+    await f.hub.install({ sourceId, name: "foo", version: "1.0.0", userId: null });
+    const dir = path.join(f.externalDir, "foo");
+    const modified = async () =>
+      (await f.hub.catalog()).sources[0]!.extensions.find((e) => e.name === "foo")!.installed?.modified;
+    // An earlier install wrote a lockfile and recorded the hash without it.
+    await writeFile(path.join(dir, "bun.lock"), "{}");
+    const install = f.store.getInstall("foo")!;
+    f.store.saveInstall({ ...install, contentHash: await legacyHashTree(dir) });
+
+    await f.hub.init();
+    expect(f.store.getInstall("foo")?.contentHash).toBe(await hashTree(dir));
+    expect(await modified()).toBe(false);
+
+    // Changed files after the old record: the hash stays, the install stays modified.
+    await writeFile(path.join(dir, "index.ts"), "// changed");
+    const legacy = await legacyHashTree(dir);
+    await writeFile(path.join(dir, "index.ts"), "// changed again");
+    f.store.saveInstall({ ...install, contentHash: legacy });
+    await f.hub.init();
+    expect(f.store.getInstall("foo")?.contentHash).toBe(legacy);
+    expect(await modified()).toBe(true);
   });
 
   test("installs a version, a branch, or a commit", async () => {
@@ -486,6 +510,16 @@ describe("tree checks", () => {
     expect(await hashTree(dir)).toBe(before);
     await writeFile(path.join(dir, "index.ts"), "changed");
     expect(await hashTree(dir)).not.toBe(before);
+  });
+
+  test("content hash counts the lockfile; the legacy hash leaves it out", async () => {
+    const dir = await mkdtemp(path.join(root, "hash-lock-"));
+    await writeFile(path.join(dir, "index.ts"), "x");
+    const before = await hashTree(dir);
+    const legacyBefore = await legacyHashTree(dir);
+    await writeFile(path.join(dir, "bun.lock"), "{}");
+    expect(await hashTree(dir)).not.toBe(before);
+    expect(await legacyHashTree(dir)).toBe(legacyBefore);
   });
 
   test("fingerprint tracks the hashed files without reading them", async () => {

@@ -71,7 +71,7 @@ The catalog lists the extensions of each source:
 | Active             | Installed and running                                                                          |
 | Disabled           | Loaded, but not enabled in the settings: it stays off after a restart. **Enable** turns it on. |
 | Not loaded / Error | Installed, but loading or starting failed (see the tooltip and the server log)                 |
-| Modified           | Files were changed after installing                                                            |
+| Modified           | Files were changed after installing (the lockfile `bun.lock` counts)                           |
 | Version mismatch   | The manifest's version differs from `package.json`                                             |
 | Local folder       | A hand-placed folder with this name exists; the hub won't overwrite it                         |
 

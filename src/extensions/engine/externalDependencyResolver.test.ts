@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { ExternalDependencyResolver } from "./externalDependencyResolver";
+import { ExternalDependencyResolver, installEnv } from "./externalDependencyResolver";
 
 const TEST_DIR = path.join(import.meta.dirname, "__test_ext_resolver__");
 const EXT_DIR = path.join(TEST_DIR, "my-ext");
@@ -227,6 +227,30 @@ describe("ExternalDependencyResolver.refreshTsconfig", () => {
   });
 });
 
+describe("installEnv", () => {
+  test("keeps paths, proxies and Bun/npm configuration and drops everything else", () => {
+    expect(
+      installEnv({
+        PATH: "/usr/bin",
+        HOME: "/home/u",
+        HTTPS_PROXY: "http://proxy:3128",
+        BUN_INSTALL_CACHE_DIR: "/cache",
+        npm_config_registry: "https://registry.example/",
+        OPENAI_API_KEY: "sk-secret",
+        DOTENV_PRIVATE_KEY: "key",
+        EXT_TELEGRAM_TOKEN: "t",
+        UNSET: undefined,
+      }),
+    ).toEqual({
+      PATH: "/usr/bin",
+      HOME: "/home/u",
+      HTTPS_PROXY: "http://proxy:3128",
+      BUN_INSTALL_CACHE_DIR: "/cache",
+      npm_config_registry: "https://registry.example/",
+    });
+  });
+});
+
 describe("ExternalDependencyResolver.installDependencies", () => {
   beforeEach(() => {
     mkdirSync(EXT_DIR, { recursive: true });
@@ -290,6 +314,62 @@ describe("ExternalDependencyResolver.installDependencies", () => {
     expect(result.installed).toBe(false);
     expect(result.error).toBeDefined();
     expect(result.error).toContain("my-ext");
+  });
+
+  test("does not run the extension's lifecycle scripts", async () => {
+    const marker = path.join(EXT_DIR, "script-ran");
+    writeFileSync(
+      path.join(EXT_DIR, "package.json"),
+      JSON.stringify({
+        name: "test-ext",
+        dependencies: {},
+        scripts: { preinstall: `env > ${JSON.stringify(marker)}`, postinstall: `env > ${JSON.stringify(marker)}` },
+      }),
+    );
+    const resolver = new ExternalDependencyResolver({ coreProjectDir: CORE_DIR });
+    const analysis = {
+      depsToInstall: new Map([["nanoid", "^5.0.0"]]),
+      hostSatisfied: new Map<string, string>(),
+      versionConflicts: [],
+      missingPeers: [],
+    };
+
+    const result = await resolver.installDependencies(EXT_DIR, "my-ext", analysis);
+    expect(result.installed).toBe(true);
+    expect(existsSync(marker)).toBe(false);
+  });
+
+  test("fails instead of rewriting a lockfile that no longer matches package.json", async () => {
+    // Local packages keep the test offline.
+    for (const dep of ["dep-a", "dep-b"]) {
+      mkdirSync(path.join(EXT_DIR, dep), { recursive: true });
+      writeFileSync(path.join(EXT_DIR, dep, "package.json"), JSON.stringify({ name: dep, version: "1.0.0" }));
+    }
+    writeFileSync(
+      path.join(EXT_DIR, "package.json"),
+      JSON.stringify({ name: "test-ext", dependencies: { "dep-a": "file:./dep-a" } }),
+    );
+    const first = Bun.spawnSync(["bun", "install"], { cwd: EXT_DIR });
+    expect(first.exitCode).toBe(0);
+    const lockPath = path.join(EXT_DIR, "bun.lock");
+    const lock = readFileSync(lockPath, "utf-8");
+    writeFileSync(
+      path.join(EXT_DIR, "package.json"),
+      JSON.stringify({ name: "test-ext", dependencies: { "dep-a": "file:./dep-a", "dep-b": "file:./dep-b" } }),
+    );
+
+    const resolver = new ExternalDependencyResolver({ coreProjectDir: CORE_DIR });
+    const analysis = {
+      depsToInstall: new Map([["dep-b", "file:./dep-b"]]),
+      hostSatisfied: new Map<string, string>(),
+      versionConflicts: [],
+      missingPeers: [],
+    };
+
+    const result = await resolver.installDependencies(EXT_DIR, "my-ext", analysis);
+    expect(result.installed).toBe(false);
+    expect(result.error).toContain("frozen");
+    expect(readFileSync(lockPath, "utf-8")).toBe(lock);
   });
 
   test("returns failure on timeout", async () => {
