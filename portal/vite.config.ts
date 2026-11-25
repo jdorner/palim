@@ -19,8 +19,17 @@ export default defineConfig({
       $shared: path.resolve(import.meta.dirname, "../shared"),
       "@palim/ui": path.join(FRONTEND_LIB, "extensionKit.ts"),
     },
-    // Kit sources import svelte/bits-ui from frontend/node_modules; one copy only.
-    dedupe: ["svelte", "bits-ui", "phosphor-svelte", "clsx", "tailwind-merge", "tailwind-variants"],
+    // Kit sources import svelte/bits-ui/comark from frontend/node_modules; one copy only.
+    dedupe: [
+      "svelte",
+      "bits-ui",
+      "comark",
+      "@comark/svelte",
+      "phosphor-svelte",
+      "clsx",
+      "tailwind-merge",
+      "tailwind-variants",
+    ],
   },
   server: {
     port: 5174,
